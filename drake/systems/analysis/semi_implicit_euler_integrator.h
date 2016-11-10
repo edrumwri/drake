@@ -9,48 +9,59 @@ namespace systems {
  * A first-order, semi-implicit Euler integrator. State is updated in the
  * following manner:
  * <pre>
- * v(t+h) = v(t) + dv/dt(t) * h
- * qdot  = N(q(t)) * v(t+h)
- * q(t+h) = q(t) + qdot * h
+ * v(t0+h) = v(t0) + dv/dt(t0) * h
+ * qdot  = N(q(t0)) * v(t0+h)
+ * q(t0+h) = q(t0) + qdot * h
  * </pre>
- * where `v = dx/dt` are the generalized velocity variables, `q` is position
+ * where `v = dx/dt` are the generalized velocity variables, `q` are generalized
  * coordinates, and `x` are known as quasi-coordinates. `h` is the integration
  * step size, and `N` is a matrix (dependent upon `q`) that maps velocities
- * to time derivatives of position coordinates.
- *
- * Note that this equation implies that the velocity variables are updated
- * first and that these new velocities are used to update the position variables
- * (compare to ExplicitEulerIntegrator, where the positions are updated using
- * the old velocity variables).
+ * to time derivatives of position coordinates. For rigid body systems in 2D,
+ * for example, `N` will generally be an identity matrix. For rigid body systems
+ * in 3D, `N` and its transpose are frequently used to transform between
+ * time derivatives of Euler parameters (unit quaternions) and angular 
+ * velocities (and vice versa). See [Nikravesh]
+ * TODO(edrumwri): add reference for Nikravesh
+ * 
+ * Note that these equations imply that the velocity variables are updated
+ * first and that these new velocities are then used to update the generalized
+ * coordinates (compare to ExplicitEulerIntegrator, where the generalized
+ * coordinates are updated using the previous velocity variables).
  *
  * When the system is Hamiltonian, the semi-implicit Euler integrator is a
  * symplectic (momentum conserving) integrator. Symplectic integrators promise
  * large, stable step sizes compared to non-symplectic integrators.
  *
- * If we expand `dv/dt(t)` to `dv/dt(q(t), v(t), t)` it can start to become
- * clear that forces- functions of q(t) or v(t)- can be added into this picture.
- * One interesting possibility occurs when dv/dt(t) is not the "simple" outcome
+ * If we expand `dv/dt(t0)` to `dv/dt(q(t0), v(t0), t0)` it can start to become
+ * clear how forces- functions of q(t0) or v(t0)- can be added into this
+ * picture. One simple example using a spring-mass-damper is:<pre>
+ * `dv/dt(t0) =  (-kq(t0) - bv(t0))/m
+ * </pre>
+ * One interesting possibility occurs when dv/dt(t0) is not the "simple" outcome
  * of a force, but rather is determined simultaneously with the force. Such is
  * the case when modeling rigid contact, where the accelerations must be
  * computed simultaneously (through solution to a linear complementarity problem
  * or a nonlinear complemenetarity problem) with the contact forces. In such a
  * case we can rearrange the top equation above to yield:
  * <pre>
- * v(t+h) - v(t) = dv/dt(t) * h
+ * v(t0+h) - v(t0) = dv/dt(t0) * h
  * </pre>
- * This rearrangement indicates that any forces computed by `dv/dt(t)` can be
+ * This rearrangement indicates that any forces computed by `dv/dt(t0)` can be
  * made to be impulsive forces by scaling them by `1/h`.
  *
  * <pre>
- * v(t+h) = v(t) + dv/dt(t) * h
- * qdot  = N(q(t)) * v(t+h)
- * q(t+h) = q(t) + qdot * h
- * \dot{phi}(v(t+h), q(t)) >= 0
+ * v(t0+h) = v(t0) + dv/dt(t0) * h
+ * qdot  = N(q(t0)) * v(t0+h)
+ * q(t0+h) = q(t0) + qdot * h
+ * \dot{phi}(v(t0+h), q(t0)) >= 0
  * </pre>
  *
- * If phi(.) is satisfied at q(t), and 
+ * If phi(.) is satisfied at q(t0), and \ddot{phi} = 0 over the whole interval:
+ * phi(q(t+delta t)) \approx phi(q(t0)) + \delta t * \dot{phi}(q(t0), v(t0)) +
+ *                           \delta t^2/2 \ddot{\phi}(q(t0), v(t0), a(t0))
+ * 
  *
- * (How does this relate to phi(v(t+h), q(t+h)))? When does this constraint
+ * (How does this relate to phi(v(t0+h), q(t0+h)))? When does this constraint
  * apply over the whole interval?)
  *
  * The semi-implicit Euler integrator is able to provide a first-order solution
@@ -135,7 +146,7 @@ void SemiImplicitEulerIntegrator<T>::DoStep(const T& dt) {
       IntegratorBase<T>::get_context(), derivs_.get());
 
   // Update configuration.
-  // q(t+h) = q(t) + dt * qdot
+  // q(t0+h) = q(t0) + dt * qdot
   const auto& xcdot = derivs_->get_vector();
   xc->PlusEqScaled(dt, xcdot);  // xc += dt * xcdot
   context->set_time(context->get_time() + dt);
