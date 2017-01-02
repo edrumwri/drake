@@ -28,7 +28,16 @@ namespace painleve {
 ///         index 2), and planar linear velocity (state indices 3 and 4) and
 ///         scalar angular velocity (state index 5) in units of m, radians,
 ///         m/s, and rad/s, respectively. Orientation is measured counter-
-///         clockwise with respect to the x-axis.
+///         clockwise with respect to the x-axis. One abstract state variable
+///         (of type Painleve::Modes) is used to identify which dynamic mode
+///         the system is in (e.g., ballistic, contacting at one point and
+///         sliding, etc.), one abstract state variable (of type int) is used
+///         to determine which endpoint(s) of the rod contact the halfspace
+///         (k=-1 indicates the bottom of the rod when theta = pi/2, k=+1
+///         indicates the top of the rod when theta = pi/2, and k=0 indicates
+///         both endpoints of the rod are contacting the halfspace), and one
+///         abstract state variable is used to indicate the sliding velocity
+///         at the beginning of an integration interval.
 /// Outputs: planar position (state indices 0 and 1) and orientation (state
 ///          index 2), and planar linear velocity (state indices 3 and 4) and
 ///          scalar angular velocity (state index 5) in units of m, radians,
@@ -36,6 +45,26 @@ namespace painleve {
 template <typename T>
 class Painleve : public systems::LeafSystem<T> {
  public:
+  /// Possible dynamic modes for the Painleve Paradox rod.
+  enum Modes {
+    /// Rod is currently undergoing ballistic motion.
+    kBallisticMotion,
+
+    /// Rod is sliding while undergoing non-impacting contact at one contact
+    /// point (a rod endpoint); the other rod endpoint is not in contact.
+    kSlidingSingleContact,
+
+    /// Rod is sticking while undergoing non-impacting contact at one contact
+    /// point (a rod endpoint); the other rod endpoint is not in contact.
+    kStickingSingleContact,
+
+    /// Rod is sliding at two contact points without impact.
+    kSlidingTwoContacts,
+
+    /// Rod is sticking at two contact points without impact.
+    kStickingTwoContacts
+  };
+
   // Constructor for the Painleve' Paradox system.
   Painleve();
 
@@ -68,11 +97,24 @@ class Painleve : public systems::LeafSystem<T> {
   /// Gets the rod moment of inertia.
   T get_rod_moment_of_inertia() const { return J_; }
 
+  int DetermineNumberWitnessFunctions(const
+                                      systems::Context<T>& context) const;
+
  protected:
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
 
  private:
+  static T EvaluateSlidingDot(const Painleve<T>& painleve,
+                              const systems::Context<T>& context);
+  static T CalcSignedDistance(const Painleve<T>& painleve,
+                              const systems::Context<T>& context);
+  static T CalcNormalAccelWithoutContactForces(const Painleve<T>& painleve,
+                                               const systems::Context<T>&
+                                                 context);
+  static T CalcEndpointDistance(const Painleve<T>& painleve,
+                                const systems::Context<T>& context);
+
   static T sqr(const T& x) { return x*x; }
 
   T mass_{1.0};        // The mass of the rod.

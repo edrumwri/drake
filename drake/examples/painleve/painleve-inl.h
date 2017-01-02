@@ -35,6 +35,188 @@ void Painleve<T>::DoCalcOutput(const systems::Context<T>& context,
       context.get_continuous_state()->CopyToVector();
 }
 
+/// The witness function for signed distance between the rod and the half-space.
+template <class T>
+T Painleve<T>::CalcSignedDistance(const Painleve<T>& painleve,
+                                  const systems::Context<T>& context) {
+  // Get the necessary parts of the state.
+  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
+  const T y = state.GetAtIndex(1);
+  const T theta = state.GetAtIndex(2);
+
+  // The two points of the rod are located at (x,y) + R(theta)*[0,ell/2] and
+  // (x,y) + R(theta)*[0,-ell/2], where
+  // R(theta) = | cos(theta) -sin(theta) |
+  //            | sin(theta)  cos(theta) |
+  // and ell is designated as the rod endpoint. Thus, the vertical positions of
+  // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2,
+  // or, y + k*sin(theta)*l/2, where k = +/-1.
+
+  // Get the lowest point on the rod. If sin(theta) = 0, meaning that the rod
+  // is perfectly horizontal, we arbitrarily pick k=+1.
+  const T stheta = sin(theta);
+  const T k = (stheta > 0.0) ? -1.0 : 1.0;
+  const T yc = y + k * stheta * painleve.get_rod_length() / 2;
+
+  return yc;
+}
+
+/// The witness function for the signed distance between one endpoint of the
+/// rod (not already touching the half-space) and the halfspace *for the case
+/// when the rod is contacting the ground with a single point of contact.
+template <class T>
+T Painleve<T>::CalcEndpointDistance(const Painleve<T>& painleve,
+                                    const systems::Context<T>& context) {
+  using std::sin;
+
+  // Get the necessary parts of the state.
+  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
+  const T y = state.GetAtIndex(1);
+  const T theta = state.GetAtIndex(2);
+  const T stheta = sin(theta);
+
+  // The two points of the rod are located at (x,y) + R(theta)*[0,ell/2] and
+  // (x,y) + R(theta)*[0,-ell/2], where
+  // R(theta) = | cos(theta) -sin(theta) |
+  //            | sin(theta)  cos(theta) |
+  // and ell is designated as the rod endpoint. Thus, the vertical positions of
+  // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2,
+  // or, y + k*sin(theta)*l/2, where k = +/-1.
+
+  // Get the abstract variable that determines the current k.
+  const int k = context.get_state().get_abstract_state()->
+      get_abstract_state(1).template GetValueOrThrow<int>();
+
+  // Get the vertical position of the other rod endpoint.
+  const int k2 = k * -1;
+  return y + k2 * stheta * painleve.get_rod_length() / 2;
+}
+
+/// The witness function that determines whether the rod should separate from
+/// the halfspace.
+/// @pre It is assumed that the vertical velocity at the point of contact will
+///      be approximately zero.
+template <class T>
+T Painleve<T>::CalcNormalAccelWithoutContactForces(const Painleve<T>& painleve,
+                                                   const systems::Context<T>&
+                                                     context) {
+  DRAKE_ASSERT_VOID(painleve.CheckValidContext(context));
+  using std::sin;
+  using std::cos;
+  using std::abs;
+
+  // Get the necessary parts of the state.
+  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
+  const T theta = state.GetAtIndex(2);
+  const T thetadot = state.GetAtIndex(5);
+
+  // Get 'k', which determines which endpoint of the rod is in contact.
+  // The two endpoints of the rod are located at (x,y) + R(theta)*[0,l/2] and
+  // (x,y) + R(theta)*[0,-l/2], where
+  // R(theta) = | cos(theta) -sin(theta) |
+  //            | sin(theta)  cos(theta) |
+  // and l is designated as the rod endpoint. Thus, the vertical positions of
+  // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2.
+  const int k = context.get_state().get_abstract_state()->
+      get_abstract_state(1).template GetValueOrThrow<int>();
+  const T half_rod_length = painleve.get_rod_length() / 2;
+  const T stheta = sin(theta);
+
+  // Compute the normal acceleration at the point of contact (yc_ddot),
+  // *assuming zero contact force*.
+  T ycddot = painleve.get_gravitational_acceleration() -
+        k * half_rod_length * stheta * thetadot * thetadot;
+
+  return ycddot;
+}
+
+/// Evaluates the witness function for sliding direction changes.
+template <class T>
+T Painleve<T>::EvaluateSlidingDot(const Painleve<T>& painleve,
+                                  const systems::Context<T>& context) {
+  // Get the sliding velocity at the beginning of the interval.
+  const T xcdot_t0 = context.get_state().get_abstract_state()->
+      get_abstract_state(2).template GetValueOrThrow<T>();
+
+  // Get the relevant parts of the state.
+  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
+  const T theta = state.GetAtIndex(2);
+  const T xdot = state.GetAtIndex(3);
+  const T thetadot = state.GetAtIndex(5);
+
+  // The two points of the rod are located at (x,y) + R(theta)*[0,ell/2] and
+  // (x,y) + R(theta)*[0,-ell/2], where
+  // R(theta) = | cos(theta) -sin(theta) |
+  //            | sin(theta)  cos(theta) |
+  // and ell is designated as the rod endpoint. Thus, the vertical positions of
+  // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2,
+  // or, y + k*sin(theta)*l/2, where k = +/-1.
+
+  // Verify that there is an impact.
+  const T stheta = sin(theta);
+  const T k = (stheta > 0.0) ? -1.0 : 1.0;
+  const T half_rod_length = painleve.get_rod_length() / 2;
+
+  // Compute the velocity at the point of contact
+  const T xcdot = xdot - k * stheta * half_rod_length * thetadot;
+  return xcdot * xcdot_t0;
+}
+
+/// Gets the number of witness functions.
+template <class T>
+int Painleve<T>::DetermineNumberWitnessFunctions(const systems::Context<T>&
+                                                  context) const {
+  // Get the abstract variable that determines the current system mode.
+  Modes mode = context.get_state().get_abstract_state()->get_abstract_state(0).
+      template GetValueOrThrow<Modes>();
+
+  switch (mode) {
+    case Painleve::kBallisticMotion:
+      // The rod is in ballistic flight, there is just one witness function:
+      // the signed distance between the rod and the half-space.
+      return 1;
+
+    case Painleve::kSlidingSingleContact:
+      // The rod is undergoing contact without impact and is sliding at a single
+      // point of contact. Three witness functions are necessary: one for
+      // checking whether the rod is to separate from the half-space, another
+      // for checking whether the direction of sliding has changed, and a third
+      // for checking for contact between the other rod endpoint and the ground.
+      return 3;
+
+    case Painleve::kStickingSingleContact:
+      // The rod is undergoing contact without impact and is sticking at a
+      // single point of contact. Two witness functions are necessary: one for
+      // checking whether the rod is to separate from the half-space and a
+      // second for checking for contact between the other rod endpoint
+      // and the ground. We assume that a sticking contact cannot transition
+      // to a sliding contact, as this particular example lacks non-frictional
+      // tangential forces.
+      return 2;
+
+    case Painleve::kSlidingTwoContacts:
+      // The rod is undergoing sliding contact without impact at two points of
+      // contact. Three witness functions are necessary: two for checking
+      // whether the rod is to separate from the half-space and one more to
+      // check whether the rod is to transition from sliding to sticking.
+      return 3;
+
+    case Painleve::kStickingTwoContacts:
+      // The rod is undergoing sliding contact without impact at two points of
+      // contact. Two witness functions are necessary to check whether the rod
+      // is to separate from the half-space. We assume that a sticking contact
+      // cannot transition to a sliding contact, as this particular example
+      // lacks non-frictional tangential forces.
+      return 2;
+
+    default:
+      DRAKE_ABORT();
+  }
+
+  DRAKE_ABORT();
+  return 0;
+}
+
 /// Handles impact using an inelastic impact model with friction.
 template <typename T>
 void Painleve<T>::HandleImpact(const systems::Context<T>& context,
@@ -57,6 +239,9 @@ void Painleve<T>::HandleImpact(const systems::Context<T>& context,
   new_statev->SetAtIndex(0, x);
   new_statev->SetAtIndex(1, y);
   new_statev->SetAtIndex(2, theta);
+
+  // TODO(edrumwri): Handle two-point impact.
+  DRAKE_DEMAND(abs(sin(theta)) >= std::numeric_limits<T>::epsilon());
 
   // The two points of the rod are located at (x,y) + R(theta)*[0,ell/2] and
   // (x,y) + R(theta)*[0,-ell/2], where
