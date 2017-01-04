@@ -2,6 +2,7 @@
 set(sources
   runge_kutta3_integrator.cc
   simulator.cc
+  univariate_root_finder.cc
 )
 
 # Headers that should be installed with Drake so that they
@@ -13,6 +14,8 @@ set(installed_headers
     runge_kutta3_integrator.h
     runge_kutta3_integrator-inl.h
     simulator.h
+    univariate_root_finder.h
+    univariate_root_finder-inl.h
 )
 
 # Headers that are needed by code here but should not

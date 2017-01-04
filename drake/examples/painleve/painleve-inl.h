@@ -16,7 +16,20 @@ namespace painleve {
 
 template <typename T>
 Painleve<T>::Painleve() {
+  // Piecewise DAE approach needs six continuous variables and three
+  // abstract variables (one mode, one contact point indicator, and one
+  // sliding direction).
   this->DeclareContinuousState(3, 3, 0);
+  this->DeclareOutputPort(systems::kVectorValued, 6);
+}
+
+template <typename T>
+Painleve<T>::Painleve(T dt) : dt_(dt) {
+  // Time stepping approach requires only three position variables and
+  // three velocity variables.
+  this->DeclareDiscreteState(6);
+  const double offset = 0.0;
+  this->DeclarePeriodicUpdate(dt, offset);
   this->DeclareOutputPort(systems::kVectorValued, 6);
 }
 
@@ -166,6 +179,10 @@ T Painleve<T>::EvaluateSlidingDot(const Painleve<T>& painleve,
 template <class T>
 int Painleve<T>::DetermineNumberWitnessFunctions(const systems::Context<T>&
                                                   context) const {
+  // No witness functions if this is the time stepping system.
+  if (dt_ > 0)
+    return 0;
+
   // Get the abstract variable that determines the current system mode.
   Modes mode = context.get_state().get_abstract_state()->get_abstract_state(0).
       template GetValueOrThrow<Modes>();
@@ -215,6 +232,137 @@ int Painleve<T>::DetermineNumberWitnessFunctions(const systems::Context<T>&
 
   DRAKE_ABORT();
   return 0;
+}
+
+/// Integrates the Painleve Paradox example forward in time using a
+/// half-explicit time stepping scheme.
+template <class T>
+void Painleve<T>::DoCalcDiscreteVariableUpdates(
+                           const systems::Context<T>& context,
+                           systems::DiscreteState<T>* discrete_state) const {
+  // Verify integration step size is strictly positive.
+  DRAKE_DEMAND(dt_ > 0);
+
+  // Set ERP and CFM to make this problem "mostly rigid" and with rapid
+  // stabilization.
+  const double erp = 0.8;
+  const double cfm = 1e-8;
+
+  // Get the necessary parts of the state.
+  const systems::BasicVector<T>& state = *context.get_discrete_state(0);
+  const Vector3<T> q = state.get_value().segment(0, 3);
+  Vector3<T> v = state.get_value().segment(3, 3);
+  const T x = q(0);
+  const T y = q(1);
+  const T theta = q(2);
+
+  // Compute the two rod vertical endpoint locations.
+  const T stheta = sin(theta);
+  const T ctheta = cos(theta);
+  const int k1 = -1.0;
+  const int k2 = 1.0;
+  const T half_rod_length = rod_length_ / 2;
+  const T xep1 = x + k1 * ctheta * half_rod_length;
+  const T yep1 = y + k1 * stheta * half_rod_length;
+  const T xep2 = x + k2 * ctheta * half_rod_length;
+  const T yep2 = y + k2 * stheta * half_rod_length;
+
+  // Three generalized coordinates / velocities.
+  const int ngc = 3;
+
+  // Number of contacts is constant.
+  const int nc = 2;
+
+  // Total number of friction directions = number of friction directions
+  // per contact * number of contacts.
+  const int nk = 2 * nc;
+
+  // Set up the inverse generalized inertia matrix (center of mass frame).
+  Matrix3<T> iM;
+  iM << 1.0/mass_, 0,         0,
+        0,         1.0/mass_, 0,
+        0,         0,         1.0/J_;
+
+  // Update the generalized velocity vector with discretized external forces.
+  v(1) += dt_*get_gravitational_acceleration();
+
+  // Set up the contact normal and tangent direction Jacobian matrices.
+  MatrixX<T> N(ngc, nc), F(ngc, nc);
+  N(0, 0) = N(0, 1) = 0;
+  N(1, 0) = N(1, 1) = 1;
+  N(2, 0) = (xep1 - x);
+  N(2, 1) = (xep2 - x);
+  F(0, 0) = F(0, 1) = 1;
+  F(1, 0) = F(1, 1) = 0;
+  F(2, 0) = -(yep1 - y);
+  F(2, 1) = -(yep2 - y);
+  // TODO(edrumwri): Initialize N and F to the proper dimensions.
+  N = N.transpose().eval();
+  F = F.transpose().eval();
+
+  // Set up the block diagonal matrix (commonly denoted E).
+  MatrixX<T> E(nk, nc);
+  E.col(0) << 1, 1, 0, 0;
+  E.col(1) << 0, 0, 1, 1;
+
+  // Set up the LCP matrix. First do the "normal contact direction" rows.
+  MatrixX<T> MM(8,8);
+  MM.template block<2, 2>(0, 0) = N * iM * N.transpose();
+  MM.template block<2, 2>(0, 2) = N * iM * F.transpose();
+  MM.template block<2, 2>(0, 4) = -MM.template block<2, 2>(0, 2);
+  MM.template block<2, 2>(0, 6).setZero();
+
+  // Now do the un-negated tangent contact direction rows (everything but last
+  // block column).
+  MM.template block<2, 2>(2, 0) = F * iM * N.transpose();
+  MM.template block<2, 2>(2, 2) = F * iM * F.transpose();
+  MM.template block<2, 2>(2, 4) = -MM.template block<2, 2>(2, 2);
+
+  // Now do the negated tangent contact direction rows (everything but last
+  // block column).
+  MM.template block<2, 6>(4, 0) = -MM.template block<2, 6>(2, 0);
+
+  // Do the last block column for the last set of rows.
+  MM.template block<4, 2>(2, 6) = E;
+
+  // Setup the last two rows, which provide the friction "cone" constraint..
+  MM.template block<2, 2>(6, 0) = Matrix2<T>::Identity() * get_mu_Coulomb();
+  MM.template block<2, 4>(6, 2) = -E.transpose();
+  MM.template block<2, 2>(6, 6).setZero();
+
+  // Set up the LCP vector.
+  VectorX<T> qq(8);
+  qq.segment(0,2) = N * v;
+  qq(0) += erp*yep1/dt_;
+  qq(1) += erp*yep2/dt_;
+  qq.segment(2,2) = F * v;
+  qq.segment(4,2) = -qq.segment(2,2);
+  qq.template segment(6,2).setZero();
+
+  // Regularize the LCP matrix.
+  MM += MatrixX<T>::Identity(8,8) * cfm;
+
+  // Solve the LCP.
+  VectorX<T> zz;
+  bool success = lcp_.SolveLcpLemke(MM, qq, &zz);
+  DRAKE_DEMAND(success);
+
+  // Get the normal and frictional contact forces out.
+  VectorX<T> fN = zz.segment(0,2);
+  VectorX<T> fF_pos = zz.segment(2,2);
+  VectorX<T> fF_neg = zz.segment(4,2);
+
+  // Compute the new velocity.
+  VectorX<T> vplus = v + iM * (N.transpose()*fN + F.transpose()*fF_pos -
+                               F.transpose()*fF_neg);
+
+  // Compute the new position.
+  VectorX<T> qplus = q + vplus*dt_;
+
+  // Set the new discrete state.
+  systems::BasicVector<T>* new_state = discrete_state->get_mutable_discrete_state(0);
+  new_state->get_mutable_value().segment(0, 3) = qplus;
+  new_state->get_mutable_value().segment(3, 3) = vplus;
 }
 
 /// Handles impact using an inelastic impact model with friction.
@@ -378,6 +526,10 @@ void Painleve<T>::DoCalcTimeDerivatives(
   using std::sin;
   using std::cos;
   using std::abs;
+
+  // Don't compute any derivatives if this is the time stepping system.
+  if (dt_ > 0)
+    return;
 
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
@@ -636,7 +788,11 @@ void Painleve<T>::SetDefaultState(const systems::Context<T>& context,
   VectorX<T> x0(6);
   const T r22 = sqrt(2) / 2;
   x0 << half_len * r22, half_len * r22, M_PI / 4.0, -1, 0, 0;  // Initial state.
-  state->get_mutable_continuous_state()->SetFromVector(x0);
+  if (dt_ == 0)
+    state->get_mutable_continuous_state()->SetFromVector(x0);
+  else
+    state->get_mutable_discrete_state()->get_mutable_discrete_state(0)->
+        SetFromVector(x0);
 }
 
 }  // namespace painleve

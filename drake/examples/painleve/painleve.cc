@@ -8,5 +8,8 @@ namespace painleve {
 
 template class Painleve<double>;
 
+// TODO(edrumwri): Enable AutoDiff build when the LCP solver supports
+// AutoDiff.
+
 }  // namespace painleve
 }  // namespace drake

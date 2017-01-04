@@ -1,5 +1,9 @@
 add_subdirectory(controlled_spring_mass_system)
 
+drake_add_cc_test(univariate_root_finder_test)
+target_link_libraries(univariate_root_finder_test
+        drakeSystemAnalysis drakeSystemFramework drakeCommon)
+
 drake_add_cc_test(simulator_test)
 target_link_libraries(simulator_test
   drakeSystemAnalysis drakeSystemFramework drakeCommon

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "drake/systems/framework/leaf_system.h"
+#include "drake/solvers/moby_lcp_solver.h"
 
 namespace drake {
 namespace painleve {
@@ -65,8 +66,12 @@ class Painleve : public systems::LeafSystem<T> {
     kStickingTwoContacts
   };
 
-  // Constructor for the Painleve' Paradox system.
+  // Constructor for the Painleve' Paradox system using piecewise DAE based
+  // approach.
   Painleve();
+
+  // Constructor for the Painleve' Paradox system using time stepping approach.
+  Painleve(T dt);
 
   void DoCalcOutput(const systems::Context<T>& context,
                   systems::SystemOutput<T>* output) const override;
@@ -97,14 +102,21 @@ class Painleve : public systems::LeafSystem<T> {
   /// Gets the rod moment of inertia.
   T get_rod_moment_of_inertia() const { return J_; }
 
+  /// Gets the integration step size for the time stepping system.
+  T get_integration_step_size() const { return dt_; }
+
   int DetermineNumberWitnessFunctions(const
                                       systems::Context<T>& context) const;
+  void DoCalcDiscreteVariableUpdates(const systems::Context<T>& context,
+                                   systems::DiscreteState<T>* discrete_state)
+    const override;
 
  protected:
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
 
  private:
+  solvers::MobyLCPSolver lcp_;
   static T EvaluateSlidingDot(const Painleve<T>& painleve,
                               const systems::Context<T>& context);
   static T CalcSignedDistance(const Painleve<T>& painleve,
@@ -114,9 +126,9 @@ class Painleve : public systems::LeafSystem<T> {
                                                  context);
   static T CalcEndpointDistance(const Painleve<T>& painleve,
                                 const systems::Context<T>& context);
-
   static T sqr(const T& x) { return x*x; }
 
+  T dt_{0.0};          // Integration step-size for time stepping approach.
   T mass_{1.0};        // The mass of the rod.
   T rod_length_{1.0};  // The length of the rod.
   T mu_{1000.0};       // The coefficient of friction.
