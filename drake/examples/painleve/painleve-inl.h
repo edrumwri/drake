@@ -52,6 +52,9 @@ void Painleve<T>::DoCalcOutput(const systems::Context<T>& context,
 template <class T>
 T Painleve<T>::CalcSignedDistance(const Painleve<T>& painleve,
                                   const systems::Context<T>& context) {
+  // Verify the system is not time stepping.
+  DRAKE_DEMAND(dt_ == 0);
+
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
   const T y = state.GetAtIndex(1);
@@ -77,10 +80,15 @@ T Painleve<T>::CalcSignedDistance(const Painleve<T>& painleve,
 /// The witness function for the signed distance between one endpoint of the
 /// rod (not already touching the half-space) and the halfspace *for the case
 /// when the rod is contacting the ground with a single point of contact.
+/// @pre One endpoint of the rod is in contact with the ground, indicated by
+///      the mode variable being set to .
 template <class T>
 T Painleve<T>::CalcEndpointDistance(const Painleve<T>& painleve,
                                     const systems::Context<T>& context) {
   using std::sin;
+
+  // Verify the system is not time stepping.
+  DRAKE_DEMAND(dt_ == 0);
 
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
@@ -96,9 +104,13 @@ T Painleve<T>::CalcEndpointDistance(const Painleve<T>& painleve,
   // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2,
   // or, y + k*sin(theta)*l/2, where k = +/-1.
 
-  // Get the abstract variable that determines the current k.
-  const int k = context.get_state().get_abstract_state()->
-      get_abstract_state(1).template GetValueOrThrow<int>();
+  // Get the abstract variables that determine the current system mode and
+  // the endpoint in contact.
+  const Mode mode = context.get_abstract_state(0).
+                      template GetValueOrThrow<Mode>();
+  DRAKE_DEMAND(mode == Mode::kSlidingSingleContact ||
+               mode == Mode::kStickingSingleContact);
+  const int k = context.get_abstract_state(1).template GetValueOrThrow<int>();
 
   // Get the vertical position of the other rod endpoint.
   const int k2 = k * -1;
@@ -118,6 +130,9 @@ T Painleve<T>::CalcNormalAccelWithoutContactForces(const Painleve<T>& painleve,
   using std::cos;
   using std::abs;
 
+  // Verify the system is not time stepping.
+  DRAKE_DEMAND(dt_ == 0);
+
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
   const T theta = state.GetAtIndex(2);
@@ -130,8 +145,13 @@ T Painleve<T>::CalcNormalAccelWithoutContactForces(const Painleve<T>& painleve,
   //            | sin(theta)  cos(theta) |
   // and l is designated as the rod endpoint. Thus, the vertical positions of
   // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2.
-  const int k = context.get_state().get_abstract_state()->
-      get_abstract_state(1).template GetValueOrThrow<int>();
+
+  // Get the abstract variables that determine the current system mode and
+  // the endpoint in contact.
+  const Mode mode = context.get_abstract_state(0).
+      template GetValueOrThrow<Mode>();
+  DRAKE_DEMAND(mode != Mode::kBallisticMotion);
+  const int k = context.get_abstract_state(1).template GetValueOrThrow<int>();
   const T half_rod_length = painleve.get_rod_length() / 2;
   const T stheta = sin(theta);
 
@@ -147,6 +167,18 @@ T Painleve<T>::CalcNormalAccelWithoutContactForces(const Painleve<T>& painleve,
 template <class T>
 T Painleve<T>::EvaluateSlidingDot(const Painleve<T>& painleve,
                                   const systems::Context<T>& context) {
+  // Verify the system is not time stepping.
+  DRAKE_DEMAND(dt_ == 0);
+
+  // Verify rod is undergoing sliding contact.
+  const Mode mode = context.get_abstract_state(0).
+      template GetValueOrThrow<Mode>();
+  DRAKE_DEMAND(mode == Mode::kSlidingSingleContact ||
+               mode == Mode::kSlidingTwoContacts);
+
+  // Get the point of contact.
+  const int k = context.get_abstract_state(1).template GetValueOrThrow<int>();
+
   // Get the sliding velocity at the beginning of the interval.
   const T xcdot_t0 = context.get_state().get_abstract_state()->
       get_abstract_state(2).template GetValueOrThrow<T>();
@@ -165,12 +197,9 @@ T Painleve<T>::EvaluateSlidingDot(const Painleve<T>& painleve,
   // the rod endpoints are located at y + sin(theta)*l/2 and y - sin(theta)*l/2,
   // or, y + k*sin(theta)*l/2, where k = +/-1.
 
-  // Verify that there is an impact.
-  const T stheta = sin(theta);
-  const T k = (stheta > 0.0) ? -1.0 : 1.0;
-  const T half_rod_length = painleve.get_rod_length() / 2;
-
   // Compute the velocity at the point of contact
+  const T stheta = sin(theta);
+  const T half_rod_length = painleve.get_rod_length() / 2;
   const T xcdot = xdot - k * stheta * half_rod_length * thetadot;
   return xcdot * xcdot_t0;
 }
@@ -184,8 +213,7 @@ int Painleve<T>::DetermineNumberWitnessFunctions(const systems::Context<T>&
     return 0;
 
   // Get the abstract variable that determines the current system mode.
-  Modes mode = context.get_state().get_abstract_state()->get_abstract_state(0).
-      template GetValueOrThrow<Modes>();
+  Mode mode = context.get_abstract_state(0).template GetValueOrThrow<Mode>();
 
   switch (mode) {
     case Painleve::kBallisticMotion:

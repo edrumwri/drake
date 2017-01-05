@@ -47,7 +47,7 @@ template <typename T>
 class Painleve : public systems::LeafSystem<T> {
  public:
   /// Possible dynamic modes for the Painleve Paradox rod.
-  enum Modes {
+  enum Mode {
     /// Rod is currently undergoing ballistic motion.
     kBallisticMotion,
 
