@@ -287,18 +287,15 @@ void Painleve<T>::DoCalcDiscreteVariableUpdates(
   v(1) += dt_*get_gravitational_acceleration();
 
   // Set up the contact normal and tangent direction Jacobian matrices.
-  MatrixX<T> N(ngc, nc), F(ngc, nc);
-  N(0, 0) = N(0, 1) = 0;
-  N(1, 0) = N(1, 1) = 1;
-  N(2, 0) = (xep1 - x);
-  N(2, 1) = (xep2 - x);
-  F(0, 0) = F(0, 1) = 1;
-  F(1, 0) = F(1, 1) = 0;
-  F(2, 0) = -(yep1 - y);
-  F(2, 1) = -(yep2 - y);
-  // TODO(edrumwri): Initialize N and F to the proper dimensions.
-  N = N.transpose().eval();
-  F = F.transpose().eval();
+  MatrixX<T> N(nc, ngc), F(nc, ngc);
+  N(0, 0) = N(1, 0) = 0;
+  N(0, 1) = N(1, 1) = 1;
+  N(0, 2) = (xep1 - x);
+  N(1, 2) = (xep2 - x);
+  F(0, 0) = F(1, 0) = 1;
+  F(0, 1) = F(1, 1) = 0;
+  F(0, 2) = -(yep1 - y);
+  F(1, 2) = -(yep2 - y);
 
   // Set up the block diagonal matrix (commonly denoted E).
   MatrixX<T> E(nk, nc);
