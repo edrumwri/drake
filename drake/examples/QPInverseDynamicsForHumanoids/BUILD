@@ -1,3 +1,8 @@
+# -*- python -*-
+# This file contains rules for Bazel; see drake/doc/bazel.rst.
+
+load("//tools:cpplint.bzl", "cpplint")
+
 cc_library(
     name = "control_utils",
     srcs = [],
@@ -6,6 +11,17 @@ cc_library(
     deps = [
         "//drake/common",
         "//drake/math:geometric_transform",
+    ],
+)
+
+cc_library(
+    name = "rigid_body_tree_alias_groups",
+    srcs = ["param_parsers/rigid_body_tree_alias_groups.cc"],
+    hdrs = ["param_parsers/rigid_body_tree_alias_groups.h"],
+    linkstatic = 1,
+    deps = [
+        "//drake/multibody:rigid_body_tree",
+        "@yaml_cpp//:lib",
     ],
 )
 
@@ -55,7 +71,8 @@ cc_library(
     ],
 )
 
-#test/
+# === test/ ===
+
 cc_test(
     name = "valkyrie_balancing_test",
     srcs = ["test/valkyrie_balancing_test.cc"],
@@ -76,3 +93,23 @@ cc_test(
         "@gtest//:main",
     ],
 )
+
+cc_test(
+    name = "rigid_body_tree_alias_groups_test",
+    srcs = ["param_parsers/test/rigid_body_tree_alias_groups_test.cc"],
+    data = [
+        "param_parsers/test/full.yaml",
+        "param_parsers/test/no_body_groups.yaml",
+        "param_parsers/test/no_joint_groups.yaml",
+        "param_parsers/test/parse_fails.yaml",
+        "//drake/multibody:test_models",
+    ],
+    deps = [
+        ":rigid_body_tree_alias_groups",
+        "//drake/common:eigen_matrix_compare",
+        "//drake/multibody/parsers",
+        "@gtest//:main",
+    ],
+)
+
+cpplint()

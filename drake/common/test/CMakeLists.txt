@@ -6,6 +6,9 @@ target_link_libraries(autodiff_overloads_test drakeCommon)
 drake_add_cc_test(double_overloads_test)
 target_link_libraries(double_overloads_test drakeCommon)
 
+drake_add_cc_test(dummy_value_test)
+target_link_libraries(dummy_value_test drakeCommon)
+
 drake_add_cc_test(extract_double_test)
 target_link_libraries(extract_double_test drakeCommon)
 
@@ -14,6 +17,9 @@ target_link_libraries(functional_form_test drakeCommon)
 
 drake_add_cc_test(is_approx_equal_abstol_test)
 target_link_libraries(is_approx_equal_abstol_test drakeCommon)
+
+drake_add_cc_test(never_destroyed_test)
+target_link_libraries(never_destroyed_test drakeCommon)
 
 drake_add_cc_test(nice_type_name_test)
 target_link_libraries(nice_type_name_test drakeCommon)

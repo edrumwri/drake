@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "drake/common/autodiff_overloads.h"
@@ -208,8 +209,8 @@ class LeafSystem : public System<T> {
   /// override to use output vector types other than BasicVector.  The
   /// descriptor must match a port declared via DeclareOutputPort.
   virtual std::unique_ptr<BasicVector<T>> AllocateOutputVector(
-      const SystemPortDescriptor<T>& descriptor) const {
-    return std::make_unique<BasicVector<T>>(descriptor.get_size());
+      const OutputPortDescriptor<T>& descriptor) const {
+    return std::make_unique<BasicVector<T>>(descriptor.size());
   }
 
   // =========================================================================
@@ -324,8 +325,7 @@ class LeafSystem : public System<T> {
   template <typename T1 = T>
   typename std::enable_if<is_numeric<T1>::value>::type DoCalcNextUpdateTimeImpl(
       const Context<T1>& context, UpdateActions<T1>* actions) const {
-    T1 min_time =
-        std::numeric_limits<typename Eigen::NumTraits<T1>::Literal>::infinity();
+    T1 min_time = std::numeric_limits<double>::infinity();
     if (periodic_events_.empty()) {
       // No discrete update.
       actions->time = min_time;

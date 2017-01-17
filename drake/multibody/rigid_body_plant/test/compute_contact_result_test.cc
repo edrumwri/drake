@@ -11,14 +11,14 @@
 #include "drake/multibody/joints/quaternion_floating_joint.h"
 
 // The ContactResult class is largely a container for the data that is computed
-//  by the RigidBodyPlant while determining contact forces.  This test confirms
-//  that for a known set of contacts, that the expected contact forces are
-//  generated and stashed into the ContactResult data structure.
+// by the RigidBodyPlant while determining contact forces.  This test confirms
+// that for a known set of contacts, that the expected contact forces are
+// generated and stashed into the ContactResult data structure.
 //
-//  Thus, a rigid body tree is created with a known configuration such that the
-//  contacts and corresponding contact forces are known.  The RigidBodyPlant's
-//  CalcOutput is invoked on the ContactResult port and the ContactResult
-//  contents are evaluated to see if they contain the expected results.
+// Thus, a rigid body tree is created with a known configuration such that the
+// contacts and corresponding contact forces are known.  The RigidBodyPlant's
+// CalcOutput is invoked on the ContactResult port and the ContactResult
+// contents are evaluated to see if they contain the expected results.
 
 using Eigen::Isometry3d;
 using Eigen::Quaterniond;
@@ -144,8 +144,14 @@ TEST_F(ContactResultTest, SingleCollision) {
   const RigidBody<double>* b1 = tree_->FindBody(e1);
   const RigidBody<double>* b2 = tree_->FindBody(e2);
   ASSERT_NE(e1, e2);
-  ASSERT_TRUE(b1 == body1_ || b1 == body2_);
-  ASSERT_TRUE(b2 == body1_ || b2 == body2_);
+  ASSERT_TRUE((b1 == body1_ && b2 == body2_) || (b1 == body2_ && b2 == body1_));
+
+  // The direction of the force depends on which body is 1 and which is 2. We
+  // assume b1 is body1_, if not, we reverse the sign of the force.
+  double force_sign = -1;
+  if (b2 == body1_) {
+    force_sign = 1;
+  }
 
   // Confirms the contact details are as expected.
   const auto& resultant = info.get_resultant_force();
@@ -155,7 +161,7 @@ TEST_F(ContactResultTest, SingleCollision) {
   //  be set in some other manner, then this test may fail.
   const double stiffness = 150.0;
   double force = stiffness * offset * 2;
-  expected_spatial_force << 0, 0, 0, -force, 0, 0;
+  expected_spatial_force << 0, 0, 0, force_sign * force, 0, 0;
   ASSERT_TRUE(
       CompareMatrices(resultant.get_spatial_force(), expected_spatial_force));
 

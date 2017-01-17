@@ -1,6 +1,7 @@
 # -*- python -*-
 # This file contains rules for Bazel; see drake/doc/bazel.rst.
 
+load("//tools:cpplint.bzl", "cpplint")
 load("//tools:drake.bzl", "cc_googletest")
 
 package(default_visibility = ["//visibility:public"])
@@ -22,6 +23,7 @@ cc_library(
         "drake_throw.h",
         "eigen_stl_types.h",
         "eigen_types.h",
+        "never_destroyed.h",
         "text_logging.h",
     ],
     linkstatic = 1,
@@ -35,6 +37,12 @@ cc_library(
 cc_library(
     name = "cond",
     hdrs = ["cond.h"],
+    linkstatic = 1,
+)
+
+cc_library(
+    name = "dummy_value",
+    hdrs = ["dummy_value.h"],
     linkstatic = 1,
 )
 
@@ -62,6 +70,7 @@ cc_library(
     deps = [
         ":common",
         ":cond",
+        ":dummy_value",
     ],
 )
 
@@ -83,6 +92,7 @@ cc_library(
     linkstatic = 1,
     deps = [
         ":common",
+        ":dummy_value",
     ],
 )
 
@@ -106,8 +116,10 @@ cc_library(
         "symbolic_environment.cc",
         "symbolic_expression.cc",
         "symbolic_expression_cell.cc",
+        "symbolic_expression_cell.h",
         "symbolic_formula.cc",
         "symbolic_formula_cell.cc",
+        "symbolic_formula_cell.h",
         "symbolic_variable.cc",
         "symbolic_variables.cc",
     ],
@@ -115,9 +127,7 @@ cc_library(
         "hash.h",
         "symbolic_environment.h",
         "symbolic_expression.h",
-        "symbolic_expression_cell.h",
         "symbolic_formula.h",
-        "symbolic_formula_cell.h",
         "symbolic_variable.h",
         "symbolic_variables.h",
     ],
@@ -125,6 +135,7 @@ cc_library(
     deps = [
         ":common",
         ":cond",
+        ":dummy_value",
         ":number_traits",
     ],
 )
@@ -280,6 +291,13 @@ cc_googletest(
 )
 
 cc_googletest(
+    name = "dummy_value_test",
+    deps = [
+        ":dummy_value",
+    ],
+)
+
+cc_googletest(
     name = "eigen_matrix_compare_test",
     deps = [
         ":common",
@@ -315,6 +333,13 @@ cc_googletest(
     deps = [
         ":common",
         ":is_approx_equal_abstol",
+    ],
+)
+
+cc_googletest(
+    name = "never_destroyed_test",
+    deps = [
+        ":common",
     ],
 )
 
@@ -404,3 +429,5 @@ cc_googletest(
 # - text_logging_test in fancy variants
 # - drake_deprecated_test in fancy variants
 # - cpplint_wrapper_test.py
+
+cpplint()

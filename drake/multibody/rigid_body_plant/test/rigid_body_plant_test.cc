@@ -1,3 +1,5 @@
+#include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
+
 #include <iostream>
 #include <memory>
 
@@ -12,7 +14,6 @@
 #include "drake/multibody/parsers/model_instance_id_table.h"
 #include "drake/multibody/parsers/sdf_parser.h"
 #include "drake/multibody/parsers/urdf_parser.h"
-#include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 
 using Eigen::Isometry3d;
 using Eigen::Quaterniond;
@@ -262,8 +263,8 @@ TEST_F(KukaArmTest, EvalOutput) {
   ASSERT_EQ(kNumStates_, kuka_plant_->get_num_states(0));
   ASSERT_EQ(kNumActuators_, kuka_plant_->get_num_actuators());
   ASSERT_EQ(kNumActuators_, kuka_plant_->get_num_actuators(0));
-  ASSERT_EQ(kNumActuators_, kuka_plant_->get_input_port(0).get_size());
-  ASSERT_EQ(kNumActuators_, kuka_plant_->model_input_port(0).get_size());
+  ASSERT_EQ(kNumActuators_, kuka_plant_->get_input_port(0).size());
+  ASSERT_EQ(kNumActuators_, kuka_plant_->model_input_port(0).size());
 
   // Connect to a "fake" free standing input.
   // TODO(amcastro-tri): Connect to a ConstantVectorSource once Diagrams have
@@ -282,7 +283,9 @@ TEST_F(KukaArmTest, EvalOutput) {
   VectorXd xc = context_->get_continuous_state()->CopyToVector();
   ASSERT_EQ(xc, desired_state);
 
-  // 3 outputs: state, kinematic results, contact results
+  // 4 outputs: state, kinematic results, contact results, model instance state.
+  // (In this context, there is only one model instance and thus only one model
+  // instance state port.)
   ASSERT_EQ(4, output_->get_num_ports());
   const BasicVector<double>* output_state = output_->get_vector_data(0);
   ASSERT_NE(nullptr, output_state);
@@ -469,7 +472,8 @@ GTEST_TEST(rigid_body_plant_test, TestContactFrameCreation) {
   EXPECT_EQ(z, R_WL.col(2));
 }
 
-GTEST_TEST(RigidBodyPlanTest, InstancePortTest) {
+// Verifies that various model-instance-specific accessor methods work.
+GTEST_TEST(RigidBodyPlantTest, InstancePortTest) {
   auto tree_ptr = make_unique<RigidBodyTree<double>>();
   drake::parsers::urdf::AddModelInstanceFromUrdfFile(
       drake::GetDrakePath() +
@@ -500,8 +504,11 @@ GTEST_TEST(RigidBodyPlanTest, InstancePortTest) {
   EXPECT_EQ(plant.get_num_velocities(1), 4);
   EXPECT_EQ(plant.get_num_states(1), 8);
 
+  // TODO(liang.fok) The following has a bug, see #4697.
   const RigidBodyTree<double>& tree = plant.get_rigid_body_tree();
-  const int joint4_world = tree.computePositionNameToIndexMap()["joint4"];
+  const std::map<std::string, int> position_name_to_index_map =
+      tree.computePositionNameToIndexMap();
+  const int joint4_world = position_name_to_index_map.at("joint4");
   ASSERT_EQ(joint4_world, 6);
   const int joint4_instance = plant.FindInstancePositionIndexFromWorldIndex(
       1, joint4_world);

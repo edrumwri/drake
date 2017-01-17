@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,7 +25,7 @@ namespace automotive {
 /// Instantiated templates for the following ScalarTypes are provided:
 /// - double
 ///
-/// They are already available to link against in libdrakeAutomotive.
+/// They are already available to link against in the containing library.
 template <typename T>
 class AutomotiveSimulator {
  public:

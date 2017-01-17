@@ -191,7 +191,6 @@ macro(drake_setup_options)
 
   drake_system_dependency(
     LCM OPTIONAL REQUIRES lcm
-    DEPENDS "NOT USE_SANITIZER"
     "Lightweight Communications and Marshaling IPC suite")
 
   drake_system_dependency(
@@ -321,4 +320,12 @@ macro(drake_setup_options)
 
   # END external projects that are OFF by default
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  # BEGIN indirectly optional external projects
+
+  # The following projects are enabled iff their related externals are enabled.
+  set(WITH_CTK_PYTHON_CONSOLE ${WITH_DIRECTOR})
+  set(WITH_PYTHONQT ${WITH_DIRECTOR})
+  set(WITH_QT_PROPERTY_BROWSER ${WITH_DIRECTOR})
+
+  # END indirectly optional external projects
 endmacro()

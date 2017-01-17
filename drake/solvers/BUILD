@@ -1,9 +1,20 @@
 # -*- python -*-
 # This file contains rules for Bazel; see drake/doc/bazel.rst.
 
+load("//tools:cpplint.bzl", "cpplint")
 load("//tools:drake.bzl", "cc_googletest")
 
 package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "binding",
+    srcs = [],
+    hdrs = ["binding.h"],
+    linkstatic = 1,
+    deps = [
+        ":decision_variable",
+    ],
+)
 
 cc_library(
     name = "constraint",
@@ -26,6 +37,7 @@ cc_library(
     deps = [
         "//drake/common",
         "//drake/common:number_traits",
+        "//drake/common:symbolic",
     ],
 )
 
@@ -75,12 +87,12 @@ cc_library(
         "snopt_solver.h",
     ],
     hdrs = [
-        "constraint.h",
         "mathematical_program.h",
         "mathematical_program_solver_interface.h",
     ],
     linkstatic = 1,
     deps = [
+        ":binding",
         ":constraint",
         ":decision_variable",
         ":function",
@@ -89,6 +101,7 @@ cc_library(
         "//drake/common:autodiff",
         "//drake/common:number_traits",
         "//drake/common:polynomial",
+        "//drake/common:symbolic",
         "//drake/math:matrix_util",
     ],
 )
@@ -123,6 +136,7 @@ cc_library(
     linkstatic = 1,
     visibility = ["//visibility:private"],
     deps = [
+        ":binding",
         ":constraint",
         ":decision_variable",
         ":function",
@@ -160,6 +174,16 @@ cc_library(
 )
 
 # === test/ ===
+cc_googletest(
+    name = "binding_test",
+    srcs = [
+        "test/binding_test.cc",
+    ],
+    deps = [
+        ":binding",
+        ":constraint",
+    ],
+)
 
 cc_googletest(
     name = "constraint_test",
@@ -247,3 +271,11 @@ cc_googletest(
         "//drake/common:eigen_matrix_compare",
     ],
 )
+
+# The extra_srcs are required here because cpplint() doesn't understand how to
+# extract labels from select() functions yet.
+cpplint(extra_srcs = [
+    "gurobi_solver.cc",
+    "gurobi_solver.h",
+    "no_gurobi.cc",
+])

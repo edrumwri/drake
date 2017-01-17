@@ -22,13 +22,13 @@ while true; do
   echo "The Ubuntu 16.04 distribution includes Clang 3.8 by default."
   echo "To install Clang 3.9 it is necessary to add a Personal Package Archive (PPA)."
   echo "This script will add the repository
-    'deb http://llvm.org/apt/xenial/ llvm-toolchain-xenial-3.9 main'"
+    'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-3.9 main'"
   read -p "Do you want to continue? [Y/n] " yn
   case $yn in
     [Yy]*)
       apt-get install --no-install-recommends lsb-core software-properties-common wget
       wget -q -O - http://llvm.org/apt/llvm-snapshot.gpg.key | sudo apt-key add -
-      add-apt-repository -y "deb http://llvm.org/apt/xenial/ llvm-toolchain-xenial-3.9 main"
+      add-apt-repository -y "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-3.9 main"
       apt-get update
       apt install --no-install-recommends clang-3.9
       break
@@ -63,6 +63,7 @@ autoconf
 automake
 bash-completion
 bison
+clang-format
 default-jdk
 doxygen
 flex
@@ -74,6 +75,7 @@ gfortran
 gfortran-5
 git
 graphviz
+libgl1-mesa-dri
 libgtk2.0-dev
 libhtml-form-perl
 libmpfr-dev
@@ -96,12 +98,14 @@ python-bs4
 python-dev
 python-gtk2
 python-html5lib
+python-lxml
 python-numpy
 python-sphinx
 python-vtk
 python-yaml
 unzip
 valgrind
+xvfb
 zip
 zlib1g-dev
 

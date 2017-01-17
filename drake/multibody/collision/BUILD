@@ -1,6 +1,7 @@
 # -*- python -*-
 # This file contains rules for Bazel; see drake/doc/bazel.rst.
 
+load("//tools:cpplint.bzl", "cpplint")
 load("//tools:drake.bzl", "cc_googletest")
 
 package(default_visibility = ["//visibility:public"])
@@ -64,6 +65,21 @@ cc_library(
     ],
 )
 
+# N.B. This is just the FCL model, not the drake_collision dispatcher.  (The
+# other foo_collision libraries *do* contain the dispatcher.)
+cc_library(
+    name = "fcl_collision",
+    srcs = [
+        "fcl_model.cc",
+        "fcl_model.h",
+    ],
+    linkstatic = 1,
+    deps = [
+        ":collision_api",
+        "@fcl//:lib",
+    ],
+)
+
 # By default, supply a bullet-only model.  As we gain more collision library
 # choices, we may want to be more subtle here.
 alias(
@@ -77,6 +93,14 @@ cc_googletest(
     deps = [
         ":collision",
         "//drake/common:drake_path",
+        "//drake/common:eigen_matrix_compare",
+    ],
+)
+
+cc_googletest(
+    name = "fcl_model_test",
+    deps = [
+        ":fcl_collision",
     ],
 )
 
@@ -90,3 +114,5 @@ filegroup(
         "test/**/*.xml",
     ]),
 )
+
+cpplint()

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "drake/automotive/gen/driving_command.h"
 #include "drake/automotive/gen/simple_car_config.h"
 #include "drake/automotive/gen/simple_car_state.h"
@@ -37,7 +39,7 @@ namespace automotive {
 /// - drake::AutoDiffXd
 /// - drake::symbolic::Expression
 ///
-/// They are already available to link against in libdrakeAutomotive.
+/// They are already available to link against in the containing library.
 ///
 /// @ingroup automotive_systems
 template <typename T>
@@ -62,7 +64,7 @@ class SimpleCar : public systems::LeafSystem<T> {
   std::unique_ptr<systems::ContinuousState<T>> AllocateContinuousState()
       const override;
   std::unique_ptr<systems::BasicVector<T>> AllocateOutputVector(
-      const systems::SystemPortDescriptor<T>& descriptor) const override;
+      const systems::OutputPortDescriptor<T>& descriptor) const override;
 
  private:
   void ImplCalcOutput(const SimpleCarState<T>&, SimpleCarState<T>*) const;

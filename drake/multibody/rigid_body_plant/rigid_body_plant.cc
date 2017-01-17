@@ -286,7 +286,7 @@ template <typename T>
 std::unique_ptr<ContinuousState<T>> RigidBodyPlant<T>::AllocateContinuousState()
     const {
   // The state is second-order.
-  DRAKE_ASSERT(System<T>::get_input_port(0).get_size() == get_num_actuators());
+  DRAKE_ASSERT(System<T>::get_input_port(0).size() == get_num_actuators());
   // TODO(amcastro-tri): add z state to track energy conservation.
   return std::make_unique<ContinuousState<T>>(
       std::make_unique<BasicVector<T>>(get_num_states()),
@@ -402,8 +402,8 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
   // and simply update them then solve on each function eval.
   // How to place something like this in the context?
   drake::solvers::MathematicalProgram prog;
-  drake::solvers::DecisionVariableVectorX vdot =
-      prog.AddContinuousVariables(nv, "vdot");
+  drake::solvers::VectorXDecisionVariable vdot =
+      prog.NewContinuousVariables(nv, "vdot");
 
   auto H = tree_->massMatrix(kinsol);
   Eigen::MatrixXd H_and_neg_JT = H;
@@ -443,7 +443,7 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
     // 1/time constant of position constraint satisfaction.
     const T alpha = 5.0;
 
-    prog.AddContinuousVariables(nc, "position constraint force");
+    prog.NewContinuousVariables(nc, "position constraint force");
 
     auto phi = tree_->positionConstraints(kinsol);
     auto J = tree_->positionConstraintsJacobian(kinsol, false);
@@ -452,7 +452,7 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
     // Critically damped stabilization term.
     // phiddot = -2 * alpha * phidot - alpha^2 * phi.
     prog.AddLinearEqualityConstraint(
-        J, -(Jdotv + 2 * alpha * J * v + alpha * alpha * phi), {vdot});
+        J, -(Jdotv + 2 * alpha * J * v + alpha * alpha * phi), vdot);
     H_and_neg_JT.conservativeResize(Eigen::NoChange,
                                     H_and_neg_JT.cols() + J.rows());
     H_and_neg_JT.rightCols(J.rows()) = -J.transpose();
@@ -473,8 +473,7 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
    */
   // TODO(amcastro-tri): Remove .eval() below once RigidBodyTree is fully
   // templatized.
-  const auto& vdot_value =
-      drake::solvers::GetSolution(vdot);
+  const auto& vdot_value = prog.GetSolution(vdot);
   xdot << tree_->transformQDotMappingToVelocityMapping(
       kinsol, MatrixX<T>::Identity(nq, nq).eval()) * v, vdot_value;
 

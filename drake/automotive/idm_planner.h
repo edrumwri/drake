@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
@@ -15,7 +17,7 @@ namespace automotive {
 /// - drake::TaylorVarXd
 /// - drake::symbolic::Expression
 ///
-/// They are already available to link against in libdrakeAutomotive.
+/// They are already available to link against in the containing library.
 ///
 /// @ingroup automotive_systems
 ///
@@ -34,10 +36,10 @@ class IdmPlanner : public systems::LeafSystem<T> {
   ~IdmPlanner() override;
 
   /// Returns the port to the ego car input subvector.
-  const systems::SystemPortDescriptor<T>& get_ego_port() const;
+  const systems::InputPortDescriptor<T>& get_ego_port() const;
 
   /// Returns the port to the agent car input subvector.
-  const systems::SystemPortDescriptor<T>& get_agent_port() const;
+  const systems::InputPortDescriptor<T>& get_agent_port() const;
 
   // System<T> overrides.
   // The output of this system is an algebraic relation of its inputs.

@@ -4,6 +4,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -32,6 +33,31 @@
 #define EPSILON 10e-8
 
 typedef Eigen::Matrix<double, 3, BASIS_VECTOR_HALF_COUNT> Matrix3kd;
+
+/**
+ * Defines RigidBodyTree constants. A separate struct is necessary to avoid
+ * having these constants being templated on `<T>`. For more details about the
+ * problem with having these templated on `<T>`, see #4169.
+ */
+struct RigidBodyTreeConstants {
+  /**
+   * Defines the name of the RigidBody within a RigidBodyTree that represents
+   * the world.
+   */
+  static const char* const kWorldName;
+
+  /**
+   * Defines the index of the RigidBody within a RigidBodyTree that represents
+   * the world.
+   */
+  static const int kWorldBodyIndex;
+
+  /**
+   * Defines the default model instance ID set. This is a set containing the
+   * model instance ID of the first model instance that is added to the tree.
+   */
+  static const std::set<int> default_model_instance_id_set;
+};
 
 /**
  * Maintains a vector of RigidBody objects that are arranged into a kinematic
@@ -73,18 +99,6 @@ typedef Eigen::Matrix<double, 3, BASIS_VECTOR_HALF_COUNT> Matrix3kd;
 template <typename T>
 class RigidBodyTree {
  public:
-  /**
-   * Defines the name of the rigid body within a rigid body tree that represents
-   * the world.
-   */
-  static const char* const kWorldName;
-
-  /**
-   * Defines the index of the body that represents the world within a
-   * RigidBodyTree.
-   */
-  static const int kWorldBodyIndex;
-
   /// A constructor that initializes the gravity vector to be [0, 0, -9.81] and
   /// a single RigidBody named "world". This RigidBody can be accessed by
   /// calling RigidBodyTree::world().
@@ -115,6 +129,12 @@ class RigidBodyTree {
 
   void addFrame(std::shared_ptr<RigidBodyFrame<T>> frame);
 
+  /**
+   * Returns a map from DOF position name to DOF index within the output vector
+   * of this RigidBodyTree.
+   *
+   * <b>WARNING:</b> There is a known bug in this method, see: #4697.
+   */
   std::map<std::string, int> computePositionNameToIndexMap() const;
 
   void surfaceTangents(
@@ -122,19 +142,26 @@ class RigidBodyTree {
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       std::vector<Eigen::Map<Eigen::Matrix3Xd>>& tangents) const;
 
-  /*!
-   * Updates the frame of collision elements to be equal to the joint's frame.
+  /**
+   * Applies the given transform to the given @p body's collision elements,
+   * displacing them from their current configurations.  These new poses
+   * will be considered the elements' pose with respect to the body.
    *
-   * @param eid The ID of the collision element to update.
-   * @param transform_body_to_joint The transform from the model's
-   * body frame to the joint frame.
-   * @return true if the collision element was successfully updated.
-   * False can be returned if a collision element with the specified eid
-   * cannot be found.
+   * This is important to the parsing code to maintain a Drake RigidBodyTree
+   * invariant.  RigidBody instances do not maintain their own pose relative
+   * to their in-board joint.  The joint's space is considered to be the body's
+   * space.  So, if a urdf/sdf file defines the body with a non-identity pose
+   * relative to the parent, the parser uses this to move the collision elements
+   * relative to the effective body frame -- that of the parent joint.
+   *
+   * @param body The body whose collision elements will be moved.
+   * @param displace_transform The transform to apply to each collision element.
+   * @param true if the collision element was successfully updated.
+   * @returns true if the @body's elements were successfully transformed.
    */
   bool transformCollisionFrame(
-      const DrakeCollision::ElementId& eid,
-      const Eigen::Isometry3d& transform_body_to_joint);
+      RigidBody<T>* body,
+      const Eigen::Isometry3d& displace_transform);
 
   void compile(void);  // call me after the model is loaded
 
@@ -181,6 +208,11 @@ class RigidBodyTree {
   std::string getStateName(int state_num) const;
 
   void drawKinematicTree(std::string graphviz_dotfile_filename) const;
+
+  /// Checks whether @p cache is valid for use with this RigidBodyTree. Throws
+  /// a std::runtime_error exception if it is not valid.
+  template <typename Scalar>
+  void CheckCacheValidity(const KinematicsCache<Scalar>& cache) const;
 
   /// Creates a KinematicsCache to perform computations with this RigidBodyTree.
   /// The returned KinematicsCache is consistently templated on the scalar type
@@ -275,14 +307,14 @@ class RigidBodyTree {
    * @p model_instance_id_set.
    */
   double getMass(const std::set<int>& model_instance_id_set =
-                     default_model_instance_id_set) const;
+      RigidBodyTreeConstants::default_model_instance_id_set) const;
 
   template <typename Scalar>
   Eigen::Matrix<Scalar, drake::kSpaceDimension, 1> centerOfMass(
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
       const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set) const;
+          RigidBodyTreeConstants::default_model_instance_id_set) const;
 
   /**
    * Converts a matrix B, which transforms generalized velocities (v) to an
@@ -342,22 +374,22 @@ class RigidBodyTree {
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
       const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set,
+          RigidBodyTreeConstants::default_model_instance_id_set,
       bool in_terms_of_qdot = false) const;
 
   template <typename Scalar>
   drake::TwistVector<Scalar> worldMomentumMatrixDotTimesV(
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
-      const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set) const;
+      const std::set<int>& model_instance_id_set  =
+          RigidBodyTreeConstants::default_model_instance_id_set) const;
 
   template <typename Scalar>
   drake::TwistMatrix<Scalar> centroidalMomentumMatrix(
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
       const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set,
+          RigidBodyTreeConstants::default_model_instance_id_set,
       bool in_terms_of_qdot = false) const;
 
   template <typename Scalar>
@@ -365,15 +397,15 @@ class RigidBodyTree {
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
       const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set) const;
+          RigidBodyTreeConstants::default_model_instance_id_set) const;
 
   template <typename Scalar>
   Eigen::Matrix<Scalar, drake::kSpaceDimension, Eigen::Dynamic>
   // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
   centerOfMassJacobian(KinematicsCache<Scalar>& cache,
-                       const std::set<int>& model_instance_id_set =
-                           default_model_instance_id_set,
-                       bool in_terms_of_qdot = false) const;
+      const std::set<int>& model_instance_id_set =
+          RigidBodyTreeConstants::default_model_instance_id_set,
+      bool in_terms_of_qdot = false) const;
 
   template <typename Scalar>
   Eigen::Matrix<Scalar, drake::kSpaceDimension, 1>
@@ -381,7 +413,7 @@ class RigidBodyTree {
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       KinematicsCache<Scalar>& cache,
       const std::set<int>& model_instance_id_set =
-          default_model_instance_id_set) const;
+          RigidBodyTreeConstants::default_model_instance_id_set) const;
 
   template <typename DerivedA, typename DerivedB, typename DerivedC>
   void jointLimitConstraints(
@@ -637,11 +669,30 @@ class RigidBodyTree {
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>& J) const;
 
-  DrakeCollision::ElementId addCollisionElement(
+  /**
+   * Adds a new collision element to the tree.  The input @p element will be
+   * copied and that copy will be stored in the tree, associated with the
+   * given @p body.  This association is pending.  It is necessary to call
+   * compile() in order for the element to be fully integrated into the
+   * RigidBodyTree.
+   * @param element the element to add.
+   * @param body the body to associate the element with.
+   * @param group_name a group name to tag the associated element with.
+   */
+  void addCollisionElement(
       const DrakeCollision::Element& element,
       // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
       RigidBody<T>& body,
       const std::string& group_name);
+
+  /// Retrieve a (const) pointer to an element of the collision model.
+  /// Note: The use of Find (instead of get) and the use of CamelCase both
+  /// imply a potential runtime cost are carried over from the collision model
+  /// accessor method.
+  const DrakeCollision::Element* FindCollisionElement(
+      const DrakeCollision::ElementId& id) const {
+    return collision_model_->FindElement(id);
+  }
 
   template <class UnaryPredicate>
   void removeCollisionGroupsIf(UnaryPredicate test) {
@@ -667,8 +718,6 @@ class RigidBodyTree {
   void updateCollisionElements(
       const RigidBody<T>& body,
       const Eigen::Transform<double, 3, Eigen::Isometry>& transform_to_world);
-
-  void updateStaticCollisionElements();
 
   void updateDynamicCollisionElements(const KinematicsCache<double>& kin_cache);
 
@@ -1168,8 +1217,6 @@ class RigidBodyTree {
   int get_num_actuators() const;
 
  public:
-  static const std::set<int> default_model_instance_id_set;
-
   Eigen::VectorXd joint_limit_min;
   Eigen::VectorXd joint_limit_max;
 
@@ -1216,11 +1263,32 @@ class RigidBodyTree {
   // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
   void updateCompositeRigidBodyInertias(KinematicsCache<Scalar>& cache) const;
 
+  // Examines the state of the tree, and confirms that all nodes (i.e,
+  // RigidBody instances) have a kinematics path to the root.  In other words,
+  // there should only be a single body that has no parent: the world.
+  // Throws an exception if it is *not* a complete tree.
+  void ConfirmCompleteTree() const;
+
+  // Given the body, tests to see if it has a kinematic path to the world node.
+  // Uses a cache of known "connected" bodies to accelerate the computation.
+  // The connected set consist of the body indices (see
+  // RigidBody::get_body_index) which are known to be connected to the world.
+  // This function has a side-effect of updating the set of known connected.
+  // This assumes that the connected set has been initialized with the value
+  // 0 (the world body).
+  // If not connected, throws an exception.
+  void TestConnectedToWorld(const RigidBody<T>& body,
+                            std::set<int>* connected) const;
+
   // Reorder body list to ensure parents are before children in the list
   // RigidBodyTree::bodies.
   //
   // See RigidBodyTree::compile
   void SortTree();
+
+  // Performs the work that is required for the collision state of the
+  // RigidBodyTree to become finalized.
+  void CompileCollisionState();
 
   // Defines a number of collision cliques to be used by DrakeCollision::Model.
   // Collision cliques are defined so that:
@@ -1256,9 +1324,42 @@ class RigidBodyTree {
   RigidBodyTree& operator=(const RigidBodyTree&) { return *this; }
 
   std::set<std::string> already_printed_warnings;
+  // TODO(SeanCurtis-TRI): This isn't properly used.
+  // No query operations should work if it hasn't been
+  // initialized.  Calling compile is the only thing that should set this.
+  // Furthermore, any operation that changes the tree (e.g., adding a body,
+  // collision element, etc.) should clear the bit again, requiring another
+  // call to compile.
   bool initialized_{false};
 
   int next_available_clique_ = 0;
+
+ private:
+  // Utility class for storing body collision data during RBT instantiation.
+  struct BodyCollisionItem {
+    BodyCollisionItem(const std::string& grp_name,
+                      size_t element_index) {
+      group_name = grp_name;
+      element = element_index;
+    }
+    std::string group_name;
+    size_t element;
+  };
+
+  typedef std::vector<BodyCollisionItem> BodyCollisions;
+  // This data structures supports an orderly instantiation of the collision
+  // elements.  It is populated during tree construction, exercised during
+  // RigidBodyTree::compile at the conclusion of which, it is emptied.
+  // It has no run-time value.  This is a hacky alternative to having a
+  // proper, intermediate representation.
+  std::unordered_map<RigidBody<T>*, BodyCollisions>
+      body_collision_map_;
+  // Bullet's collision results are affected by the order in which the collision
+  // elements are added. This queues the collision elements in the added order
+  // so that when actually registered with the collision engine, they'll be
+  // submitted in the invocation order.
+  // See https://github.com/bulletphysics/bullet3/issues/888
+  std::vector< std::unique_ptr<DrakeCollision::Element>> element_order_;
 };
 
 typedef RigidBodyTree<double> RigidBodyTreed;

@@ -5,6 +5,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "drake/common/drake_assert.h"
@@ -466,24 +467,6 @@ void ParseCollision(RigidBody<double>* body, XMLElement* node,
                         " has a collision element without geometry");
 
   DrakeCollision::Element element(T_element_to_link, body);
-  // By default all collision elements added to the world from an URDF file are
-  // flagged as static.
-  // We would also like to flag as static bodies connected to the world with a
-  // FloatingBaseType::kFixed joint.
-  // However this is not possible at this stage since joints were not parsed
-  // yet.
-  // Solutions to this problem would be:
-  //  1. To load the model with DrakeCollision::Element's here but flag them as
-  //     static later at a the compile stage. This means that Bullet objects are
-  //     not created here (with addCollisionElement) but later on with the call
-  //     to RBT::compile when all the connectivity information is available.
-  //  2. Load collision elements on a separate pass after links and joints were
-  //     already loaded.
-  //  Issue 2661 was created to track this problem.
-  // TODO(amcastro-tri): fix the above issue tracked by 2661.  Similarly for
-  // parseSDFCollision in RigidBodyTreeSDF.cpp.
-  if (body->get_name().compare(string(RigidBodyTree<double>::kWorldName)) == 0)
-    element.set_static();
   if (!ParseGeometry(geometry_node, package_map, root_dir, element))
     throw runtime_error("ERROR: Failed to parse collision element in link " +
                         body->get_name() + ".");
@@ -509,7 +492,7 @@ bool ParseBody(RigidBodyTree<double>* tree, string robot_name, XMLElement* node,
 
   // World links are handled by ParseWorldJoint().
   body->set_name(attr);
-  if (body->get_name() == string(RigidBodyTree<double>::kWorldName))
+  if (body->get_name() == string(RigidBodyTreeConstants::kWorldName))
     return false;
 
   XMLElement* inertial_node = node->FirstChildElement("inertial");
@@ -626,7 +609,7 @@ void ParseJoint(RigidBodyTree<double>* tree, XMLElement* node,
   // Checks if this joint connects to the world and, if so, terminates this
   // method call. This is because joints that connect to the world are processed
   // separately.
-  if (parent_name == string(RigidBodyTree<double>::kWorldName)) return;
+  if (parent_name == string(RigidBodyTreeConstants::kWorldName)) return;
 
   int parent_index = tree->FindBodyIndex(parent_name, model_instance_id);
   if (parent_index < 0) {
@@ -927,7 +910,7 @@ void ParseWorldJoint(XMLElement* node,
     ParseJointKeyParams(joint_node, joint_name, joint_type, parent_name,
                         child_name);
 
-    if (parent_name == string(RigidBodyTree<double>::kWorldName)) {
+    if (parent_name == string(RigidBodyTreeConstants::kWorldName)) {
       // Ensures only one joint connects the model to the world.
       if (found_world_joint)
         throw runtime_error(
@@ -948,7 +931,7 @@ void ParseWorldJoint(XMLElement* node,
       if (weld_to_frame == nullptr)
         weld_to_frame.reset(new RigidBodyFrame<double>());
 
-      weld_to_frame->set_name(string(RigidBodyTree<double>::kWorldName));
+      weld_to_frame->set_name(string(RigidBodyTreeConstants::kWorldName));
       weld_to_frame->set_transform_to_body(
           weld_to_frame->get_transform_to_body() * transform_to_parent_body);
 
@@ -1025,7 +1008,7 @@ ModelInstanceIdTable ParseModel(RigidBodyTree<double>* tree, XMLElement* node,
       if (!name_attr)
         throw runtime_error("ERROR: link tag is missing name attribute");
 
-      if (string(name_attr) == string(RigidBodyTree<double>::kWorldName)) {
+      if (string(name_attr) == string(RigidBodyTreeConstants::kWorldName)) {
         // Since a world link was specified within the URDF, there must be
         // a  joint that connects the world to the robot's root node. The
         // following method parses the information contained within this
@@ -1167,13 +1150,13 @@ ModelInstanceIdTable AddModelInstanceFromUrdfStringSearchingInRosPackages(
 
 ModelInstanceIdTable AddModelInstanceFromUrdfFileWithRpyJointToWorld(
     const string& filename, RigidBodyTree<double>* tree) {
-  // Aborts if any of the output parameter pointers are invalid.
-  DRAKE_DEMAND(tree);
+  DRAKE_DEMAND(tree && "You must provide a valid RigidBodyTree pointer.");
+  const string full_path_filename = GetFullPath(filename);
   PackageMap package_map;
-  package_map.PopulateUpstreamToDrake(filename);
+  package_map.PopulateUpstreamToDrake(full_path_filename);
   return AddModelInstanceFromUrdfFileSearchingInRosPackages(
-      filename, package_map, kRollPitchYaw, nullptr /* weld_to_frame */,
-      tree);
+      full_path_filename, package_map, kRollPitchYaw,
+      nullptr /* weld_to_frame */, tree);
 }
 
 // TODO(liang.fok) Remove this deprecated method prior to Release 1.0.
@@ -1185,13 +1168,13 @@ ModelInstanceIdTable AddModelInstanceFromUrdfFile(const string& filename,
 ModelInstanceIdTable AddModelInstanceFromUrdfFileToWorld(
     const string& filename, const FloatingBaseType floating_base_type,
     RigidBodyTree<double>* tree) {
-  // Aborts if any of the output parameter pointers are invalid.
-  DRAKE_DEMAND(tree);
+  DRAKE_DEMAND(tree && "You must provide a valid RigidBodyTree pointer.");
+  const string full_path_filename = GetFullPath(filename);
   PackageMap package_map;
-  package_map.PopulateUpstreamToDrake(filename);
+  package_map.PopulateUpstreamToDrake(full_path_filename);
   return AddModelInstanceFromUrdfFileSearchingInRosPackages(
-      filename, package_map, floating_base_type, nullptr /*weld_to_frame*/,
-      tree);
+      full_path_filename, package_map, floating_base_type,
+      nullptr /*weld_to_frame*/, tree);
 }
 
 // TODO(liang.fok) Remove this deprecated method prior to Release 1.0.
@@ -1206,12 +1189,12 @@ ModelInstanceIdTable AddModelInstanceFromUrdfFile(
     const string& filename, const FloatingBaseType floating_base_type,
     std::shared_ptr<RigidBodyFrame<double>> weld_to_frame,
     RigidBodyTree<double>* tree) {
-  // Aborts if any of the output parameter pointers are invalid.
-  DRAKE_DEMAND(tree);
+  DRAKE_DEMAND(tree && "You must provide a valid RigidBodyTree pointer.");
+  const string full_path_filename = GetFullPath(filename);
   PackageMap package_map;
-  package_map.PopulateUpstreamToDrake(filename);
+  package_map.PopulateUpstreamToDrake(full_path_filename);
   return AddModelInstanceFromUrdfFileSearchingInRosPackages(
-      filename, package_map, floating_base_type, weld_to_frame, tree);
+      full_path_filename, package_map, floating_base_type, weld_to_frame, tree);
 }
 
 ModelInstanceIdTable AddModelInstanceFromUrdfFileSearchingInRosPackages(
@@ -1219,8 +1202,7 @@ ModelInstanceIdTable AddModelInstanceFromUrdfFileSearchingInRosPackages(
     const FloatingBaseType floating_base_type,
     std::shared_ptr<RigidBodyFrame<double>> weld_to_frame,
     RigidBodyTree<double>* tree) {
-  // Aborts if any of the output parameter pointers are invalid.
-  DRAKE_DEMAND(tree);
+  DRAKE_DEMAND(tree && "You must provide a valid RigidBodyTree pointer.");
 
   // Opens the URDF file and feeds it into the XML parser.
   XMLDocument xml_doc;
