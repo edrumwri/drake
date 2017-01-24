@@ -66,6 +66,34 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
     }
   }
 
+  /**
+   * Computes a matrix that transforms the time derivative of generalized 
+   * configuration to generalized velocity _for given configuration @p q_.
+   * @param q the 7-dimensional generalized configuration (see warning below)
+   * @warning The first three values of generalized configuration are positional
+   *          and the next four values are a quaternion orientation (ew, ex, ey,
+   *          ez). The first three values of generalized velocity are angular
+   *          velocity (ωx, ωy, ωz) and the second three values are linear
+   *          velocity (dx/dt, dy/dt, dz/dt). The particular frames associated
+   *          with generalized coordinates and generalized velocities are
+   *          described further immediately below.
+   * @param[out] qdot_to_v a nv × nq sized matrix, where nv is the dimension of
+   *        generalized velocities (6) and nq is the dimension of generalized
+   *        coordinates (7), that converts time derivatives of generalized
+   *        coordinates to generalized velocities _for given configuration
+   *        @p q_. The linear components of velocity will be rotated from some
+   *        frame N to a frame B, while the time derivatives of the quaternion
+   *        values (the quaternion values themselves are used to generate
+   *        matrices that rotate vectors from Frame B to Frame N) will be
+   *        transformed to angular velocities in Frame B.
+   * @warning If the norm of the quaternion values used for orientation in @p q
+   *          is equal to `s ≠ 1`, applying @p qdot_to_v to unscaled time
+   *          derivatives of the quaternion values will yield an angular
+   *          velocity vector scaled by `s` as well. This method neither
+   *          performs a normalization check nor normalizes the quaternion
+   *          orientation parameters, as implications for integration
+   *          techniques must be carefully considered.
+   */
   template <typename DerivedQ>
   void qdot2v(const Eigen::MatrixBase<DerivedQ>& q,
               Eigen::Matrix<typename DerivedQ::Scalar, Eigen::Dynamic,
@@ -79,24 +107,71 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
     }
 
     qdot_to_v.resize(get_num_velocities(), get_num_positions());
-    typedef typename DerivedQ::Scalar Scalar;
+
+    // Get the quaternion values.
     auto quat =
         q.template middleRows<drake::kQuaternionSize>(drake::kSpaceDimension);
-    auto R = drake::math::quat2rotmat(quat);
+    const auto& ew = quat[0];
+    const auto& ex = quat[1];
+    const auto& ey = quat[2];
+    const auto& ez = quat[3];
 
-    Eigen::Matrix<Scalar, 4, 1> quattilde;
-    typename drake::math::Gradient<Eigen::Matrix<Scalar, 4, 1>,
-                                   drake::kQuaternionSize,
-                                   1>::type dquattildedquat;
-    drake::math::NormalizeVector(quat, quattilde, &dquattildedquat);
-    auto RTransposeM = (R.transpose() * quatdot2angularvelMatrix(quat)).eval();
+    // Assume that the quaternion orientation (e) gives a transformation matrix
+    // that rotates vectors from some frame B to some frame N. The upper right
+    // hand block of the transformation matrix represents
+    // the 2 L part of the relationship ω = 2 L de/dt, where
+    // e = [ ew ex ey ez ] are the quaternion values and ω is an angular
+    // velocity given in frame B. The relationship ω = 2 L de/dt and the
+    // matrix L was taken from:
+    // - P. Nikravesh, Computer-Aided Analysis of Mechanical Systems. Prentice
+    //     Hall, New Jersey, 1988. Equation 6.108.
+    // NOTE: the torque-free, cylindrical solid unit test successfully detects
+    //       when this matrix (incorrectly) is set to that which transforms
+    //       unit quaternion time derivatives to angular velocities in the
+    //       global frame.
     qdot_to_v.template block<3, 3>(0, 0).setZero();
-    qdot_to_v.template block<3, 4>(0, 3).noalias() =
-        RTransposeM * dquattildedquat;
+    qdot_to_v.template block<3, 4>(0, 3) <<  -ex,  ew,  ez, -ey,
+                                             -ey, -ez,  ew,  ex,
+                                             -ez,  ey, -ex,  ew;
+    qdot_to_v.template block<3, 4>(0, 3) *= 2.;
+
+    // Given the arbitrary frames B and N described above, the next three
+    // columns rotate linear velocities from frame N to frame B.
+    auto R = drake::math::quat2rotmat(quat);
     qdot_to_v.template block<3, 3>(3, 0) = R.transpose();
     qdot_to_v.template block<3, 4>(3, 3).setZero();
   }
 
+  /**
+   * Computes a matrix that transforms a generalized velocity to the time
+   * derivative of generalized configuration to generalized velocity _for given 
+   * configuration @p q_.
+   * @param q the 7-dimensional generalized configuration (see warning below).
+   * @warning The first three values of generalized configuration are positional
+   *          and the next four values are a quaternion orientation (ew, ex, ey,
+   *          ez). The first three values of generalized velocity are angular
+   *          velocity (ωx, ωy, ωz) and the second three values are linear
+   *          velocity (dx/dt, dy/dt, dz/dt). The particular frames associated
+   *          with generalized coordinates and generalized velocities are
+   *          described further immediately below.
+   * @param[out] v_to_qdot a nq × nv sized matrix, where nv is the dimension of
+   *        generalized velocities (6) and nq is the dimension of generalized
+   *        coordinates (7), that converts generalized velocities to time
+   *        derivatives of generalized coordinates _for given configuration 
+   *        @p q_. The linear components of velocity will be rotated
+   *        from some frame B to some frame N (i.e., linear velocities will
+   *        not change in length), while angular velocities in Frame
+   *        B will be transformed to time derivatives of the quaternion values
+   *        (the quaternion values themselves are used to generate matrices that
+   *        rotate vectors from Frame B to Frame N).
+   * @warning If the norm of the quaternion values used for orientation in @p q
+   *          is equal to `s ≠ 1`, applying @p v_to_qdot to unscaled angular
+   *          velocity vector will yeild time derivatives of the quaternion
+   *          values scaled by `s` as well. This method neither
+   *          performs a normalization check nor normalizes the quaternion
+   *          orientation parameters, as implications for integration
+   *          techniques must be carefully considered.
+   */
   template <typename DerivedQ>
   void v2qdot(const Eigen::MatrixBase<DerivedQ>& q,
               Eigen::Matrix<typename DerivedQ::Scalar, Eigen::Dynamic,
@@ -105,39 +180,40 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
                             DrakeJoint::MAX_NUM_VELOCITIES>& v_to_qdot,
               Eigen::Matrix<typename DerivedQ::Scalar, Eigen::Dynamic,
                             Eigen::Dynamic>* dv_to_qdot) const {
-    typedef typename DerivedQ::Scalar Scalar;
     v_to_qdot.resize(get_num_positions(), get_num_velocities());
 
-    auto quat =
-        q.template middleRows<drake::kQuaternionSize>(drake::kSpaceDimension);
-    auto R = drake::math::quat2rotmat(quat);
-
-    Eigen::Matrix<Scalar, drake::kQuaternionSize, drake::kSpaceDimension> M;
     if (dv_to_qdot) {
-      auto dR = drake::math::dquat2rotmat(quat);
-      typename drake::math::Gradient<decltype(M), drake::kQuaternionSize,
-                                     1>::type dM;
-      angularvel2quatdotMatrix(quat, M, &dM);
-
-      dv_to_qdot->setZero(v_to_qdot.size(), get_num_positions());
-
-      using drake::math::setSubMatrixGradient;
-      using drake::math::intRange;
-      setSubMatrixGradient<4>(*dv_to_qdot, dR, intRange<3>(0), intRange<3>(3),
-                              v_to_qdot.rows(), 3);
-      auto dMR = drake::math::matGradMultMat(M, R, dM, dR);
-      setSubMatrixGradient<4>(*dv_to_qdot, dMR, intRange<4>(3), intRange<3>(0),
-                              v_to_qdot.rows(), 3);
-    } else {
-      angularvel2quatdotMatrix(
-          quat, M,
-          (typename drake::math::Gradient<decltype(M), drake::kQuaternionSize,
-                                          1>::type*)nullptr);
+      throw std::runtime_error("no longer supported");
     }
 
-    v_to_qdot.template block<3, 3>(0, 0).setZero();
-    v_to_qdot.template block<3, 3>(0, 3) = R;
-    v_to_qdot.template block<4, 3>(3, 0).noalias() = M * R;
+    // Get the quaternion values.
+    auto quat =
+        q.template middleRows<drake::kQuaternionSize>(drake::kSpaceDimension);
+    const auto& ew = quat[0];
+    const auto& ex = quat[1];
+    const auto& ey = quat[2];
+    const auto& ez = quat[3];
+
+    // Assume that the quaternion orientation (e) gives a transformation matrix
+    // that rotates vectors from some frame B to some frame N. The upper right
+    // hand block of the tranfsormation matrix corresponds to the transpose of
+    // the "L" matrix used in qdot2v(). Specifically, this matrix represents
+    // the 1/2 Lᵀ part of the relationship de/dt = 1/2 Lᵀω, where
+    // e = [ ew ex ey ez ] are the quaternion values and ω is an angular
+    // velocity given in frame B. The relationship de/dt = 1/2 Lᵀω and the
+    // matrix L was taken from:
+    // - P. Nikravesh, Computer-Aided Analysis of Mechanical Systems. Prentice
+    //     Hall, New Jersey, 1988. Equation 6.109.
+    v_to_qdot.template block<4, 3>(0, 0).setZero();
+    v_to_qdot.template block<4, 3>(3, 0) <<  -ex, -ey, -ez,
+                                              ew, -ez,  ey,
+                                              ez,  ew, -ex,
+                                             -ey,  ex,  ew;
+    v_to_qdot.template block<4, 3>(3, 0) *= 0.5;
+
+    // Given the arbitrary frames B and N described above, the next three
+    // columns rotate linear velocities from frame B to frame N.
+    v_to_qdot.template block<3, 3>(0, 3) = drake::math::quat2rotmat(quat);
     v_to_qdot.template block<4, 3>(3, 3).setZero();
   }
 
