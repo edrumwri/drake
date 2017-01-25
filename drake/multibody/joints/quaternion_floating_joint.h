@@ -130,7 +130,7 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
   }
 
   /**
-   * For the %QuaternionFloatingJoint, computes the matrix `N⁺(q)`∊R⁶ˣ⁷ that
+   * For the %QuaternionFloatingJoint, computes the matrix `N⁺(q)`∊ℝ⁶ˣ⁷ that
    * maps generalized coordinate time derivatives qdot to generalized
    * velocities v, with `v=N⁺ qdot`. The name signifies that `N⁺=pinv(N)` where
    * `N(q)` is the matrix that maps v to qdot with `qdot=N v` and `pinv()`
@@ -214,7 +214,7 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
 
 
   /**
-   * For the %QuaternionFloatingJoint, computes the matrix `N(q)`∊R⁷ˣ⁶ that
+   * For the %QuaternionFloatingJoint, computes the matrix `N(q)`∊ℝ⁷ˣ⁶ that
    * maps generalized velocities v to generalized coordinate time derivatives
    * qdot, with `qdot=N v`.
    *
