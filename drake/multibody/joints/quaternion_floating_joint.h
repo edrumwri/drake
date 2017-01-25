@@ -34,15 +34,16 @@
  * quaternion while `[qx qy qz]` is the vector part. See
  * @ref multibody_spatial_pose for more  information about this notation.
  *
- * The time derivatives of the generalized coordinates, _not_ to be confused
- * with the generalized velocity variables, are: <pre>
+ * The time derivatives qdot of the generalized coordinates, _not_ to be
+ * confused with the generalized velocity variables v, are: <pre>
  *          --------- ------------- T
  *  qdot = | v_PB_P  |   qdot_PB   |
  *          --------- -------------  7×1
- * <pre>
- * where `v_PB_P = d/dt p_PB_P` is the velocity of point Bo measured and
- * expressed in the P frame, and `qdot_PB = d/dt q_PB` is the time derivative of
- * the quaternion.
+ * </pre>
+ * where `v_PB_P = d_P/dt p_PB_P` is the velocity of point Bo measured and
+ * expressed in the P frame, where we have emphasized that the derivative is
+ * taken in P, and `qdot_PB = d/dt q_PB` is the time derivative of the
+ * quaternion.
  *
  * <h3>Generalized velocity</h3>
  * There are 6 generalized velocity variables v, organized as follows: <pre>
@@ -52,7 +53,6 @@
  * </pre>
  * where `ω_PB_B` is B's angular velocity in P, expressed in the B basis, and
  * `v_PB_B` is point Bo's translational velocity in P, expressed in B.
- * TODO(sherm1,mitiguy) Is that right?
  *
  * Note that
  * the rotational and translational quantities are in the reverse order from
@@ -61,13 +61,16 @@
  * the derivatives of the generalized coordinates!
  *
  * The time derivatives of the generalized velocities are: <pre>
- *          ------------ ----------- T
- *  vdot = | ωdot_PB_B  | vdot_PB_B |
- *          ------------ -----------  6×1
+ *          --------- ----------- T
+ *  vdot = | α_PB_B  | vdot_PB_B |
+ *          --------- -----------  6×1
  * </pre>
- * where `ωdot_PB_B` is XXX and `vdot_PB_B` is YYY.
- * TODO(sherm1,mitiguy) WTF are these?
- *
+ * where `α_PB_B` is B's angular acceleration in P, expressed in B, and
+ * `vdot_PB_B = d_B/dt v_PB_B` where we have emphasized that the derivative is
+ * taken in the B frame, so this is *not* the acceleration of Bo in P. That
+ * acceleration is given by `a_PB_B = vdot_PB_B + ω_PB_B × v_PB_B` (still in B).
+ * Re-expressing that in P provides the configuration second derivative
+ * `a_PB_P = d²_P/dt² p_PB_P = q_PB*a_PB_B`.
  */
 class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
  public:
@@ -220,11 +223,13 @@ class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
    * derivatives of the coordinates, rotations and translations are
    * reversed, and different expressed-in frames are employed, `N` has the
    * following elaborate structure: <pre>
-   *        --------- ------
-   *       |   0₄ₓ₃  | R_PB |
-   *   N = |---------|------|
-   *       | Nq_PB_B | 0₃ₓ₃ |
-   *        ---------------- 7×6
+   *        ------- ------
+   *       |  0₃ₓ₃ | R_PB |
+   *       |-------|------|
+   *   N = |       |      |
+   *       |Nq_PB_B| 0₄ₓ₃ |
+   *       |       |      |
+   *        -------------- 7×6
    * </pre>
    * where `Nq_PB_B` is the matrix that maps angular velocity `ω_PB_B` to
    * quaternion time derivative `qdot_PB` such that `qdot_PB=Nq_PB_B*ω_PB_B`.
