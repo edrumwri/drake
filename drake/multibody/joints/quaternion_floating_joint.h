@@ -51,7 +51,7 @@
  *     v = | ω_PB_B  | v_PB_B |
  *          --------- --------  6×1
  * </pre>
- * where `ω_PB_B` is B's angular velocity in P, expressed in the B basis, and
+ * where `ω_PB_B` is B's angular velocity in P, expressed in B, and
  * `v_PB_B` is point Bo's translational velocity in P, expressed in B.
  *
  * Note that
@@ -69,7 +69,7 @@
  * `vdot_PB_B = d_B/dt v_PB_B` where we have emphasized that the derivative is
  * taken in the B frame, so this is *not* the acceleration of Bo in P. That
  * acceleration is given by `a_PB_B = vdot_PB_B + ω_PB_B × v_PB_B` (still in B).
- * Re-expressing that in P provides the configuration second derivative
+ * Re-expressing `a_PB_B` in P provides the configuration second derivative
  * `a_PB_P = d²_P/dt² p_PB_P = q_PB*a_PB_B`.
  */
 class QuaternionFloatingJoint : public DrakeJointImpl<QuaternionFloatingJoint> {
