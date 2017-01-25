@@ -268,8 +268,6 @@ RigidBodySystem::StateVector<double> RigidBodySystem::dynamics(
 
   StateVector<double> dot(nq + nv);
 
-  // TODO(amcastro-tri): Remove .eval() below once RigidBodyTree is fully
-  // templatized.
   Eigen::VectorXd vdot_value = prog.GetSolution(vdot);
   dot << tree->transformVelocityToQDot(kinsol, v), vdot_value;
   return dot;

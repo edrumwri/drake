@@ -523,15 +523,6 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
   prog.Solve();
 
   VectorX<T> xdot(get_num_states());
-
-  /*
-   * TODO(hongkai.dai): This only works for templates on double, it does not
-   * work for autodiff yet, I will add the code to compute the gradient of vdot
-   * w.r.t. q and v. See issue
-   * https://github.com/RobotLocomotion/drake/issues/4267.
-   */
-  // TODO(amcastro-tri): Remove .eval() below once RigidBodyTree is fully
-  // templatized.
   const auto& vdot_value = prog.GetSolution(vdot);
   xdot << tree_->transformVelocityToQDot(kinsol, v), vdot_value;
   derivatives->SetFromVector(xdot);
@@ -630,12 +621,14 @@ T RigidBodyPlant<T>::JointLimitForce(const DrakeJoint& joint, const T& position,
     const T violation = position - qmax;
     const T limit_force =
         (-joint_stiffness * violation * (1 + joint_dissipation * velocity));
-    return std::min(limit_force, 0.);
+    using std::min;  // Needed for ADL.
+    return min(limit_force, 0.);
   } else if (position < qmin) {
     const T violation = position - qmin;
     const T limit_force =
         (-joint_stiffness * violation * (1 - joint_dissipation * velocity));
-    return std::max(limit_force, 0.);
+    using std::max;  // Needed for ADL.
+    return max(limit_force, 0.);
   }
   return 0;
 }
