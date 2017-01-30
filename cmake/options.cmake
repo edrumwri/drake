@@ -233,7 +233,7 @@ macro(drake_setup_options)
     "Google command-line flags processing library")
 
   drake_system_dependency(
-    PYBIND11 REQUIRES pybind11
+    PYBIND11 OPTIONAL REQUIRES pybind11
     DEPENDS "NOT DISABLE_PYTHON"
     "Python/C++11 interoperability tool")
 
@@ -348,7 +348,7 @@ macro(drake_setup_options)
     "Convex/integer optimization solver\; free for academics")
 
   drake_optional_external(IRIS OFF
-    DEPENDS "WITH_MOSEK\;WITH_SWIG_MATLAB"
+    DEPENDS "WITH_MOSEK"
     "fast approximate convex segmentation")
 
   drake_optional_external(MESHCONVERTERS OFF
