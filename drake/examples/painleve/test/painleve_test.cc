@@ -1,11 +1,12 @@
 #include "drake/examples/painleve/painleve.h"
-#include "drake/systems/analysis/simulator.h"
 
 #include <memory>
 
 #include "gtest/gtest.h"
 
+#include "drake/common/drake_assert.h"
 #include "drake/common/eigen_matrix_compare.h"
+#include "drake/systems/analysis/simulator.h"
 
 using drake::systems::VectorBase;
 using drake::systems::BasicVector;
@@ -15,6 +16,10 @@ using drake::systems::SystemOutput;
 using drake::systems::AbstractState;
 using drake::systems::Simulator;
 using drake::systems::Context;
+
+using Eigen::Vector2d;
+using Eigen::Vector3d;
+using Vector6d = Eigen::Matrix<double, 6, 1>;
 
 namespace drake {
 namespace painleve {
@@ -883,6 +888,164 @@ GTEST_TEST(PainleveCrossValidationTest, OneStepSolutionSticking) {
   EXPECT_NEAR(xc[4], xd[4], tol);
   EXPECT_NEAR(xc[5], xd[5], tol);
 }
+
+/// Class for testing the Painlevé Paradox example using compliant contact
+/// thus permitting integration as an ODE.
+class PainleveCompliantTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    dut_ = std::make_unique<Painleve<double>>(Painleve<double>::kCompliant);
+    context_ = dut_->CreateDefaultContext();
+    output_ = dut_->AllocateOutput(*context_);
+    derivatives_ = dut_->AllocateTimeDerivatives();
+
+    // Use a non-unit mass.
+    dut_->set_rod_mass(2.0);
+
+    // Using default compliant contact parameters.
+
+    // Set a zero input force (this is the default).
+    std::unique_ptr<BasicVector<double>> ext_input =
+        std::make_unique<BasicVector<double>>(3);
+    ext_input->SetAtIndex(0, 0.0);
+    ext_input->SetAtIndex(1, 0.0);
+    ext_input->SetAtIndex(2, 0.0);
+    context_->FixInputPort(0, std::move(ext_input));
+  }
+
+  // Calculate time derivatives using the context member and writing to
+  // the derivatives member.
+  void CalcTimeDerivatives() {
+    dut_->CalcTimeDerivatives(*context_, derivatives_.get());
+  }
+
+  std::unique_ptr<State<double>> CloneState() const {
+    return context_->CloneState();
+  }
+
+  // Return the state x,y,θ,xdot,ydot,θdot as a Vector6.
+  Vector6d get_state() const {
+    const ContinuousState<double>& xc = *context_->get_continuous_state();
+    return Vector6d(xc.CopyToVector());
+  }
+
+  // Return d/dt state xdot,ydot,θdot,xddot,yddot,θddot as a Vector6.
+  Vector6d get_state_dot() const {
+    const ContinuousState<double>& xcd = *derivatives_;
+    return Vector6d(xcd.CopyToVector());
+  }
+
+  // Sets the planar pose in the context.
+  void set_pose(double x, double y, double theta) {
+    ContinuousState<double>& xc =
+        *context_->get_mutable_continuous_state();
+    xc[0] = x; xc[1] = y; xc[2] = theta;
+  }
+
+  // Sets the planar velocity in the context.
+  void set_velocity(double xdot, double ydot, double thetadot) {
+    ContinuousState<double>& xc =
+        *context_->get_mutable_continuous_state();
+    xc[3] = xdot; xc[4] = ydot; xc[5] = thetadot;
+  }
+
+  // Returns planar pose derivative (should be planar velocities xdot,
+  // ydot, thetadot).
+  Vector3d get_pose_dot() const {
+    const ContinuousState<double>& xcd = *derivatives_;
+    return Vector3d(xcd[0], xcd[1], xcd[2]);
+  }
+
+  // Returns planar acceleration (xddot, yddot, thetaddot).
+  Vector3d get_accelerations() const {
+    const ContinuousState<double>& xcd = *derivatives_;
+    return Vector3d(xcd[3], xcd[4], xcd[5]);
+  }
+
+  // Sets the rod to a state that corresponds to ballistic motion.
+  void SetBallisticState() {
+    const double half_len = dut_->get_rod_length() / 2;
+    set_pose(0, 10*half_len, M_PI_2);
+    set_velocity(1, 2, 3);
+  }
+
+  // Sets the rod to a vertical position in which one or both endpoints are
+  // penetrating the ground and the velocity is zero.
+  // k=-1,0,1 -> left, both, right
+  void SetContactingState(int k) {
+    DRAKE_DEMAND(-1 <= k && k <= 1);
+    const double half_len = dut_->get_rod_length() / 2;
+    const double penetration = 0.01; // 1 cm
+    set_pose(0, std::abs(k)*half_len - penetration, -k*M_PI_2);
+    set_velocity(0, 0, 0);
+  }
+
+  std::unique_ptr<Painleve<double>> dut_;  //< The device under test.
+  std::unique_ptr<Context<double>> context_;
+  std::unique_ptr<SystemOutput<double>> output_;
+  std::unique_ptr<ContinuousState<double>> derivatives_;
+};
+
+/// Verify that the compliant contact resists penetration.
+TEST_F(PainleveCompliantTest, ForcesHaveRightSign) {
+  SetContactingState(-1); // left
+
+  Vector3d F_Ro_W_left = dut_->CalcCompliantContactForces(*context_);
+
+  CalcTimeDerivatives();
+  Vector6d xcd = get_state_dot();
+
+  EXPECT_EQ(xcd[0], 0);  // xdot, ydot, thetadot
+  EXPECT_EQ(xcd[1], 0);
+  EXPECT_EQ(xcd[2], 0);
+
+  // Total acceleration is gravity plus acceleration due to contact forces;
+  // extract just the contact contribution. It should point up!
+  const double a_contact = xcd[4] - dut_->get_gravitational_acceleration();
+
+  EXPECT_NEAR(xcd[3], 0, 1e-14);
+  EXPECT_GT(a_contact, 1.);  // + y acceleration
+  EXPECT_NEAR(xcd[5], 0, 1e-14);
+
+  // Now add some downward velocity; that should increase the force.
+  set_velocity(0, -10, 0);
+  Vector3d F_Ro_W_ldown = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_GT(F_Ro_W_ldown[1], 2*F_Ro_W_left[1]);
+
+  // An extreme upwards velocity should be a "pull out" situation resulting
+  // in (exactly) zero force rather than a negative force.
+  set_velocity(0, 1000, 0);
+  Vector3d F_Ro_W_lup = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_TRUE(F_Ro_W_lup == Vector3d::Zero());
+
+  // Sliding -x should produce a +x friction force and a positive torque;
+  // no effect on y force.
+  set_velocity(-10, 0, 0);
+  Vector3d F_Ro_W_nx = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_GT(F_Ro_W_nx[0], 1.);
+  EXPECT_NEAR(F_Ro_W_nx[1], F_Ro_W_left[1], 1e-14);
+  EXPECT_GT(F_Ro_W_nx[2], 1.);
+
+  // Sliding +x should produce a -x friction force and a negative torque;
+  // no effect on y force.
+  set_velocity(10, 0, 0);
+  Vector3d F_Ro_W_px = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_LT(F_Ro_W_px[0], -1.);
+  EXPECT_NEAR(F_Ro_W_px[1], F_Ro_W_left[1], 1e-14);
+  EXPECT_LT(F_Ro_W_px[2], -1.);
+
+
+  SetContactingState(1); // right should behave same as left
+  Vector3d F_Ro_W_right = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_TRUE(F_Ro_W_right.isApprox(F_Ro_W_left, 1e-14));
+
+  // With both ends in contact the force should double and there should
+  // be zero moment.
+  SetContactingState(0);
+  Vector3d F_Ro_W_both = dut_->CalcCompliantContactForces(*context_);
+  EXPECT_TRUE(F_Ro_W_both.isApprox(F_Ro_W_left+F_Ro_W_right, 1e-14));
+}
+
 }  // namespace
 }  // namespace painleve
 }  // namespace drake
