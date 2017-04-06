@@ -10,6 +10,7 @@ drake_cc_library(
     name = "rod2d",
     srcs = ["rod2d.cc"],
     hdrs = [
+        "rigid_contact.h",
         "rod2d.h",
         "rod2d-inl.h",
     ],

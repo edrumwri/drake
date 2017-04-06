@@ -1,5 +1,7 @@
 #pragma once
 
+#include "drake/examples/rod2d/rigid_contact.h"
+
 #include <memory>
 #include <utility>
 
@@ -399,6 +401,10 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   /// for a given state (using @p context).
   int DetermineNumWitnessFunctions(const systems::Context<T>& context) const;
 
+  /// Processes mode changes.
+  void DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
+                                systems::State<T>* state) const override;
+
  protected:
   int get_k(const systems::Context<T>& context) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
@@ -415,6 +421,8 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
+  std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
+  void ModelImpact(systems::State<T>* state) const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
   void CalcTwoContactSlidingForces(const systems::Context<T>& context,
