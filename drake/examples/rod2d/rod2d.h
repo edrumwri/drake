@@ -421,7 +421,8 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
-  void SolveSustainedContactLCP(const Context<T>& context) const;
+  void SolveSustainedContactLCP(const systems::Context<T>& context,
+                                systems::State<T>* state) const;
   MatrixX<T> AddScaledRightTerm(const MatrixX<T>& A, const VectorX<T>& scale,
                                 const MatrixX<T>& X,
                                 const std::vector<int>& indices) const;
@@ -429,6 +430,8 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                            const std::vector<int>& indices) const;
   Matrix2<T> get_rotation_matrix_derivative(
       const systems::Context<T>& context) const;
+  const std::vector<RigidContact>& get_contacts(
+      const systems::State<T>& state) const;
   std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
   void ModelImpact(systems::State<T>* state) const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,

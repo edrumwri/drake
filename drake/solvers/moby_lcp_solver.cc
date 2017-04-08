@@ -95,6 +95,13 @@ MobyLCPSolver<T>::MobyLCPSolver()
     : MathematicalProgramSolverInterface(SolverType::kMobyLCP),
       log_enabled_(false) {}
 
+template <class T>
+template <class U>
+U MobyLCPSolver<T>::ComputeZeroTolerance(const MatrixX<U>& M) {
+  return M.rows() * M.template lpNorm<Eigen::Infinity>() *
+         std::numeric_limits<double>::epsilon();
+}
+
 template <typename T>
 void MobyLCPSolver<T>::SetLoggingEnabled(bool enabled) {
   log_enabled_ = enabled; }
@@ -229,10 +236,8 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
 
   // set zero tolerance if necessary
   T mod_zero_tol = zero_tol;
-  if (mod_zero_tol < 0) {
-    mod_zero_tol = M.rows() * M.template lpNorm<Eigen::Infinity>() *
-        std::numeric_limits<double>::epsilon();
-  }
+  if (mod_zero_tol < 0)
+    mod_zero_tol = ComputeZeroTolerance(M);
 
   // prepare to setup basic and nonbasic variable indices for z
   nonbas_.clear();
@@ -412,9 +417,7 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
   // not discernible at this time.
 
   // Assign value for zero tolerance, if necessary.
-  const T naive_tol = q.size() * M.template lpNorm<Eigen::Infinity>() *
-      kSqrtEps;
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : naive_tol;
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
 
   Log() << " zero tolerance: " << mod_zero_tol << std::endl;
 
@@ -610,11 +613,8 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // come up with a sensible value for zero tolerance if none is given
   T mod_zero_tol = zero_tol;
-  if (mod_zero_tol <= 0) {
-    mod_zero_tol =
-        M.template lpNorm<Eigen::Infinity>() *
-            std::numeric_limits<double>::epsilon();
-  }
+  if (mod_zero_tol <= 0)
+    mod_zero_tol = ComputeZeroTolerance(M);
 
   if (CheckLemkeTrivial(n, mod_zero_tol, q, z)) {
     Log() << " -- trivial solution found" << std::endl;
@@ -911,8 +911,7 @@ bool MobyLCPSolver<T>::SolveLcpLemkeRegularized(const MatrixX<T>& M,
   // Assign value for zero tolerance, if necessary. See discussion in
   // SolveLcpFastRegularized() to see why this tolerance is computed here once,
   // rather than for each regularized version of M.
-  T naive_tol = q.size() * M.template lpNorm<Eigen::Infinity>() * kSqrtEps;
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : naive_tol;
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
 
   Log() << " zero tolerance: " << mod_zero_tol << std::endl;
 
@@ -1063,8 +1062,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const Eigen::SparseMatrix<double>& M,
   // come up with a sensible value for zero tolerance if none is given
   if (zero_tol <= static_cast<double>(0.0)) {
     Eigen::MatrixXd dense_M = M;
-    zero_tol = dense_M.lpNorm<Eigen::Infinity>() *
-        std::numeric_limits<double>::epsilon() * n;
+    zero_tol = ComputeZeroTolerance(dense_M);
   }
 
   if (CheckLemkeTrivial(n, zero_tol, q, z)) {

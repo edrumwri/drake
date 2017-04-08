@@ -65,6 +65,11 @@ class MobyLCPSolver : public MathematicalProgramSolverInterface {
 
   void SetLoggingEnabled(bool enabled);
 
+  /// Calculates the zero tolerance that the solver would compute if the user
+  /// does not specify a tolerance.
+  template <class U>
+  static U ComputeZeroTolerance(const MatrixX<U>& M);
+
   /// Fast pivoting algorithm for LCPs of the form M = PAPᵀ, q = Pb, where
   /// b ∈ ℝᵐ, P ∈ ℝⁿˣᵐ, and A ∈ ℝᵐˣᵐ (where A is positive definite). Therefore,
   /// q is in the range of P and M is positive semi-definite. An LCP of this
