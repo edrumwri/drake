@@ -55,6 +55,14 @@ github_archive(
 )
 
 github_archive(
+    name = "pycodestyle",
+    repository = "PyCQA/pycodestyle",
+    commit = "2.3.1",
+    sha256 = "e9fc1ca3fd85648f45c0d2e33591b608a17d8b9b78e22c5f898e831351bacb03",
+    build_file = "tools/pycodestyle.BUILD",
+)
+
+github_archive(
     name = "eigen",
     repository = "RobotLocomotion/eigen-mirror",
     commit = "d3ee2bc648be3d8be8c596a9a0aefef656ff8637",
@@ -195,10 +203,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_repositories")
 go_repositories()
 
 github_archive(
-    name = "com_github_bazelbuild_buildifier",
-    repository = "bazelbuild/buildifier",
+    name = "com_github_bazelbuild_buildtools",
+    repository = "bazelbuild/buildtools",
     commit = "93929369232fcda305607a2e0aa7b3cd9cf8912d",
-    sha256 = "51a84592ced38213592a2d177cf551d3be9179092d3921a38154a2662610df96",
+    sha256 = "2ffb39756767165133f9861d8bf52c76d5474bb462583edfe47d2ea0a759c62b",
 )
 
 github_archive(
