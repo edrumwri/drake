@@ -35,6 +35,9 @@ struct RigidContact {
   /// The vector from the center-of-mass of the rod to the point of contact,
   /// defined in the body frame of the rod.
   Eigen::Vector2d u;
+
+  /// The coefficient of friction at this contact point.
+  double mu{0};
 };
 
 }  // namespace rod2d
