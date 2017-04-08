@@ -421,8 +421,23 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
-  void SolveSustainedContactLCP(const systems::Context<T>& context,
-                                systems::State<T>* state) const;
+  // Gets the number of tangent directions used by the LCP formulation. If this
+  // problem were 3D, the number of tangent directions would be the number of
+  // edges in the polygonalization of the friction cone. In 2D, both tangent
+  // directions (+/-x) must be covered.
+  int get_num_tangent_directions_per_contact() const { return 2; }
+
+  static void GetContactVectors(const std::vector<RigidContact>& contacts,
+                                std::vector<int>* sliding_contacts,
+                                std::vector<int>* non_sliding_contacts);
+  void SolveSustainedContactLCP(const systems::Context<T>& context);
+  void FormSustainedContactLCP(const systems::Context<T>& context,
+                               MatrixX<T>* MM,
+                               Eigen::Matrix<T, Eigen::Dynamic, 1>* qq,
+                               MatrixX<T>* N_minus_mu_Q,
+                               MatrixX<T>* iM_x_FT) const;
+  void DetermineAccelLevelActiveSet(const systems::Context<T>& context,
+                                    systems::State<T>* state) const;
   MatrixX<T> AddScaledRightTerm(const MatrixX<T>& A, const VectorX<T>& scale,
                                 const MatrixX<T>& X,
                                 const std::vector<int>& indices) const;
@@ -433,7 +448,12 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   const std::vector<RigidContact>& get_contacts(
       const systems::State<T>& state) const;
   std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
-  void ModelImpact(systems::State<T>* state) const;
+  void ModelImpact(systems::State<T>* state, VectorX<T>* Nvplus = nullptr,
+                   VectorX<T>* Fvplus = nullptr, T* zero_tol = nullptr) const;
+  void DetermineVelLevelActiveSet(systems::State<T>* state,
+                                  const VectorX<T>& Nv,
+                                  const VectorX<T>& Fv,
+                                  const T& zero_tol) const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
   void CalcTwoContactSlidingForces(const systems::Context<T>& context,
@@ -502,8 +522,11 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   // Friction model used in compliant contact.
   static T CalcMuStribeck(const T& us, const T& ud, const T& v);
 
-  // Solves linear complementarity problems for time stepping.
+  // Solves linear complementarity problems for rigid contact problems.
   solvers::MobyLCPSolver<T> lcp_;
+
+  // Computes contact forces for active set approach.
+  Eigen::PartialPivLU<MatrixX<T>> LU_;
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;

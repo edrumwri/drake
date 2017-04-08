@@ -67,8 +67,22 @@ const std::vector<RigidContact>& Rod2D<T>::get_contacts(
       template GetValue<std::vector<RigidContact>>();
 }
 
+// Models any impacts for the piecewise-DAE based system.
+// @param[in,out] state the pre-impact state on entry, the post-impact state
+//                on return.
+// @param[out] Nvplus if non-null, contains the post-impact velocities projected
+//             along the normal contact directions on return.
+// @param[out] Fvplus if non-null, contains the post-impact velocities projected
+//             along the tangential contact directions on return.
+// @param[out] zero_tol if non-null, contains the determined zero tolerance
+//             on return.
 template <class T>
-void Rod2D<T>::ModelImpact(systems::State<T>* state) const {
+void Rod2D<T>::ModelImpact(systems::State<T>* state,
+                           VectorX<T>* Nvplus,
+                           VectorX<T>* Fvplus,
+                           T* zero_tol) const {
+  DRAKE_DEMAND(state);
+
   // Get state variables.
   const VectorX<T> q = state->get_continuous_state()->
       get_generalized_position().CopyToVector();
@@ -149,6 +163,19 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state) const {
     j++;
   }
 
+  // Look for the opportunity to skip out on building the LCP matrix.
+  VectorX<T> Nv = N * v;
+  if (Nv.minCoeff() >= 0) {
+    if (Nvplus)
+      *Nvplus = Nv;
+    if (Fvplus)
+      *Fvplus = F * v;
+    if (zero_tol)
+      zero_tol = 0;
+
+    return;
+  }
+
   // Construct a matrix similar to E in Anitscu and Potra 1997. This matrix
   // will yield mu*fN - E*fF = 0, or, equivalently:
   // mu*fN₁ - fF₁⁺ - fF₁⁻ ≥ 0
@@ -208,11 +235,12 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state) const {
   MM += MatrixX<T>::Identity(nvars, nvars) * cfm;
 
   // Compute the zero tolerance for solving the LCP.
-  const double zero_tol = lcp_.ComputeZeroTolerance(MM);
+  if (zero_tol)
+    *zero_tol = lcp_.ComputeZeroTolerance(MM);
 
   // Solve the LCP.
   VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, zero_tol);
+  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, *zero_tol);
   DRAKE_DEMAND(success);
 
   // Obtain the normal and frictional contact forces.
@@ -225,28 +253,47 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state) const {
       F.transpose()*fF_neg);
   qdot->SetFromVector(vplus);
 
-  // Compute new tangent velocities.
-  VectorX<T> Fv = F * vplus;
+  // Compute normal and tangent velocities *only if desired*.
+  if (Nvplus)
+    *Nvplus = N * vplus;
+  if (Fvplus)
+    *Fvplus = F * vplus;
+}
 
-  // Examine contacts again.
-  std::vector<RigidContact> contacts_copy = contacts;
-  for (size_t i = 0, j = 0; i < contacts.size(); ++i) {
+// Models any impacts for the piecewise-DAE based system and determines
+// the active set at the velocity-level (meaning that a point of contact
+// will be de-activated when contacting bodies are separating at that point
+// and that sliding and non-sliding are determined "freshly", i.e., without
+// any consideration of existing contact mode).
+template <class T>
+void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
+                                          const VectorX<T>& Nvplus,
+                                          const VectorX<T>& Fvplus,
+                                          const T& zero_tol) const {
+  // Get the set of contacts.
+  std::vector<RigidContact>& contacts = get_contacts(state);
+
+  // Examine contacts.
+  for (size_t i = 0, contact_index = 0; i < contacts.size(); ++i) {
     if (contacts[i].state == RigidContact::ContactState::kNotContacting)
       continue;
 
-    // If the normal force is zero, we assume that the contact is separating.
-    if (fN(j) < zero_tol) {
+    // Contact will only be made inactive if it the bodies are separating at
+    // that point.
+    if (abs(Nvplus[contact_index]) > zero_tol) {
       contacts[i].state = RigidContact::ContactState::kNotContacting;
     } else {
-      if (abs(Fv(j)) > zero_tol)
+      // It's conceivable that no impulsive force was applied but the contact
+      // is still active. Either way, check to see whether the contact is
+      // sliding or not-sliding.
+      if (abs(Fvplus[contact_index]) > zero_tol)
         contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
       else
         contacts[i].state =
             RigidContact::ContactState::kContactingWithoutSliding;
     }
 
-    // Update index of the contact normal force / tangent velocity.
-    j++;
+    contact_index++;
   }
 }
 
@@ -299,28 +346,21 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
   if (IsImpacting(context)) {
     // Rod IS undergoing an impact. Model the impact problem (which also
     // redetermines contact modes).
-    ModelImpact(state);
+    T zero_tol;
+    VectorX<T> Nvplus, Fvplus;
+    ModelImpact(state, &Nvplus, &Fvplus, &zero_tol);
+    DetermineVelLevelActiveSet(state, Nvplus, Fvplus, zero_tol);
   }
 
   // The active set must now be redetermined using the derivative at the current
   // time. Only active contacts are processed, and whether the contact is
   // sliding or not is determined by that contact's corresponding abstract
   // state variable.
-  SolveSustainedContactLCP(context, state);
-
-  // Whether a contact will remain active is determined by the LCP slack
-  // variable corresponding to normal forces (i.e., if it is positive, the
-  // contact should be marked as inactive). Whether a non-sliding contact will
-  // transition to sliding will be determined by the slack variable
-  // corresponding to tangential acceleration. Whether a sliding contact will
-  // transition to non-sliding will depend on the tangent velocity at that
-  // point of contact.
-
-  // Determine the constraints that are active; these will be used to determine
-  // the constraints applied when evaluating the DAE.
+  DetermineAccelLevelActiveSet(context, state);
 }
 
 // Performs the operation A * Xᵀ, where some rows of X are zero.
+// This method aims to reduce computation during SolveSustainedContactLCP().
 // @param indices the indices of the non-zero rows of X
 template <class T>
 MatrixX<T> Rod2D<T>::MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
@@ -340,6 +380,7 @@ MatrixX<T> Rod2D<T>::MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
 }
 
 // Performs the operation A + X * diag(scale), where some rows of X are zero.
+// This method aims to reduce computation during SolveSustainedContactLCP().
 // @param indices the indices of the non-zero rows of X
 template <class T>
 MatrixX<T> Rod2D<T>::AddScaledRightTerm(const MatrixX<T>& A,
@@ -353,12 +394,43 @@ MatrixX<T> Rod2D<T>::AddScaledRightTerm(const MatrixX<T>& A,
   return result;
 }
 
-// Solves the linear complementarity problem for the rod/2D halfspace problem
-// using the state at the current context and uses that result to determine
-// the active set of contact constraints.
+// Gets the indices of the vectors of sliding contacts and non-sliding contacts.
+// The indices of active contacts can be determined by taking the union of
+// these mutually exclusive sets.
+// @note sliding_contacts and non_sliding_contacts are cleared immediately
+//       after entry to this function.
 template <class T>
-void Rod2D<T>::SolveSustainedContactLCP(
-    const systems::Context<T>& context, systems::State<T>* state) const {
+void Rod2D<T>::GetContactVectors(const std::vector<RigidContact>& contacts,
+                                 std::vector<int>* sliding_contacts,
+                                 std::vector<int>* non_sliding_contacts) {
+  sliding_contacts->clear();
+  non_sliding_contacts->clear();
+
+  for (size_t i = 0; i < contacts.size(); ++i) {
+    if (contacts[i].state ==
+        RigidContact::ContactState::kContactingAndSliding) {
+      sliding_contacts->push_back(i);
+    } else {
+      if (contacts[i].state ==
+          RigidContact::ContactState::kContactingWithoutSliding)
+        non_sliding_contacts->push_back(i);
+    }
+  }
+}
+
+// Forms the LCP matrix and vector, which is used both to determine the active
+// set of constraints and to compute the accelerations during ODE evaluations.
+template <class T>
+void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
+                                       MatrixX<T>* MM,
+                                       Eigen::Matrix<T, Eigen::Dynamic, 1>* qq,
+                                       MatrixX<T>* N_minus_mu_Q,
+                                       MatrixX<T>* iM_x_FT) const {
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
+  DRAKE_DEMAND(N_minus_mu_Q);
+  DRAKE_DEMAND(iM_x_FT);
+
   // Get state variables.
   const VectorX<T> q = context.get_continuous_state()->
       get_generalized_position().CopyToVector();
@@ -371,16 +443,7 @@ void Rod2D<T>::SolveSustainedContactLCP(
   // Get the sets of sliding and non-sliding contacts.
   std::vector<int> sliding_contacts, non_sliding_contacts;
   const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
-  for (size_t i = 0; i < contacts.size(); ++i) {
-    if (contacts[i].state ==
-        RigidContact::ContactState::kContactingAndSliding) {
-      sliding_contacts.push_back(i);
-    } else {
-      if (contacts[i].state ==
-          RigidContact::ContactState::kContactingWithoutSliding)
-        non_sliding_contacts.push_back(i);
-    }
-  }
+  GetContactVectors(contacts, &sliding_contacts, &non_sliding_contacts);
 
   // Get numbers of types of contacts.
   const int num_sliding = sliding_contacts.size();
@@ -395,15 +458,12 @@ void Rod2D<T>::SolveSustainedContactLCP(
     mu(j++) = contacts[i].mu;
   }
 
-  // TODO(edrumwri): If no contacts are active, exit.
-
   // Total number of friction directions = number of friction directions
   // per contact * number of contacts. Because this problem is two dimensional,
   // no polygonalization of a friction cone is necessary. However, the LCP
   // variables can only assume positive values, so the negation of the tangent
   // direction permits obtaining the same effect.
-  const int k = 2;                     // Number of friction directions.
-  const int nk = k * num_non_sliding;
+  const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
   const int half_nk = nk / 2;
 
   // Problem matrices and vectors are mildly adapted from:
@@ -500,62 +560,121 @@ void Rod2D<T>::SolveSustainedContactLCP(
     j++;
   }
 
-  // If this were 3D, the number of tangent directions would be the number of
-  // edges in the polygonalization of the friction cone. In 2D, both tangent
-  // directions (+/-x) must be covered.
-  const int num_tangent_dirs = 2;
-
   // Construct a matrix similar to E in Anitscu and Potra 1997. This matrix
   // will be used to specify the constraints 0 ≤ μ⋅fN - E⋅fF ⊥ λ ≥ 0 and
   // 0 ≤ e⋅λ + F⋅dv/dt ⊥ fF ≥ 0.
   MatrixX<T> E = MatrixX<T>::Zero(nk, num_non_sliding);
+  const int num_tangent_dirs = get_num_tangent_directions_per_contact();
   for (int i = 0, j = 0; i < num_non_sliding; ++i) {
     E.col(i).segment(j, num_tangent_dirs).setOnes();
     j += num_tangent_dirs;
   }
 
   // Precompute using indices.
-  MatrixX<T> N_minus_mu_Q = AddScaledRightTerm(N, -mu, Q, sliding_contacts);
-  MatrixX<T> iM_x_FT = MultTranspose(iM, F, non_sliding_contacts);
+  *N_minus_mu_Q = AddScaledRightTerm(N, -mu, Q, sliding_contacts);
+  *iM_x_FT = MultTranspose(iM, F, non_sliding_contacts);
 
-  // Construct the LCP matrix. First do the "normal contact direction" rows.
+  // Construct the LCP matrix. First do the "normal contact direction" rows:
+  // N⋅M⁻¹⋅(Nᵀ - μQᵀ)  N⋅M⁻¹⋅Dᵀ  0
+  // D⋅M⁻¹⋅Nᵀ          D⋅M⁻¹⋅Dᵀ  E
+  // μ                 -Eᵀ       0
+  // where D = [F -F]
   const int nvars = nc + nk + num_non_sliding;
-  MatrixX<T> MM;
-  MM.resize(nvars, nvars);
-  MM.block(0, 0, nc, nc) = N * iM * N_minus_mu_Q.transpose();
-  MM.block(0, nc, nc, half_nk) = N * iM_x_FT;
-  MM.block(0, nc + half_nk, nc, half_nk) = -MM.block(0, nc, nc, half_nk);
-  MM.block(0, nc + nk, num_non_sliding, num_non_sliding).setZero();
+  MM->resize(nvars, nvars);
+  MM->block(0, 0, nc, nc) = N * iM * N_minus_mu_Q->transpose();
+  MM->block(0, nc, nc, half_nk) = N * (*iM_x_FT);
+  MM->block(0, nc + half_nk, nc, half_nk) = -MM->block(0, nc, nc, half_nk);
+  MM->block(0, nc + nk, num_non_sliding, num_non_sliding).setZero();
 
   // Now construct the un-negated tangent contact direction rows (everything
   // but last block column).
-  MM.block(nc, 0, half_nk, nc) = F * iM * N.transpose();
-  MM.block(nc, nc, half_nk, half_nk) = F * iM * F.transpose();
-  MM.block(nc, nc + half_nk, half_nk, half_nk) =
-      -MM.block(nc, nc, half_nk, half_nk);
+  MM->block(nc, 0, half_nk, nc) = F * iM * N.transpose();
+  MM->block(nc, nc, half_nk, half_nk) = F * iM * F.transpose();
+  MM->block(nc, nc + half_nk, half_nk, half_nk) =
+       -MM->block(nc, nc, half_nk, half_nk);
 
   // Now construct the negated tangent contact direction rows (everything but
   // last block column). These negated tangent contact directions allow the
   // LCP to compute forces applied along the negative x-axis.
-  MM.block(nc + half_nk, 0, half_nk, nc + nk) =
-      -MM.block(nc, 0, half_nk, nc + nk);
+  MM->block(nc + half_nk, 0, half_nk, nc + nk) =
+       -MM->block(nc, 0, half_nk, nc + nk);
 
   // Construct the last block column for the last set of rows (see Anitescu and
   // Potra, 1997).
-  MM.block(nc, nc + nk, nk, num_non_sliding) = E;
+  MM->block(nc, nc + nk, nk, num_non_sliding) = E;
 
   // Construct the last two rows, which provide the friction "cone" constraint.
-  MM.block(nc + nk, 0, nc, nc) = Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu);
-  MM.block(nc + nk, nc, nc, nk) = -E.transpose();
-  MM.block(nc + nk, nc+nk, nc, nc).setZero();
+  MM->block(nc + nk, 0, nc, nc) = Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu);
+  MM->block(nc + nk, nc, nc, nk) = -E.transpose();
+  MM->block(nc + nk, nc+nk, nc, nc).setZero();
 
-  // Construct the LCP vector.
+  // Construct the LCP vector:
+  // N⋅M⁻¹⋅fext + dN/dt⋅v
+  // D⋅M⁻¹⋅fext + dD/dt⋅v
+  // 0
+  // where, as above, D is defined as [F -F]
+  qq->resize(nvars, 1);
+  qq->segment(0, nc) = N * iM * fext + Ndot * v;
+  qq->segment(nc, half_nk) = F * iM * fext + Fdot * v;
+  qq->segment(nc + half_nk, half_nk) = -qq->segment(nc, half_nk);
+  qq->segment(nc + nk, num_non_sliding).setZero();
+}
+
+// Formulates and solves the linear complementarity problem ww = MM⋅zz + qq,
+// zz ≥ 0, ww ≥ 0, zzᵀww = 0, for zz and ww that corresponds to the
+// rod/2D halfspace problem using the state at the current context (which
+// also specifies the active set). We expect ww = 0, indicating that
+// zz = -MM⁻¹qq. The existence of a strictly negative element of zz indicates
+// that the active set needs to change.
+template <class T>
+void Rod2D<T>::SolveSustainedContactLCP(
+    const systems::Context<T>& context) {
+  MatrixX<T> MM, N_minus_mu_Q, iM_x_FT;
   Eigen::Matrix<T, Eigen::Dynamic, 1> qq;
-  qq.resize(nvars, 1);
-  qq.segment(0, nc) = N * iM * fext + Ndot * v;
-  qq.segment(nc, half_nk) = F * iM * fext + Fdot * v;
-  qq.segment(nc + half_nk, half_nk) = -qq.segment(nc, half_nk);
-  qq.segment(nc + nk, num_non_sliding).setZero();
+
+  // Form the linear complementarity problem.
+  FormSustainedContactLCP(context, &MM, &qq, &N_minus_mu_Q, &iM_x_FT);
+
+  // Solve the linear system. The LCP used in the active set method computed
+  // an (invertible) basis to attain its solution, which means that MM should
+  // be invertible. However, the LCP matrix was regularized (which may have
+  // allowed an otherwise unsolvable LCP to be unsolvable in addition to its
+  // other function, that of minimizing the effect of pivoting error on the
+  // ability of the solver to find a solution on known solvable problems). For
+  // this reason, we will also employ regularization here.
+  const double cfm = get_cfm();
+  MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
+  LU_.compute(MM);
+  VectorX<T> zz = LU_.solve(-qq);
+
+  // TODO(edrumwri): Verify non-negativity of zz?
+}
+
+// Determines the active set at the acceleration level. Namely, this method
+// determines when bodies may be accelerating away at a point of contact
+// or when a contact is transitioning from sticking to sliding.
+template <class T>
+void Rod2D<T>::DetermineAccelLevelActiveSet(
+    const systems::Context<T>& context, systems::State<T>* state) const {
+
+  // Get the mutable contacts.
+  std::vector<RigidContact>& contacts = get_contacts(state);
+
+  // Get the sets of sliding and non-sliding contacts.
+  std::vector<int> sliding_contacts, non_sliding_contacts;
+  GetContactVectors(contacts, &sliding_contacts, &non_sliding_contacts);
+
+  // Get numbers of friction directions and types of contacts.
+  const int num_sliding = sliding_contacts.size();
+  const int num_non_sliding = non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
+  const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
+  const int half_nk = nk / 2;
+
+  // Form the linear complementarity problem.
+  MatrixX<T> MM, N_minus_mu_Q, iM_x_FT;
+  Eigen::Matrix<T, Eigen::Dynamic, 1> qq;
+  FormSustainedContactLCP(context, &MM, &qq, &N_minus_mu_Q, &iM_x_FT);
 
   // Regularize the LCP matrix: this is essentially Tikhonov Regularization.
   // Cottle et al. show that any linear complementarity problem is solvable
@@ -563,29 +682,84 @@ void Rod2D<T>::SolveSustainedContactLCP(
   // R. Cottle, J.-S. Pang, and R. Stone. The Linear Complementarity Problem.
   // Academic Press, 1992.
   const double cfm = get_cfm();
-  MM += MatrixX<T>::Identity(nvars, nvars) * cfm;
+  MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
 
-  // Solve the LCP.
+  // Get the zero tolerance for solving the LCP.
+  const T zero_tol = lcp_.ComputeZeroTolerance(MM);
+
+  // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz);
+  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, zero_tol);
+  VectorX<T> ww = MM * zz + qq;
 
   // NOTE: This LCP might not be solvable due to inconsistent configurations.
   // Check the answer and throw a runtime error if it's no good.
-  if (!success)
+  if (!success || zz.minCoeff() < -zero_tol || ww.minCoeff() < -zero_tol ||
+      std::abs(zz.dot(ww)) > zero_tol)
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
 
-  // Obtain the normal and frictional contact forces.
-  VectorX<T> fN = zz.segment(0, nc);
-  VectorX<T> fF_pos = zz.segment(nc, half_nk);
-  VectorX<T> fF_neg = zz.segment(nc+half_nk, half_nk);
+  // Obtain the normal and frictional contact forces and the value of λ, which
+  // will yield the residual tangential accelerations unable to be eliminated
+  // for the non-sliding contacts. If λ = 0, then all contacts will remain
+  // non-sliding.
+  const auto fN = zz.segment(0, nc);
+  const auto fF_pos = zz.segment(nc, half_nk);
+  const auto fF_neg = zz.segment(nc+half_nk, half_nk);
+  const auto lambda = zz.segment(nc+nk, num_non_sliding);
+
+  // Construct the inverse generalized inertia matrix computed about the
+  // center of mass of the rod and expressed in the world frame.
+  Matrix3<T> iM;
+  iM << 1.0/mass_, 0,         0,
+      0,         1.0/mass_, 0,
+      0,         0,         1.0/J_;
 
   // Compute the acceleration.
   VectorX<T> a = iM * (N_minus_mu_Q.transpose() * fN) +
       iM_x_FT * (fF_pos - fF_neg);
 
-  // TODO(edrumwri):  Use the slack variables to determine what constraints
-  // should be active during the interval.
-  VectorX<T> w = MM * zz + qq;
+  // Now determine what constraints should be active during the interval.
+  // Two possibilities exist for checking whether the contact should become
+  // inactive over the interval. The normal force may be zero, though this check
+  // must account for the rounding error that accumulates during the pivoting
+  // process. A safer check will examine the magnitudes of both the slack
+  // variable (which should be non-negative if the constraint is inactive) and
+  // the normal force; however, we must consider the case where both the
+  // normal force and the slack variable are zero. As an example, assume that
+  // 1e-8 is the magnitude of the normal force and 1e-12 is the value of the
+  // slack variable. Should this contact be considered to be active or inactive?
+  // What about 2e-12 and 1e-12, respectively? These examples will lead us to
+  // consider a contact to be active if the signed normal force is greater than
+  // one order of magnitude larger than the slack variable magnitude.
+  for (size_t i = 0, contact_index = 0, non_sliding_index = 0;
+       i < contacts.size(); ++i) {
+    if (contacts[i].state == RigidContact::ContactState::kNotContacting)
+      continue;
+
+    // Contact is currently active; see whether to make it inactive.
+    if (fN[contact_index] < abs(ww[contact_index])) {
+      // If the contact is currently not sliding, must update the lambda index.
+      if (contacts[i].state ==
+          RigidContact::ContactState::kContactingWithoutSliding)
+        ++non_sliding_index;
+
+      contacts[i].state = RigidContact::ContactState::kNotContacting;
+    } else {
+      // Contact cannot transition from sliding to not-sliding here. That must
+      // happen in the ModelImpactAndDetermineSliding() method. However, contact
+      // can transition from not-sliding to sliding if the appropriate
+      // slack variable is strictly positive.
+      if (contacts[i].state ==
+          RigidContact::ContactState::kContactingWithoutSliding) {
+        if (lambda[non_sliding_index] > zero_tol)
+          contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
+        ++non_sliding_index;
+      }
+    }
+
+    // Update contact index.
+    ++contact_index;
+  }
 }
 
 template <class T>
