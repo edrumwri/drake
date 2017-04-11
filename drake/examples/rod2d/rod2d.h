@@ -1,7 +1,7 @@
 #pragma once
 
 #include "drake/examples/rod2d/rigid_contact.h"
-
+#include "gtest/gtest_prod.h"
 #include <memory>
 #include <utility>
 
@@ -175,33 +175,6 @@ class Rod2D : public systems::LeafSystem<T> {
     kCompliant
   };
 
-  /// Possible dynamic modes for the 2D rod.
-  enum Mode {
-    /// Mode is invalid.
-        kInvalid,
-
-    /// Rod is currently undergoing ballistic motion.
-        kBallisticMotion,
-
-    /// Rod is sliding while undergoing non-impacting contact at one contact
-    /// point (a rod endpoint); the other rod endpoint is not in contact.
-        kSlidingSingleContact,
-
-    /// Rod is sticking while undergoing non-impacting contact at one contact
-    /// point (a rod endpoint); the other rod endpoint is not in contact.
-        kStickingSingleContact,
-
-    /// Rod is sliding at two contact points without impact. It should be
-    /// evident that the tangent velocity at the two endpoints of the rod must
-    /// be equal.
-        kSlidingTwoContacts,
-
-    /// Rod is sticking at two contact points without impact.  It should be
-    /// evident that the tangent velocity at two endpoints of the rod must be
-    /// both zero or both nonzero.
-        kStickingTwoContacts
-  };
-
   /// Constructor for the 2D rod system using the piecewise DAE (differential
   /// algebraic equation) based approach, the time stepping approach, or the
   /// compliant ordinary differential equation based approach.
@@ -216,15 +189,11 @@ class Rod2D : public systems::LeafSystem<T> {
   /// systems only).
   double get_cfm() const { return cfm_; }
 
-  /// Sets the constraint force mixing parameter (CFM, used for time stepping
-  /// systems only). The default CFM value is 1e-8.
+  /// Sets the constraint force mixing parameter. The default CFM value is 1e-8.
+  /// This parameter regularizes the necessary equations to be solved for
+  /// the rod problem modeled with rigid contact.
   /// @param cfm a floating point value in the range [0, infinity].
-  /// @throws std::logic_error if this is not a time stepping system or if
-  ///         cfm is set to a negative value.
   void set_cfm(double cfm) {
-    if (simulation_type_ != SimulationType::kTimeStepping)
-      throw std::logic_error("Attempt to set CFM for non-time stepping "
-                             "system.");
     if (cfm < 0)
       throw std::logic_error("Negative CFM value specified.");
     cfm_ = cfm;
@@ -248,11 +217,6 @@ class Rod2D : public systems::LeafSystem<T> {
     erp_ = erp;
   }
 
-  /// Models impact using an inelastic impact model with friction.
-  /// @p new_state is set to the output of the impact model on return.
-  void HandleImpact(const systems::Context<T>& context,
-                    systems::State<T>* new_state) const;
-
   /// Gets the acceleration (with respect to the positive y-axis) due to
   /// gravity (i.e., this number should generally be negative).
   double get_gravitational_acceleration() const { return g_; }
@@ -265,6 +229,8 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_mu_coulomb() const { return mu_; }
 
   /// Sets the coefficient of dynamic (sliding) Coulomb friction.
+  // TODO(edrumwri): This function is now dangerous, b/c it allows the rod
+  // friction to get mismatched with the rigid contact friction. Fix this.
   void set_mu_coulomb(double mu) { mu_ = mu; }
 
   /// Gets the mass of the rod.
@@ -351,6 +317,14 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
+  /// Gets the vector of contact state variables from the given state.
+  const std::vector<RigidContact>& get_contacts(
+      const systems::State<T>& state) const;
+
+  /// Gets the vector of contact state variables from the given state.
+  std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
+
+  /*
   /// The witness function for signed distance between the rod and the
   /// half-space. The witness function will return positive values when the
   /// rod is separated from the halfspace, negative values when the rod is
@@ -378,7 +352,7 @@ class Rod2D : public systems::LeafSystem<T> {
   ///      and the halfspace will be approximately zero and that the vertical
   ///      velocity at the point of contact will be approximately zero.
   ///      Assertion failure is triggered if the rod is in a ballistic mode.
-T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
+  T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
 
   /// Evaluates the witness function for sliding direction changes. The witness
   /// function will bracket a zero crossing when the direction of sliding
@@ -396,7 +370,7 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   /// a negative value at the end of an interval, a transition from sticking
   /// to sliding has been indicated.
   T CalcStickingFrictionForceSlack(const systems::Context<T>& context) const;
-
+*/
   /// Gets the number of witness functions for the system active in the system
   /// for a given state (using @p context).
   int DetermineNumWitnessFunctions(const systems::Context<T>& context) const;
@@ -421,21 +395,45 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
+  friend class Rod2DDAETest;
+  FRIEND_TEST(Rod2DDAETest, ImpactWorks);
+  FRIEND_TEST(Rod2DDAETest, ImpactNoChange);
+  FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact);
+  FRIEND_TEST(Rod2DDAETest, NoFrictionImpactThenNoImpact);
+  FRIEND_TEST(Rod2DDAETest, ImpactNoChange2);
+  FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact2);
+  FRIEND_TEST(Rod2DDAETest, NoFrictionImpactThenNoImpact2);
+  FRIEND_TEST(Rod2DDAETest, BallisticNoImpact);
+  FRIEND_TEST(Rod2DDAETest, ConsistentDerivativesContacting);
+  FRIEND_TEST(Rod2DDAETest, DerivativesContactingAndSticking);
+  FRIEND_TEST(Rod2DDAETest, Inconsistent);
+  FRIEND_TEST(Rod2DDAETest, Inconsistent2);
+
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of
   // edges in the polygonalization of the friction cone. In 2D, both tangent
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
-
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  void InitRigidContactAccelProblemData(const systems::Context<T>& context,
+      RigidContactAccelProblemData<T>* problem_data) const;
+  void FormRigidContactVelJacobians(const systems::State<T>& state,
+      RigidContactVelProblemData<T>* problem_data) const;
+  void FormRigidContactAccelJacobians(const systems::State<T>& state,
+      RigidContactAccelProblemData<T>* problem_data) const;
+  void ComputeSustainedContactProblemData(const systems::Context<T>& context,
+                                          MatrixX<T>* N, MatrixX<T>* F,
+                                          MatrixX<T>* N_minus_mu_Q,
+                                          MatrixX<T>* iM_x_FT) const;
   static void GetContactVectors(const std::vector<RigidContact>& contacts,
                                 std::vector<int>* sliding_contacts,
                                 std::vector<int>* non_sliding_contacts);
-  void SolveSustainedContactLCP(const systems::Context<T>& context);
+  void FormSustainedContactLinearSystem(const systems::Context<T>& context,
+      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
+      VectorX<T>* qq) const;
   void FormSustainedContactLCP(const systems::Context<T>& context,
-                               MatrixX<T>* MM,
-                               Eigen::Matrix<T, Eigen::Dynamic, 1>* qq,
-                               MatrixX<T>* N_minus_mu_Q,
-                               MatrixX<T>* iM_x_FT) const;
+      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
+      Eigen::Matrix<T, Eigen::Dynamic, 1>* qq) const;
   void DetermineAccelLevelActiveSet(const systems::Context<T>& context,
                                     systems::State<T>* state) const;
   MatrixX<T> AddScaledRightTerm(const MatrixX<T>& A, const VectorX<T>& scale,
@@ -444,10 +442,7 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   MatrixX<T> MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
                            const std::vector<int>& indices) const;
   Matrix2<T> get_rotation_matrix_derivative(
-      const systems::Context<T>& context) const;
-  const std::vector<RigidContact>& get_contacts(
       const systems::State<T>& state) const;
-  std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
   void ModelImpact(systems::State<T>* state, VectorX<T>* Nvplus = nullptr,
                    VectorX<T>* Fvplus = nullptr, T* zero_tol = nullptr) const;
   void DetermineVelLevelActiveSet(systems::State<T>* state,
@@ -526,7 +521,7 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   solvers::MobyLCPSolver<T> lcp_;
 
   // Computes contact forces for active set approach.
-  Eigen::PartialPivLU<MatrixX<T>> LU_;
+  mutable Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> QR_;
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;

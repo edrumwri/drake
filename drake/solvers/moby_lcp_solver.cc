@@ -95,13 +95,6 @@ MobyLCPSolver<T>::MobyLCPSolver()
     : MathematicalProgramSolverInterface(SolverType::kMobyLCP),
       log_enabled_(false) {}
 
-template <class T>
-template <class U>
-U MobyLCPSolver<T>::ComputeZeroTolerance(const MatrixX<U>& M) {
-  return M.rows() * M.template lpNorm<Eigen::Infinity>() *
-         std::numeric_limits<double>::epsilon();
-}
-
 template <typename T>
 void MobyLCPSolver<T>::SetLoggingEnabled(bool enabled) {
   log_enabled_ = enabled; }
@@ -790,6 +783,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
           << "MobyLCPSolver::SolveLcpLemke() - no new pivots (ray termination)"
           << std::endl;
       Log() << "MobyLCPSolver::SolveLcpLemke() exiting" << std::endl;
+      z->resize(n);
       return false;
     }
 
@@ -883,6 +877,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   Log() << " -- maximum number of iterations exceeded (n=" << n
         << ", max=" << max_iter << ")" << std::endl;
   Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+  z->resize(n);
   return false;
 }
 

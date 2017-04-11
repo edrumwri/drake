@@ -89,17 +89,25 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   systems::VectorBase<T>* qdot = state->get_mutable_continuous_state()->
       get_mutable_generalized_velocity();
 
-  // Three generalized coordinates / velocities.
-  const int ngc = 3;
+  // Initialize the problem data.
+  RigidContactVelProblemData<T> problem_data;
 
   // Get the points in contact.
-  int nc = 0;
   std::vector<RigidContact>& contacts = get_contacts(state);
   for (size_t i = 0; i < contacts.size(); ++i) {
     if (contacts[i].state != RigidContact::ContactState::kNotContacting)
-      nc++;
+      problem_data.active_contacts.push_back(i);
   }
+  const int nc = problem_data.active_contacts.size();
   DRAKE_DEMAND(nc > 0);
+
+  // Get the coefficients of friction for each point of contact.
+  VectorX<T> mu(nc);
+  for (size_t i = 0, j = 0; i < contacts.size(); ++i) {
+    if (contacts[i].state == RigidContact::ContactState::kNotContacting)
+      continue;
+    mu(j++) = contacts[i].mu;
+  }
 
   // Total number of friction directions = number of friction directions
   // per contact * number of contacts. Because this problem is two dimensional,
@@ -123,46 +131,13 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   // Form the generalized velocity vector.
   Vector3<T> v = qdot->CopyToVector();
 
-  // Get the transformation of vectors from the rod frame to the
-  // world frame.
-  const T theta = q[2];
-  Eigen::Rotation2D<T> R(theta);
+  // Compute the Jacobian matrices.
+  FormRigidContactVelJacobians(*state, &problem_data);
 
-  // Set the origin of the body frame (in the world frame).
-  const Vector2<T> x(q[0], q[1]);
-
-  // Set up the contact normal and tangent (friction) direction Jacobian
-  // matrices. These take the form:
-  //     | 0 1 n1 |        | 1 0 f1 |
-  // N = | 0 1 n2 |    F = | 1 0 f2 |
-  // where n1, n2/f1, f2 are the moment arm induced by applying the
-  // force at the given contact point along the normal/tangent direction.
-  MatrixX<T> N, F;
-  N.resize(nc, ngc);
-  F.resize(nc, ngc);
-  for (size_t i = 0, j = 0; i < contacts.size(); ++i) {
-    if (contacts[i].state == RigidContact::ContactState::kNotContacting)
-      continue;
-
-    // Transform the contact point to the world frame.
-    const Vector2<T> p = x + R * contacts[i].u;
-
-    // Horizontal component of normal Jacobian is always zero and vertical
-    // component is always one.
-    N(j, 0) = 0;
-    N(j, 1) = 1;
-    N(j, 2) = (p[0] - q[0]);
-
-    // Horizontal component of tangent Jacobian is always one and vertical
-    // component is always zero.
-    F(j, 0) = 1;
-    F(j, 1) = 0;
-    F(j, 2) = -(p[1] - q[1]);
-
-    // Update the Jacobian index.
-    j++;
-  }
-
+  // Create aliases to N and F.
+  MatrixX<T>& N = problem_data.N;
+  MatrixX<T>& F = problem_data.F;
+  
   // Look for the opportunity to skip out on building the LCP matrix.
   VectorX<T> Nv = N * v;
   if (Nv.minCoeff() >= 0) {
@@ -177,16 +152,13 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   }
 
   // Construct a matrix similar to E in Anitscu and Potra 1997. This matrix
-  // will yield mu*fN - E*fF = 0, or, equivalently:
-  // mu*fN₁ - fF₁⁺ - fF₁⁻ ≥ 0
-  // mu*fN₂ - fF₂⁺ - fF₂⁻ ≥ 0
-  MatrixX<T> E;
-  E.resize(nk, nc);
-  if (nc == 2) {
-    E.col(0) << 1, 0, 1, 0;
-    E.col(1) << 0, 1, 0, 1;
-  } else {
-    E.col(0) << 1, 1;
+  // will be used to specify the constraints 0 ≤ μ⋅fN - E⋅fF ⊥ λ ≥ 0 and
+  // 0 ≤ e⋅λ + F⋅v ⊥ fF ≥ 0.
+  MatrixX<T> E = MatrixX<T>::Zero(nk, nc);
+  const int num_tangent_dirs = get_num_tangent_directions_per_contact();
+  for (int i = 0, j = 0; i < nc; ++i) {
+    E.col(i).segment(j, num_tangent_dirs).setOnes();
+    j += num_tangent_dirs;
   }
 
   // Construct the LCP matrix. First do the "normal contact direction" rows.
@@ -195,7 +167,7 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   MM.resize(nvars, nvars);
   MM.block(0, 0, nc, nc) = N * iM * N.transpose();
   MM.block(0, nc, nc, nc) = N * iM * F.transpose();
-  MM.block(0, nc+2, nc, nc) = -MM.block(0, nc, nc, nc);
+  MM.block(0, nc*2, nc, nc) = -MM.block(0, nc, nc, nc);
   MM.block(0, nc+nk, nc, nc).setZero();
 
   // Now construct the un-negated tangent contact direction rows (everything
@@ -214,7 +186,7 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   MM.block(nc, nc+nk, nk, nc) = E;
 
   // Construct the last two rows, which provide the friction "cone" constraint.
-  MM.block(nc+nk, 0, nc, nc) = Matrix2<T>::Identity() * get_mu_coulomb();
+  MM.block(nc+nk, 0, nc, nc) = Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu);
   MM.block(nc+nk, nc, nc, nk) = -E.transpose();
   MM.block(nc+nk, nc+nk, nc, nc).setZero();
 
@@ -234,13 +206,15 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   const double cfm = get_cfm();
   MM += MatrixX<T>::Identity(nvars, nvars) * cfm;
 
-  // Compute the zero tolerance for solving the LCP.
-  if (zero_tol)
-    *zero_tol = lcp_.ComputeZeroTolerance(MM);
-
   // Solve the LCP.
   VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, *zero_tol);
+  bool success;
+  if (zero_tol) {
+    *zero_tol = lcp_.ComputeZeroTolerance(MM);
+    success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, *zero_tol);
+  } else {
+    success = lcp_.SolveLcpLemke(MM, qq, &zz);
+  }
   DRAKE_DEMAND(success);
 
   // Obtain the normal and frictional contact forces.
@@ -249,8 +223,8 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   VectorX<T> fF_neg = zz.segment(nc*2, nc);
 
   // Compute the new velocity and update it.
-  VectorX<T> vplus = v + iM * (N.transpose()*fN + F.transpose()*fF_pos -
-      F.transpose()*fF_neg);
+  VectorX<T> vplus = v + iM * (N.transpose()*fN +
+      F.transpose()*(fF_pos - fF_neg));
   qdot->SetFromVector(vplus);
 
   // Compute normal and tangent velocities *only if desired*.
@@ -265,6 +239,12 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
 // will be de-activated when contacting bodies are separating at that point
 // and that sliding and non-sliding are determined "freshly", i.e., without
 // any consideration of existing contact mode).
+// @param Nvplus the contact velocity projected along the normal contact
+//               directions.
+// @param Nvplus the contact velocity projected along the tangent contact
+//               directions.
+// @param zero_tol the tolerance with which the linear complementarity problem/
+//                 linear algebra problem was solved.
 template <class T>
 void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
                                           const VectorX<T>& Nvplus,
@@ -280,13 +260,13 @@ void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
 
     // Contact will only be made inactive if it the bodies are separating at
     // that point.
-    if (abs(Nvplus[contact_index]) > zero_tol) {
+    if (abs(Nvplus[contact_index]) > 10 * zero_tol) {
       contacts[i].state = RigidContact::ContactState::kNotContacting;
     } else {
       // It's conceivable that no impulsive force was applied but the contact
       // is still active. Either way, check to see whether the contact is
       // sliding or not-sliding.
-      if (abs(Fvplus[contact_index]) > zero_tol)
+      if (abs(Fvplus[contact_index]) > 10 * zero_tol)
         contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
       else
         contacts[i].state =
@@ -316,7 +296,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
   const Eigen::Rotation2D<T> R(theta);
   const Vector2<T> x(q(0), q(1));
   const Vector2<T> xdot(v(0), v(1));
-  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context);
+  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context.get_state());
 
   // Check whether a new point of contact is becoming active.
   for (size_t i = 0; i < contacts.size(); ++i) {
@@ -327,7 +307,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
     // Contact is not active; see whether the distance between the two bodies
     // at that contact is zero (or less). If so, activate the contact.
     // (1) Transform the contact into the global frame.
-    const Vector2<T> p = x + R * contacts[i].u;
+    const Vector2<T> p = x + R * contacts[i].u.segment(0,2);
 
     // (2) Compute the signed distance between the contact and the half-space.
     const double sdist = p(1);
@@ -338,7 +318,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
     // anew.
     if (sdist <= 0) {
       contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
-      DRAKE_DEMAND(v(1) + Rdot.row(1).dot(contacts[i].u) * thetadot < 0);
+      DRAKE_DEMAND(v(1) + Rdot.row(1).dot(contacts[i].u.segment(0,2)) * thetadot < 0);
     }
   }
 
@@ -360,7 +340,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
 }
 
 // Performs the operation A * Xᵀ, where some rows of X are zero.
-// This method aims to reduce computation during SolveSustainedContactLCP().
+// This method aims to reduce computation during FormSustainedContactLCP().
 // @param indices the indices of the non-zero rows of X
 template <class T>
 MatrixX<T> Rod2D<T>::MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
@@ -380,17 +360,17 @@ MatrixX<T> Rod2D<T>::MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
 }
 
 // Performs the operation A + X * diag(scale), where some rows of X are zero.
-// This method aims to reduce computation during SolveSustainedContactLCP().
+// This method aims to reduce computation during FormSustainedContactLCP().
 // @param indices the indices of the non-zero rows of X
 template <class T>
 MatrixX<T> Rod2D<T>::AddScaledRightTerm(const MatrixX<T>& A,
                                         const VectorX<T>& scale,
                                         const MatrixX<T>& X,
                                         const std::vector<int>& indices) const {
-  DRAKE_ASSERT(A.rows() == X.rows() && A.cols() == X.cols());
+  DRAKE_ASSERT(A.cols() == X.cols());
   MatrixX<T> result = A;
   for (size_t i = 0; i < indices.size(); ++i)
-    result.row(indices[i]) += scale(indices[i]) * X.row(indices[i]);
+    result.row(indices[i]) += scale(i) * X.row(i);
   return result;
 }
 
@@ -406,57 +386,241 @@ void Rod2D<T>::GetContactVectors(const std::vector<RigidContact>& contacts,
   sliding_contacts->clear();
   non_sliding_contacts->clear();
 
-  for (size_t i = 0; i < contacts.size(); ++i) {
+  for (size_t i = 0, contact_index = 0; i < contacts.size(); ++i) {
     if (contacts[i].state ==
         RigidContact::ContactState::kContactingAndSliding) {
-      sliding_contacts->push_back(i);
+      sliding_contacts->push_back(contact_index++);
     } else {
       if (contacts[i].state ==
           RigidContact::ContactState::kContactingWithoutSliding)
-        non_sliding_contacts->push_back(i);
+        non_sliding_contacts->push_back(contact_index++);
     }
   }
 }
 
-// Forms the LCP matrix and vector, which is used both to determine the active
-// set of constraints and to compute the accelerations during ODE evaluations.
+// Computes problem data necessary to form the sustained contact linear
+// complementarity problem or the sustained contact linear system.
 template <class T>
-void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
-                                       MatrixX<T>* MM,
-                                       Eigen::Matrix<T, Eigen::Dynamic, 1>* qq,
-                                       MatrixX<T>* N_minus_mu_Q,
-                                       MatrixX<T>* iM_x_FT) const {
-  DRAKE_DEMAND(MM);
-  DRAKE_DEMAND(qq);
-  DRAKE_DEMAND(N_minus_mu_Q);
-  DRAKE_DEMAND(iM_x_FT);
-
-  // Get state variables.
-  const VectorX<T> q = context.get_continuous_state()->
-      get_generalized_position().CopyToVector();
-  const VectorX<T> v = context.get_continuous_state()->
-      get_generalized_velocity().CopyToVector();
-
-  // Three generalized coordinates / velocities.
-  const int ngc = 3;
+void Rod2D<T>::InitRigidContactAccelProblemData(
+    const systems::Context<T>& context,
+    RigidContactAccelProblemData<T>* problem_data) const {
+  DRAKE_DEMAND(problem_data);
 
   // Get the sets of sliding and non-sliding contacts.
-  std::vector<int> sliding_contacts, non_sliding_contacts;
   const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
-  GetContactVectors(contacts, &sliding_contacts, &non_sliding_contacts);
+  GetContactVectors(contacts, &problem_data->sliding_contacts,
+                    &problem_data->non_sliding_contacts);
 
   // Get numbers of types of contacts.
-  const int num_sliding = sliding_contacts.size();
-  const int num_non_sliding = non_sliding_contacts.size();
-  const int nc = num_sliding + num_non_sliding;
+  const int num_sliding = problem_data->sliding_contacts.size();
+  const int num_non_sliding = problem_data->non_sliding_contacts.size();
 
-  // Get the coefficients of friction for each point of contact.
-  VectorX<T> mu(nc);
+  // Get the coefficients of friction for each contact.
+  problem_data->mu_sliding.resize(num_sliding);
+  problem_data->mu_non_sliding.resize(num_non_sliding);
+  for (size_t i = 0, sliding_index, non_sliding_index = 0;
+       i < contacts.size(); ++i) {
+    if (contacts[i].state ==
+        RigidContact::ContactState::kContactingWithoutSliding) {
+      problem_data->mu_non_sliding(non_sliding_index) = contacts[i].mu;
+      ++non_sliding_index;
+    } else {
+      if (contacts[i].state ==
+          RigidContact::ContactState::kContactingAndSliding) {
+        problem_data->mu_sliding(non_sliding_index) = contacts[i].mu;
+        ++sliding_index;
+      }
+    }
+  }
+}
+
+// Computes the external forces on the rod
+template <class T>
+Vector3<T> Rod2D<T>::ComputeExternalForces(
+    const systems::Context<T>& context) const {
+  // Compute the external forces (expressed in the world frame).
+  const int port_index = 0;
+  const auto input = this->EvalEigenVectorInput(context, port_index);
+  const Vector3<T> fgrav(0, mass_ * get_gravitational_acceleration(), 0);
+  const Vector3<T> fapplied = input.segment(0, 3);
+  return fgrav + fapplied;
+}
+
+// Computes the Jacobian matrices used for rigid contact constraints at the
+// velocity level.
+template <class T>
+void Rod2D<T>::FormRigidContactVelJacobians(
+    const systems::State<T>& state,
+    RigidContactVelProblemData<T>* problem_data) const {
+  // Get state variables.
+  const VectorX<T> q = state.get_continuous_state()->
+      get_generalized_position().CopyToVector();
+  const VectorX<T> v = state.get_continuous_state()->
+      get_generalized_velocity().CopyToVector();
+
+  // Three generalized velocity variables.
+  const int ngv = 3;
+
+  // Get total contacts.
+  const std::vector<RigidContact>& contacts = get_contacts(state);
+
+  // Get numbers of active contacts.
+  const int nc = problem_data->active_contacts.size();
+
+  // Get the transformation of vectors from the rod frame to the
+  // world frame.
+  const T& theta = q[2];
+  Eigen::Rotation2D<T> R(theta);
+
+  // Set the origin of the center of mass (in the world frame) and its velocity.
+  const Vector2<T> x(q[0], q[1]);
+  const Vector2<T> xdot(v[0], v[1]);
+
+  // Set up the contact normal and tangent (friction) direction Jacobian
+  // matrices and their time derivatives. These take the form:
+  //     | 0 1 n1 |        | 1 0 f1 |       | 1 0 f1 |
+  // N = | 0 1 n2 |    F = | 1 0 f2 |   Q = | 1 0 f2 |
+  // where n1, n2/f1, f2 are the moment arm induced by applying the
+  // force at the given contact point along the normal/tangent direction.
+  // F is for non-sliding contacts and Q is for sliding contacts.
+  problem_data->N.resize(nc, ngv);
+  problem_data->F.resize(nc, ngv);
   for (size_t i = 0, j = 0; i < contacts.size(); ++i) {
     if (contacts[i].state == RigidContact::ContactState::kNotContacting)
       continue;
-    mu(j++) = contacts[i].mu;
+
+    // Transform the contact point to the world frame.
+    const Vector2<T> p = x + R * contacts[i].u.segment(0,2);
+
+    // Horizontal component of normal Jacobian is always zero and vertical
+    // component is always one.
+    problem_data->N(j, 0) = 0;
+    problem_data->N(j, 1) = 1;
+    problem_data->N(j, 2) = p[0] - q[0];
+
+    problem_data->F(j, 0) = 1;
+    problem_data->F(j, 1) = 0;
+    problem_data->F(j, 2) = -(p[1] - q[1]);
+
+    // Update the normal index.
+    j++;
   }
+}
+
+// Computes the Jacobian matrices used for rigid contact constraints at the
+// acceleration level
+template <class T>
+void Rod2D<T>::FormRigidContactAccelJacobians(
+    const systems::State<T>& state,
+    RigidContactAccelProblemData<T>* problem_data) const {
+  // Get state variables.
+  const VectorX<T> q = state.get_continuous_state()->
+      get_generalized_position().CopyToVector();
+  const VectorX<T> v = state.get_continuous_state()->
+      get_generalized_velocity().CopyToVector();
+
+  // Three generalized velocity variables.
+  const int ngv = 3;
+
+  // Get total contacts.
+  const std::vector<RigidContact>& contacts = get_contacts(state);
+
+  // Get numbers of types of contacts.
+  const int num_sliding = problem_data->sliding_contacts.size();
+  const int num_non_sliding = problem_data->non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
+
+  // Get the transformation of vectors from the rod frame to the
+  // world frame.
+  const T& theta = q[2];
+  Eigen::Rotation2D<T> R(theta);
+
+  // Set the origin of the center of mass (in the world frame) and its velocity.
+  const Vector2<T> x(q[0], q[1]);
+  const Vector2<T> xdot(v[0], v[1]);
+
+  // Get the time derivative of the rotation matrix.
+  const Matrix2<T> Rdot = get_rotation_matrix_derivative(state);
+  const T& thetadot = v[2];
+
+  // Set up the contact normal and tangent (friction) direction Jacobian
+  // matrices and their time derivatives. These take the form:
+  //     | 0 1 n1 |        | 1 0 f1 |       | 1 0 f1 |
+  // N = | 0 1 n2 |    F = | 1 0 f2 |   Q = | 1 0 f2 |
+  // where n1, n2/f1, f2 are the moment arm induced by applying the
+  // force at the given contact point along the normal/tangent direction.
+  // F is for non-sliding contacts and Q is for sliding contacts.
+  problem_data->N.resize(nc, ngv);
+  problem_data->F.resize(num_non_sliding, ngv);
+  problem_data->Q.resize(num_sliding, ngv);
+  problem_data->Ndot.resize(nc, ngv);
+  problem_data->Fdot.resize(num_non_sliding, ngv);
+  for (size_t i = 0, j = 0, r = 0, s = 0; i < contacts.size(); ++i) {
+    if (contacts[i].state == RigidContact::ContactState::kNotContacting)
+      continue;
+
+    // Transform the contact point to the world frame.
+    const Vector2<T> p = x + R * contacts[i].u.segment(0,2);
+
+    // Get the velocity at the contact point.
+    const Vector2<T> pdot = xdot + Rdot * contacts[i].u.segment(0,2) * thetadot;
+
+    // Horizontal component of normal Jacobian is always zero and vertical
+    // component is always one.
+    problem_data->N(j, 0) = 0;
+    problem_data->N(j, 1) = 1;
+    problem_data->N(j, 2) = p[0] - q[0];
+
+    // Time derivative of normal Jacobian is even simpler.
+    problem_data->Ndot(j, 0) = 0;
+    problem_data->Ndot(j, 1) = 0;
+    problem_data->Ndot(j, 2) = pdot[0] - v[0];
+
+    if (contacts[i].state ==
+        RigidContact::ContactState::kContactingWithoutSliding) {
+
+      problem_data->F(r, 0) = 1;
+      problem_data->F(r, 1) = 0;
+      problem_data->F(r, 2) = -(p[1] - q[1]);
+
+      // Time derivative of tangent Jacobian is also simple.
+      problem_data->Fdot(r, 0) = 0;
+      problem_data->Fdot(r, 1) = 0;
+      problem_data->Fdot(r, 2) = -(pdot[1] - v[1]);
+      // Update r.
+      ++r;
+    } else {
+      // Tangent direction for a sliding contact points along the direction of
+      // sliding.
+      problem_data->Q(s, 0) = (pdot[0] > 0) ? 1 : -1;
+      problem_data->Q(s, 1) = 0;
+      problem_data->Q(s, 2) = -problem_data->Q(s,0)*(p[1] - q[1]);
+
+      // Update s.
+      ++s;
+    }
+
+    // Update the normal index.
+    j++;
+  }
+}
+
+// Forms the system of linear equations used to compute the accelerations during
+// ODE evaluations.
+template <class T>
+void Rod2D<T>::FormSustainedContactLinearSystem(
+    const systems::Context<T>& context,
+    const RigidContactAccelProblemData<T>& problem_data,
+    MatrixX<T>* MM, VectorX<T>* qq) const {
+  using std::abs;
+
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
+
+  // Get numbers of types of contacts.
+  const int num_sliding = problem_data.sliding_contacts.size();
+  const int num_non_sliding = problem_data.non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
 
   // Total number of friction directions = number of friction directions
   // per contact * number of contacts. Because this problem is two dimensional,
@@ -471,6 +635,9 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
   // Problems as Solvable Linear Complementarity Problems. Nonlinear Dynamics,
   // 14, 1997.
 
+  // Gets the external force on the system.
+  const Vector3<T> fext = ComputeExternalForces(context);
+
   // Construct the inverse generalized inertia matrix computed about the
   // center of mass of the rod and expressed in the world frame.
   Matrix3<T> iM;
@@ -478,87 +645,79 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
       0,         1.0/mass_, 0,
       0,         0,         1.0/J_;
 
-  // Compute the external forces (expressed in the world frame).
-  const int port_index = 0;
-  const auto input = this->EvalEigenVectorInput(context, port_index);
-  const Vector3<T> fgrav(0, mass_ * get_gravitational_acceleration(), 0);
-  const Vector3<T> fapplied = input.segment(0, 3);
-  const Vector3<T> fext = fgrav + fapplied;
+  // Alias matrices / vectors to make accessing them more wieldy.
+  const MatrixX<T>& N = problem_data.N;
+  const MatrixX<T>& Ndot = problem_data.Ndot;
+  const MatrixX<T>& F = problem_data.F;
+  const MatrixX<T>& Fdot = problem_data.Fdot;
 
-  // Get the transformation of vectors from the rod frame to the
-  // world frame.
-  const T& theta = q[2];
-  Eigen::Rotation2D<T> R(theta);
+  // Construct the matrix:
+  // N⋅M⁻¹⋅(Nᵀ - μQᵀ)  N⋅M⁻¹⋅Fᵀ
+  // F⋅M⁻¹⋅Nᵀ          F⋅M⁻¹⋅Dᵀ
+  const int nvars = nc + nk;
+  MM->resize(nvars, nvars);
+  MM->block(0, 0, nc, nc) = N * iM * problem_data.N_minus_mu_Q.transpose();
+  MM->block(0, nc, nc, half_nk) = N * (problem_data.iM_x_FT);
 
-  // Set the origin of the center of mass (in the world frame) and its velocity.
-  const Vector2<T> x(q[0], q[1]);
-  const Vector2<T> xdot(v[0], v[1]);
+  // Now construct the tangent contact direction rows for non-sliding contacts.
+  MM->block(nc, 0, half_nk, nc) = F * iM * N.transpose();
+  MM->block(nc, nc, half_nk, half_nk) = F * iM * F.transpose();
 
-  // Get the time derivative of the rotation matrix.
-  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context);
-  const T& thetadot = v[2];
+  // Construct the vector:
+  // N⋅M⁻¹⋅fext + dN/dt⋅v
+  // F⋅M⁻¹⋅fext + dF/dt⋅v
+  const VectorX<T> v = context.get_continuous_state()->
+      get_generalized_velocity().CopyToVector();
+  qq->resize(nvars, 1);
+  qq->segment(0, nc) = N * iM * fext + Ndot * v;
+  qq->segment(nc, half_nk) = F * iM * fext + Fdot * v;
+}
 
-  // Set up the contact normal and tangent (friction) direction Jacobian
-  // matrices and their time derivatives. These take the form:
-  //     | 0 1 n1 |        | 1 0 f1 |       | 1 0 f1 |
-  // N = | 0 1 n2 |    F = | 1 0 f2 |   Q = | 1 0 f2 |
-  // where n1, n2/f1, f2 are the moment arm induced by applying the
-  // force at the given contact point along the normal/tangent direction.
-  // F is for non-sliding contacts and Q is for sliding contacts.
-  MatrixX<T> N, F, Q, Ndot, Fdot;
-  N.resize(nc, ngc);
-  F.resize(num_non_sliding, ngc);
-  Q.resize(num_sliding, ngc);
-  Ndot.resize(nc, ngc);
-  Fdot.resize(num_non_sliding, ngc);
-  for (size_t i = 0, j = 0, r = 0, s = 0; i < contacts.size(); ++i) {
-    if (contacts[i].state == RigidContact::ContactState::kNotContacting)
-      continue;
+// Forms the LCP matrix and vector, which is used to determine the active
+// set of constraints at the acceleration-level.
+template <class T>
+void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
+    const RigidContactAccelProblemData<T>& problem_data,
+    MatrixX<T>* MM, Eigen::Matrix<T, Eigen::Dynamic, 1>* qq) const {
+  using std::abs;
 
-    // Transform the contact point to the world frame.
-    const Vector2<T> p = x + R * contacts[i].u;
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
 
-    // Get the velocity at the contact point.
-    const Vector2<T> pdot = xdot + Rdot * contacts[i].u * thetadot;
+  // Get numbers of types of contacts.
+  const int num_sliding = problem_data.sliding_contacts.size();
+  const int num_non_sliding = problem_data.non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
 
-    // Horizontal component of normal Jacobian is always zero and vertical
-    // component is always one.
-    N(j, 0) = 0;
-    N(j, 1) = 1;
-    N(j, 2) = p[0] - q[0];
+  // Total number of friction directions = number of friction directions
+  // per contact * number of contacts. Because this problem is two dimensional,
+  // no polygonalization of a friction cone is necessary. However, the LCP
+  // variables can only assume positive values, so the negation of the tangent
+  // direction permits obtaining the same effect.
+  const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
+  const int half_nk = nk / 2;
 
-    // Time derivative of normal Jacobian is even simpler.
-    Ndot(j, 0) = 0;
-    Ndot(j, 1) = 0;
-    Ndot(j, 2) = pdot[0] - v[0];
+  // Problem matrices and vectors are mildly adapted from:
+  // M. Anitescu and F. Potra. Formulating Dynamic Multi-Rigid Body Contact
+  // Problems as Solvable Linear Complementarity Problems. Nonlinear Dynamics,
+  // 14, 1997.
 
-    if (contacts[i].state ==
-        RigidContact::ContactState::kContactingWithoutSliding) {
+  // Gets the external force on the system.
+  const Vector3<T> fext = ComputeExternalForces(context);
 
-      F(r, 0) = 1;
-      F(r, 1) = 0;
-      F(r, 2) = -(p[1] - q[1]);
+  // Construct the inverse generalized inertia matrix computed about the
+  // center of mass of the rod and expressed in the world frame.
+  Matrix3<T> iM;
+  iM << 1.0/mass_, 0,         0,
+      0,         1.0/mass_, 0,
+      0,         0,         1.0/J_;
 
-      // Time derivative of tangent Jacobian is also simple.
-      Fdot(r, 0) = 0;
-      Fdot(r, 1) = 0;
-      Fdot(r, 2) = -(pdot[1] - v[1]);
-      // Update r.
-      ++r;
-    } else {
-      // Tangent direction for a sliding contact points along the direction of
-      // sliding.
-      Q(s, 0) = (pdot[0] > 0) ? 1 : -1;
-      Q(s, 1) = 0;
-      Q(s, 2) = -Q(s,0)*(p[1] - q[1]);
-
-      // Update s.
-      ++s;
-    }
-
-    // Update the normal index.
-    j++;
-  }
+  // Alias matrices / vectors to make accessing them more wieldy.
+  const MatrixX<T>& N = problem_data.N;
+  const MatrixX<T>& Ndot = problem_data.Ndot;
+  const MatrixX<T>& F = problem_data.F;
+  const MatrixX<T>& Fdot = problem_data.Fdot;
+  const VectorX<T>& mu_non_sliding = problem_data.mu_non_sliding;
 
   // Construct a matrix similar to E in Anitscu and Potra 1997. This matrix
   // will be used to specify the constraints 0 ≤ μ⋅fN - E⋅fF ⊥ λ ≥ 0 and
@@ -570,10 +729,6 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
     j += num_tangent_dirs;
   }
 
-  // Precompute using indices.
-  *N_minus_mu_Q = AddScaledRightTerm(N, -mu, Q, sliding_contacts);
-  *iM_x_FT = MultTranspose(iM, F, non_sliding_contacts);
-
   // Construct the LCP matrix. First do the "normal contact direction" rows:
   // N⋅M⁻¹⋅(Nᵀ - μQᵀ)  N⋅M⁻¹⋅Dᵀ  0
   // D⋅M⁻¹⋅Nᵀ          D⋅M⁻¹⋅Dᵀ  E
@@ -581,8 +736,8 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
   // where D = [F -F]
   const int nvars = nc + nk + num_non_sliding;
   MM->resize(nvars, nvars);
-  MM->block(0, 0, nc, nc) = N * iM * N_minus_mu_Q->transpose();
-  MM->block(0, nc, nc, half_nk) = N * (*iM_x_FT);
+  MM->block(0, 0, nc, nc) = N * iM * problem_data.N_minus_mu_Q.transpose();
+  MM->block(0, nc, nc, half_nk) = N * (problem_data.iM_x_FT);
   MM->block(0, nc + half_nk, nc, half_nk) = -MM->block(0, nc, nc, half_nk);
   MM->block(0, nc + nk, num_non_sliding, num_non_sliding).setZero();
 
@@ -604,50 +759,23 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
   MM->block(nc, nc + nk, nk, num_non_sliding) = E;
 
   // Construct the last two rows, which provide the friction "cone" constraint.
-  MM->block(nc + nk, 0, nc, nc) = Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu);
-  MM->block(nc + nk, nc, nc, nk) = -E.transpose();
-  MM->block(nc + nk, nc+nk, nc, nc).setZero();
+  MM->block(nc + nk, 0, num_non_sliding, num_non_sliding) =
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu_non_sliding);
+  MM->block(nc + nk, nc, num_non_sliding, nk) = -E.transpose();
+  MM->block(nc + nk, nc+nk, num_non_sliding, num_non_sliding).setZero();
 
   // Construct the LCP vector:
   // N⋅M⁻¹⋅fext + dN/dt⋅v
   // D⋅M⁻¹⋅fext + dD/dt⋅v
   // 0
   // where, as above, D is defined as [F -F]
+  const VectorX<T> v = context.get_continuous_state()->
+      get_generalized_velocity().CopyToVector();
   qq->resize(nvars, 1);
   qq->segment(0, nc) = N * iM * fext + Ndot * v;
   qq->segment(nc, half_nk) = F * iM * fext + Fdot * v;
   qq->segment(nc + half_nk, half_nk) = -qq->segment(nc, half_nk);
   qq->segment(nc + nk, num_non_sliding).setZero();
-}
-
-// Formulates and solves the linear complementarity problem ww = MM⋅zz + qq,
-// zz ≥ 0, ww ≥ 0, zzᵀww = 0, for zz and ww that corresponds to the
-// rod/2D halfspace problem using the state at the current context (which
-// also specifies the active set). We expect ww = 0, indicating that
-// zz = -MM⁻¹qq. The existence of a strictly negative element of zz indicates
-// that the active set needs to change.
-template <class T>
-void Rod2D<T>::SolveSustainedContactLCP(
-    const systems::Context<T>& context) {
-  MatrixX<T> MM, N_minus_mu_Q, iM_x_FT;
-  Eigen::Matrix<T, Eigen::Dynamic, 1> qq;
-
-  // Form the linear complementarity problem.
-  FormSustainedContactLCP(context, &MM, &qq, &N_minus_mu_Q, &iM_x_FT);
-
-  // Solve the linear system. The LCP used in the active set method computed
-  // an (invertible) basis to attain its solution, which means that MM should
-  // be invertible. However, the LCP matrix was regularized (which may have
-  // allowed an otherwise unsolvable LCP to be unsolvable in addition to its
-  // other function, that of minimizing the effect of pivoting error on the
-  // ability of the solver to find a solution on known solvable problems). For
-  // this reason, we will also employ regularization here.
-  const double cfm = get_cfm();
-  MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
-  LU_.compute(MM);
-  VectorX<T> zz = LU_.solve(-qq);
-
-  // TODO(edrumwri): Verify non-negativity of zz?
 }
 
 // Determines the active set at the acceleration level. Namely, this method
@@ -660,21 +788,44 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   // Get the mutable contacts.
   std::vector<RigidContact>& contacts = get_contacts(state);
 
-  // Get the sets of sliding and non-sliding contacts.
-  std::vector<int> sliding_contacts, non_sliding_contacts;
-  GetContactVectors(contacts, &sliding_contacts, &non_sliding_contacts);
+  // Populate problem data.
+  RigidContactAccelProblemData<T> problem_data;
+  InitRigidContactAccelProblemData(context, &problem_data);
+  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
+  const std::vector<int>& non_sliding_contacts =
+      problem_data.non_sliding_contacts;
 
   // Get numbers of friction directions and types of contacts.
   const int num_sliding = sliding_contacts.size();
   const int num_non_sliding = non_sliding_contacts.size();
   const int nc = num_sliding + num_non_sliding;
   const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
-  const int half_nk = nk / 2;
+
+  // Compute Jacobian matrices.
+  FormRigidContactAccelJacobians(*state, &problem_data);
+
+  // Alias vectors and Jacobian matrices.
+  const MatrixX<T>& N = problem_data.N;
+  const MatrixX<T>& Q = problem_data.Q;
+  const MatrixX<T>& F = problem_data.F;
+  const VectorX<T>& mu_sliding = problem_data.mu_sliding;
+
+  // Construct the inverse generalized inertia matrix computed about the
+  // center of mass of the rod and expressed in the world frame.
+  Matrix3<T> iM;
+  iM << 1.0/mass_, 0,         0,
+      0,         1.0/mass_, 0,
+      0,         0,         1.0/J_;
+
+  // Precompute using indices.
+  problem_data.N_minus_mu_Q = AddScaledRightTerm(N, -mu_sliding, Q,
+                              sliding_contacts);
+  problem_data.iM_x_FT = MultTranspose(iM, F, non_sliding_contacts);
 
   // Form the linear complementarity problem.
-  MatrixX<T> MM, N_minus_mu_Q, iM_x_FT;
+  MatrixX<T> MM;
   Eigen::Matrix<T, Eigen::Dynamic, 1> qq;
-  FormSustainedContactLCP(context, &MM, &qq, &N_minus_mu_Q, &iM_x_FT);
+  FormSustainedContactLCP(context, problem_data, &MM, &qq);
 
   // Regularize the LCP matrix: this is essentially Tikhonov Regularization.
   // Cottle et al. show that any linear complementarity problem is solvable
@@ -689,13 +840,13 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
 
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, zero_tol);
+  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
   VectorX<T> ww = MM * zz + qq;
 
   // NOTE: This LCP might not be solvable due to inconsistent configurations.
   // Check the answer and throw a runtime error if it's no good.
-  if (!success || zz.minCoeff() < -zero_tol || ww.minCoeff() < -zero_tol ||
-      std::abs(zz.dot(ww)) > zero_tol)
+  if (!success || zz.minCoeff() < -10*zero_tol ||
+      ww.minCoeff() < -10*zero_tol || abs(zz.dot(ww)) > 10*zero_tol)
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
 
   // Obtain the normal and frictional contact forces and the value of λ, which
@@ -703,20 +854,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   // for the non-sliding contacts. If λ = 0, then all contacts will remain
   // non-sliding.
   const auto fN = zz.segment(0, nc);
-  const auto fF_pos = zz.segment(nc, half_nk);
-  const auto fF_neg = zz.segment(nc+half_nk, half_nk);
   const auto lambda = zz.segment(nc+nk, num_non_sliding);
-
-  // Construct the inverse generalized inertia matrix computed about the
-  // center of mass of the rod and expressed in the world frame.
-  Matrix3<T> iM;
-  iM << 1.0/mass_, 0,         0,
-      0,         1.0/mass_, 0,
-      0,         0,         1.0/J_;
-
-  // Compute the acceleration.
-  VectorX<T> a = iM * (N_minus_mu_Q.transpose() * fN) +
-      iM_x_FT * (fF_pos - fF_neg);
 
   // Now determine what constraints should be active during the interval.
   // Two possibilities exist for checking whether the contact should become
@@ -746,7 +884,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
       contacts[i].state = RigidContact::ContactState::kNotContacting;
     } else {
       // Contact cannot transition from sliding to not-sliding here. That must
-      // happen in the ModelImpactAndDetermineSliding() method. However, contact
+      // happen in the DetermineVelLevelActiveSet() method. However, contact
       // can transition from not-sliding to sliding if the appropriate
       // slack variable is strictly positive.
       if (contacts[i].state ==
@@ -762,6 +900,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   }
 }
 
+/*
 template <class T>
 T Rod2D<T>::CalcSignedDistance(const systems::Context<T>& context) const {
   using std::sin;
@@ -908,74 +1047,12 @@ T Rod2D<T>::CalcStickingFrictionForceSlack(const systems::Context<T>& context)
   const double mu = get_mu_coulomb();
   return mu * fN - abs(fF);
 }
-
-template <class T>
-int Rod2D<T>::DetermineNumWitnessFunctions(const systems::Context<T>&
-                                             context) const {
-  // No witness functions if this is not a piecewise DAE model.
-  if (simulation_type_ != SimulationType::kPiecewiseDAE)
-    return 0;
-
-  // Get the abstract variable that determines the current system mode.
-  Mode mode = context.template get_abstract_state<Mode>(0);
-
-  switch (mode) {
-    case Rod2D::kBallisticMotion:
-      // The rod is in ballistic flight, there is just one witness function:
-      // the signed distance between the rod and the half-space.
-      return 1;
-
-    case Rod2D::kSlidingSingleContact:
-      // The rod is undergoing contact without impact and is sliding at a single
-      // point of contact. Three witness functions are necessary: one for
-      // checking whether the rod is to separate from the half-space, another
-      // for checking whether the direction of sliding has changed, and a third
-      // for checking for contact between the other rod endpoint and the ground.
-      return 3;
-
-    case Rod2D::kStickingSingleContact:
-      // The rod is undergoing contact without impact and is sticking at a
-      // single point of contact. Three witness functions are necessary: one for
-      // checking whether the rod is to separate from the half-space, a
-      // second for checking for contact between the other rod endpoint
-      // and the ground, and a third for checking for the transition from
-      // sticking to sliding.
-      return 3;
-
-    case Rod2D::kSlidingTwoContacts:
-      // The rod is undergoing sliding contact without impact at two points of
-      // contact. Two witness functions are necessary: one for checking
-      // whether the rod is to separate from the half-space and one more to
-      // check whether the rod is to transition from sliding to sticking.
-      // TODO(edrumwri): Add two more witness functions- one to check separation
-      //                 from half-space for second contact point and another
-      //                 to check transition from sliding to sticking from
-      //                 second contact point.
-      return 2;
-
-    case Rod2D::kStickingTwoContacts:
-      // The rod is undergoing sticking contact without impact at two points of
-      // contact. Two witness functions are necessary: one to check whether
-      // the rod is to separate from the half-space and one more to check
-      // whether the rod is to transition from sticking to sliding.
-      // TODO(edrumwri): Add two more witness functions- one to check separation
-      //                 from half-space for second contact point and another
-      //                 to check transition from sticking to sliding from
-      //                 second contact point.
-      return 2;
-
-    default:
-      DRAKE_ABORT();
-  }
-
-  DRAKE_ABORT();
-  return 0;
-}
+*/
 
 /// Gets the integer variable 'k' used to determine the point of contact
 /// indicated by the current mode.
 /// @throws std::logic_error if this is a time-stepping system (implying that
-///         modes are unused).
+///         modes are unused) or modes indicate no point is in contact.
 /// @returns the value -1 to indicate the bottom of the rod (when theta = pi/2),
 ///          +1 to indicate the top of the rod (when theta = pi/2), or 0 to
 ///          indicate the mode where both endpoints of the rod are contacting
@@ -984,9 +1061,21 @@ template <class T>
 int Rod2D<T>::get_k(const systems::Context<T>& context) const {
   if (simulation_type_ != SimulationType::kPiecewiseDAE)
     throw std::logic_error("'k' is only valid for piecewise DAE approach.");
-  const int k = context.template get_abstract_state<int>(1);
-  DRAKE_DEMAND(std::abs(k) <= 1);
-  return k;
+
+  const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
+  DRAKE_DEMAND(contacts.size() == 2);
+  if (contacts.front().state != RigidContact::ContactState::kNotContacting) {
+    if (contacts.back().state != RigidContact::ContactState::kNotContacting) {
+      return 0;
+    } else {
+      return -1;
+    }
+  } else {
+      if (contacts.back().state != RigidContact::ContactState::kNotContacting)
+        return 1;
+  }
+
+  throw std::logic_error("No modes are active.");
 }
 
 template <class T>
@@ -1006,6 +1095,12 @@ Vector2<T> Rod2D<T>::CalcCoincidentRodPointVelocity(
   const Vector2<T> p_RoC_W = p_WC - p_WRo;  // Vector from R origin to C, in W.
   const Vector2<T> v_WRc = v_WRo + w_cross_r(w_WR, p_RoC_W);
   return v_WRc;
+}
+
+template <class T>
+int Rod2D<T>::DetermineNumWitnessFunctions(const systems::Context<T>&
+context) const {
+  return 0;
 }
 
 template <typename T>
@@ -1053,8 +1148,8 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // Compute the two rod vertical endpoint locations.
   const T stheta = sin(theta), ctheta = cos(theta);
 
-  // Three generalized coordinates / velocities.
-  const int ngc = 3;
+  // Three generalized velocity variables.
+  const int ngv = 3;
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
@@ -1102,7 +1197,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // N = | 0 1 n2 |    F = | 1 0 f2 |
   // where n1, n2/f1, f2 are the moment arm induced by applying the
   // force at the given contact point along the normal/tangent direction.
-  Eigen::Matrix<T, nc, ngc> N, F;
+  Eigen::Matrix<T, nc, ngv> N, F;
   N(0, 0) = N(1, 0) = 0;
   N(0, 1) = N(1, 1) = 1;
   N(0, 2) = (left[0]  - x);
@@ -1186,275 +1281,6 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
       get_mutable_discrete_state(0);
   new_state->get_mutable_value().segment(0, 3) = qplus;
   new_state->get_mutable_value().segment(3, 3) = vplus;
-}
-
-/// Models impact using an inelastic impact model with friction.
-template <typename T>
-void Rod2D<T>::HandleImpact(const systems::Context<T>& context,
-                               systems::State<T>* new_state) const {
-  using std::abs;
-
-  // This method is only used for piecewise DAE integration. The time
-  // stepping method implicitly incorporates impact into its model.
-  DRAKE_DEMAND(simulation_type_ == SimulationType::kPiecewiseDAE);
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& x = state.GetAtIndex(0);
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-  const T& xdot = state.GetAtIndex(3);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // Get the continuous state vector.
-  systems::VectorBase<T>* new_statev = new_state->
-      get_mutable_continuous_state()->get_mutable_vector();
-
-  // Positional aspects of state do not change.
-  new_statev->SetAtIndex(0, x);
-  new_statev->SetAtIndex(1, y);
-  new_statev->SetAtIndex(2, theta);
-
-  // Copy abstract variables (mode and contact point) by default. Mode
-  // may change depending on impact outcome.
-  new_state->get_mutable_abstract_state()->CopyFrom(
-      *context.get_abstract_state());
-
-  // If there is no impact, quit now.
-  if (!IsImpacting(context)) {
-    new_statev->SetAtIndex(3, xdot);
-    new_statev->SetAtIndex(4, ydot);
-    new_statev->SetAtIndex(5, thetadot);
-    return;
-  }
-
-  // TODO(edrumwri): Handle two-point impact.
-  DRAKE_DEMAND(abs(sin(theta)) >= std::numeric_limits<T>::epsilon());
-
-  // The two points of the rod are located at (x,y) + R(theta)*[0,r/2] and
-  // (x,y) + R(theta)*[0,-r/2], where
-  // R(theta) = | cos(theta) -sin(theta) |
-  //            | sin(theta)  cos(theta) |
-  // and r is designated as the rod length. Thus, the heights of
-  // the rod endpoints are y + sin(theta)*r/2 and y - sin(theta)*r/2,
-  // or, y + k*sin(theta)*r/2, where k = +/-1.
-
-  // Determine the point of contact (cx,cy).
-  const T ctheta = cos(theta), stheta = sin(theta);
-  const int k = (stheta > 0) ? -1 : 1;
-  const Vector2<T> c = CalcRodEndpoint(x, y, k, ctheta, stheta, half_length_);
-  const T cx = c[0];
-  const T cy = c[1];
-
-  // Compute the impulses such that the tangential velocity post-collision
-  // is zero.
-  const Vector2<T> f_sticking = CalcStickingImpactImpulse(context);
-  T fN = f_sticking(0);
-  T fF = f_sticking(1);
-
-  // See whether it is necessary to recompute the impulses (because the impulse
-  // lies outside of the friction cone). In that case, the rod will have
-  // non-zero sliding velocity post-impact (i.e., it will be sliding).
-  if (mu_*fN < abs(fF)) {
-    const Vector2<T> f_sliding = CalcFConeImpactImpulse(context);
-    fN = f_sliding(0);
-    fF = f_sliding(1);
-
-    // Set the mode to sliding.
-    new_state->template get_mutable_abstract_state<Mode>(0) =
-      Rod2D<T>::kSlidingSingleContact;
-  } else {
-    // Set the mode to sticking.
-    new_state->template get_mutable_abstract_state<Mode>(0) =
-      Rod2D<T>::kStickingSingleContact;
-  }
-
-  // Compute the change in linear velocity.
-  const T delta_xdot = fF / mass_;
-  const T delta_ydot = fN / mass_;
-
-  // Change in thetadot is equivalent to the third component of:
-  // | cx - x |    | fF |
-  // | cy - y | ×  | fN | = (cx - x) * fN - (cy - y) * fF)
-  // | 0      |    | 0  |
-  // divided by the moment of inertia.
-  const T delta_thetadot = ((cx - x) * fN - (cy - y) * fF) / J_;
-
-  // Verify that the post-impact velocity is non-negative (to allowable floating
-  // point error).
-  DRAKE_DEMAND((ydot + delta_ydot) +
-                   k * ctheta * half_length_ * (thetadot + delta_thetadot) >
-               -10*std::numeric_limits<double>::epsilon());
-
-  // Update the velocity.
-  new_statev->SetAtIndex(3, xdot + delta_xdot);
-  new_statev->SetAtIndex(4, ydot + delta_ydot);
-  new_statev->SetAtIndex(5, thetadot + delta_thetadot);
-}
-
-// Computes the impulses such that the vertical velocity at the contact point
-// is zero and the frictional impulse lies exactly on the friction cone.
-// These equations were determined by issuing the
-// following commands in Mathematica:
-//
-// cx[t_] := x[t] + k*Cos[theta[t]]*(r/2)
-// cy[t_] := y[t] + k*Sin[theta[t]]*(r/2)
-// Solve[{mass*delta_xdot == fF,
-//        mass*delta_ydot == fN,
-//        J*delta_thetadot == (cx[t] - x)*fN - (cy - y)*fF,
-//        0 == (D[y[t], t] + delta_ydot) +
-//              k*(r/2) *Cos[theta[t]]*(D[theta[t], t] + delta_thetadot),
-//        fF == mu*fN *-sgn_cxdot},
-//       {delta_xdot, delta_ydot, delta_thetadot, fN, fF}]
-// where theta is the counter-clockwise angle the rod makes with the x-axis,
-// fN and fF are contact normal and frictional forces;  delta_xdot,
-// delta_ydot, and delta_thetadot represent the changes in velocity,
-// r is the length of the rod, sgn_xdot is the sign of the tangent
-// velocity (pre-impact), and (hopefully) all other variables are
-// self-explanatory.
-//
-// The first two equations above are the formula
-// for the location of the point of contact. The next two equations
-// describe the relationship between the horizontal/vertical change in
-// momenta at the center of mass of the rod and the frictional/normal
-// contact impulses. The fifth equation yields the moment from
-// the contact impulses. The sixth equation specifies that the post-impact
-// velocity in the vertical direction be zero. The last equation corresponds
-// to the relationship between normal and frictional impulses (dictated by the
-// Coulomb friction model).
-// @returns a Vector2, with the first element corresponding to the impulse in
-//          the normal direction (positive y-axis) and the second element
-//          corresponding to the impulse in the tangential direction (positive
-//          x-axis).
-// TODO(@edrumwri) This return vector is backwards -- should be x,y not y,x!
-template <class T>
-Vector2<T> Rod2D<T>::CalcFConeImpactImpulse(
-    const systems::Context<T>& context) const {
-  using std::abs;
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T> &state = context.get_continuous_state_vector();
-  const T& x = state.GetAtIndex(0);
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-  const T& xdot = state.GetAtIndex(3);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // The two points of the rod are located at (x,y) + R(theta)*[0,r/2] and
-  // (x,y) + R(theta)*[0,-r/2], where
-  // R(theta) = | cos(theta) -sin(theta) |
-  //            | sin(theta)  cos(theta) |
-  // and r is designated as the rod length. Thus, the heights of
-  // the rod endpoints are y + sin(theta)*r/2 and y - sin(theta)*r/2,
-  // or, y + k*sin(theta)*r/2, where k = +/-1.
-  const T ctheta = cos(theta), stheta = sin(theta);
-  const int k = (stheta > 0) ? -1 : 1;
-  const T cy = y + k * stheta * half_length_;
-  const double mu = mu_;
-  const double J = J_;
-  const double mass = mass_;
-  const double r = 2 * half_length_;
-
-  // Compute the impulses.
-  const T cxdot = xdot - k * stheta * half_length_ * thetadot;
-  const int sgn_cxdot = (cxdot > 0) ? 1 : -1;
-  const T fN = (J * mass * (-(r * k * ctheta * thetadot) / 2 - ydot)) /
-      (J + (r * k * mass * mu * (-y + cy) * ctheta * sgn_cxdot) / 2 -
-          (r * k * mass * ctheta * (x - (r * k * ctheta) / 2 - x)) / 2);
-  const T fF = -sgn_cxdot * mu * fN;
-
-  // Verify normal force is non-negative.
-  DRAKE_DEMAND(fN >= 0);
-
-  return Vector2<T>(fN, fF);
-}
-
-// Computes the impulses such that the velocity at the contact point is zero.
-// These equations were determined by issuing the following commands in
-// Mathematica:
-//
-// cx[t_] := x[t] + k*Cos[theta[t]]*(r/2)
-// cy[t_] := y[t] + k*Sin[theta[t]]*(r/2)
-// Solve[{mass*delta_xdot == fF, mass*delta_ydot == fN,
-//        J*delta_thetadot == (cx[t] - x)*fN - (cy - y)*fF,
-//        0 == (D[y[t], t] + delta_ydot) +
-//             k*(r/2) *Cos[theta[t]]*(D[theta[t], t] + delta_thetadot),
-//        0 == (D[x[t], t] + delta_xdot) +
-//             k*(r/2)*-Cos[theta[t]]*(D[theta[t], t] + delta_thetadot)},
-//       {delta_xdot, delta_ydot, delta_thetadot, fN, fF}]
-// which computes the change in velocity and frictional (fF) and normal (fN)
-// impulses necessary to bring the system to rest at the point of contact,
-// 'r' is the rod length, theta is the counter-clockwise angle measured
-// with respect to the x-axis; delta_xdot, delta_ydot, and delta_thetadot
-// are the changes in velocity.
-//
-// The first two equations above are the formula
-// for the location of the point of contact. The next two equations
-// describe the relationship between the horizontal/vertical change in
-// momenta at the center of mass of the rod and the frictional/normal
-// contact impulses. The fifth equation yields the moment from
-// the contact impulses. The sixth and seventh equations specify that the
-// post-impact velocity in the horizontal and vertical directions at the
-// point of contact be zero.
-// @returns a Vector2, with the first element corresponding to the impulse in
-//          the normal direction (positive y-axis) and the second element
-//          corresponding to the impulse in the tangential direction (positive
-//          x-axis).
-// TODO(@edrumwri) This return vector is backwards -- should be x,y not y,x!
-template <class T>
-Vector2<T> Rod2D<T>::CalcStickingImpactImpulse(
-    const systems::Context<T>& context) const {
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& x = state.GetAtIndex(0);
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-  const T& xdot = state.GetAtIndex(3);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // The two points of the rod are located at (x,y) + R(theta)*[0,r/2] and
-  // (x,y) + R(theta)*[0,-r/2], where
-  // R(theta) = | cos(theta) -sin(theta) |
-  //            | sin(theta)  cos(theta) |
-  // and r is designated as the rod length. Thus, the heights of
-  // the rod endpoints are y + sin(theta)*l/2 and y - sin(theta)*l/2,
-  // or, y + k*sin(theta)*l/2, where k = +/-1.
-  const T ctheta = cos(theta), stheta = sin(theta);
-  const int k = (stheta > 0) ? -1 : 1;
-  const T cy = y + k * stheta * half_length_;
-
-  // Compute the impulses.
-  const double r = 2 * half_length_;
-  const double mass = mass_;
-  const double J = J_;
-  const T fN = (2 * (-(r * J * k * mass * ctheta * thetadot) +
-      r * k * mass * mass * y * ctheta * xdot -
-      r * k * mass * mass * cy * ctheta * xdot -
-      2 * J * mass * ydot + r * k * mass * mass * y * ctheta * ydot -
-      r * k * mass * mass * cy * ctheta * ydot)) /
-      (4 * J - 2 * r * k * mass * x * ctheta -
-          2 * r * k * mass * y * ctheta + 2 * r * k * mass * cy * ctheta +
-          r * r * k * k * mass * ctheta * ctheta +
-          2 * r * k * mass * ctheta * x);
-  const T fF = -((mass * (-2 * r * J * k * ctheta * thetadot + 4 * J * xdot -
-      2 * r * k * mass * x * ctheta * xdot +
-      r * r * k * k * mass * ctheta * ctheta * xdot +
-      2 * r * k * mass * ctheta * x * xdot -
-      2 * r * k * mass * x * ctheta * ydot +
-      r * r * k * k * mass * ctheta * ctheta * ydot +
-      2 * r * k * mass * ctheta * x * ydot)) /
-      (4 * J - 2 * r * k * mass * x * ctheta -
-          2 * r * k * mass * y * ctheta + 2 * r * k * mass * cy * ctheta +
-          r * r * k * k * mass * ctheta * ctheta +
-          2 * r * k * mass * ctheta * x));
-
-  // Verify that normal impulse is non-negative.
-  DRAKE_DEMAND(fN > 0.0);
-
-  return Vector2<T>(fN, fF);
 }
 
 // Sets the velocity derivatives for the rod, given contact forces.
@@ -1575,9 +1401,12 @@ void Rod2D<T>::SetAccelerations(const systems::Context<T>& context,
   }
 }
 
-// Computes the contact forces for the case of zero sliding velocity, assuming
-// that the tangential acceleration at the point of contact will be zero
-// (i.e., cxddot = 0). This function solves for these forces.
+// Computes the contact forces for the case of zero sliding velocity for a
+// single point of contact, assuming that the tangential acceleration at that
+// point will be zero (i.e., cxddot = 0). This function solves for these forces.
+// NOTE: put another way, this function computes the forces corresponding to
+// the dynamics of a single mode (sticking-single-contact) in the hybrid
+// dynamical system model of this system.
 //
 // Equations were determined by issuing the following command in Mathematica:
 // cx[t_] := x[t] + k*Cos[theta[t]]*(r/2)
@@ -1654,7 +1483,10 @@ Vector2<T> Rod2D<T>::CalcStickingContactForces(
 }
 
 // Computes the contact forces for the case of nonzero sliding velocity at
-// two points of contact. Equations governing the dynamics in this mode are:
+// two points of contact. NOTE: put another way, this function computes the
+// forces corresponding to the dynamics of a single mode (sliding-two-contacts)
+// in the hybrid dynamical system model of this system. Equations governing the
+// dynamics in this mode are:
 //
 // (1) M⋅dv/dt = fext + NᵀfN - μFᵀfN
 // (2) N⋅dv/dt + dN/dt⋅v ≥ 0
@@ -1711,8 +1543,8 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   // Compute the two rod vertical endpoint locations.
   const T stheta = sin(theta), ctheta = cos(theta);
 
-  // Three generalized coordinates / velocities.
-  const int ngc = 3;
+  // Three generalized velocity variables.
+  const int ngv = 3;
 
   // Find left and right end point locations.
   const Vector2<T> left =
@@ -1750,7 +1582,7 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   // N = | 0 1 n2 |    F = | 1 0 f2 |
   // where n1, n2/f1, f2 are the moment arm induced by applying the
   // force at the given contact point along the normal/tangent direction.
-  Eigen::Matrix<T, nc, ngc> N, F;
+  Eigen::Matrix<T, nc, ngv> N, F;
   N(0, 0) = N(1, 0) = 0;
   N(0, 1) = N(1, 1) = 1;
   N(0, 2) = (left[0] - x);
@@ -1762,7 +1594,7 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   F(1, 2) = -sliding_sign_right*(right[1] - y);
 
   // Compute dN/dt.
-  Eigen::Matrix<T, nc, ngc> Ndot;
+  Eigen::Matrix<T, nc, ngv> Ndot;
   Ndot(0, 0) = Ndot(1, 0) = 0;
   Ndot(0, 1) = Ndot(1, 1) = 0;
   Ndot(0, 2) = (leftdot[0] - xdot);
@@ -1803,7 +1635,10 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
 }
 
 // Computes the contact forces for the case of zero sliding velocity at two
-// points of contact. Equations governing the dynamics in this mode are:
+// points of contact. NOTE: put another way, this function computes the forces
+// corresponding to the dynamics of a single mode (nonsliding-two-contacts) in
+// the hybrid dynamical system model of this system. Equations governing the
+// dynamics in this mode are:
 //
 // (1) M⋅dv/dt = fext + NᵀfN + DᵀfD
 // (2) N⋅dv/dt + dN/dt⋅v ≥ 0
@@ -1856,15 +1691,11 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
   DRAKE_DEMAND(fN && fN->size() == nc);
   DRAKE_DEMAND(fF && fF->size() == nc);
 
-  // Get the inputs.
-  const int port_index = 0;
-  const auto input = this->EvalEigenVectorInput(context, port_index);
-
   // Compute the two rod vertical endpoint locations.
   const T stheta = sin(theta), ctheta = cos(theta);
 
-  // Three generalized coordinates / velocities.
-  const int ngc = 3;
+  // Three generalized velocity variables.
+  const int ngv = 3;
 
   // Find left and right end point locations.
   const Vector2<T> left = CalcRodEndpoint(x, y, -1, ctheta, stheta, half_length_);
@@ -1885,9 +1716,7 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
       0, 0, 1.0 / J_;
 
   // Compute the external forces (expressed in the world frame).
-  const Vector3<T> fgrav(0, mass_ * get_gravitational_acceleration(), 0);
-  const Vector3<T> fapplied = input.segment(0, 3);
-  const Vector3<T> fext = fgrav + fapplied;
+  const Vector3<T> fext = ComputeExternalForces(context);
 
   // Set up the contact normal and tangent (friction) direction Jacobian
   // matrices. These take the form:
@@ -1895,7 +1724,7 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
   // N = | 0 1 n2 |    F = | 1 0 f2 |
   // where n1, n2/f1, f2 are the moment arm induced by applying the
   // force at the given contact point along the normal/tangent direction.
-  Eigen::Matrix<T, nc, ngc> N, F;
+  Eigen::Matrix<T, nc, ngv> N, F;
   N(0, 0) = N(1, 0) = 0;
   N(0, 1) = N(1, 1) = 1;
   N(0, 2) = (left[0] - x);
@@ -1907,28 +1736,28 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
   F(1, 2) = -(right[1] - y);
 
   // Compute D.
-  Eigen::Matrix<T, 2*nc, ngc> D;
-  D.template block<nc, ngc>(0, 0) = F;
-  D.template block<nc, ngc>(nc, 0) = -F;
+  Eigen::Matrix<T, 2*nc, ngv> D;
+  D.template block<nc, ngv>(0, 0) = F;
+  D.template block<nc, ngv>(nc, 0) = -F;
 
   // Compute dN/dt.
-  Eigen::Matrix<T, nc, ngc> Ndot;
+  Eigen::Matrix<T, nc, ngv> Ndot;
   Ndot(0, 0) = Ndot(1, 0) = 0;
   Ndot(0, 1) = Ndot(1, 1) = 0;
   Ndot(0, 2) = (leftdot[0] - xdot);
   Ndot(1, 2) = (rightdot[0] - xdot);
 
   // Compute dF/dt.
-  Eigen::Matrix<T, nc, ngc> Fdot;
+  Eigen::Matrix<T, nc, ngv> Fdot;
   Fdot(0, 0) = Fdot(1, 0) = 0;
   Fdot(0, 1) = Fdot(1, 1) = 0;
   Fdot(0, 2) = -(leftdot[1] - ydot);
   Fdot(1, 2) = -(rightdot[1] - ydot);
 
   // Compute dD/dt.
-  Eigen::Matrix<T, 2*nc, ngc> Ddot;
-  Ddot.template block<nc, ngc>(0, 0) = Fdot;
-  Ddot.template block<nc, ngc>(nc, 0) = -Fdot;
+  Eigen::Matrix<T, 2*nc, ngv> Ddot;
+  Ddot.template block<nc, ngv>(0, 0) = Fdot;
+  Ddot.template block<nc, ngv>(nc, 0) = -Fdot;
 
   // Form the vector in the linear complementarity problem.
   Eigen::Matrix<T, 4*nc, 1> qq;
@@ -2116,7 +1945,10 @@ Vector3<T> Rod2D<T>::CalcCompliantContactForces(
 }
 
 // Computes the accelerations of the rod center of mass for the case of the rod
-// contacting the surface at exactly one point and with sliding velocity.
+// contacting the surface at exactly one point and with sliding velocity. NOTE:
+// put another way, this function computes the accelerations corresponding to
+// the dynamics of a single mode (sliding-single-contact) in the hybrid
+// dynamical system model of this system.
 template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactSliding(
     const systems::Context<T>& context,
@@ -2242,6 +2074,10 @@ void Rod2D<T>::CalcAccelerationsOneContactSliding(
 
 // Computes the accelerations of the rod center of mass for the case of the rod
 // contacting the surface at exactly one point and without any sliding velocity.
+// NOTE: put another way, this function computes the accelerations corresponding
+// to the dynamics of a single mode (non-sliding-single-contact, resulting in
+// either sticking or a transition to sliding) in the hybrid
+// dynamical system model of this system.
 template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     const systems::Context<T>& context,
@@ -2275,11 +2111,10 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
   DRAKE_DEMAND(fN >= 0);
 
   // Get the inputs.
-  const int port_index = 0;
-  const auto input = this->EvalEigenVectorInput(context, port_index);
-  const double fX = input(0);
-  const double fY = input(1);
-  const double tau = input(2);
+  Vector3<T> fext = ComputeExternalForces(context);
+  const double fX = fext(0);
+  const double fY = fext(1);
+  const double tau = fext(2);
 
   // Recompute fF if it does not lie within the friction cone.
   // Constrain F such that it lies on the edge of the friction cone.
@@ -2349,7 +2184,10 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
 }
 
 // Computes the accelerations of the rod center of mass for the case of the rod
-// contacting the surface at more than one point.
+// contacting the surface at more than one point. NOTE: put another way, this
+// function computes the accelerations corresponding to the dynamics of one
+// of two modes- sliding-two-contacts or non-sliding-two-contacts- in the hybrid
+// dynamical system model of this system.
 template <class T>
 void Rod2D<T>::CalcAccelerationsTwoContact(
     const systems::Context<T>& context,
@@ -2386,14 +2224,16 @@ void Rod2D<T>::CalcAccelerationsTwoContact(
   SetAccelerations(context, f, fN, fF, c1, c2);
 }
 
-// Returns the time derivative of the rotation matrix.
+// Returns the time derivative of the 2x2 rotation matrix Rᶻ(θ) that transforms
+// vectors in the Rod Frame to vectors in the world frame. Note that dRᶻ(θ)/dt
+// is equal to Ṙᶻ(θ)⋅dθ/dt, but that this function only returns Ṙᶻ(θ).
 template <class T>
 Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
-    const systems::Context<T>& context) const {
+    const systems::State<T>& state) const {
   using std::sin;
   using std::cos;
 
-  const T& theta = context.get_continuous_state_vector().GetAtIndex(2);
+  const T& theta = (*state.get_continuous_state())[2];
   const T ctheta = cos(theta);
   const T stheta = sin(theta);
   Matrix2<T> Rdot;
@@ -2403,6 +2243,9 @@ Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
 
 template <class T>
 bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
+  using std::abs;
+  using std::max;
+
   // Get the contact states.
   const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
 
@@ -2412,11 +2255,15 @@ bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
   const T& ydot = state.GetAtIndex(4);
   const T& thetadot = state.GetAtIndex(5);
 
+  // Compute the zero tolerance.
+  const T zero_tol = std::numeric_limits<double>::epsilon() * max(10.0,
+                         max(abs(xdot), max(abs(ydot), abs(thetadot))));
+
   // Set the velocity of the center of mass.
   const Vector2<T> v(xdot, ydot);
 
   // Get the time derivative of the rotation matrix.
-  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context);
+  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context.get_state());
 
   // Loop through all points of contact.
   for (size_t i = 0; i < contacts.size(); ++i) {
@@ -2424,11 +2271,11 @@ bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
       continue;
 
     // Compute the translational velocity at the point of contact.
-    VectorX<T> pdot = v + Rdot * contacts[i].u * thetadot;
+    VectorX<T> pdot = v + Rdot * contacts[i].u.segment(0,2) * thetadot;
 
     // Look for impact.
     const T rvel = pdot[1];
-    if (rvel < -10 * std::numeric_limits<double>::epsilon())
+    if (rvel < -zero_tol)
       return true;
   }
 
@@ -2495,47 +2342,95 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   }
 
   // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& xdot = state.GetAtIndex(3);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // Obtain the structure we need to write into.
-  systems::VectorBase<T>* const f = derivatives->get_mutable_vector();
+  const systems::VectorBase<T>& v = context.get_continuous_state()->
+      get_generalized_velocity();
+  const T& xdot = v.GetAtIndex(0);
+  const T& ydot = v.GetAtIndex(1);
+  const T& thetadot = v.GetAtIndex(2);
 
   // First three derivative components are xdot, ydot, thetadot.
-  f->SetAtIndex(0, xdot);
-  f->SetAtIndex(1, ydot);
-  f->SetAtIndex(2, thetadot);
+  derivatives->get_mutable_generalized_position()->SetFromVector(
+      Vector3<T>(xdot, ydot, thetadot));
 
   // Compute the velocity derivatives (accelerations).
   if (simulation_type_ == SimulationType::kCompliant) {
     return CalcAccelerationsCompliantContactAndBallistic(context, derivatives);
   } else {
     // (Piecewise DAE approach follows).
-    // Get the abstract variables that determine the current system mode and
-    // the endpoint in contact.
-    const Mode mode = context.template get_abstract_state<Mode>(0);
 
-    // Call the proper derivative function (depending on mode type).
-    switch (mode) {
-      case kBallisticMotion:
-        return CalcAccelerationsBallistic(context,
-                                          derivatives);
-      case kSlidingSingleContact:
-        return CalcAccelerationsOneContactSliding(context,
-                                                  derivatives);
-      case kStickingSingleContact:
-        return CalcAccelerationsOneContactNoSliding(context,
-                                                    derivatives);
-      case kSlidingTwoContacts:
-        return CalcAccelerationsTwoContact(context,
-                                           derivatives);
-      case kStickingTwoContacts:
-        return CalcAccelerationsTwoContact(context,
-                                           derivatives);
+    // Compute the external forces (expressed in the world frame).
+    const Vector3<T> fext = ComputeExternalForces(context);
 
-      default:DRAKE_ABORT_MSG("Invalid mode detected");
+    // Populate problem data.
+    RigidContactAccelProblemData<T> problem_data;
+    InitRigidContactAccelProblemData(context, &problem_data);
+    const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
+    const std::vector<int>& non_sliding_contacts =
+        problem_data.non_sliding_contacts;
+
+    // Get numbers of friction directions and types of contacts.
+    const int num_sliding = sliding_contacts.size();
+    const int num_non_sliding = non_sliding_contacts.size();
+    const int nc = num_sliding + num_non_sliding;
+    const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
+    const int half_nk = nk / 2;
+
+    // Compute Jacobian matrices.
+    FormRigidContactAccelJacobians(context.get_state(), &problem_data);
+
+    // Alias vectors and Jacobian matrices.
+    const MatrixX<T>& N = problem_data.N;
+    const MatrixX<T>& Q = problem_data.Q;
+    const MatrixX<T>& F = problem_data.F;
+    const VectorX<T>& mu_sliding = problem_data.mu_sliding;
+
+    // Construct the inverse generalized inertia matrix computed about the
+    // center of mass of the rod and expressed in the world frame.
+    Matrix3<T> iM;
+    iM << 1.0/mass_, 0,         0,
+        0,         1.0/mass_, 0,
+        0,         0,         1.0/J_;
+
+    // Alias matrices.
+    MatrixX<T>& N_minus_mu_Q = problem_data.N_minus_mu_Q;
+    MatrixX<T>& iM_x_FT = problem_data.iM_x_FT;
+
+    // Precompute using indices.
+    N_minus_mu_Q = AddScaledRightTerm(N, -mu_sliding, Q, sliding_contacts);
+    iM_x_FT = MultTranspose(iM, F, non_sliding_contacts);
+
+    // Formulate and solve the linear equation 0 = MM⋅zz + qq for zz.
+    MatrixX<T> MM;
+    VectorX<T> qq;
+    FormSustainedContactLinearSystem(context, problem_data, &MM, &qq);
+
+    // Solve the linear system. The LCP used in the active set method computed
+    // an (invertible) basis to attain its solution, which means that MM should
+    // be invertible. However, the LCP matrix was regularized (which may have
+    // allowed an otherwise unsolvable LCP to be unsolvable in addition to its
+    // other function, that of minimizing the effect of pivoting error on the
+    // ability of the solver to find a solution on known solvable problems). For
+    // this reason, we will also employ regularization here.
+    if (qq.size() > 0) {
+      // NOTE: this branch is necessary b/c Eigen currently handles zero-sized
+      // matrices in a dumb way - QR factorization asserts on such a matrix.
+      const double cfm = get_cfm();
+      MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
+      QR_.compute(MM);
+      VectorX<T> zz = QR_.solve(-qq);
+
+      // Get the contact forces.
+      const auto fN = zz.segment(0, nc);
+      const auto fF = zz.segment(nc, half_nk);
+
+      // Compute and save the acceleration at the center-of-mass.
+      VectorX<T> a = iM * (fext + N_minus_mu_Q.transpose() * fN) + iM_x_FT * fF;
+      derivatives->get_mutable_generalized_velocity()->SetFromVector(a);
+
+      // TODO(edrumwri): Verify non-negativity of zz or save the constraint
+      // multipliers?
+    } else {
+      derivatives->get_mutable_generalized_velocity()->SetFromVector(iM * fext);
     }
   }
 }
@@ -2549,11 +2444,8 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
     // contact point indicator.
     std::vector<std::unique_ptr<systems::AbstractValue>> abstract_data;
     abstract_data.push_back(
-        std::make_unique<systems::Value<Rod2D<T>::Mode>>(
-            Rod2D<T>::kInvalid));
+        std::make_unique<systems::Value<std::vector<RigidContact>>>());
 
-    // Indicates that the rod is in contact at both points.
-    abstract_data.push_back(std::make_unique<systems::Value<int>>(0));
     return std::make_unique<systems::AbstractValues>(std::move(abstract_data));
   } else {
     // Time stepping and compliant approaches need no abstract variables.
@@ -2584,17 +2476,23 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>& context,
 
     // Set abstract variables for piecewise DAE approach.
     if (simulation_type_ == SimulationType::kPiecewiseDAE) {
-      // Indicate that the rod is in the single contact sliding mode.
-      state->get_mutable_abstract_state()
-          ->get_mutable_value(0)
-          .template GetMutableValue<Rod2D<T>::Mode>() =
-          Rod2D<T>::kSlidingSingleContact;
+      // Initialize the vector of contact points.
+      std::vector<RigidContact>& contacts = get_contacts(state);
 
-      // Determine and set the point of contact.
-      const double theta = x0(2);
-      const int k = (sin(theta) > 0) ? -1 : 1;
-      state->get_mutable_abstract_state()->get_mutable_value(1)
-          .template GetMutableValue<int>() = k;
+      // Indicate that the rod is in the single contact sliding mode.
+      contacts.resize(2);
+
+      // First point is Rl in Rod Frame (see class documentation); in the
+      // default configuration, it contacts the half-space and is sliding.
+      contacts[0].state = RigidContact::ContactState::kContactingAndSliding;
+      contacts[0].mu = get_mu_coulomb();
+      contacts[0].u = Eigen::Vector3d(-get_rod_half_length(), 0, 0);
+
+      // Second point is Rr in Rod Frame. It is not initially contacting
+      // the half-space.
+      contacts[1].state = RigidContact::ContactState::kNotContacting;
+      contacts[1].mu = get_mu_coulomb();
+      contacts[1].u = Eigen::Vector3d(get_rod_half_length(), 0, 0);
     }
   }
 }

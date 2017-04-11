@@ -24,7 +24,6 @@ using Vector6d = Eigen::Matrix<double, 6, 1>;
 namespace drake {
 namespace examples {
 namespace rod2d {
-namespace {
 
 /// Class for testing the Rod2D example using a piecewise DAE
 /// approach.
@@ -39,6 +38,9 @@ class Rod2DDAETest : public ::testing::Test {
 
     // Use a non-unit mass.
     dut_->set_rod_mass(2.0);
+
+    // Set the cfm to be very small.
+    dut_->set_cfm(10 * std::numeric_limits<double>::epsilon());
 
     // Set a zero input force (this is the default).
     std::unique_ptr<BasicVector<double>> ext_input =
@@ -55,6 +57,38 @@ class Rod2DDAETest : public ::testing::Test {
 
   VectorBase<double> *continuous_state() {
     return context_->get_mutable_continuous_state_vector();
+  }
+
+  // Sets the rod to an upright, "resting" state (no initial velocity).
+  void SetUprightRestingState() {
+    // Set the initial state to sustained contact with zero tangential velocity
+    // at the point of contact.
+    const double half_len = dut_->get_rod_half_length();
+    ContinuousState<double>& xc =
+        *context_->get_mutable_continuous_state();
+    xc[0] = 0.0;
+    xc[1] = half_len;
+    xc[2] = M_PI_2;
+    xc[3] = 0.0;
+    xc[4] = 0.0;
+    xc[5] = 0.0;
+
+    // Prepare to set contact states.
+    std::vector<RigidContact>& contacts =
+        dut_->get_contacts(context_->get_mutable_state());
+    EXPECT_EQ(contacts.size(), 2);
+
+    // First point is Rl in Rod Frame (see class documentation); in this
+    // new configuration, it contacts the half-space without sliding.
+    contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
+    contacts[0].mu = dut_->get_mu_coulomb();
+    contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
+
+    // Second point is Rr in Rod Frame. In this new configuration; in this
+    // new configuration, it does not contact the half-space..
+    contacts[1].state = RigidContact::ContactState::kNotContacting;
+    contacts[1].mu = dut_->get_mu_coulomb();
+    contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
   }
 
   // Sets a secondary initial Painlevé configuration.
@@ -77,17 +111,25 @@ class Rod2DDAETest : public ::testing::Test {
     xc[4] = 0.0;
     xc[5] = 0.0;
 
-    // Indicate that the rod is in the single contact sliding mode.
-    AbstractValues* abs_state =
-        context_->get_mutable_state()->get_mutable_abstract_state();
-    abs_state->get_mutable_value(0)
-        .template GetMutableValue<Rod2D<double>::Mode>() =
-        Rod2D<double>::kSlidingSingleContact;
+    // Prepare to set contact states.
+    std::vector<RigidContact>& contacts =
+        dut_->get_contacts(context_->get_mutable_state());
+    EXPECT_EQ(contacts.size(), 2);
 
-    // Determine the point of contact.
-    const double theta = xc[2];
-    const int k = (std::sin(theta) > 0) ? -1 : 1;
-    abs_state->get_mutable_value(1).template GetMutableValue<int>() = k;
+    // Indicate that the rod is in the single contact sliding mode.
+    contacts.resize(2);
+
+    // First point is Rl in Rod Frame (see class documentation); in this
+    // new configuration, it does not contact the half-space..
+    contacts[0].state = RigidContact::ContactState::kNotContacting;
+    contacts[0].mu = dut_->get_mu_coulomb();
+    contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
+
+    // Second point is Rr in Rod Frame. In this new configuration, it
+    // contacts the half-space and is sliding.
+    contacts[1].state = RigidContact::ContactState::kContactingAndSliding;
+    contacts[1].mu = dut_->get_mu_coulomb();
+    contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
   }
 
   // Sets the rod to a state that corresponds to ballistic motion.
@@ -102,14 +144,22 @@ class Rod2DDAETest : public ::testing::Test {
     xc[4] = 2.0;
     xc[5] = 3.0;
 
-    // Set the mode to ballistic.
-    AbstractValues* abs_state =
-        context_->get_mutable_state()->get_mutable_abstract_state();
-    abs_state->get_mutable_value(0)
-        .template GetMutableValue<Rod2D<double>::Mode>() =
-        Rod2D<double>::kBallisticMotion;
+    // Prepare to set the contact mode to ballistic.
+    std::vector<RigidContact>& contacts =
+        dut_->get_contacts(context_->get_mutable_state());
+    EXPECT_EQ(contacts.size(), 2);
 
-    // Note: contact point mode is now arbitrary.
+    // First point is Rl in Rod Frame (see class documentation); in this
+    // new configuration, it does not contact the half-space..
+    contacts[0].state = RigidContact::ContactState::kNotContacting;
+    contacts[0].mu = dut_->get_mu_coulomb();
+    contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
+
+    // Second point is Rr in Rod Frame. In this new configuration; in this
+    // new configuration, it does not contact the half-space..
+    contacts[1].state = RigidContact::ContactState::kNotContacting;
+    contacts[1].mu = dut_->get_mu_coulomb();
+    contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
   }
 
   // Sets the rod to an interpenetrating configuration without modifying the
@@ -142,19 +192,7 @@ class Rod2DDAETest : public ::testing::Test {
     SetSecondInitialConfig();
     ContinuousState<double>& xc =
         *context_->get_mutable_continuous_state();
-    xc[4] = -1.0;    // com horizontal velocity
-
-    // Indicate that the rod is in the single contact sliding mode.
-    AbstractValues* abs_state =
-        context_->get_mutable_state()->get_mutable_abstract_state();
-    abs_state->get_mutable_value(0)
-        .template GetMutableValue<Rod2D<double>::Mode>() =
-        Rod2D<double>::kSlidingSingleContact;
-
-    // Determine the point of contact.
-    const double theta = xc[2];
-    const int k = (std::sin(theta) > 0) ? -1 : 1;
-    abs_state->get_mutable_value(1).template GetMutableValue<int>() = k;
+    xc[4] = -1.0;    // com vertical velocity.
   }
 
   std::unique_ptr<Rod2D<double>> dut_;  //< The device under test.
@@ -202,9 +240,6 @@ TEST_F(Rod2DDAETest, Parameters) {
 
 // Verify that impact handling works as expected.
 TEST_F(Rod2DDAETest, ImpactWorks) {
-  // Set writable state.
-  std::unique_ptr<State<double>> new_state = CloneState();
-
   // Cause the initial state to be impacting, with center of mass directly
   // over the point of contact.
   const double half_len = dut_->get_rod_half_length();
@@ -217,23 +252,36 @@ TEST_F(Rod2DDAETest, ImpactWorks) {
   xc[4] = -1.0;
   xc[5] = 0.0;
 
-  // Set the mode variables.
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
-  const double theta = xc[3];
-  const int k = (std::sin(theta) > 0) ? -1 : 1;
-  context_->template get_mutable_abstract_state<int>(1) = k;
+  // Set writable state.
+  std::unique_ptr<State<double>> new_state = CloneState();
 
-  // Rod should not be impacting.
+  // Prepare to set contact states.
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+
+  // First point is Rl in Rod Frame (see class documentation); in this
+  // new configuration, it contacts the half-space without sliding.
+  contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
+  contacts[0].mu = dut_->get_mu_coulomb();
+  contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
+
+  // Second point is Rr in Rod Frame. In this new configuration; in this
+  // new configuration, it does not contact the half-space..
+  contacts[1].state = RigidContact::ContactState::kNotContacting;
+  contacts[1].mu = dut_->get_mu_coulomb();
+  contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
+
+  // Rod should be impacting.
   EXPECT_TRUE(dut_->IsImpacting(*context_));
 
   // Handle the impact.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   context_->get_mutable_state()->SetFrom(*new_state);
 
   // Verify that the state has been modified such that the body is no longer
   // in an impacting state and the configuration has not been modified.
-  const double tol = std::numeric_limits<double>::epsilon();
+  const double tol = 10 * dut_->get_cfm();
   EXPECT_NEAR(xc[0], 0.0, tol);
   EXPECT_NEAR(xc[1], half_len, tol);
   EXPECT_NEAR(xc[2], M_PI_2, tol);
@@ -262,37 +310,25 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesBallistic) {
   EXPECT_NEAR((*derivatives_)[3], 0.0, tol);   // Zero horizontal acceleration.
   EXPECT_NEAR((*derivatives_)[4], g, tol);     // Gravitational acceleration.
   EXPECT_NEAR((*derivatives_)[5], 0.0, tol);   // Zero rotational acceleration.
-
-  // Verify the mode is still ballistic.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kBallisticMotion);
 }
 
 // Verify that derivatives match what we expect from a non-inconsistent
 // contacting configuration.
 TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
-  // Set the initial state to sustained contact with zero tangential velocity
-  // at the point of contact.
-  const double half_len = dut_->get_rod_half_length();
-  ContinuousState<double>& xc =
-      *context_->get_mutable_continuous_state();
-  xc[0] = 0.0;
-  xc[1] = half_len;
-  xc[2] = M_PI_2;
-  xc[3] = 0.0;
-  xc[4] = 0.0;
-  xc[5] = 0.0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
-
   // Calculate the derivatives.
+  SetUprightRestingState();
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
 
   // Verify that derivatives match what we expect from a non-inconsistent
   // contacting configuration. In this case, there is no initial sliding,
   // velocity and the rod is oriented vertically, so we expect no sliding
   // to begin to occur.
-  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  const double tol = 10 * dut_->get_cfm();
+  ContinuousState<double>& xc =
+      *context_->get_mutable_continuous_state();
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
   EXPECT_NEAR((*derivatives_)[2], xc[5], tol);
@@ -304,9 +340,9 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   // and try again. Derivatives should be exactly the same because no frictional
   // force can be applied.
   xc[3] = -1.0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kSlidingSingleContact;
+  contacts[0].state = RigidContact::ContactState::kContactingAndSliding;
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
@@ -323,6 +359,14 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   ext_input->SetAtIndex(1, fup);
   ext_input->SetAtIndex(2, 0.0);
   context_->FixInputPort(0, std::move(ext_input));
+
+  // First, redetermine the acceleration-level active set.
+  dut_->DetermineAccelLevelActiveSet(*context_, context_->get_mutable_state());
+
+  // Verify that the contact point is no longer to be considered in contact.
+  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
+
+  // Now calculate the derivatives.
   const double ydd_computed = dut_->get_gravitational_acceleration() +
       fup/dut_->get_rod_mass();
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -335,18 +379,27 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
 // configuration.
 TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   // Set the initial state to sustained contact with zero tangential velocity
-  // at the point of contact and the rod being straight up.
-  const double half_len = dut_->get_rod_half_length();
+  // at the point of contact.
+  SetUprightRestingState();
   ContinuousState<double>& xc =
       *context_->get_mutable_continuous_state();
-  xc[0] = 0.0;
-  xc[1] = half_len;
-  xc[2] = M_PI_2;
-  xc[3] = 0.0;
-  xc[4] = 0.0;
-  xc[5] = 0.0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
+
+  // Prepare to set contact states.
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+
+  // First point is Rl in Rod Frame (see class documentation); in this
+  // new configuration, it contacts the half-space without sliding.
+  contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
+  contacts[0].mu = dut_->get_mu_coulomb();
+  contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
+
+  // Second point is Rr in Rod Frame. In this new configuration; in this
+  // new configuration, it does not contact the half-space..
+  contacts[1].state = RigidContact::ContactState::kNotContacting;
+  contacts[1].mu = dut_->get_mu_coulomb();
+  contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
 
   // Set a constant horizontal input force, as if applied at the bottom of
   // the rod.
@@ -367,12 +420,13 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
                                  -dut_->get_gravitational_acceleration() -
                                  f_y);
   dut_->set_mu_coulomb(mu_stick);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // Calculate the derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
 
   // Verify that derivatives match what we expect: sticking should continue.
-  const double tol = 10 * std::numeric_limits<double>::epsilon();
+  const double tol = 10 * dut_->get_cfm();
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
   EXPECT_NEAR((*derivatives_)[2], xc[5], tol);
@@ -385,13 +439,18 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   // non-sticking one.
   const double mu_slide = 0.999 * mu_stick;
   dut_->set_mu_coulomb(mu_slide);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
+
+  // First, redetermine the acceleration-level active set.
+  dut_->DetermineAccelLevelActiveSet(*context_, context_->get_mutable_state());
+  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::
+      kContactingAndSliding);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_GT((*derivatives_)[3], tol);  // horizontal accel. should be nonzero.
 
   // Set the coefficient of friction to zero and try again.
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
@@ -408,15 +467,16 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
 
 // Verify the inconsistent (Painlevé Paradox) configuration occurs.
 TEST_F(Rod2DDAETest, Inconsistent) {
-  EXPECT_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()),
+  State<double>* state = context_->get_mutable_state();
+  EXPECT_THROW(dut_->DetermineAccelLevelActiveSet(*context_, state),
                std::runtime_error);
 }
 
 // Verify the second inconsistent (Painlevé Paradox) configuration occurs.
 TEST_F(Rod2DDAETest, Inconsistent2) {
   SetSecondInitialConfig();
-
-  EXPECT_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()),
+  State<double>* state = context_->get_mutable_state();
+  EXPECT_THROW(dut_->DetermineAccelLevelActiveSet(*context_, state),
                std::runtime_error);
 }
 
@@ -426,7 +486,7 @@ TEST_F(Rod2DDAETest, ImpactNoChange) {
   // Set state.
   std::unique_ptr<State<double>> new_state = CloneState();
   EXPECT_FALSE(dut_->IsImpacting(*context_));
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -435,39 +495,54 @@ TEST_F(Rod2DDAETest, ImpactNoChange) {
                               MatrixCompareType::absolute));
 
   // Verify that the mode is still sliding.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  const std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_state());
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_TRUE(contacts.front().state ==
+      RigidContact::ContactState::kContactingAndSliding ||
+      contacts.back().state ==
+          RigidContact::ContactState::kContactingAndSliding);
 }
 
 // Verify that applying the impact model to an impacting configuration results
 // in a non-impacting configuration. This test exercises the model for the case
 // where impulses that yield tangential sticking lie within the friction cone.
 TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact) {
-  // Set writable state.
-  std::unique_ptr<State<double>> new_state = CloneState();
-
   // Cause the initial state to be impacting.
   SetImpactingState();
 
+  // Set writable state.
+  std::unique_ptr<State<double>> new_state = CloneState();
+
   // Verify that the state is in a sliding mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingAndSliding);
 
   // Set the coefficient of friction to infinite. This forces the rod code
   // to go through the first impact path (impulse within the friction cone).
   dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
-  // Handle the impact and copy the result to the context.
-  dut_->HandleImpact(*context_, new_state.get());
+  // Handle the impact, redetermine the active set, and copy the result to the
+  // context.
+  VectorX<double> Nv, Fv;
+  double zero_tol;
+  dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
+  dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   context_->get_mutable_state()->SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
-  // Verify that the state is now in a sticking mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kStickingSingleContact);
+  // Verify that the state is no longer in a sliding mode.
+  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingWithoutSliding);
 
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -484,27 +559,39 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
   SetImpactingState();
 
   // Verify that the state is in a sliding mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_TRUE(contacts.front().state ==
+      RigidContact::ContactState::kNotContacting);
+  EXPECT_TRUE(contacts.back().state ==
+          RigidContact::ContactState::kContactingAndSliding);
 
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path (impulse corresponding to sticking
   // friction post-impact lies outside of the friction cone).
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // Handle the impact and copy the result to the context.
   std::unique_ptr<State<double>> new_state = CloneState();
-  dut_->HandleImpact(*context_, new_state.get());
+  VectorX<double> Nv, Fv;
+  double zero_tol;
+  dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
+  dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   context_->get_mutable_state()->SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
   // Verify that the state is still in a sliding mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_TRUE(contacts.front().state ==
+      RigidContact::ContactState::kNotContacting);
+  EXPECT_TRUE(contacts.back().state ==
+      RigidContact::ContactState::kContactingAndSliding);
 
   // Do one more impact- there should now be no change.
   // Verify that there is no further change from this second impact.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -512,9 +599,14 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
                               std::numeric_limits<double>::epsilon(),
                               MatrixCompareType::absolute));
 
-  // Verify that the state is still in a sliding mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  // Redetermine the active set and verify that the state is still in a sliding
+  // mode.
+  dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_TRUE(contacts.front().state ==
+      RigidContact::ContactState::kNotContacting);
+  EXPECT_TRUE(contacts.back().state ==
+      RigidContact::ContactState::kContactingAndSliding);
 }
 
 // Verify that no exceptions thrown for a non-sliding configuration.
@@ -527,7 +619,10 @@ TEST_F(Rod2DDAETest, NoSliding) {
   // Set the coefficient of friction to zero (triggering the case on the
   // edge of the friction cone).
   dut_->set_mu_coulomb(0.0);
-
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
+  
   // This configuration has no sliding velocity.
   xc[0] = -half_len * r22;
   xc[1] = half_len * r22;
@@ -535,8 +630,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
+  contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
 
   // Verify no impact.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
@@ -547,6 +641,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   // Set the coefficient of friction to effective no-slip (triggering the
   // case strictly inside the friction cone).
   dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // No exceptions should be thrown.
   EXPECT_NO_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()));
@@ -556,21 +651,24 @@ TEST_F(Rod2DDAETest, NoSliding) {
 TEST_F(Rod2DDAETest, MultiPoint) {
   ContinuousState<double> &xc =
       *context_->get_mutable_continuous_state();
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
 
-  // Set the rod to a horizontal, two-contact configuration.
+  // Set the rod to a horizontal, two-contact configuration with sliding.
   xc[0] = 0;
   xc[1] = 0;
   xc[2] = 0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-            Rod2D<double>::kSlidingTwoContacts;
-  context_->template get_mutable_abstract_state<int>(1) = 0;
-
-  // Set the velocity on the rod such that it is moving horizontally.
   xc[3] = 1.0;
-  EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
+  EXPECT_EQ(contacts.size(), 2);
+  contacts[0].state = contacts[1].state =
+      RigidContact::ContactState::kContactingAndSliding;
+
+  // Verify no impact.
+  EXPECT_FALSE(dut_->IsImpacting(*context_));
 
   // Set the coefficient of friction to zero.
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // Compute the derivatives and verify that the linear and angular acceleration
   // are approximately zero.
@@ -583,16 +681,19 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   // Set the coefficient of friction to "very large".
   const double large = 100.0;
   dut_->set_mu_coulomb(large);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
-  // TODO(edrumwri): Check derivatives now.
+  // Check derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
-  EXPECT_NEAR((*derivatives_)[3], -large *
-      std::abs(dut_->get_gravitational_acceleration()), eps);
+  EXPECT_NEAR((*derivatives_)[3], large *
+      dut_->get_gravitational_acceleration() / dut_->get_rod_mass(), eps);
   EXPECT_NEAR((*derivatives_)[4], 0, eps);
   EXPECT_NEAR((*derivatives_)[5], 0, eps);
 
   // Set the rod velocity to zero.
   xc[3] = 0.0;
+  contacts[0].state = contacts[1].state =
+      RigidContact::ContactState::kContactingWithoutSliding;
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set a constant force pushing the rod.
@@ -613,6 +714,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   // Set the coefficient of friction to zero. Now the force should result
   // in the rod being pushed to the right.
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], fX/dut_->get_rod_mass(), eps);
   EXPECT_NEAR((*derivatives_)[4], 0, eps);
@@ -629,7 +731,7 @@ TEST_F(Rod2DDAETest, ImpactNoChange2) {
 
   // Set writable state.
   std::unique_ptr<State<double>> new_state = CloneState();
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -641,29 +743,36 @@ TEST_F(Rod2DDAETest, ImpactNoChange2) {
 // Verify that applying the impact model to an impacting state results
 // in a non-impacting state.
 TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
-  // Set writable state.
-  std::unique_ptr<State<double>> new_state = CloneState();
-
   // Cause the initial state to be impacting.
   SetImpactingState();
+
+  // Set writable state.
+  std::unique_ptr<State<double>> new_state = CloneState();
 
   // Set the coefficient of friction to infinite. This forces the rod code
   // to go through the first impact path.
   dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // Handle the impact and copy the result to the context.
-  dut_->HandleImpact(*context_, new_state.get());
+  VectorX<double> Nv, Fv;
+  double zero_tol;
+  dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
+  dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   context_->get_mutable_state()->SetFrom(*new_state);
 
   // Verify the state no longer corresponds to an impact.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
   // Verify that the state is now in a sticking mode.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kStickingSingleContact);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingWithoutSliding);
 
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -675,31 +784,39 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
 // Verify that applying the impact model to an impacting state results in a
 // non-impacting state.
 TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
-  // Set writable state.
-  std::unique_ptr<State<double>> new_state = CloneState();
-
   // Cause the initial state to be impacting.
   SetImpactingState();
 
+  // Set writable state.
+  std::unique_ptr<State<double>> new_state = CloneState();
+
   // Verify that the state is still in a sliding configuration.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+  EXPECT_EQ(contacts[0].state,
+            RigidContact::ContactState::kNotContacting);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingAndSliding);
 
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path.
   dut_->set_mu_coulomb(0.0);
+  contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
   // Verify that the state is still in a sliding configuration.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  EXPECT_EQ(contacts[0].state,
+            RigidContact::ContactState::kNotContacting);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingAndSliding);
 
   // Handle the impact and copy the result to the context.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   context_->get_mutable_state()->SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
@@ -708,30 +825,36 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
                               MatrixCompareType::absolute));
 
   // Verify that the state is still in a sliding configuration.
-  EXPECT_EQ(context_->template get_abstract_state<Rod2D<double>::Mode>(0),
-            Rod2D<double>::kSlidingSingleContact);
+  EXPECT_EQ(contacts[0].state,
+            RigidContact::ContactState::kNotContacting);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kContactingAndSliding);
 }
 
 // Verifies that rod in a ballistic state does not correspond to an impact.
 TEST_F(Rod2DDAETest, BallisticNoImpact) {
-  // Set writable state.
-  std::unique_ptr<State<double>> new_state = CloneState();
-
   // Cause the initial state to be impacting.
   SetImpactingState();
+
+  // Set writable state.
+  std::unique_ptr<State<double>> new_state = CloneState();
 
   // Move the rod upward vertically so that it is no longer impacting and
   // set the mode to ballistic motion.
   ContinuousState<double>& xc =
       *context_->get_mutable_continuous_state();
   xc[1] += 10.0;
-  context_->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kBallisticMotion;
+  std::vector<RigidContact>& contacts =
+      dut_->get_contacts(context_->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+  contacts[0].state = contacts[1].state =
+      RigidContact::ContactState::kNotContacting;
 
   // Verify that no impact occurs.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 }
 
+/*
 // Validates the number of witness functions is determined correctly.
 TEST_F(Rod2DDAETest, NumWitnessFunctions) {
   // Verify that the correct number of witness functions is reported for...
@@ -863,6 +986,7 @@ TEST_F(Rod2DDAETest, StickingSlidingWitness) {
   // Verify that the "slack" is negative.
   EXPECT_LT(dut_->CalcStickingFrictionForceSlack(*context_), 0);
 }
+*/
 
 /// Class for testing the Rod 2D example using a first order time
 /// stepping approach.
@@ -1050,8 +1174,23 @@ GTEST_TEST(Rod2DCrossValidationTest, OneStepSolutionSticking) {
   xc[3] = xd[3] = 0.0;
   xc[4] = xd[4] = 0.0;
   xc[5] = xd[5] = 0.0;
-  context_pdae->template get_mutable_abstract_state<Rod2D<double>::Mode>(0) =
-      Rod2D<double>::kStickingSingleContact;
+
+  // Prepare to set contact states for the piecewise DAE system.
+  std::vector<RigidContact>& contacts =
+      pdae.get_contacts(context_pdae->get_mutable_state());
+  EXPECT_EQ(contacts.size(), 2);
+
+  // First point is Rl in Rod Frame (see class documentation); in this
+  // new configuration, it contacts the half-space without sliding.
+  contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
+  contacts[0].mu = pdae.get_mu_coulomb();
+  contacts[0].u = Eigen::Vector3d(-pdae.get_rod_half_length(), 0, 0);
+
+  // Second point is Rr in Rod Frame. In this new configuration; in this
+  // new configuration, it does not contact the half-space..
+  contacts[1].state = RigidContact::ContactState::kNotContacting;
+  contacts[1].mu = pdae.get_mu_coulomb();
+  contacts[1].u = Eigen::Vector3d(pdae.get_rod_half_length(), 0, 0);
 
   // Set constant input forces for both.
   const double x = 1.0;
@@ -1266,7 +1405,6 @@ TEST_F(Rod2DCompliantTest, NumWitnessFunctions) {
   EXPECT_EQ(dut_->DetermineNumWitnessFunctions(*context_), 0);
 }
 
-}  // namespace
 }  // namespace rod2d
 }  // namespace examples
 }  // namespace drake
