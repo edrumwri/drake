@@ -654,7 +654,7 @@ void Rod2D<T>::FormSustainedContactLinearSystem(
   // Construct the matrix:
   // N⋅M⁻¹⋅(Nᵀ - μQᵀ)  N⋅M⁻¹⋅Fᵀ
   // F⋅M⁻¹⋅Nᵀ          F⋅M⁻¹⋅Dᵀ
-  const int nvars = nc + nk;
+  const int nvars = nc + half_nk;
   MM->resize(nvars, nvars);
   MM->block(0, 0, nc, nc) = N * iM * problem_data.N_minus_mu_Q.transpose();
   MM->block(0, nc, nc, half_nk) = N * (problem_data.iM_x_FT);
