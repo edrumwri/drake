@@ -418,7 +418,7 @@ void Rod2D<T>::InitRigidContactAccelProblemData(
   // Get the coefficients of friction for each contact.
   problem_data->mu_sliding.resize(num_sliding);
   problem_data->mu_non_sliding.resize(num_non_sliding);
-  for (size_t i = 0, sliding_index, non_sliding_index = 0;
+  for (size_t i = 0, sliding_index = 0, non_sliding_index = 0;
        i < contacts.size(); ++i) {
     if (contacts[i].state ==
         RigidContact::ContactState::kContactingWithoutSliding) {
@@ -427,7 +427,7 @@ void Rod2D<T>::InitRigidContactAccelProblemData(
     } else {
       if (contacts[i].state ==
           RigidContact::ContactState::kContactingAndSliding) {
-        problem_data->mu_sliding(non_sliding_index) = contacts[i].mu;
+        problem_data->mu_sliding(sliding_index) = contacts[i].mu;
         ++sliding_index;
       }
     }
@@ -784,6 +784,8 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
 template <class T>
 void Rod2D<T>::DetermineAccelLevelActiveSet(
     const systems::Context<T>& context, systems::State<T>* state) const {
+  using std::abs;
+  using std::max;
 
   // Get the mutable contacts.
   std::vector<RigidContact>& contacts = get_contacts(state);
@@ -800,6 +802,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   const int num_non_sliding = non_sliding_contacts.size();
   const int nc = num_sliding + num_non_sliding;
   const int nk = get_num_tangent_directions_per_contact() * num_non_sliding;
+  const int half_nk = nk / 2;
 
   // Compute Jacobian matrices.
   FormRigidContactAccelJacobians(*state, &problem_data);
@@ -833,10 +836,11 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   // R. Cottle, J.-S. Pang, and R. Stone. The Linear Complementarity Problem.
   // Academic Press, 1992.
   const double cfm = get_cfm();
-  MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
+  const int nvars = MM.rows();
+  MM += MatrixX<T>::Identity(nvars, nvars) * cfm;
 
   // Get the zero tolerance for solving the LCP.
-  const T zero_tol = lcp_.ComputeZeroTolerance(MM);
+  const T zero_tol = max(cfm, lcp_.ComputeZeroTolerance(MM));
 
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
@@ -846,7 +850,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   // NOTE: This LCP might not be solvable due to inconsistent configurations.
   // Check the answer and throw a runtime error if it's no good.
   if (!success || zz.minCoeff() < -10*zero_tol ||
-      ww.minCoeff() < -10*zero_tol || abs(zz.dot(ww)) > 10*zero_tol)
+      ww.minCoeff() < -10*zero_tol || abs(zz.dot(ww)) > nvars * 10 * zero_tol)
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
 
   // Obtain the normal and frictional contact forces and the value of λ, which
@@ -854,7 +858,8 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   // for the non-sliding contacts. If λ = 0, then all contacts will remain
   // non-sliding.
   const auto fN = zz.segment(0, nc);
-  const auto lambda = zz.segment(nc+nk, num_non_sliding);
+  const auto fF = zz.segment(nc, half_nk) - zz.segment(nc + half_nk, half_nk);
+  const auto lambda = zz.segment(nc + nk, num_non_sliding);
 
   // Now determine what constraints should be active during the interval.
   // Two possibilities exist for checking whether the contact should become
@@ -886,10 +891,12 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
       // Contact cannot transition from sliding to not-sliding here. That must
       // happen in the DetermineVelLevelActiveSet() method. However, contact
       // can transition from not-sliding to sliding if the appropriate
-      // slack variable is strictly positive.
+      // slack variable is strictly positive or no frictional forces are
+      // applied.
       if (contacts[i].state ==
           RigidContact::ContactState::kContactingWithoutSliding) {
-        if (lambda[non_sliding_index] > zero_tol)
+        if (lambda[non_sliding_index] > zero_tol ||
+            abs(fF[non_sliding_index]) < zero_tol)
           contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
         ++non_sliding_index;
       }
@@ -2271,7 +2278,7 @@ bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
       continue;
 
     // Compute the translational velocity at the point of contact.
-    VectorX<T> pdot = v + Rdot * contacts[i].u.segment(0,2) * thetadot;
+    const Vector2<T> pdot = v + Rdot * contacts[i].u.segment(0,2) * thetadot;
 
     // Look for impact.
     const T rvel = pdot[1];

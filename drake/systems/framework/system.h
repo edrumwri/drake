@@ -19,6 +19,7 @@
 #include "drake/systems/framework/input_port_evaluator_interface.h"
 #include "drake/systems/framework/output_port_value.h"
 #include "drake/systems/framework/system_port_descriptor.h"
+#include "drake/systems/framework/witness_function.h"
 
 namespace drake {
 namespace systems {
@@ -59,6 +60,9 @@ struct DiscreteEvent {
 
   /// The type of action the system must take in response to the event.
   ActionType action{kUnknownAction};
+
+  /// The witness function that triggered this event, if any.
+  WitnessFunction<T>* const witness_function{nullptr};
 
   /// An optional callback, supplied by the recipient, to carry out a
   /// kPublishAction. If nullptr, Publish() will be used.

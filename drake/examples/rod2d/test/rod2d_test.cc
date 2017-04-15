@@ -596,7 +596,7 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
                                   CopyToVector(),
                               context_->get_continuous_state()->get_vector().
                                   CopyToVector(),
-                              std::numeric_limits<double>::epsilon(),
+                              10 * std::numeric_limits<double>::epsilon(),
                               MatrixCompareType::absolute));
 
   // Redetermine the active set and verify that the state is still in a sliding
@@ -683,10 +683,15 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   dut_->set_mu_coulomb(large);
   contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
 
+  // The normal force on the rod will be equal to -mg (the mass times the
+  // gravitational acceleration). Therefore, the frictional force will be equal
+  // to μmg. The tangential acceleration should then be μg. Note that the
+  // gravitational acceleration is signed,
+
   // Check derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], large *
-      dut_->get_gravitational_acceleration() / dut_->get_rod_mass(), eps);
+      dut_->get_gravitational_acceleration(), eps * large);
   EXPECT_NEAR((*derivatives_)[4], 0, eps);
   EXPECT_NEAR((*derivatives_)[5], 0, eps);
 
@@ -711,10 +716,12 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   EXPECT_NEAR((*derivatives_)[4], 0, eps);
   EXPECT_NEAR((*derivatives_)[5], 0, eps);
 
-  // Set the coefficient of friction to zero. Now the force should result
+  // Set the coefficient of friction to zero, redetermine the active set,
+  // and recompute the derivatives. The force should result
   // in the rod being pushed to the right.
   dut_->set_mu_coulomb(0.0);
   contacts[0].mu = contacts[1].mu = dut_->get_mu_coulomb();
+  dut_->DetermineAccelLevelActiveSet(*context_, context_->get_mutable_state());
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], fX/dut_->get_rod_mass(), eps);
   EXPECT_NEAR((*derivatives_)[4], 0, eps);

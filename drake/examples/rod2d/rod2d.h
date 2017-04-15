@@ -7,6 +7,7 @@
 
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/systems/framework/leaf_system.h"
+#include "drake/systems/framework/witness_function.h"
 
 namespace drake {
 namespace examples {
@@ -159,6 +160,10 @@ Outputs: planar position (state indices 0 and 1) and orientation (state
 // TODO(edrumwri): Track energy and add a test to check it.
 template <typename T>
 class Rod2D : public systems::LeafSystem<T> {
+  friend class SlidingDotWitness;
+  friend class SeparatingAccelWitness;
+  friend class SignedDistanceWitness;
+
  public:
   /// Simulation model and approach for the system.
   enum class SimulationType {
@@ -371,6 +376,10 @@ class Rod2D : public systems::LeafSystem<T> {
   /// to sliding has been indicated.
   T CalcStickingFrictionForceSlack(const systems::Context<T>& context) const;
 */
+  /// Gets the set of witness functions active at the given context.
+  std::list<systems::WitnessFunction*> get_witness_functions(
+      const systems::Context<T>& context) const override;
+
   /// Gets the number of witness functions for the system active in the system
   /// for a given state (using @p context).
   int DetermineNumWitnessFunctions(const systems::Context<T>& context) const;
@@ -408,6 +417,7 @@ class Rod2D : public systems::LeafSystem<T> {
   FRIEND_TEST(Rod2DDAETest, DerivativesContactingAndSticking);
   FRIEND_TEST(Rod2DDAETest, Inconsistent);
   FRIEND_TEST(Rod2DDAETest, Inconsistent2);
+  FRIEND_TEST(Rod2DDAETest, MultiPoint);
 
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of
