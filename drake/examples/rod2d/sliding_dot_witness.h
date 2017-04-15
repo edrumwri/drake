@@ -1,7 +1,7 @@
 #pragma once
 
-#include "drake/example/rod2d/rod2d.h"
-#include "drake/example/rod2d/rigid_contact.h"
+#include "drake/examples/rod2d/rod2d.h"
+#include "drake/examples/rod2d/rigid_contact.h"
 
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/witness_function.h"
@@ -9,6 +9,9 @@
 namespace drake {
 namespace examples {
 namespace rod2d {
+
+template <class T>
+class Rod2D;
 
 /// Computes the tangent velocity at a point of contact.
 template <class T>
@@ -18,13 +21,23 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
       rod_(rod), contact_index_(contact_index) {}
 
   /// This witness function indicates an unrestricted update needs to be taken.
-  systems::ActionType<T> get_action_type() const override {
-    return systems::ActionType<T>::kUnrestrictedUpdateAction;
+  typename systems::DiscreteEvent<T>::ActionType get_action_type()
+  const override {
+    return systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction;
   }
 
   /// This witness triggers whenever the velocity changes direction.
-  TriggerType get_trigger_type() const override {
-    return systems::WitnessFunction::TriggerType::kCrossesZero;
+  typename systems::WitnessFunction<T>::TriggerType get_trigger_type()
+      const override {
+    return systems::WitnessFunction<T>::TriggerType::kCrossesZero;
+  }
+
+  // Select the trigger time for this witness function to bisect the two
+  // time values.
+  T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
+                        const std::pair<T, T>& time_and_witness_valuef)
+  const override {
+    return (time_and_witness_value0.first + time_and_witness_valuef.first) / 2;
   }
 
   /// The witness function itself.
@@ -32,11 +45,12 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
     using std::sin;
 
     // Verify the system is simulated using piecewise DAE.
-    DRAKE_DEMAND(rod->get_simulation_type() ==
+    DRAKE_DEMAND(rod_->get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
-    const RigidContact& contact = rod_->get_contacts(context)[contact_index_];
+    const RigidContact& contact =
+        rod_->get_contacts(context.get_state())[contact_index_];
 
     // Verify rod is undergoing sliding contact at the specified index.
     DRAKE_DEMAND(contact.state ==
@@ -46,6 +60,7 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
     const systems::VectorBase<T>& state = context.get_continuous_state_vector();
     const T& xdot = state.GetAtIndex(3);
     const T& ydot = state.GetAtIndex(4);
+    const T& thetadot = state.GetAtIndex(5);
 
     // Compute the velocity at the point of contact.
     const Vector2<T> v(xdot, ydot);
@@ -55,7 +70,7 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
         context.get_state());
 
     // Compute the translational velocity at the point of contact.
-    const Vector2<T> pdot = v + Rdot * contacts[i].u.segment(0,2) * thetadot;
+    const Vector2<T> pdot = v + Rdot * contact.u.segment(0,2) * thetadot;
 
     // Return the tangent velocity.
     return pdot[0];

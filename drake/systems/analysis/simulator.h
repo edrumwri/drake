@@ -286,8 +286,8 @@ class Simulator {
       const T& next_sample_time,
       const T& boundary_dt,
       UpdateActions<T>* update_actions);
-  std::list<WitnessFunction*> IsolateWitnessTriggers(
-      const std::vector<WitnessFunction*>& witnesses, const VectorX<T>& w0,
+  std::list<WitnessFunction<T>*> IsolateWitnessTriggers(
+      const std::vector<WitnessFunction<T>*>& witnesses, const VectorX<T>& w0,
       const T& t0, const VectorX<T>& x0, const T& tf);
 
   // The steady_clock is immune to system clock changes so increases
@@ -518,8 +518,8 @@ void Simulator<T>::StepTo(const T& boundary_time) {
 // @post The context will be isolated to the first witness function trigger,
 //       to within the isolation tolerance specified by each witness function.
 template <class T>
-std::list<WitnessFunction*> Simulator<T>::IsolateWitnessTriggers(
-    const std::vector<WitnessFunction*>& witnesses, const VectorX<T>& w0,
+std::list<WitnessFunction<T>*> Simulator<T>::IsolateWitnessTriggers(
+    const std::vector<WitnessFunction<T>*>& witnesses, const VectorX<T>& w0,
     const T& t0, const VectorX<T>& x0, const T& tf) {
   const T inf = std::numeric_limits<double>::infinity();
 
@@ -532,11 +532,11 @@ std::list<WitnessFunction*> Simulator<T>::IsolateWitnessTriggers(
 
   // Set the first witness function trigger and the witness function that
   // makes that trigger.
-  std::list<WitnessFunction*> triggered_witnesses;
+  std::list<WitnessFunction<T>*> triggered_witnesses;
   T t_first = tf;
 
   // Loop over all witness functions.
-  for (int i = 0; i < witnesses.size(); ++i) {
+  for (size_t i = 0; i < witnesses.size(); ++i) {
     // Set a and b
     T a = t0;
     T b = t_first;
@@ -610,22 +610,20 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
                                             const T& boundary_dt,
                                             UpdateActions<T>* update_actions)
 {
-  bool sample_time_hit;
-
   // Save the time and current state.
-  const Context<T> context = get_context();
+  const Context<T>& context = get_context();
   const T t0 = context.get_time();
   const VectorX<T> x0 = context.get_continuous_state()->CopyToVector();
 
   // Get the set of witness functions active at the current time.
   const System<T>& system = get_system();
-  std::vector<WitnessFunction*> witness_functions = system.
+  const std::vector<WitnessFunction<T>*> witness_functions = system.
       get_witness_functions(context);
 
   // Evaluate the witness functions.
   VectorX<T> w0(witness_functions.size());
-  for (int i = 0; i < witness_functions.size(); ++i)
-    w0[i] = witness_functions[i]->Evaluate(context);
+  for (size_t i = 0; i < witness_functions.size(); ++i)
+      w0[i] = witness_functions[i]->Evaluate(context);
 
   // Attempt to integrate. Updates and boundary times are consciously
   // distinguished between. See internal documentation for
@@ -633,31 +631,31 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
   typename IntegratorBase<T>::StepResult result =
       integrator_->StepOnceAtMost(next_publish_dt, next_update_dt,
                                   boundary_dt);
-  const T tf = context->get_time();
+  const T tf = context.get_time();
 
   // Evaluate the witness functions again.
   VectorX<T> wf(witness_functions.size());
-  for (int i = 0; i < witness_functions.size(); ++i)
+  for (size_t i =0; i < witness_functions.size(); ++i)
     wf[i] = witness_functions[i]->Evaluate(context);
 
   // See whether a witness function triggered.
   bool witness_triggered = false;
-  for (int i = 0; i< witness_functions.size() && !witness_triggered; ++i) {
-    if (witness_functions[i]->should_trigger(w0[i], wf[i]))
-      witness_triggered = true;
+  for (size_t i =0; i < witness_functions.size() && !witness_triggered; ++i) {
+      if (witness_functions[i]->should_trigger(w0[i], wf[i]))
+        witness_triggered = true;
   }
 
   // Triggering requires isolating the witness function time.
   if (witness_triggered) {
     // Isolate the time that the witness function.
-    std::list<WitnessFunction*> triggered_witnesses = IsolateWitnessTriggers(
-    witness_functions, w0, t0, x0, tf);
+    std::list<WitnessFunction<T>*> triggered_witnesses = IsolateWitnessTriggers(
+      witness_functions, w0, t0, x0, tf);
 
     // TODO(edrumwri): Store witness function(s) that triggered.
-    for (WitnessFunction* wf : witness_functions) {
+    for (WitnessFunction<T>* wf : witness_functions) {
       update_actions->time = context.get_time();
-      update_actions->events.push_back(DiscreteEvent());
-      DiscreteEvent& event = update_actions->events.back();
+      update_actions->events.push_back(DiscreteEvent<T>());
+      DiscreteEvent<T>& event = update_actions->events.back();
       event.action = wf->get_action_type();
       event.triggered_witness_function = wf;
     }

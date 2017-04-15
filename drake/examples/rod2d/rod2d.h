@@ -1,5 +1,10 @@
 #pragma once
 
+#include "drake/examples/rod2d/signed_distance_witness.h"
+#include "drake/examples/rod2d/separating_accel_witness.h"
+#include "drake/examples/rod2d/sliding_dot_witness.h"
+#include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
+
 #include "drake/examples/rod2d/rigid_contact.h"
 #include "gtest/gtest_prod.h"
 #include <memory>
@@ -160,9 +165,10 @@ Outputs: planar position (state indices 0 and 1) and orientation (state
 // TODO(edrumwri): Track energy and add a test to check it.
 template <typename T>
 class Rod2D : public systems::LeafSystem<T> {
-  friend class SlidingDotWitness;
-  friend class SeparatingAccelWitness;
-  friend class SignedDistanceWitness;
+  friend class SlidingDotWitness<T>;
+  friend class StickingFrictionForcesSlackWitness<T>;
+  friend class SeparatingAccelWitness<T>;
+  friend class SignedDistanceWitness<T>;
 
  public:
   /// Simulation model and approach for the system.
@@ -329,60 +335,9 @@ class Rod2D : public systems::LeafSystem<T> {
   /// Gets the vector of contact state variables from the given state.
   std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
 
-  /*
-  /// The witness function for signed distance between the rod and the
-  /// half-space. The witness function will return positive values when the
-  /// rod is separated from the halfspace, negative values when the rod is
-  /// interpenetrating the halfspace, and zero values when the rod is "kissing"
-  /// the halfspace.
-  T CalcSignedDistance(const systems::Context<T>& context) const;
-
-  /// The witness function for the signed distance between one endpoint of the
-  /// rod (not already touching the half-space) and the half-space for the case
-  /// when the rod is contacting the ground with a single point of contact. The
-  /// witness function will return positive values when the other rod endpoint
-  /// is above the halfspace, negative values when the other rod endpoint is
-  /// strictly within the halfspace, and zero when the other rod endpoint is
-  /// "kissing" the halfspace.
-  /// @pre One endpoint of the rod is in contact with the ground, indicated by
-  ///      the mode variable being set appropriately. Assertion failure is
-  ///      triggered if this is not the case.
-  T CalcEndpointDistance(const systems::Context<T>& context) const;
-
-  /// The witness function that determines whether the rod should separate from
-  /// the halfspace. The witness function will return a negative value when
-  /// the rod should not separate and a positive value when it should begin
-  /// to separate from the halfspace.
-  /// @pre It is assumed that the signed distance between the point of contact
-  ///      and the halfspace will be approximately zero and that the vertical
-  ///      velocity at the point of contact will be approximately zero.
-  ///      Assertion failure is triggered if the rod is in a ballistic mode.
-  T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
-
-  /// Evaluates the witness function for sliding direction changes. The witness
-  /// function will bracket a zero crossing when the direction of sliding
-  /// changes over the interval; for example, when the rod is sliding to the
-  /// right, CalcSlidingDot() will return a positive value, which evolves into
-  /// a negative value (first crossing zero), as the rod begins sliding to the
-  /// left (assuming that the rod remains in contact with the halfspace over
-  /// the interval).
-  T CalcSlidingDot(const systems::Context<T>& context) const;
-
-  /// Evaluates the witness function for determining whether the rod in sticking
-  /// frictional contact should transition to sliding contact. When the rod
-  /// is in sticking contact at the beginning of an interval, the witness
-  /// function will return a non-negative value. If the witness function returns
-  /// a negative value at the end of an interval, a transition from sticking
-  /// to sliding has been indicated.
-  T CalcStickingFrictionForceSlack(const systems::Context<T>& context) const;
-*/
   /// Gets the set of witness functions active at the given context.
-  std::list<systems::WitnessFunction*> get_witness_functions(
+  std::vector<systems::WitnessFunction<T>*> get_witness_functions(
       const systems::Context<T>& context) const override;
-
-  /// Gets the number of witness functions for the system active in the system
-  /// for a given state (using @p context).
-  int DetermineNumWitnessFunctions(const systems::Context<T>& context) const;
 
   /// Processes mode changes.
   void DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
@@ -418,6 +373,10 @@ class Rod2D : public systems::LeafSystem<T> {
   FRIEND_TEST(Rod2DDAETest, Inconsistent);
   FRIEND_TEST(Rod2DDAETest, Inconsistent2);
   FRIEND_TEST(Rod2DDAETest, MultiPoint);
+  FRIEND_TEST(Rod2DDAETest, SignedDistWitness);
+  FRIEND_TEST(Rod2DDAETest, SeparationWitness);
+  FRIEND_TEST(Rod2DDAETest, VelocityChangesWitness);
+  FRIEND_TEST(Rod2DDAETest, StickingSlidingWitness);
 
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of
@@ -535,6 +494,15 @@ class Rod2D : public systems::LeafSystem<T> {
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;
+
+  // Vectors of witness functions, one for each possible point of contact.
+  std::vector<std::unique_ptr<SignedDistanceWitness<T>>>
+      signed_distance_witnesses_;
+  std::vector<std::unique_ptr<SlidingDotWitness<T>>> sliding_dot_witnesses_;
+  std::vector<std::unique_ptr<StickingFrictionForcesSlackWitness<T>>>
+      sticking_friction_forces_slack_witnesses_;
+  std::vector<std::unique_ptr<SeparatingAccelWitness<T>>>
+      separating_accel_witnesses_;
 
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 

@@ -46,6 +46,21 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt) :
     // Both piecewise DAE and compliant approach require six continuous
     // variables.
     this->DeclareContinuousState(3, 3, 0);  // q, v, z
+
+    // Piecewise DAE approach needs witness functions.
+    if (simulation_type == SimulationType::kPiecewiseDAE) {
+      const int ncontacts = 2;
+      for (int i = 0; i< ncontacts; ++i) {
+        signed_distance_witnesses_.push_back(
+            std::make_unique<SignedDistanceWitness<T>>(this, i));
+        sliding_dot_witnesses_.push_back(
+            std::make_unique<SlidingDotWitness<T>>(this, i));
+        sticking_friction_forces_slack_witnesses_.push_back(
+            std::make_unique<StickingFrictionForcesSlackWitness<T>>(this, i));
+        separating_accel_witnesses_.push_back(
+            std::make_unique<SeparatingAccelWitness<T>>(this, i));
+      }
+    }
   }
 
   this->DeclareInputPort(systems::kVectorValued, 3);
@@ -396,6 +411,39 @@ void Rod2D<T>::GetContactVectors(const std::vector<RigidContact>& contacts,
         non_sliding_contacts->push_back(contact_index++);
     }
   }
+}
+
+template <class T>
+std::vector<systems::WitnessFunction<T>*> Rod2D<T>::get_witness_functions(
+    const systems::Context<T>& context) const {
+  std::vector<systems::WitnessFunction<T>*> witness_functions;
+
+  // If this is not a piecewise DAE system, return early.
+  if (simulation_type_ != SimulationType::kPiecewiseDAE)
+    return witness_functions;
+
+  // Contacts will determine which witness functions are active.
+  const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
+  for (size_t i = 0; i < contacts.size(); ++i) {
+    switch (contacts[i].state) {
+      case RigidContact::ContactState::kNotContacting:
+        witness_functions.push_back(signed_distance_witnesses_[i].get());
+        break;
+
+      case RigidContact::ContactState::kContactingWithoutSliding:
+        witness_functions.push_back(separating_accel_witnesses_[i].get());
+        witness_functions.push_back(
+            sticking_friction_forces_slack_witnesses_[i].get());
+        break;
+
+      case RigidContact::ContactState::kContactingAndSliding:
+        witness_functions.push_back(separating_accel_witnesses_[i].get());
+        witness_functions.push_back(sliding_dot_witnesses_[i].get());
+        break;
+    }
+  }
+
+  return witness_functions;
 }
 
 // Computes problem data necessary to form the sustained contact linear
@@ -907,155 +955,6 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
   }
 }
 
-/*
-template <class T>
-T Rod2D<T>::CalcSignedDistance(const systems::Context<T>& context) const {
-  using std::sin;
-  using std::cos;
-  using std::min;
-
-  // Verify the system is simulated using piecewise DAE.
-  DRAKE_DEMAND(get_simulation_type() ==
-      Rod2D<T>::SimulationType::kPiecewiseDAE);
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& x = state.GetAtIndex(0);
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-
-  // Get the two rod endpoints.
-  const T ctheta = cos(theta);
-  const T stheta = sin(theta);
-  int k1 = 1;
-  int k2 = -1;
-  const Vector2<T> ep1 = CalcRodEndpoint(x, y, k1, ctheta, stheta,
-                                         get_rod_half_length());
-  const Vector2<T> ep2 = CalcRodEndpoint(x, y, k2, ctheta, stheta,
-                                         get_rod_half_length());
-
-  return min(ep1[1], ep2[1]);
-}
-
-template <class T>
-T Rod2D<T>::CalcEndpointDistance(const systems::Context<T>& context) const {
-  using std::sin;
-
-  // Verify the system is simulated using piecewise DAE.
-  DRAKE_DEMAND(get_simulation_type() ==
-      Rod2D<T>::SimulationType::kPiecewiseDAE);
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-  const T stheta = sin(theta);
-
-  // Get the abstract variables that determine the current system mode and
-  // the endpoint in contact.
-  const Mode mode = context.template get_abstract_state<Mode>(0);
-  DRAKE_DEMAND(mode == Mode::kSlidingSingleContact ||
-               mode == Mode::kStickingSingleContact);
-  const int k = get_k(context);
-
-  // Get the vertical position of the other rod endpoint.
-  const int k2 = -k;
-  return y + k2 * stheta * get_rod_half_length();
-}
-
-template <class T>
-T Rod2D<T>::CalcNormalAccelWithoutContactForces(const systems::Context<T>&
-                                                     context) const {
-  DRAKE_ASSERT_VOID(this->CheckValidContext(context));
-  using std::sin;
-  using std::cos;
-
-  // Verify the system is simulated using piecewise DAE.
-  DRAKE_DEMAND(get_simulation_type() ==
-               Rod2D<T>::SimulationType::kPiecewiseDAE);
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& theta = state.GetAtIndex(2);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // Get the abstract variables that determine the current system mode and
-  // the endpoint in contact.
-  const Mode mode = context.template get_abstract_state<Mode>(0);
-  DRAKE_DEMAND(mode != Mode::kBallisticMotion);
-  const int k = get_k(context);
-  const T stheta = sin(theta);
-  const T ctheta = cos(theta);
-
-  // Get the external force.
-  const int port_index = 0;
-  const auto input = this->EvalEigenVectorInput(context, port_index);
-  const Vector3<T> fapplied = input.segment(0, 3);
-  const T& fY = fapplied(1);
-  const T& tau = fapplied(2);
-
-  // Compute the normal acceleration at the point of contact (cyddot),
-  // *assuming zero contact force*. This equation comes from the kinematics of
-  // the rod:
-  // cy = y + k * half_rod_length * sin(θ)  [rod endpoint vertical location]
-  // dcy/dt = dy/dt + k * half_rod_length * cos(θ) * dθ/dt
-  // d²cy/dt² = d²y/dt² - k * half_rod_length * sin(θ) * (dθ/dt)² +
-  //            k * half_rod_length * cos(θ) * d²θ/dt²
-  const T yddot = get_gravitational_acceleration() + fY/get_rod_mass();
-  const T thetaddot = tau/get_rod_moment_of_inertia();
-  T cyddot = yddot -
-      k * half_length_ * stheta * thetadot * thetadot +
-      k * half_length_ * ctheta * thetaddot;
-
-  return cyddot;
-}
-
-template <class T>
-T Rod2D<T>::CalcSlidingDot(const systems::Context<T>& context) const {
-  using std::sin;
-
-  // Verify the system is simulated using piecewise DAE.
-  DRAKE_DEMAND(get_simulation_type() ==
-      Rod2D<T>::SimulationType::kPiecewiseDAE);
-
-  // Verify rod is undergoing sliding contact.
-  const Mode mode = context.template get_abstract_state<Mode>(0);
-  DRAKE_DEMAND(mode == Mode::kSlidingSingleContact ||
-               mode == Mode::kSlidingTwoContacts);
-
-  // Get the point of contact.
-  const int k = get_k(context);
-
-  // Get the relevant parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& theta = state.GetAtIndex(2);
-  const T& xdot = state.GetAtIndex(3);
-  const T& thetadot = state.GetAtIndex(5);
-
-  // Compute the velocity at the point of contact
-  const T stheta = sin(theta);
-  const T half_rod_length = get_rod_half_length();
-  const T xcdot = xdot - k * stheta * half_rod_length * thetadot;
-  return xcdot;
-}
-
-template <class T>
-T Rod2D<T>::CalcStickingFrictionForceSlack(const systems::Context<T>& context)
-                                               const {
-  using std::abs;
-
-  // Compute the contact forces, assuming sticking contact.
-  const Vector2<T> cf = CalcStickingContactForces(context);
-  const T &fN = cf(0);
-  const T &fF = cf(1);
-
-  // Compute the difference between how much force *can* be applied to effect
-  // sticking and how much force needs to be applied to effect sticking.
-  const double mu = get_mu_coulomb();
-  return mu * fN - abs(fF);
-}
-*/
-
 /// Gets the integer variable 'k' used to determine the point of contact
 /// indicated by the current mode.
 /// @throws std::logic_error if this is a time-stepping system (implying that
@@ -1102,12 +1001,6 @@ Vector2<T> Rod2D<T>::CalcCoincidentRodPointVelocity(
   const Vector2<T> p_RoC_W = p_WC - p_WRo;  // Vector from R origin to C, in W.
   const Vector2<T> v_WRc = v_WRo + w_cross_r(w_WR, p_RoC_W);
   return v_WRc;
-}
-
-template <class T>
-int Rod2D<T>::DetermineNumWitnessFunctions(const systems::Context<T>&
-context) const {
-  return 0;
 }
 
 template <typename T>

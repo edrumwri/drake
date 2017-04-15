@@ -1,14 +1,18 @@
 #pragma once
 
-#include "drake/example/rod2d/rod2d.h"
-#include "drake/example/rod2d/rigid_contact.h"
+#include "drake/examples/rod2d/rod2d.h"
+#include "drake/examples/rod2d/rigid_contact.h"
 
 #include "drake/systems/framework/context.h"
+#include "drake/systems/framework/discrete_event.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
 namespace examples {
 namespace rod2d {
+
+template <class T>
+class Rod2D;
 
 /// Computes the signed distance between a point of contact and the half-space.
 template <class T>
@@ -18,14 +22,24 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
       rod_(rod), contact_index_(contact_index) {}
 
   /// This witness function indicates an unrestricted update needs to be taken.
-  systems::ActionType<T> get_action_type() const override {
-    return systems::ActionType<T>::kUnrestrictedUpdateAction;
+  typename systems::DiscreteEvent<T>::ActionType get_action_type()
+      const override {
+    return systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction;
   }
 
   /// This witness triggers only when the signed distance goes from strictly
   /// positive to zero/negative.
-  TriggerType get_trigger_type() const override {
-    return systems::WitnessFunction::TriggerType::kPositiveThenNegative;
+  typename systems::WitnessFunction<T>::TriggerType get_trigger_type()
+      const override {
+    return systems::WitnessFunction<T>::TriggerType::kPositiveThenNegative;
+  }
+
+  // Select the trigger time for this witness function to bisect the two
+  // time values.
+  T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
+                        const std::pair<T, T>& time_and_witness_valuef)
+                        const override {
+    return (time_and_witness_value0.first + time_and_witness_valuef.first) / 2;
   }
 
   /// The witness function itself.
@@ -33,24 +47,21 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
     using std::sin;
 
     // Verify the system is simulated using piecewise DAE.
-    DRAKE_DEMAND(rod->get_simulation_type() ==
+    DRAKE_DEMAND(rod_->get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
-    const RigidContact& contact = rod_->get_contacts(context)[contact_index_];
-
-    // Verify rod is not in contact at the specified contact index.
-    DRAKE_DEMAND(contact.state == RigidContact::ContactState::kNotContacting);
+    const RigidContact& contact =
+        rod_->get_contacts(context.get_state())[contact_index_];
 
     // Get the relevant parts of the state.
-    const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-    const Vector2<T> q = context.get_continuous_state()->
-        get_generalized_position().CopyToVector().segment(0,2);
+    const Vector3<T> q = context.get_continuous_state()->
+        get_generalized_position().CopyToVector();
 
     // Get the relevant point on the rod in the world frame.
     const Eigen::Rotation2D<T> R(q(2));
     const Vector2<T> x(q(0), q(1));
-    const Vector2<T> p = v + R * contacts[i].u.segment(0,2);
+    const Vector2<T> p = x + R * contact.u.segment(0,2);
 
     // Return the vertical location.
     return p[1];

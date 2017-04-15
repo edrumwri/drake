@@ -13,6 +13,10 @@ drake_cc_library(
         "rigid_contact.h",
         "rod2d.h",
         "rod2d-inl.h",
+        "separating_accel_witness.h",
+        "signed_distance_witness.h",
+        "sliding_dot_witness.h",
+        "sticking_friction_forces_slack_witness.h",
     ],
     deps = [
         "//drake/common",
