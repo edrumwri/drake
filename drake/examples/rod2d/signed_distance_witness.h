@@ -21,6 +21,9 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
   SignedDistanceWitness(Rod2D<T>* rod, int contact_index) :
       rod_(rod), contact_index_(contact_index) {}
 
+  // Gets the contact index for this witness function.
+  int get_contact_index() const { return contact_index_; }
+
   /// This witness function indicates an unrestricted update needs to be taken.
   typename systems::DiscreteEvent<T>::ActionType get_action_type()
       const override {
@@ -34,12 +37,12 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
     return systems::WitnessFunction<T>::TriggerType::kPositiveThenNegative;
   }
 
-  // Select the trigger time for this witness function to bisect the two
-  // time values.
+  // Select the trigger time for this witness function to always go with the
+  // earlier time.
   T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
                         const std::pair<T, T>& time_and_witness_valuef)
                         const override {
-    return (time_and_witness_value0.first + time_and_witness_valuef.first) / 2;
+    return time_and_witness_value0.first;
   }
 
   /// The witness function itself.
@@ -69,21 +72,16 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
 
   // Uninformed time tolerance.
   T get_time_isolation_tolerance() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
+    return std::numeric_limits<double>::epsilon();
   }
 
-  // Uninformed dead-band values and time tolerance.
-  T get_positive_dead_band() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
+  // Dead-band value here should be strictly zero to match true solution.
+  T get_positive_dead_band() const override { return
+        std::numeric_limits<double>::epsilon(); }
 
   // Uninformed dead-band values and time tolerance.
-  T get_negative_dead_band() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
+  T get_negative_dead_band() const override { return
+        -std::numeric_limits<double>::epsilon(); }
 
  private:
   /// Pointer to the rod system.

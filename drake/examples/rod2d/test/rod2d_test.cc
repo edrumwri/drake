@@ -7,6 +7,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_matrix_compare.h"
 #include "drake/systems/analysis/simulator.h"
+#include "drake/systems/analysis/semi_explicit_euler_integrator.h"
 
 using drake::systems::VectorBase;
 using drake::systems::BasicVector;
@@ -15,6 +16,7 @@ using drake::systems::State;
 using drake::systems::SystemOutput;
 using drake::systems::AbstractValues;
 using drake::systems::Simulator;
+using drake::systems::SemiExplicitEulerIntegrator;
 using drake::systems::Context;
 
 using Eigen::Vector2d;
@@ -25,8 +27,8 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
-/// Class for testing the Rod2D example using a piecewise DAE
-/// approach.
+// Class for testing the Rod2D example using a piecewise DAE
+// approach.
 class Rod2DDAETest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -215,7 +217,7 @@ TEST_F(Rod2DDAETest, Output) {
 // impacting state.
 TEST_F(Rod2DDAETest, ImpactingState) {
   SetImpactingState();
-  EXPECT_TRUE(dut_->IsImpacting(*context_));
+  EXPECT_TRUE(dut_->IsImpacting(context_->get_state()));
 }
 
 // Tests parameter getting and setting.
@@ -273,7 +275,7 @@ TEST_F(Rod2DDAETest, ImpactWorks) {
   contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
 
   // Rod should be impacting.
-  EXPECT_TRUE(dut_->IsImpacting(*context_));
+  EXPECT_TRUE(dut_->IsImpacting(context_->get_state()));
 
   // Handle the impact.
   dut_->ModelImpact(new_state.get());
@@ -485,7 +487,7 @@ TEST_F(Rod2DDAETest, Inconsistent2) {
 TEST_F(Rod2DDAETest, ImpactNoChange) {
   // Set state.
   std::unique_ptr<State<double>> new_state = CloneState();
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
   dut_->ModelImpact(new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state()->get_vector().
                                   CopyToVector(),
@@ -534,7 +536,7 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact) {
   dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
   dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   context_->get_mutable_state()->SetFrom(*new_state);
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Verify that the state is no longer in a sliding mode.
   EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
@@ -580,7 +582,7 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
   dut_->ModelImpact(new_state.get(), &Nv, &Fv, &zero_tol);
   dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   context_->get_mutable_state()->SetFrom(*new_state);
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Verify that the state is still in a sliding mode.
   EXPECT_EQ(contacts.size(), 2);
@@ -633,7 +635,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   contacts[0].state = RigidContact::ContactState::kContactingWithoutSliding;
 
   // Verify no impact.
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // No exceptions should be thrown.
   EXPECT_NO_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()));
@@ -664,7 +666,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
       RigidContact::ContactState::kContactingAndSliding;
 
   // Verify no impact.
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Set the coefficient of friction to zero.
   dut_->set_mu_coulomb(0.0);
@@ -699,7 +701,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   xc[3] = 0.0;
   contacts[0].state = contacts[1].state =
       RigidContact::ContactState::kContactingWithoutSliding;
-  EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));  // Verify no impact.
 
   // Set a constant force pushing the rod.
   const double fX = 1.0;
@@ -734,7 +736,7 @@ TEST_F(Rod2DDAETest, ImpactNoChange2) {
   SetSecondInitialConfig();
 
   // Verify no impact.
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Set writable state.
   std::unique_ptr<State<double>> new_state = CloneState();
@@ -772,7 +774,7 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
   context_->get_mutable_state()->SetFrom(*new_state);
 
   // Verify the state no longer corresponds to an impact.
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Verify that the state is now in a sticking mode.
   EXPECT_EQ(contacts[1].state,
@@ -820,7 +822,7 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
   // Handle the impact and copy the result to the context.
   dut_->ModelImpact(new_state.get());
   context_->get_mutable_state()->SetFrom(*new_state);
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Do one more impact- there should now be no change.
   dut_->ModelImpact(new_state.get());
@@ -858,7 +860,7 @@ TEST_F(Rod2DDAETest, BallisticNoImpact) {
       RigidContact::ContactState::kNotContacting;
 
   // Verify that no impact occurs.
-  EXPECT_FALSE(dut_->IsImpacting(*context_));
+  EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 }
 
 // Validates the set of witness functions is determined correctly.
@@ -1014,8 +1016,8 @@ TEST_F(Rod2DDAETest, StickingSlidingWitness) {
 
 }
 
-/// Class for testing the Rod 2D example using a first order time
-/// stepping approach.
+// Class for testing the Rod 2D example using a first order time
+// stepping approach.
 class Rod2DTimeSteppingTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -1067,8 +1069,8 @@ class Rod2DTimeSteppingTest : public ::testing::Test {
   std::unique_ptr<ContinuousState<double>> derivatives_;
 };
 
-/// Verify that Rod 2D system eventually goes to rest using the
-/// first-order time stepping approach (this tests expected meta behavior).
+// Verify that Rod 2D system eventually goes to rest using the
+// first-order time stepping approach (this tests expected meta behavior).
 TEST_F(Rod2DTimeSteppingTest, RodGoesToRest) {
   // Set the initial state to an inconsistent configuration.
   SetSecondInitialConfig();
@@ -1096,76 +1098,355 @@ TEST_F(Rod2DTimeSteppingTest, NumWitnessFunctions) {
   EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 0);
 }
 
-// This test checks to see whether a single semi-explicit step of the piecewise
-// DAE based Rod2D system is equivalent to a single step of the semi-explicit
-// time stepping based system.
-GTEST_TEST(Rod2DCrossValidationTest, OneStepSolutionSliding) {
-  // Create two Rod2D systems.
-  const double dt = 1e-1;
-  Rod2D<double> ts(Rod2D<double>::SimulationType::kTimeStepping, dt);
-  Rod2D<double> pdae(Rod2D<double>::SimulationType::kPiecewiseDAE, 0.0);
+// Class for cross-testing the Rod2D example using piecewise DAE and time
+// stepping approaches.
+class Rod2DCrossValidationTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // Create both test devices.
+    pdae_ = std::make_unique<Rod2D<double>>(
+        Rod2D<double>::SimulationType::kPiecewiseDAE, 0.0);
+    ts_ = std::make_unique<Rod2D<double>>(
+        Rod2D<double>::SimulationType::kTimeStepping, dt_);
 
-  // Set the coefficient of friction to a small value for both.
-  const double mu = 0.01;
-  ts.set_mu_coulomb(mu);
-  pdae.set_mu_coulomb(mu);
+    // Use non-unit masses for the rods.
+    pdae_->set_rod_mass(2.0);
+    ts_->set_rod_mass(2.0);
 
-  // Set "one step" constraint stabilization (not generally recommended, but
-  // works for a single step) and small regularization.
-  ts.set_cfm(std::numeric_limits<double>::epsilon());
-  ts.set_erp(1.0);
+    // Create contexts for them.
+    std::unique_ptr<Context<double>> context_pdae = pdae_->
+        CreateDefaultContext();
+    std::unique_ptr<Context<double>> context_ts = ts_->CreateDefaultContext();
 
-  // Create contexts for both.
-  std::unique_ptr<Context<double>> context_ts = ts.CreateDefaultContext();
-  std::unique_ptr<Context<double>> context_pdae = pdae.CreateDefaultContext();
+    // Set CFM for both approaches.
+    const double cfm = std::numeric_limits<double>::epsilon();
+    pdae_->set_cfm(cfm);
+    ts_->set_cfm(cfm);
 
-  // Set zero input forces for both.
-  Vector3<double> fext(0, 0, 0);
-  std::unique_ptr<BasicVector<double>> ext_input =
-    std::make_unique<BasicVector<double>>(fext);
-  context_ts->FixInputPort(0, std::move(ext_input));
-  ext_input = std::make_unique<BasicVector<double>>(fext);
-  context_pdae->FixInputPort(0, std::move(ext_input));
+    // Set Baumgarte stabilization such that all constraint errors would be
+    // eliminated at the end of the time step.
+    ts_->set_erp(1.0);
 
-  // Init the simulator for the time stepping system.
-  Simulator<double> simulator_ts(ts, std::move(context_ts));
+    // Set input forces for both devices.
+    const Vector3<double> fext(get_horizontal_external_force(), 0, 0);
+    std::unique_ptr<BasicVector<double>> ext_input =
+        std::make_unique<BasicVector<double>>(fext);
+    context_ts->FixInputPort(0, std::move(ext_input));
+    ext_input = std::make_unique<BasicVector<double>>(fext);
+    context_pdae->FixInputPort(0, std::move(ext_input));
+
+    // Set the friction coefficients.
+    ts_->set_mu_coulomb(get_mu_coulomb());
+    pdae_->set_mu_coulomb(get_mu_coulomb());
+    std::vector<RigidContact>& contacts = pdae_->get_contacts(
+        context_pdae->get_mutable_state());
+    for (size_t i = 0; i < contacts.size(); ++i)
+      contacts[i].mu = get_mu_coulomb();
+
+    // Init the simulators.
+    simulator_ts_ = std::make_unique<Simulator<double>>(*ts_,
+                                                        std::move(context_ts));
+    simulator_pdae_ = std::make_unique<Simulator<double>>(
+        *pdae_,std::move(context_pdae));
+
+    // We want the integrator in the piecewise DAE approach to take only a
+    // single semi-implicit step in order to line the solutions up with time
+    // stepping as much as possible.
+    simulator_pdae_->reset_integrator<SemiExplicitEulerIntegrator<double>>(
+        *pdae_, dt_, simulator_pdae_->get_mutable_context());
+  }
+
+  // Sets both rods to an impacting horizontal configuration with zero
+  // horizontal velocity.
+  void set_two_point_impacting_configuration() {
+    // The vertical location of the rod should be such that the initial
+    // signed distance is ever so slightly positive.
+    const double y0 = 1.5e-8;
+
+    Context<double>* context_ts = simulator_ts_->get_mutable_context();
+    auto xd = context_ts->get_mutable_discrete_state(0)->get_mutable_value();
+    xd[0] = 0;   // Place horizontal com location at zero.
+    xd[1] = y0;  // Vertical location of COM.
+    xd[2] = 0;   // Theta = zero rotation.
+    xd[3] = 0;   // Zero horizontal velocity.
+    xd[4] = -1;  // Impacting velocity.
+
+    Context<double>* context_pdae = simulator_pdae_->get_mutable_context();
+    auto xc = context_pdae->get_mutable_continuous_state_vector();
+    xc->SetAtIndex(0, 0);   // Horizontal com location.
+    xc->SetAtIndex(1, y0);  // Vertical com location.
+    xc->SetAtIndex(2, 0);   // Angular rotation.
+    xc->SetAtIndex(3, 0);   // Zero horizontal velocity.
+    xc->SetAtIndex(4, -1);  // Impacting velocity.
+
+    // piecewise DAE requires mode variables to be set too.
+    std::vector<RigidContact>& contacts = pdae_->get_contacts(
+        context_pdae->get_mutable_state());
+    for (size_t i = 0; i < contacts.size(); ++i)
+      contacts[i].state = RigidContact::ContactState::kNotContacting;
+  }
+
+  // Sets both rods to a resting horizontal configuration.
+  void set_horizontal_motionless_configuration() {
+    Context<double>* context_ts = simulator_ts_->get_mutable_context();
+    auto xd = context_ts->get_mutable_discrete_state(0)->get_mutable_value();
+    xd[0] = 0;  //   Place horizontal com location at zero.
+    xd[1] = 0;  //   Zero rotation implies vertical location of COM is zero.
+    xd[2] = 0;  //   Theta = zero rotation.
+    xd[3] = 0;  //   Zero horizontal velocity.
+
+    Context<double>* context_pdae = simulator_pdae_->get_mutable_context();
+    auto xc = context_pdae->get_mutable_continuous_state_vector();
+    xc->SetAtIndex(0, 0);  // Horizontal com location.
+    xc->SetAtIndex(1, 0);  // Vertical com location.
+    xc->SetAtIndex(2, 0);  // Angular rotation.
+    xc->SetAtIndex(3, 0);  // Zero horizontal velocity.
+
+    // piecewise DAE requires mode variables to be set too.
+    std::vector<RigidContact>& contacts = pdae_->get_contacts(
+        context_pdae->get_mutable_state());
+    for (size_t i = 0; i < contacts.size(); ++i)
+      contacts[i].state = RigidContact::ContactState::kContactingWithoutSliding;
+  }
+
+  // Sets both rods to a horizontal sliding configuration.
+  void set_horizontal_sliding_configuration() {
+    Context<double>* context_ts = simulator_ts_->get_mutable_context();
+    auto xd = context_ts->get_mutable_discrete_state(0)->get_mutable_value();
+    xd[0] = 0;  //   Place horizontal com location at zero.
+    xd[1] = 0;  //   Zero rotation implies vertical location of COM is zero.
+    xd[2] = 0;  //   Theta = zero rotation.
+    xd[3] = 1;  //   Horizontal velocity.
+
+    Context<double>* context_pdae = simulator_pdae_->get_mutable_context();
+    auto xc = context_pdae->get_mutable_continuous_state_vector();
+    xc->SetAtIndex(0, 0);  // Horizontal com location.
+    xc->SetAtIndex(1, 0);  // Vertical com location.
+    xc->SetAtIndex(2, 0);  // Angular rotation.
+    xc->SetAtIndex(3, 1);  // Horizontal velocity.
+
+    // piecewise DAE requires mode variables to be set too.
+    std::vector<RigidContact>& contacts = pdae_->get_contacts(
+        context_pdae->get_mutable_state());
+    for (size_t i = 0; i < contacts.size(); ++i)
+      contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
+  }
+
+  // Gets the horizontal applied forces for both devices.
+  virtual double get_horizontal_external_force() const = 0;
+
+  // Gets the coefficient of friction.
+  virtual double get_mu_coulomb() const = 0;
+
+ protected:
+  // The integration step size (should be large to allow for event transitions).
+  const double dt_{0.1};
+
+  std::unique_ptr<Rod2D<double>> pdae_;
+  std::unique_ptr<Rod2D<double>> ts_;
+  std::unique_ptr<Simulator<double>> simulator_pdae_;
+  std::unique_ptr<Simulator<double>> simulator_ts_;
+};
+
+class Rod2DCrossValidationImpactingTest : public Rod2DCrossValidationTest {
+ protected:
+  double get_horizontal_external_force() const override { return 0; }
+  double get_mu_coulomb() const override { return 0.0; }
+};
+
+// This test checks to see whether the time stepping and piecewise DAE
+// solutions are identical for the situation where an impact occurs at the
+// beginning of the interval.
+TEST_F(Rod2DCrossValidationImpactingTest, ImpactingWithoutHorizontalVelocity) {
+  // If the rod were to impact at only a single point, the velocity would be
+  // altered at the beginning of the interval, and we should expect the
+  // piecewise DAE and time stepping solutions to differ. In this case, they
+  // should be nearly identical.
+  set_two_point_impacting_configuration();
 
   // Integrate forward by a single *large* dt. Note that the update rate
   // is set by the time stepping system, so stepping to dt should yield
   // exactly one step.
-  simulator_ts.StepTo(dt);
-  EXPECT_EQ(simulator_ts.get_num_discrete_updates(), 1);
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
 
-  // Manually integrate the continuous state forward for the piecewise DAE
-  // based approach.
-  std::unique_ptr<ContinuousState<double>> f = pdae.AllocateTimeDerivatives();
-  pdae.CalcTimeDerivatives(*context_pdae, f.get());
-  auto xc = context_pdae->get_mutable_continuous_state_vector();
-  xc->SetAtIndex(3, xc->GetAtIndex(3) + dt * ((*f)[3]));
-  xc->SetAtIndex(4, xc->GetAtIndex(4) + dt * ((*f)[4]));
-  xc->SetAtIndex(5, xc->GetAtIndex(5) + dt * ((*f)[5]));
-  xc->SetAtIndex(0, xc->GetAtIndex(0) + dt * xc->GetAtIndex(3));
-  xc->SetAtIndex(1, xc->GetAtIndex(1) + dt * xc->GetAtIndex(4));
-  xc->SetAtIndex(2, xc->GetAtIndex(2) + dt * xc->GetAtIndex(5));
+  // Two unrestricted updates necessary (one for each contact point impacting).
+  EXPECT_EQ(simulator_pdae_->get_num_unrestricted_updates(), 2);
+  EXPECT_EQ(simulator_pdae_->get_num_steps_taken(), 2);
 
   // See whether the states are equal.
-  const Context<double>& context_ts_new = simulator_ts.get_context();
-  const auto& xd = context_ts_new.get_discrete_state(0)->get_value();
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
 
   // Check that the solution is nearly identical.
   const double tol = std::numeric_limits<double>::epsilon() * 10;
-  EXPECT_NEAR(xc->GetAtIndex(0), xd[0], tol);
-  EXPECT_NEAR(xc->GetAtIndex(1), xd[1], tol);
-  EXPECT_NEAR(xc->GetAtIndex(2), xd[2], tol);
-  EXPECT_NEAR(xc->GetAtIndex(3), xd[3], tol);
-  EXPECT_NEAR(xc->GetAtIndex(4), xd[4], tol);
-  EXPECT_NEAR(xc->GetAtIndex(5), xd[5], tol);
-
-  // TODO(edrumwri): Introduce more extensive tests that cross-validate the
-  // time-stepping based approach against the piecewise DAE-based approach for
-  // the case of sliding contacts at multiple points.
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
 }
 
+class Rod2DCrossValidationSlidingTest : public Rod2DCrossValidationTest {
+ protected:
+  double get_horizontal_external_force() const override { return 0; }
+  double get_mu_coulomb() const override { return 0.01; }
+};
+
+// This test checks to see whether a simulation step of the piecewise
+// DAE based Rod2D system is equivalent to a single step of the semi-explicit
+// time stepping based system.
+TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionSliding) {
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+// This test checks to see whether a simulation step of the piecewise
+// DAE based Rod2D system is equivalent to a single step of the semi-explicit
+// time stepping based system for two sliding contacts.
+TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionTwoSliding) {
+  // Set the rods to a sidewise configuration.
+  set_horizontal_sliding_configuration();
+
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
+  EXPECT_EQ(simulator_pdae_->get_num_unrestricted_updates(), 0);
+  EXPECT_EQ(simulator_pdae_->get_num_steps_taken(), 1);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+class Rod2DCrossValidationStickingTest : public Rod2DCrossValidationTest {
+ protected:
+  virtual void SetUp() {
+    // Do the majority of the setup as normal.
+    Rod2DCrossValidationTest::SetUp();
+
+    // Set horizontal velocity to zero for time stepping system.
+    Context<double>* context_ts = simulator_ts_->get_mutable_context();
+    auto xd = context_ts->get_mutable_discrete_state(0)->get_mutable_value();
+    xd[3] = 0;  //   zero horizontal velocity.
+
+    // Setting horizontal velocity to zero for piecewise DAE system also
+    // requires a mode variable change.
+    Context<double>* context_pdae = simulator_pdae_->get_mutable_context();
+    auto xc = context_pdae->get_mutable_continuous_state_vector();
+    xc->SetAtIndex(3, 0);  // zero horizontal velocity.
+    std::vector<RigidContact>& contacts = pdae_->get_contacts(
+        context_pdae->get_mutable_state());
+    for (size_t i = 0; i < contacts.size(); ++i) {
+      if (contacts[i].state ==
+          RigidContact::ContactState::kContactingAndSliding) {
+        contacts[i].state =
+            RigidContact::ContactState::kContactingWithoutSliding;
+      }
+    }
+  }
+
+  double get_horizontal_external_force() const override { return 1.0; }
+  double get_mu_coulomb() const override { return 100.0; }
+};
+
+// This test checks to see whether a simulation step of the piecewise
+// DAE based Rod2D system is equivalent to a single step of the semi-explicit
+// time stepping based system.
+TEST_F(Rod2DCrossValidationStickingTest, OneStepSolutionSticking) {
+  // Mode variable for point of contact must initially be set to not sliding.
+
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+// This test checks to see whether a simulation step of the piecewise
+// DAE based Rod2D system is equivalent to a single step of the semi-explicit
+// time stepping based system for two sticking contacts.
+TEST_F(Rod2DCrossValidationStickingTest, OneStepSolutionTwoSticking) {
+  // Set the rods to a sidewise configuration.
+  set_horizontal_motionless_configuration();
+
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+/*
 // This test checks to see whether a single semi-explicit step of the piecewise
 // DAE based Rod2D system is equivalent to a single step of the semi-explicit
 // time stepping based system for a sticking contact scenario.
@@ -1256,9 +1537,10 @@ GTEST_TEST(Rod2DCrossValidationTest, OneStepSolutionSticking) {
   EXPECT_NEAR(xc[4], xd[4], tol);
   EXPECT_NEAR(xc[5], xd[5], tol);
 }
+*/
 
-/// Class for testing the Rod 2D example using compliant contact
-/// thus permitting integration as an ODE.
+// Class for testing the Rod 2D example using compliant contact
+// thus permitting integration as an ODE.
 class Rod2DCompliantTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -1357,7 +1639,7 @@ class Rod2DCompliantTest : public ::testing::Test {
   std::unique_ptr<ContinuousState<double>> derivatives_;
 };
 
-/// Verify that the compliant contact resists penetration.
+// Verify that the compliant contact resists penetration.
 TEST_F(Rod2DCompliantTest, ForcesHaveRightSign) {
   // We expect only roundoff errors, scaled by force magnitude (~1e-14).
   const double kTightTol = 50 * std::numeric_limits<double>::epsilon();

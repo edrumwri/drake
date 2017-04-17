@@ -338,7 +338,6 @@ class Simulator {
   // The number of integration steps since the last call to Initialize().
   int64_t num_steps_taken_{0};
 
-
   // Set by Initialize() and reset by various traumas.
   bool initialization_done_{false};
 

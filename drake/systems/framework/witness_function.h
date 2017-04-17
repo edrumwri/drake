@@ -45,11 +45,11 @@ class WitnessFunction {
   virtual T Evaluate(const Context<T>& context) = 0;
 
   /// Derived classes will override this function to return the positive "dead"
-  /// band.
+  /// band. This value should generally be non-negative.
   virtual T get_positive_dead_band() const = 0;
 
   /// Derived classes will override this function to return the negative "dead"
-  /// band.
+  /// band. This value should generally be non-positive.
   virtual T get_negative_dead_band() const = 0;
 
   /// Derived classes will override this function to get the time that the
@@ -78,6 +78,16 @@ class WitnessFunction {
 
     return do_get_trigger_time(time_and_witness_value0,
                                time_and_witness_valuef);
+  }
+
+  /// Checks whether the witness function should trigger using the current
+  /// context only (witness functions generally look at the evolution of
+  /// the system between two contacts). In other words, this function
+  /// determines whether the witness function lies in the "dead band".
+  bool is_zero(const Context<T>& context) const {
+    T value = Evaluate(context);
+    return (value <= get_positive_dead_band() &&
+            value >= get_negative_dead_band());
   }
 
   /// Checks whether the witness function should trigger using given

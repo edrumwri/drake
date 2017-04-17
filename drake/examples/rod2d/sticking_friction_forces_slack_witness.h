@@ -62,7 +62,7 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
 
     // Populate problem data.
     RigidContactAccelProblemData<T> problem_data;
-    rod_->InitRigidContactAccelProblemData(context, &problem_data);
+    rod_->InitRigidContactAccelProblemData(context.get_state(), &problem_data);
     const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
     const std::vector<int>& non_sliding_contacts =
         problem_data.non_sliding_contacts;
@@ -71,6 +71,7 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
     const int num_sliding = sliding_contacts.size();
     const int num_non_sliding = non_sliding_contacts.size();
     const int nc = num_sliding + num_non_sliding;
+    const int k = rod_->get_num_tangent_directions_per_contact();
 
     // Compute Jacobian matrices.
     rod_->FormRigidContactAccelJacobians(context.get_state(), &problem_data);
@@ -115,9 +116,19 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
     rod_->QR_.compute(MM);
     VectorX<T> zz = rod_->QR_.solve(-qq);
 
+    // Determine the index of this contact in the non-sliding constraint set.
+    DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
+                                non_sliding_contacts.end()));
+    const int non_sliding_index = std::distance(non_sliding_contacts.begin(),
+                                    std::lower_bound(
+                                        non_sliding_contacts.begin(),
+                                        non_sliding_contacts.end(),
+                                        contact_index_));
+
     // Get the normal force and the absolute value of the frictional force.
     const auto fN = zz[contact_index_];
-    const auto fF = abs(zz[nc + contact_index_]);
+    const auto fF = zz.segment(nc + non_sliding_index * (k/2), k / 2).template
+        lpNorm<1>();
 
     // Determine the slack.
     return contact.mu*fN - fF;

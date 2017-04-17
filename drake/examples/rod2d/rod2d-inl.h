@@ -295,56 +295,39 @@ void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
 template <class T>
 void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
                                         systems::State<T>* state) const {
+  // Copy the state in the context into the state.
+  state->CopyFrom(context.get_state());
+
   // Get the potential contacts.
   std::vector<RigidContact>& contacts = get_contacts(state);
 
-  // Get necessary state variables.
-  const VectorX<T> q = context.get_continuous_state()->
-      get_generalized_position().CopyToVector();
-  const VectorX<T> v = context.get_continuous_state()->
-      get_generalized_velocity().CopyToVector();
-  const T& theta = q(2);
-  const T& thetadot = v(2);
-
-  // Form the rod frame to world frame rotation matrix and the center-of-mass
-  // vector.
-  const Eigen::Rotation2D<T> R(theta);
-  const Vector2<T> x(q(0), q(1));
-  const Vector2<T> xdot(v(0), v(1));
-  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context.get_state());
-
   // Check whether a new point of contact is becoming active.
+  bool impact_occurring = false;
   for (size_t i = 0; i < contacts.size(); ++i) {
     // If the contact is already active, ignore it.
     if (contacts[i].state != RigidContact::ContactState::kNotContacting)
       continue;
 
-    // Contact is not active; see whether the distance between the two bodies
-    // at that contact is zero (or less). If so, activate the contact.
-    // (1) Transform the contact into the global frame.
-    const Vector2<T> p = x + R * contacts[i].u.segment(0,2);
-
-    // (2) Compute the signed distance between the contact and the half-space.
-    const double sdist = p(1);
-
-    // (3) If signed distance is not positive; make the contact active.
-    // Arbitrarily select the sliding mode because this new contact must be
-    // triggering an impact, from which the sliding velocity will be determined
-    // anew.
-    if (sdist <= 0) {
+    // Contact is not active; see whether the signed distance witness function
+    // is triggered. If so, change the contact state to sliding (arbitrarily);
+    // the impact handler should be triggered.
+    if (signed_distance_witnesses_[i]->Evaluate(context) <=
+        signed_distance_witnesses_[i]->get_positive_dead_band()) {
       contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
-      DRAKE_DEMAND(v(1) + Rdot.row(1).dot(contacts[i].u.segment(0,2)) * thetadot < 0);
+      impact_occurring = true;
     }
   }
 
   // Check whether the rod is undergoing an impact.
-  if (IsImpacting(context)) {
+  if (IsImpacting(*state)) {
     // Rod IS undergoing an impact. Model the impact problem (which also
     // redetermines contact modes).
     T zero_tol;
     VectorX<T> Nvplus, Fvplus;
     ModelImpact(state, &Nvplus, &Fvplus, &zero_tol);
     DetermineVelLevelActiveSet(state, Nvplus, Fvplus, zero_tol);
+  } else {
+    DRAKE_DEMAND(!impact_occurring);
   }
 
   // The active set must now be redetermined using the derivative at the current
@@ -450,12 +433,12 @@ std::vector<systems::WitnessFunction<T>*> Rod2D<T>::get_witness_functions(
 // complementarity problem or the sustained contact linear system.
 template <class T>
 void Rod2D<T>::InitRigidContactAccelProblemData(
-    const systems::Context<T>& context,
+    const systems::State<T>& state,
     RigidContactAccelProblemData<T>* problem_data) const {
   DRAKE_DEMAND(problem_data);
 
   // Get the sets of sliding and non-sliding contacts.
-  const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
+  const std::vector<RigidContact>& contacts = get_contacts(state);
   GetContactVectors(contacts, &problem_data->sliding_contacts,
                     &problem_data->non_sliding_contacts);
 
@@ -830,8 +813,8 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
 // determines when bodies may be accelerating away at a point of contact
 // or when a contact is transitioning from sticking to sliding.
 template <class T>
-void Rod2D<T>::DetermineAccelLevelActiveSet(
-    const systems::Context<T>& context, systems::State<T>* state) const {
+void Rod2D<T>::DetermineAccelLevelActiveSet(const systems::Context<T>& context,
+                                            systems::State<T>* state) const {
   using std::abs;
   using std::max;
 
@@ -840,7 +823,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
 
   // Populate problem data.
   RigidContactAccelProblemData<T> problem_data;
-  InitRigidContactAccelProblemData(context, &problem_data);
+  InitRigidContactAccelProblemData(*state, &problem_data);
   const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
   const std::vector<int>& non_sliding_contacts =
       problem_data.non_sliding_contacts;
@@ -897,9 +880,11 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(
 
   // NOTE: This LCP might not be solvable due to inconsistent configurations.
   // Check the answer and throw a runtime error if it's no good.
-  if (!success || zz.minCoeff() < -10*zero_tol ||
-      ww.minCoeff() < -10*zero_tol || abs(zz.dot(ww)) > nvars * 10 * zero_tol)
+  if (!success || (zz.size() > 0 && (zz.minCoeff() < -10*zero_tol ||
+                                   ww.minCoeff() < -10*zero_tol ||
+                                   abs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
+  }
 
   // Obtain the normal and frictional contact forces and the value of λ, which
   // will yield the residual tangential accelerations unable to be eliminated
@@ -2142,18 +2127,19 @@ Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
 }
 
 template <class T>
-bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
+bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
   using std::abs;
   using std::max;
 
   // Get the contact states.
-  const std::vector<RigidContact>& contacts = get_contacts(context.get_state());
+  const std::vector<RigidContact>& contacts = get_contacts(state);
 
   // Get state data necessary to compute the point of contact.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& xdot = state.GetAtIndex(3);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
+  const systems::VectorBase<T>& cstate = state.get_continuous_state()->
+      get_vector();
+  const T& xdot = cstate.GetAtIndex(3);
+  const T& ydot = cstate.GetAtIndex(4);
+  const T& thetadot = cstate.GetAtIndex(5);
 
   // Compute the zero tolerance.
   const T zero_tol = std::numeric_limits<double>::epsilon() * max(10.0,
@@ -2163,7 +2149,7 @@ bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
   const Vector2<T> v(xdot, ydot);
 
   // Get the time derivative of the rotation matrix.
-  const Matrix2<T> Rdot = get_rotation_matrix_derivative(context.get_state());
+  const Matrix2<T> Rdot = get_rotation_matrix_derivative(state);
 
   // Loop through all points of contact.
   for (size_t i = 0; i < contacts.size(); ++i) {
@@ -2263,7 +2249,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
 
     // Populate problem data.
     RigidContactAccelProblemData<T> problem_data;
-    InitRigidContactAccelProblemData(context, &problem_data);
+    InitRigidContactAccelProblemData(context.get_state(), &problem_data);
     const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
     const std::vector<int>& non_sliding_contacts =
         problem_data.non_sliding_contacts;

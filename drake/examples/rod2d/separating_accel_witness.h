@@ -62,7 +62,7 @@ class SeparatingAccelWitness : public systems::WitnessFunction<T> {
 
     // Populate problem data.
     RigidContactAccelProblemData<T> problem_data;
-    rod_->InitRigidContactAccelProblemData(context, &problem_data);
+    rod_->InitRigidContactAccelProblemData(context.get_state(), &problem_data);
     const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
     const std::vector<int>& non_sliding_contacts =
         problem_data.non_sliding_contacts;

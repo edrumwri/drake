@@ -311,7 +311,7 @@ class Rod2D : public systems::LeafSystem<T> {
   /// at any time Δt in the future (i.e., Δt > 0). If the context does not
   /// correspond to a configuration where the rod and halfspace are contacting,
   /// this method returns `false`.
-  bool IsImpacting(const systems::Context<T>& context) const;
+  bool IsImpacting(const systems::State<T>& state) const;
 
   /// Gets the integration step size for the time stepping system.
   /// @returns 0 if this is a DAE-based system.
@@ -360,6 +360,7 @@ class Rod2D : public systems::LeafSystem<T> {
 
  private:
   friend class Rod2DDAETest;
+  friend class Rod2DCrossValidationTest;
   FRIEND_TEST(Rod2DDAETest, ImpactWorks);
   FRIEND_TEST(Rod2DDAETest, ImpactNoChange);
   FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact);
@@ -384,7 +385,7 @@ class Rod2D : public systems::LeafSystem<T> {
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
-  void InitRigidContactAccelProblemData(const systems::Context<T>& context,
+  void InitRigidContactAccelProblemData(const systems::State<T>& state,
       RigidContactAccelProblemData<T>* problem_data) const;
   void FormRigidContactVelJacobians(const systems::State<T>& state,
       RigidContactVelProblemData<T>* problem_data) const;
