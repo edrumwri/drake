@@ -152,7 +152,7 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
   // Create aliases to N and F.
   MatrixX<T>& N = problem_data.N;
   MatrixX<T>& F = problem_data.F;
-  
+
   // Look for the opportunity to skip out on building the LCP matrix.
   VectorX<T> Nv = N * v;
   if (Nv.minCoeff() >= 0) {
@@ -503,10 +503,6 @@ void Rod2D<T>::FormRigidContactVelJacobians(
   const T& theta = q[2];
   Eigen::Rotation2D<T> R(theta);
 
-  // Set the origin of the center of mass (in the world frame) and its velocity.
-  const Vector2<T> x(q[0], q[1]);
-  const Vector2<T> xdot(v[0], v[1]);
-
   // Set up the contact normal and tangent (friction) direction Jacobian
   // matrices and their time derivatives. These take the form:
   //     | 0 1 n1 |        | 1 0 f1 |       | 1 0 f1 |
@@ -520,18 +516,18 @@ void Rod2D<T>::FormRigidContactVelJacobians(
     if (contacts[i].state == RigidContact::ContactState::kNotContacting)
       continue;
 
-    // Transform the contact point to the world frame.
-    const Vector2<T> p = x + R * contacts[i].u.segment(0,2);
+    // Express the contact point in the world frame.
+    const Vector2<T> p = R * contacts[i].u.segment(0,2);
 
     // Horizontal component of normal Jacobian is always zero and vertical
     // component is always one.
     problem_data->N(j, 0) = 0;
     problem_data->N(j, 1) = 1;
-    problem_data->N(j, 2) = p[0] - q[0];
+    problem_data->N(j, 2) = p[0];
 
     problem_data->F(j, 0) = 1;
     problem_data->F(j, 1) = 0;
-    problem_data->F(j, 2) = -(p[1] - q[1]);
+    problem_data->F(j, 2) = -p[1];
 
     // Update the normal index.
     j++;
@@ -1026,10 +1022,6 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   const T& y = q(1);
   const T& theta = q(2);
 
-  // Get the inputs.
-  const int port_index = 0;
-  const auto input = this->EvalEigenVectorInput(context, port_index);
-
   // Compute the two rod vertical endpoint locations.
   const T stheta = sin(theta), ctheta = cos(theta);
 
@@ -1072,9 +1064,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
 
   // Update the generalized velocity vector with discretized external forces
   // (expressed in the world frame).
-  const Vector3<T> fgrav(0, mass_ * get_gravitational_acceleration(), 0);
-  const Vector3<T> fapplied = input.segment(0, 3);
-  v += dt_ * iM * (fgrav + fapplied);
+  v += dt_ * iM * ComputeExternalForces(context);
 
   // Set up the contact normal and tangent (friction) direction Jacobian
   // matrices. These take the form:
@@ -1146,6 +1136,10 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // Solve the LCP.
   VectorX<T> zz;
   bool success = lcp_.SolveLcpLemke(MM, qq, &zz);
+  VectorX<T> ww = MM * zz + qq;
+  const T zero_tol = 100 * cfm;
+  DRAKE_DEMAND(zz.minCoeff() > -zero_tol && ww.minCoeff() > -zero_tol &&
+               abs(zz.dot(ww)) < 8 * zero_tol);
   DRAKE_DEMAND(success);
 
   // Obtain the normal and frictional contact forces.
@@ -2122,7 +2116,7 @@ Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
   const T ctheta = cos(theta);
   const T stheta = sin(theta);
   Matrix2<T> Rdot;
-  Rdot << -stheta, ctheta, -ctheta, -stheta;
+  Rdot << -stheta, -ctheta, ctheta, -stheta;
   return Rdot;
 }
 
@@ -2142,8 +2136,9 @@ bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
   const T& thetadot = cstate.GetAtIndex(5);
 
   // Compute the zero tolerance.
-  const T zero_tol = std::numeric_limits<double>::epsilon() * max(10.0,
-                         max(abs(xdot), max(abs(ydot), abs(thetadot))));
+  const int ndim = 2;
+  const T zero_tol = 100 * ndim * std::numeric_limits<double>::epsilon() *
+                       max(10.0, max(abs(xdot), max(abs(ydot), abs(thetadot))));
 
   // Set the velocity of the center of mass.
   const Vector2<T> v(xdot, ydot);

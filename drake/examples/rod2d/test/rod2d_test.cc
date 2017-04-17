@@ -113,25 +113,7 @@ class Rod2DDAETest : public ::testing::Test {
     xc[4] = 0.0;
     xc[5] = 0.0;
 
-    // Prepare to set contact states.
-    std::vector<RigidContact>& contacts =
-        dut_->get_contacts(context_->get_mutable_state());
-    EXPECT_EQ(contacts.size(), 2);
-
-    // Indicate that the rod is in the single contact sliding mode.
-    contacts.resize(2);
-
-    // First point is Rl in Rod Frame (see class documentation); in this
-    // new configuration, it does not contact the half-space..
-    contacts[0].state = RigidContact::ContactState::kNotContacting;
-    contacts[0].mu = dut_->get_mu_coulomb();
-    contacts[0].u = Eigen::Vector3d(-dut_->get_rod_half_length(), 0, 0);
-
-    // Second point is Rr in Rod Frame. In this new configuration, it
-    // contacts the half-space and is sliding.
-    contacts[1].state = RigidContact::ContactState::kContactingAndSliding;
-    contacts[1].mu = dut_->get_mu_coulomb();
-    contacts[1].u = Eigen::Vector3d(dut_->get_rod_half_length(), 0, 0);
+    // Contact states should be identical to defaults.
   }
 
   // Sets the rod to a state that corresponds to ballistic motion.
@@ -520,9 +502,10 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact) {
   std::vector<RigidContact>& contacts =
       dut_->get_contacts(context_->get_mutable_state());
   EXPECT_EQ(contacts.size(), 2);
-  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
-  EXPECT_EQ(contacts[1].state,
+  EXPECT_EQ(contacts[0].state,
             RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kNotContacting);
 
   // Set the coefficient of friction to infinite. This forces the rod code
   // to go through the first impact path (impulse within the friction cone).
@@ -539,9 +522,9 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact) {
   EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Verify that the state is no longer in a sliding mode.
-  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::kNotContacting);
-  EXPECT_EQ(contacts[1].state,
-            RigidContact::ContactState::kContactingWithoutSliding);
+  EXPECT_EQ(contacts[0].state, RigidContact::ContactState::
+      kContactingWithoutSliding);
+  EXPECT_EQ(contacts[1].state, RigidContact::ContactState::kNotContacting);
 
   // Do one more impact- there should now be no change.
   dut_->ModelImpact(new_state.get());
@@ -565,9 +548,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
       dut_->get_contacts(context_->get_mutable_state());
   EXPECT_EQ(contacts.size(), 2);
   EXPECT_TRUE(contacts.front().state ==
-      RigidContact::ContactState::kNotContacting);
+      RigidContact::ContactState::kContactingAndSliding);
   EXPECT_TRUE(contacts.back().state ==
-          RigidContact::ContactState::kContactingAndSliding);
+          RigidContact::ContactState::kNotContacting);
 
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path (impulse corresponding to sticking
@@ -587,9 +570,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
   // Verify that the state is still in a sliding mode.
   EXPECT_EQ(contacts.size(), 2);
   EXPECT_TRUE(contacts.front().state ==
-      RigidContact::ContactState::kNotContacting);
-  EXPECT_TRUE(contacts.back().state ==
       RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_TRUE(contacts.back().state ==
+      RigidContact::ContactState::kNotContacting);
 
   // Do one more impact- there should now be no change.
   // Verify that there is no further change from this second impact.
@@ -606,9 +589,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
   dut_->DetermineVelLevelActiveSet(new_state.get(), Nv, Fv, zero_tol);
   EXPECT_EQ(contacts.size(), 2);
   EXPECT_TRUE(contacts.front().state ==
-      RigidContact::ContactState::kNotContacting);
-  EXPECT_TRUE(contacts.back().state ==
       RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_TRUE(contacts.back().state ==
+      RigidContact::ContactState::kNotContacting);
 }
 
 // Verify that no exceptions thrown for a non-sliding configuration.
@@ -777,7 +760,7 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
   EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
 
   // Verify that the state is now in a sticking mode.
-  EXPECT_EQ(contacts[1].state,
+  EXPECT_EQ(contacts[0].state,
             RigidContact::ContactState::kContactingWithoutSliding);
 
   // Do one more impact- there should now be no change.
@@ -804,9 +787,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
       dut_->get_contacts(context_->get_mutable_state());
   EXPECT_EQ(contacts.size(), 2);
   EXPECT_EQ(contacts[0].state,
-            RigidContact::ContactState::kNotContacting);
-  EXPECT_EQ(contacts[1].state,
             RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kNotContacting);
 
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path.
@@ -815,9 +798,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
 
   // Verify that the state is still in a sliding configuration.
   EXPECT_EQ(contacts[0].state,
-            RigidContact::ContactState::kNotContacting);
-  EXPECT_EQ(contacts[1].state,
             RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kNotContacting);
 
   // Handle the impact and copy the result to the context.
   dut_->ModelImpact(new_state.get());
@@ -835,9 +818,9 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
 
   // Verify that the state is still in a sliding configuration.
   EXPECT_EQ(contacts[0].state,
-            RigidContact::ContactState::kNotContacting);
-  EXPECT_EQ(contacts[1].state,
             RigidContact::ContactState::kContactingAndSliding);
+  EXPECT_EQ(contacts[1].state,
+            RigidContact::ContactState::kNotContacting);
 }
 
 // Verifies that rod in a ballistic state does not correspond to an impact.
