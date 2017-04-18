@@ -1282,7 +1282,8 @@ class Rod2DCrossValidationSlidingTest : public Rod2DCrossValidationTest {
 
 // This test checks to see whether a simulation step of the piecewise
 // DAE based Rod2D system is equivalent to a single step of the semi-explicit
-// time stepping based system.
+// time stepping based system *without any transitions from sliding to
+// not-sliding*.
 TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionSliding) {
   // Integrate forward by a single *large* dt. Note that the update rate
   // is set by the time stepping system, so stepping to dt should yield
@@ -1309,7 +1310,8 @@ TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionSliding) {
 
 // This test checks to see whether a simulation step of the piecewise
 // DAE based Rod2D system is equivalent to a single step of the semi-explicit
-// time stepping based system for two sliding contacts.
+// time stepping based system for two sliding contacts *without any transitions
+// from sliding to not-sliding*.
 TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionTwoSliding) {
   // Set the rods to a sidewise configuration.
   set_horizontal_sliding_configuration();
