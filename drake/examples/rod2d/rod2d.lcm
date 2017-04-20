@@ -1,0 +1,12 @@
+
+struct lcmt_Rod2D
+{
+  int64_t timestamp; 
+
+  double x;
+  double y;
+  double theta;
+  double xdot;
+  double ydot;
+  double thetadot;
+}

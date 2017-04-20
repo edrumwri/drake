@@ -1383,7 +1383,7 @@ TEST_F(Rod2DCrossValidationFrictionlessSlidingTest, OneStepSolutionTwoSliding) {
 
 class Rod2DCrossValidationStickingTest : public Rod2DCrossValidationTest {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     // Do the majority of the setup as normal.
     Rod2DCrossValidationTest::SetUp();
 

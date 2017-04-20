@@ -4,8 +4,11 @@
 #include "drake/examples/rod2d/separating_accel_witness.h"
 #include "drake/examples/rod2d/sliding_dot_witness.h"
 #include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
+#include "drake/examples/rod2d/gen/rod2d_state_vector.h"
 
 #include "drake/examples/rod2d/rigid_contact.h"
+
+
 #include "gtest/gtest_prod.h"
 #include <memory>
 #include <utility>
@@ -13,6 +16,7 @@
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/witness_function.h"
+#include "drake/systems/rendering/pose_vector.h"
 
 namespace drake {
 namespace examples {
@@ -155,10 +159,9 @@ States: planar position (state indices 0 and 1) and orientation (state
         endpoint Rr, and k=0 indicates that both endpoints of the rod are
         contacting the halfspace).
 
-Outputs: planar position (state indices 0 and 1) and orientation (state
-         index 2), and planar linear velocity (state indices 3 and 4) and
-         scalar angular velocity (state index 5) in units of m, radians,
-         m/s, and rad/s, respectively.
+Outputs: output port 0 corresponds to the state vector; output port 1
+         returns a PoseVector corresponding to the 3D pose of the rod in the
+         world frame.
 
 - [Stewart, 2000]  D. Stewart, "Rigid-Body Dynamics with Friction and
                    Impact". SIAM Rev., 42(1), 3-39, 2000. **/
@@ -195,6 +198,37 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kTimeStepping or @p dt is not zero and simulation_type is
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
+
+  static const Rod2dStateVector<T>& get_state(
+      const systems::ContinuousState<T>& cstate) {
+    return dynamic_cast<const Rod2dStateVector<T>&>(cstate);
+  }
+
+  static Rod2dStateVector<T>* get_mutable_state(
+      systems::ContinuousState<T>* cstate) {
+    return dynamic_cast<Rod2dStateVector<T>*>(cstate); }
+
+  static const Rod2dStateVector<T>& get_state(
+      const systems::Context<T>& context) {
+    return dynamic_cast<const Rod2dStateVector<T>&>(
+        *context.get_continuous_state());
+  }
+
+  static Rod2dStateVector<T>* get_mutable_state(
+      systems::Context<T>* context) {
+    return dynamic_cast<Rod2dStateVector<T>*>(
+        context->get_mutable_continuous_state());
+  }
+
+  /// Returns the state from this rod.
+  const systems::OutputPortDescriptor<T>& state_output() const  {
+    return this->get_output_port(0);
+  }
+
+  /// Returns the 3D pose of this rod.
+  const systems::OutputPortDescriptor<T>& pose_output() const {
+    return this->get_output_port(1);
+  }
 
   /// Gets the constraint force mixing parameter (CFM, used for time stepping
   /// systems only).
@@ -388,6 +422,8 @@ class Rod2D : public systems::LeafSystem<T> {
   VectorX<T> SolveContactProblem(const systems::Context<T>& context,
                                  RigidContactAccelProblemData<T>* problem_data)
                                  const;
+  void ConvertStateToPose(const VectorX<T>& state,
+                          systems::rendering::PoseVector<T>* pose) const;
   void InitRigidContactAccelProblemData(const systems::State<T>& state,
       RigidContactAccelProblemData<T>* problem_data) const;
   void FormRigidContactVelJacobians(const systems::State<T>& state,

@@ -65,6 +65,7 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt) :
 
   this->DeclareInputPort(systems::kVectorValued, 3);
   this->DeclareOutputPort(systems::kVectorValued, 6);
+  this->DeclareVectorOutputPort(systems::rendering::PoseVector<T>());
 }
 
 template <class T>
@@ -262,6 +263,8 @@ void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
                                           const VectorX<T>& Nvplus,
                                           const VectorX<T>& Fvplus,
                                           const T& zero_tol) const {
+  using std::fabs;
+
   // Get the set of contacts.
   std::vector<RigidContact>& contacts = get_contacts(state);
 
@@ -272,13 +275,13 @@ void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
 
     // Contact will only be made inactive if it the bodies are separating at
     // that point.
-    if (abs(Nvplus[contact_index]) > 10 * zero_tol) {
+    if (fabs(Nvplus[contact_index]) > 10 * zero_tol) {
       contacts[i].state = RigidContact::ContactState::kNotContacting;
     } else {
       // It's conceivable that no impulsive force was applied but the contact
       // is still active. Either way, check to see whether the contact is
       // sliding or not-sliding.
-      if (abs(Fvplus[contact_index]) > 10 * zero_tol)
+      if (fabs(Fvplus[contact_index]) > 10 * zero_tol)
         contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
       else
         contacts[i].state =
@@ -387,7 +390,7 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(const systems::State<T>& state,
 template <class T>
 bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
                                      const RigidContact& c) const {
-  using std::abs;
+  using std::fabs;
 
   // TODO(edrumwri): Do a proper test that uses integrator tolerances and
   // distance of the c.o.m. from the contact point to determine a coherent
@@ -396,7 +399,7 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
 
   // Test tangent velocity.
   const Vector2<T> pdot = CalcContactVelocity(state, c);
-  return (std::abs(pdot[0]) < tol);
+  return (fabs(pdot[0]) < tol);
 }
 
 template <class T>
@@ -667,7 +670,7 @@ void Rod2D<T>::FormSustainedContactLinearSystem(
     const systems::Context<T>& context,
     const RigidContactAccelProblemData<T>& problem_data,
     MatrixX<T>* MM, VectorX<T>* qq) const {
-  using std::abs;
+  using std::fabs;
 
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
@@ -731,7 +734,7 @@ template <class T>
 void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
     const RigidContactAccelProblemData<T>& problem_data,
     MatrixX<T>* MM, Eigen::Matrix<T, Eigen::Dynamic, 1>* qq) const {
-  using std::abs;
+  using std::fabs;
 
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
@@ -833,7 +836,7 @@ void Rod2D<T>::FormSustainedContactLCP(const systems::Context<T>& context,
 template <class T>
 void Rod2D<T>::DetermineAccelLevelActiveSet(const systems::Context<T>& context,
                                             systems::State<T>* state) const {
-  using std::abs;
+  using std::fabs;
   using std::max;
 
   // Get the mutable contacts.
@@ -896,8 +899,8 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(const systems::Context<T>& context,
   // NOTE: This LCP might not be solvable due to inconsistent configurations.
   // Check the answer and throw a runtime error if it's no good.
   if (!success || (zz.size() > 0 && (zz.minCoeff() < -10*zero_tol ||
-                                   ww.minCoeff() < -10*zero_tol ||
-                                   abs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
+                                  ww.minCoeff() < -10*zero_tol ||
+                                  fabs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
   }
 
@@ -928,7 +931,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(const systems::Context<T>& context,
       continue;
 
     // Contact is currently active; see whether to make it inactive.
-    if (fN[contact_index] < abs(ww[contact_index])) {
+    if (fN[contact_index] < fabs(ww[contact_index])) {
       // If the contact is currently not sliding, must update the lambda index.
       if (contacts[i].state ==
           RigidContact::ContactState::kContactingWithoutSliding)
@@ -944,7 +947,7 @@ void Rod2D<T>::DetermineAccelLevelActiveSet(const systems::Context<T>& context,
       if (contacts[i].state ==
           RigidContact::ContactState::kContactingWithoutSliding) {
         if (lambda[non_sliding_index] > zero_tol ||
-            abs(fF[non_sliding_index]) < zero_tol)
+            fabs(fF[non_sliding_index]) < zero_tol)
           contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
         ++non_sliding_index;
       }
@@ -1007,13 +1010,22 @@ template <typename T>
 void Rod2D<T>::DoCalcOutput(const systems::Context<T>& context,
                                systems::SystemOutput<T>* output) const {
   // Obtain the structure we need to write into.
-  systems::BasicVector<T>* const output_vector =
-      output->GetMutableVectorData(0);
-  DRAKE_ASSERT(output_vector != nullptr);
+  systems::BasicVector<T>* const port0 = output->GetMutableVectorData(0);
+  systems::rendering::PoseVector<T>* const port1 = dynamic_cast<systems::rendering::PoseVector<T>*>(output->
+      GetMutableVectorData(1));
+  DRAKE_ASSERT(port0 != nullptr);
+  DRAKE_ASSERT(port1 != nullptr);
 
-  // Output port value is just the continuous state.
-  output_vector->get_mutable_value() =
-      context.get_continuous_state()->CopyToVector();
+  // Output port 0 value is just the continuous state.
+  if (simulation_type_ == SimulationType::kTimeStepping) {
+    const VectorX<T> state = context.get_discrete_state(0)->CopyToVector();
+    port0->SetFromVector(state);
+    ConvertStateToPose(state, port1);
+  } else {
+    const VectorX<T> state = context.get_continuous_state()->CopyToVector();
+    port0->SetFromVector(state);
+    ConvertStateToPose(state, port1);
+  }
 }
 
 /// Integrates the Rod 2D example forward in time using a
@@ -1022,6 +1034,8 @@ template <class T>
 void Rod2D<T>::DoCalcDiscreteVariableUpdates(
                            const systems::Context<T>& context,
                            systems::DiscreteValues<T>* discrete_state) const {
+  using std::fabs;
+
   // Set ERP (error reduction parameter) and CFM (constraint force mixing)
   // to make this problem "mostly rigid" and with rapid stabilization. These
   // parameters are described in the Open Dynamics Engine user manual (see
@@ -1154,7 +1168,7 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> ww = MM * zz + qq;
   const T zero_tol = 100 * cfm;
   DRAKE_DEMAND(zz.minCoeff() > -zero_tol && ww.minCoeff() > -zero_tol &&
-               abs(zz.dot(ww)) < 8 * zero_tol);
+               fabs(zz.dot(ww)) < 8 * zero_tol);
   DRAKE_DEMAND(success);
 
   // Obtain the normal and frictional contact forces.
@@ -1189,7 +1203,7 @@ void Rod2D<T>::SetAccelerations(const systems::Context<T>& context,
                                 const T& fN, const T& fF,
                                 const Vector2<T>& c,
                                 systems::VectorBase<T>* const f) const {
-  using std::abs;
+  using std::fabs;
 
   // Get the inputs.
   const int port_index = 0;
@@ -1228,15 +1242,15 @@ void Rod2D<T>::SetAccelerations(const systems::Context<T>& context,
   const T cyddot =
       yddot + h * k * (ctheta * thetaddot - stheta * thetadot * thetadot);
 
-  DRAKE_DEMAND(abs(cyddot) < 10 * std::numeric_limits<double>::epsilon());
+  DRAKE_DEMAND(fabs(cyddot) < 10 * std::numeric_limits<double>::epsilon());
 
   // If the force is within the friction cone, verify that the horizontal
   // acceleration at the point of contact is zero (i.e., cxddot = 0).
-  if (fN * mu > abs(fF)) {
+  if (fN * mu > fabs(fF)) {
     const T cxddot =
         xddot + h * k * (-stheta * thetaddot - ctheta * thetadot * thetadot);
 
-    DRAKE_DEMAND(abs(cxddot) < 10 * std::numeric_limits<double>::epsilon());
+    DRAKE_DEMAND(fabs(cxddot) < 10 * std::numeric_limits<double>::epsilon());
   }
 }
 
@@ -1253,7 +1267,7 @@ void Rod2D<T>::SetAccelerations(const systems::Context<T>& context,
                                 const Vector2<T>& fN, const Vector2<T>& fF,
                                 const Vector2<T>& ca, const Vector2<T>& cb,
                                 systems::VectorBase<T>* const f) const {
-  using std::abs;
+  using std::fabs;
 
   // Get the inputs.
   const int port_index = 0;
@@ -1293,19 +1307,19 @@ void Rod2D<T>::SetAccelerations(const systems::Context<T>& context,
   const T cyddot1 =
       yddot + h * -1 * (ctheta * thetaddot - stheta * thetadot * thetadot);
 
-  DRAKE_DEMAND(abs(cyddot0) < 10 * get_cfm());
-  DRAKE_DEMAND(abs(cyddot1) < 10 * get_cfm());
+  DRAKE_DEMAND(fabs(cyddot0) < 10 * get_cfm());
+  DRAKE_DEMAND(fabs(cyddot1) < 10 * get_cfm());
 
   // If the force is within the friction cone, verify that the horizontal
   // acceleration at the point of contact is zero (i.e., cxddot = 0).
-  if (fN[0] * mu > abs(fF[0]) && fN[1] * mu > abs(fF[1])) {
+  if (fN[0] * mu > fabs(fF[0]) && fN[1] * mu > fabs(fF[1])) {
     const T cxddot0 =
         xddot + h * 1 * (-stheta * thetaddot - ctheta * thetadot * thetadot);
     const T cxddot1 =
         xddot + h * -1 * (-stheta * thetaddot - ctheta * thetadot * thetadot);
 
-    DRAKE_DEMAND(abs(cxddot0) < 10 * get_cfm());
-    DRAKE_DEMAND(abs(cxddot1) < 10 * get_cfm());
+    DRAKE_DEMAND(fabs(cxddot0) < 10 * get_cfm());
+    DRAKE_DEMAND(fabs(cxddot1) < 10 * get_cfm());
   }
 }
 
@@ -1438,6 +1452,8 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
 template <class T>
 void Rod2D<T>::CalcTwoContactSlidingForces(
     const systems::Context<T>& context, Vector2<T>* fN, Vector2<T>* fF) const {
+  using std::fabs;
+
   // Get the necessary state variables.
   const VectorX<T> state = context.get_continuous_state_vector().
       CopyToVector();
@@ -1550,7 +1566,7 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   // copositive problem without actually finding a solution. Thus, we also
   // check that the LCP solution really is a solution.
   if (!success || zz.minCoeff() < -zero_tol || ww.minCoeff() < -zero_tol ||
-      std::abs(zz.dot(ww)) > zero_tol)
+      fabs(zz.dot(ww)) > zero_tol)
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
 
   // Obtain the normal and frictional contact forces.
@@ -1814,7 +1830,7 @@ Vector3<T> Rod2D<T>::CalcCompliantContactForces(
   // Depends on continuous state being available.
   DRAKE_DEMAND(simulation_type_ == SimulationType::kCompliant);
 
-  using std::abs;
+  using std::fabs;
   using std::max;
 
   // Get the necessary parts of the state.
@@ -1849,7 +1865,7 @@ Vector3<T> Rod2D<T>::CalcCompliantContactForces(
       const T fD = fK * get_dissipation() * hdot;
       const T fN = max(fK + fD, T(0));
       const T mu = CalcMuStribeck(get_mu_static(), get_mu_coulomb(),
-                                  abs(v) / get_stiction_speed_tolerance());
+                                  fabs(v) / get_stiction_speed_tolerance());
       const T fF = -mu * fN * T(sign_v);
 
       // Find the point Rc of the rod that is coincident with the contact point
@@ -1873,7 +1889,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactSliding(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::abs;
+  using std::fabs;
   using std::max;
 
   // Get the necessary parts of the state.
@@ -2002,7 +2018,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::abs;
+  using std::fabs;
 
   // Obtain the structure we need to write into.
   systems::VectorBase<T>* const f = derivatives->get_mutable_vector();
@@ -2039,7 +2055,7 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
   // Recompute fF if it does not lie within the friction cone.
   // Constrain F such that it lies on the edge of the friction cone.
   const double mu = get_mu_coulomb();
-  if (abs(fF) > mu * fN) {
+  if (fabs(fF) > mu * fN) {
     // Set named Mathematica constants.
     const double mass = get_rod_mass();
     const double r = 2 * get_rod_half_length();
@@ -2092,7 +2108,7 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     const T cxddot2 = calc_tan_accel(-1, fN2, fF2);
 
     // Pick the one that is smaller in magnitude.
-    if (abs(cxddot1) < abs(cxddot2)) {
+    if (fabs(cxddot1) < fabs(cxddot2)) {
       SetAccelerations(context, fN1, fF1, c, f);
     } else {
       SetAccelerations(context, fN2, fF2, c, f);
@@ -2112,7 +2128,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsTwoContact(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::abs;
+  using std::fabs;
 
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
@@ -2135,7 +2151,7 @@ void Rod2D<T>::CalcAccelerationsTwoContact(
 
   // Call the appropriate contact force computation method.
   Vector2<T> fN, fF;
-  if (abs(xdot) < std::numeric_limits<double>::epsilon()) {
+  if (fabs(xdot) < std::numeric_limits<double>::epsilon()) {
     CalcTwoContactNoSlidingForces(context, &fN, &fF);
   } else {
     CalcTwoContactSlidingForces(context, &fN, &fF);
@@ -2163,7 +2179,7 @@ Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
 
 template <class T>
 bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
-  using std::abs;
+  using std::fabs;
   using std::max;
 
   // Get the contact states.
@@ -2179,7 +2195,8 @@ bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
   // Compute the zero tolerance.
   const int ndim = 2;
   const T zero_tol = 100 * ndim * std::numeric_limits<double>::epsilon() *
-                       max(10.0, max(abs(xdot), max(abs(ydot), abs(thetadot))));
+                       max(10.0, max(fabs(xdot), max(fabs(ydot),
+                                                     fabs(thetadot))));
 
   // Loop through all points of contact.
   for (size_t i = 0; i < contacts.size(); ++i) {
@@ -2249,7 +2266,7 @@ template <typename T>
 VectorX<T> Rod2D<T>::SolveContactProblem(const systems::Context<T>& context,
     RigidContactAccelProblemData<T>* problem_data) const {
   using std::max;
-  using std::abs;
+  using std::fabs;
   DRAKE_DEMAND(problem_data);
 
   // Populate problem data.
@@ -2318,7 +2335,7 @@ VectorX<T> Rod2D<T>::SolveContactProblem(const systems::Context<T>& context,
     // Check the answer and throw a runtime error if it's no good.
     if (!success || (zz.size() > 0 && (zz.minCoeff() < -10*zero_tol ||
         ww.minCoeff() < -10*zero_tol ||
-        abs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
+        fabs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
       throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
     }
 
@@ -2471,6 +2488,21 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>& context,
       contacts[1].u = Eigen::Vector3d(get_rod_half_length(), 0, 0);
     }
   }
+}
+
+// Converts a state vector from a Rod to a rendering PoseVector.
+template <class T>
+void Rod2D<T>::ConvertStateToPose(const VectorX<T>& state,
+                                  systems::rendering::PoseVector<T>* pose)
+                                  const {
+  // Converts the configuration of the rod to a pose, accounting for both
+  // the change to a y-up coordinate system and the fact that the cylinder
+  // up-direction defaults to +z.
+  const T theta = state[2] + M_PI_2;
+  pose->set_translation(Eigen::Translation<T, 3>(state[0], 0, state[1]));
+  const Vector3<T> y_axis{0.0, 1.0, 0.0};
+  const Eigen::AngleAxis<T> rotation(theta, y_axis);
+  pose->set_rotation(Eigen::Quaternion<T>(rotation));
 }
 
 }  // namespace rod2d
