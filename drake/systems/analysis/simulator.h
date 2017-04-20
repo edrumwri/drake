@@ -179,6 +179,12 @@ class Simulator {
     publish_every_time_step_ = publish;
   }
 
+  /** Sets whether the simulation should invoke Publish in Initialize().
+   */
+  void set_publish_at_initialization(bool publish) {
+    publish_at_initialization_ = publish;
+  }
+
   /** Returns true if the simulation should invoke Publish on the System under
    * simulation every time step.  By default, returns true.
    */
@@ -274,6 +280,8 @@ class Simulator {
     return static_cast<U*>(integrator_.get());
   }
 
+
+
   /**
    * Gets a constant reference to the system.
    * @note a mutable reference is not available.
@@ -322,6 +330,8 @@ class Simulator {
 
   bool publish_every_time_step_{true};
 
+  bool publish_at_initialization_{true};
+
   // These are recorded at initialization or statistics reset.
   double initial_simtime_{nan()};  // Simulated time at start of period.
   TimePoint initial_realtime_;     // Real time at start of period.
@@ -342,7 +352,7 @@ class Simulator {
   bool initialization_done_{false};
 
   // Pre-allocated temporaries for updated discrete states.
-  std::unique_ptr<DiscreteState<T>> discrete_updates_;
+  std::unique_ptr<DiscreteValues<T>> discrete_updates_;
 
   // Pre-allocated temporaries for states from unrestricted updates.
   std::unique_ptr<State<T>> unrestricted_updates_;
@@ -382,8 +392,10 @@ void Simulator<T>::Initialize() {
   ResetStatistics();
 
   // Do a publish before the simulation starts.
-  system_.Publish(*context_);
-  ++num_publishes_;
+  if (publish_at_initialization_) {
+    system_.Publish(*context_);
+    ++num_publishes_;
+  }
 
   // Initialize runtime variables.
   initialization_done_ = true;
@@ -444,7 +456,7 @@ void Simulator<T>::StepTo(const T& boundary_time) {
       // Do restricted (discrete variable) updates next.
       for (const DiscreteEvent<T>& event : update_actions.events) {
         if (event.action == DiscreteEvent<T>::kDiscreteUpdateAction) {
-          DiscreteState<T> *xd = context_->get_mutable_discrete_state();
+          DiscreteValues<T>* xd = context_->get_mutable_discrete_state();
           // Systems with discrete update events must have discrete state.
           DRAKE_DEMAND(xd != nullptr);
           // First, compute the discrete updates into a temporary buffer.

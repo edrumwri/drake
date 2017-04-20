@@ -60,74 +60,29 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
     // TODO(edrumwri): Only compute this once over the entire set
     //                 of witness functions generally.
 
-    // Populate problem data.
+    // Populate problem data and solve the contact problem.
     RigidContactAccelProblemData<T> problem_data;
-    rod_->InitRigidContactAccelProblemData(context.get_state(), &problem_data);
+    VectorX<T> cf = rod_->SolveContactProblem(context, &problem_data);
+
+    // Determine the index of this contact in the non-sliding constraint set.
     const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
     const std::vector<int>& non_sliding_contacts =
         problem_data.non_sliding_contacts;
-
-    // Get numbers of friction directions and types of contacts.
+    DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
+                                non_sliding_contacts.end()));
+    const int non_sliding_index = std::distance(non_sliding_contacts.begin(),
+                                                std::lower_bound(
+                                                    non_sliding_contacts.begin(),
+                                                    non_sliding_contacts.end(),
+                                                    contact_index_));
     const int num_sliding = sliding_contacts.size();
     const int num_non_sliding = non_sliding_contacts.size();
     const int nc = num_sliding + num_non_sliding;
     const int k = rod_->get_num_tangent_directions_per_contact();
 
-    // Compute Jacobian matrices.
-    rod_->FormRigidContactAccelJacobians(context.get_state(), &problem_data);
-
-    // Alias vectors and Jacobian matrices.
-    const MatrixX<T>& N = problem_data.N;
-    const MatrixX<T>& Q = problem_data.Q;
-    const MatrixX<T>& F = problem_data.F;
-    const VectorX<T>& mu_sliding = problem_data.mu_sliding;
-
-    // Construct the inverse generalized inertia matrix computed about the
-    // center of mass of the rod and expressed in the world frame.
-    const T mass = rod_->get_rod_mass();
-    const T J = rod_->get_rod_moment_of_inertia();
-    Matrix3<T> iM;
-    iM << 1.0/mass, 0,         0,
-          0,         1.0/mass, 0,
-          0,         0,         1.0/J;
-
-    // Alias matrices.
-    MatrixX<T>& N_minus_mu_Q = problem_data.N_minus_mu_Q;
-    MatrixX<T>& iM_x_FT = problem_data.iM_x_FT;
-
-    // Precompute using indices.
-    N_minus_mu_Q = rod_->AddScaledRightTerm(N, -mu_sliding, Q, sliding_contacts);
-    iM_x_FT = rod_->MultTranspose(iM, F, non_sliding_contacts);
-
-    // Formulate the system of linear equations.
-    MatrixX<T> MM;
-    VectorX<T> qq;
-    rod_->FormSustainedContactLinearSystem(context, problem_data, &MM, &qq);
-
-    // Solve the linear system. The LCP used in the active set method computed
-    // an (invertible) basis to attain its solution, which means that MM should
-    // be invertible. However, the LCP matrix was regularized (which may have
-    // allowed an otherwise unsolvable LCP to be unsolvable in addition to its
-    // other function, that of minimizing the effect of pivoting error on the
-    // ability of the solver to find a solution on known solvable problems). For
-    // this reason, we will also employ regularization here.
-    const double cfm = rod_->get_cfm();
-    MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * cfm;
-    rod_->QR_.compute(MM);
-    VectorX<T> zz = rod_->QR_.solve(-qq);
-
-    // Determine the index of this contact in the non-sliding constraint set.
-    DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
-                                non_sliding_contacts.end()));
-    const int non_sliding_index = std::distance(non_sliding_contacts.begin(),
-                                    std::lower_bound(
-                                        non_sliding_contacts.begin(),
-                                        non_sliding_contacts.end(),
-                                        contact_index_));
-
     // Get the normal force and the absolute value of the frictional force.
-    const auto fN = zz[contact_index_];
-    const auto fF = zz.segment(nc + non_sliding_index * (k/2), k / 2).template
+    const auto fN = cf[contact_index_];
+    const auto fF = cf.segment(nc + non_sliding_index * (k/2), k / 2).template
         lpNorm<1>();
 
     // Determine the slack.

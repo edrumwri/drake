@@ -160,7 +160,9 @@ void RigidBodyPlant<T>::set_friction_contact_parameters(
 }
 
 template <typename T>
-bool RigidBodyPlant<T>::has_any_direct_feedthrough() const {
+bool RigidBodyPlant<T>::DoHasDirectFeedthrough(const SparsityMatrix* sparsity,
+                                               int input_port,
+                                               int output_port) const {
   return false;
 }
 
@@ -318,12 +320,12 @@ std::unique_ptr<ContinuousState<T>> RigidBodyPlant<T>::AllocateContinuousState()
 }
 
 template <typename T>
-std::unique_ptr<DiscreteState<T>> RigidBodyPlant<T>::AllocateDiscreteState()
+std::unique_ptr<DiscreteValues<T>> RigidBodyPlant<T>::AllocateDiscreteState()
     const {
   if (timestep_ == 0.0) {
-    return std::make_unique<DiscreteState<T>>();
+    return std::make_unique<DiscreteValues<T>>();
   }
-  return make_unique<DiscreteState<T>>(
+  return make_unique<DiscreteValues<T>>(
       make_unique<BasicVector<T>>(get_num_states()));
 }
 
@@ -518,7 +520,7 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
 template <typename T>
 void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     const drake::systems::Context<T>& context,
-    drake::systems::DiscreteState<T>* updates) const {
+    drake::systems::DiscreteValues<T>* updates) const {
   static_assert(std::is_same<double, T>::value,
                 "Only support templating on double for now");
   if (timestep_ == 0.0) return;

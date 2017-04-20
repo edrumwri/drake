@@ -352,9 +352,9 @@ class Rod2D : public systems::LeafSystem<T> {
   void DoCalcTimeDerivatives(const systems::Context<T>& context,
                              systems::ContinuousState<T>* derivatives)
                                const override;
-  void DoCalcDiscreteVariableUpdates(const systems::Context<T>& context,
-                                     systems::DiscreteState<T>* discrete_state)
-      const override;
+  void DoCalcDiscreteVariableUpdates(
+      const systems::Context<T>& context,
+      systems::DiscreteValues<T>* discrete_state) const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
 
@@ -385,6 +385,9 @@ class Rod2D : public systems::LeafSystem<T> {
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  VectorX<T> SolveContactProblem(const systems::Context<T>& context,
+                                 RigidContactAccelProblemData<T>* problem_data)
+                                 const;
   void InitRigidContactAccelProblemData(const systems::State<T>& state,
       RigidContactAccelProblemData<T>* problem_data) const;
   void FormRigidContactVelJacobians(const systems::State<T>& state,
@@ -395,9 +398,8 @@ class Rod2D : public systems::LeafSystem<T> {
                                           MatrixX<T>* N, MatrixX<T>* F,
                                           MatrixX<T>* N_minus_mu_Q,
                                           MatrixX<T>* iM_x_FT) const;
-  static void GetContactVectors(const std::vector<RigidContact>& contacts,
-                                std::vector<int>* sliding_contacts,
-                                std::vector<int>* non_sliding_contacts);
+  Vector2<T> CalcContactVelocity(const systems::State<T>& state,
+                                 const RigidContact& c) const;
   void FormSustainedContactLinearSystem(const systems::Context<T>& context,
       const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
       VectorX<T>* qq) const;
@@ -419,6 +421,9 @@ class Rod2D : public systems::LeafSystem<T> {
                                   const VectorX<T>& Nv,
                                   const VectorX<T>& Fv,
                                   const T& zero_tol) const;
+  bool IsTangentVelocityZero(const systems::State<T>& state,
+                             const RigidContact& c) const;
+  Matrix3<T> get_inverse_inertia_matrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
   void CalcTwoContactSlidingForces(const systems::Context<T>& context,
@@ -443,13 +448,13 @@ class Rod2D : public systems::LeafSystem<T> {
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const;
   void SetAccelerations(const systems::Context<T>& context,
-                        systems::VectorBase<T>* const f,
                         const T& fN, const T& fF,
-                        const T& xc, const T& yc) const;
+                        const Vector2<T>& c,
+                        systems::VectorBase<T>* const f) const;
   void SetAccelerations(const systems::Context<T>& context,
-                        systems::VectorBase<T>* const f,
                         const Vector2<T>& fN, const Vector2<T>& fF,
-                        const Vector2<T>& c1, const Vector2<T>& c2) const;
+                        const Vector2<T>& c1, const Vector2<T>& c2,
+                        systems::VectorBase<T>* const f) const;
   Vector2<T> CalcStickingContactForces(
       const systems::Context<T>& context) const;
 

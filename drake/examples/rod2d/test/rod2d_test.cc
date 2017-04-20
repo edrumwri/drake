@@ -1314,7 +1314,47 @@ TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionSliding) {
 // from sliding to not-sliding*.
 TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionTwoSliding) {
   // Set the rods to a sidewise configuration.
-  set_horizontal_sliding_configuration();
+  set_horizontal_motionless_configuration();
+
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_ts_->StepTo(dt_);
+  simulator_pdae_->StepTo(dt_);
+  EXPECT_EQ(simulator_ts_->get_num_discrete_updates(), 1);
+  EXPECT_EQ(simulator_pdae_->get_num_unrestricted_updates(), 0);
+  EXPECT_EQ(simulator_pdae_->get_num_steps_taken(), 1);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+class Rod2DCrossValidationFrictionlessSlidingTest : public
+                                                    Rod2DCrossValidationTest {
+ protected:
+  double get_horizontal_external_force() const override { return 1; }
+  double get_mu_coulomb() const override { return 0; }
+};
+
+// This test checks to see whether a simulation step of the piecewise
+// DAE based Rod2D system is equivalent to a single step of the semi-explicit
+// time stepping based system for two sliding contacts *including a transition
+// from not-sliding to sliding*.
+TEST_F(Rod2DCrossValidationFrictionlessSlidingTest, OneStepSolutionTwoSliding) {
+  // Set the rods to a sidewise configuration.
+  set_horizontal_motionless_configuration();
 
   // Integrate forward by a single *large* dt. Note that the update rate
   // is set by the time stepping system, so stepping to dt should yield

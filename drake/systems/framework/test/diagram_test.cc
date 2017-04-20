@@ -253,6 +253,7 @@ TEST_F(DiagramTest, GetMutableSubsystemState) {
   EXPECT_EQ(9, xc[1]);
   EXPECT_EQ(27, xc[2]);
 }
+
 // Tests that the diagram computes the correct sum.
 TEST_F(DiagramTest, CalcOutput) {
   AttachInputs();
@@ -550,7 +551,9 @@ class AddConstantDiagram : public Diagram<double> {
     DiagramBuilder<double> builder;
 
     constant_ = builder.AddSystem<ConstantVectorSource>(Vector1d{constant});
+    constant_->set_name("constant");
     adder_ = builder.AddSystem<Adder>(2 /* inputs */, 1 /* size */);
+    adder_->set_name("adder");
 
     builder.Connect(constant_->get_output_port(), adder_->get_input_port(1));
     builder.ExportInput(adder_->get_input_port(0));
@@ -611,8 +614,10 @@ class PublishNumberDiagram : public Diagram<double> {
 
     constant_ =
         builder.AddSystem<ConstantVectorSource<double>>(Vector1d{constant});
+    constant_->set_name("constant");
     publisher_ =
         builder.AddSystem<PublishingSystem>([this](double v) { this->set(v); });
+    publisher_->set_name("publisher");
 
     builder.Connect(constant_->get_output_port(),
                     publisher_->get_input_port(0));
@@ -647,15 +652,19 @@ class FeedbackDiagram : public Diagram<double> {
 
     DiagramBuilder<double> integrator_builder;
     integrator_ = integrator_builder.AddSystem<Integrator>(1 /* size */);
+    integrator_->set_name("integrator");
     integrator_builder.ExportInput(integrator_->get_input_port());
     integrator_builder.ExportOutput(integrator_->get_output_port());
     integrator_diagram_ = builder.AddSystem(integrator_builder.Build());
+    integrator_diagram_->set_name("integrator_diagram");
 
     DiagramBuilder<double> gain_builder;
     gain_ = gain_builder.AddSystem<Gain>(1.0 /* gain */, 1 /* length */);
+    gain_->set_name("gain");
     gain_builder.ExportInput(gain_->get_input_port());
     gain_builder.ExportOutput(gain_->get_output_port());
     gain_diagram_ = builder.AddSystem(gain_builder.Build());
+    gain_diagram_->set_name("gain_diagram");
 
     builder.Connect(*integrator_diagram_, *gain_diagram_);
     builder.Connect(*gain_diagram_, *integrator_diagram_);
@@ -746,7 +755,9 @@ class SecondOrderStateDiagram : public Diagram<double> {
   SecondOrderStateDiagram() : Diagram<double>() {
     DiagramBuilder<double> builder;
     sys1_ = builder.template AddSystem<SecondOrderStateSystem>();
+    sys1_->set_name("sys1");
     sys2_ = builder.template AddSystem<SecondOrderStateSystem>();
+    sys2_->set_name("sys2");
     builder.ExportInput(sys1_->get_input_port(0));
     builder.ExportInput(sys2_->get_input_port(0));
     builder.BuildInto(this);
@@ -838,8 +849,11 @@ class DiscreteStateDiagram : public Diagram<double> {
   DiscreteStateDiagram() : Diagram<double>() {
     DiagramBuilder<double> builder;
     hold1_ = builder.template AddSystem<ZeroOrderHold<double>>(2.0, kSize);
+    hold1_->set_name("hold1");
     hold2_ = builder.template AddSystem<ZeroOrderHold<double>>(3.0, kSize);
+    hold2_->set_name("hold2");
     publisher_ = builder.template AddSystem<TestPublishingSystem>();
+    publisher_->set_name("publisher");
     builder.ExportInput(hold1_->get_input_port());
     builder.ExportInput(hold2_->get_input_port());
     builder.BuildInto(this);
@@ -907,7 +921,7 @@ TEST_F(DiscreteStateTest, UpdateDiscreteVariables) {
   ctx2->get_mutable_discrete_state(0)->SetAtIndex(0, 1002.0);
 
   // Allocate the discrete variables.
-  std::unique_ptr<DiscreteState<double>> updates =
+  std::unique_ptr<DiscreteValues<double>> updates =
       diagram_.AllocateDiscreteVariables();
 
   // Set the time to 8.5, so only hold2 updates.
@@ -1003,7 +1017,9 @@ class AbstractStateDiagram : public Diagram<double> {
   AbstractStateDiagram() : Diagram<double>() {
     DiagramBuilder<double> builder;
     sys0_ = builder.template AddSystem<SystemWithAbstractState>(0, 2.);
+    sys0_->set_name("sys0");
     sys1_ = builder.template AddSystem<SystemWithAbstractState>(1, 3.);
+    sys1_->set_name("sys1");
     builder.BuildInto(this);
   }
 
@@ -1081,6 +1097,212 @@ TEST_F(AbstractStateDiagramTest, CalcUnrestrictedUpdate) {
   context_->get_mutable_state()->CopyFrom(*x_buf);
   EXPECT_EQ(get_sys0_abstract_data_as_double(), (time + 0));
   EXPECT_EQ(get_sys1_abstract_data_as_double(), (time + 1));
+}
+
+// Test diagram. Top level diagram (big_diagram) has 3 components:
+// diagram0, int2, diagram1, where diagram0 has int0 and int1, and
+// diagram1 has int3.
+class NestedDiagramContextTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    DiagramBuilder<double> big_diagram_builder;
+    integrator2_ = big_diagram_builder.AddSystem<Integrator<double>>(1);
+    integrator2_->set_name("int2");
+
+    {
+      DiagramBuilder<double> builder;
+      integrator0_ = builder.AddSystem<Integrator<double>>(1);
+      integrator0_->set_name("int0");
+      integrator1_ = builder.AddSystem<Integrator<double>>(1);
+      integrator1_->set_name("int1");
+
+      builder.ExportOutput(integrator0_->get_output_port());
+      builder.ExportOutput(integrator1_->get_output_port());
+      builder.ExportInput(integrator0_->get_input_port());
+      builder.ExportInput(integrator1_->get_input_port());
+
+      diagram0_ = big_diagram_builder.AddSystem(builder.Build());
+      diagram0_->set_name("diagram0");
+    }
+
+    {
+      DiagramBuilder<double> builder;
+      integrator3_ = builder.AddSystem<Integrator<double>>(1);
+      integrator3_->set_name("int3");
+
+      builder.ExportOutput(integrator3_->get_output_port());
+      builder.ExportInput(integrator3_->get_input_port());
+
+      diagram1_ = big_diagram_builder.AddSystem(builder.Build());
+      diagram1_->set_name("diagram1");
+    }
+
+    big_diagram_builder.ExportOutput(diagram0_->get_output_port(0));
+    big_diagram_builder.ExportOutput(diagram0_->get_output_port(1));
+    big_diagram_builder.ExportOutput(integrator2_->get_output_port());
+
+    big_diagram_builder.ExportOutput(diagram1_->get_output_port(0));
+
+    auto src = big_diagram_builder.AddSystem<ConstantVectorSource<double>>(1);
+    src->set_name("constant");
+    big_diagram_builder.Connect(src->get_output_port(),
+                                integrator2_->get_input_port());
+    big_diagram_builder.Connect(src->get_output_port(),
+                                diagram0_->get_input_port(0));
+    big_diagram_builder.Connect(src->get_output_port(),
+                                diagram0_->get_input_port(1));
+
+    big_diagram_builder.Connect(src->get_output_port(),
+                                diagram1_->get_input_port(0));
+
+    big_diagram_ = big_diagram_builder.Build();
+    big_diagram_->set_name("big_diagram");
+    big_context_ = big_diagram_->CreateDefaultContext();
+    big_output_ = big_diagram_->AllocateOutput(*big_context_);
+  }
+
+  Integrator<double>* integrator0_;
+  Integrator<double>* integrator1_;
+  Integrator<double>* integrator2_;
+  Integrator<double>* integrator3_;
+
+  Diagram<double>* diagram0_;
+  Diagram<double>* diagram1_;
+
+  std::unique_ptr<Diagram<double>> big_diagram_;
+  std::unique_ptr<Context<double>> big_context_;
+  std::unique_ptr<SystemOutput<double>> big_output_;
+};
+
+// Sets the continuous state of all the integrators through
+// GetMutableSubsystemContext(), and check that they are correctly set.
+TEST_F(NestedDiagramContextTest, GetSubsystemContext) {
+  big_diagram_->CalcOutput(*big_context_, big_output_.get());
+
+  EXPECT_EQ(big_output_->get_vector_data(0)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(1)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(2)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(3)->GetAtIndex(0), 0);
+
+  big_diagram_->GetMutableSubsystemContext(big_context_.get(), integrator0_)
+      ->get_mutable_continuous_state_vector()
+      ->SetAtIndex(0, 1);
+  big_diagram_->GetMutableSubsystemContext(big_context_.get(), integrator1_)
+      ->get_mutable_continuous_state_vector()
+      ->SetAtIndex(0, 2);
+  big_diagram_->GetMutableSubsystemContext(big_context_.get(), integrator2_)
+      ->get_mutable_continuous_state_vector()
+      ->SetAtIndex(0, 3);
+  big_diagram_->GetMutableSubsystemContext(big_context_.get(), integrator3_)
+      ->get_mutable_continuous_state_vector()
+      ->SetAtIndex(0, 4);
+
+  // Checks states.
+  EXPECT_EQ(big_diagram_->GetSubsystemContext(*big_context_, integrator0_)
+                .get_continuous_state_vector()
+                .GetAtIndex(0),
+            1);
+  EXPECT_EQ(big_diagram_->GetSubsystemContext(*big_context_, integrator1_)
+                .get_continuous_state_vector()
+                .GetAtIndex(0),
+            2);
+  EXPECT_EQ(big_diagram_->GetSubsystemContext(*big_context_, integrator2_)
+                .get_continuous_state_vector()
+                .GetAtIndex(0),
+            3);
+  EXPECT_EQ(big_diagram_->GetSubsystemContext(*big_context_, integrator3_)
+                .get_continuous_state_vector()
+                .GetAtIndex(0),
+            4);
+
+  // Checks output.
+  big_diagram_->CalcOutput(*big_context_, big_output_.get());
+
+  EXPECT_EQ(big_output_->get_vector_data(0)->GetAtIndex(0), 1);
+  EXPECT_EQ(big_output_->get_vector_data(1)->GetAtIndex(0), 2);
+  EXPECT_EQ(big_output_->get_vector_data(2)->GetAtIndex(0), 3);
+  EXPECT_EQ(big_output_->get_vector_data(3)->GetAtIndex(0), 4);
+}
+
+// Sets the continuous state of all the integrators through
+// GetMutableSubsystemState(), and check that they are correctly set.
+TEST_F(NestedDiagramContextTest, GetSubsystemState) {
+  big_diagram_->CalcOutput(*big_context_, big_output_.get());
+
+  EXPECT_EQ(big_output_->get_vector_data(0)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(1)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(2)->GetAtIndex(0), 0);
+  EXPECT_EQ(big_output_->get_vector_data(3)->GetAtIndex(0), 0);
+
+  State<double>* big_state = big_context_->get_mutable_state();
+  big_diagram_
+      ->GetMutableSubsystemState(big_state, integrator0_)
+      ->get_mutable_continuous_state()
+      ->get_mutable_vector()
+      ->SetAtIndex(0, 1);
+  big_diagram_
+      ->GetMutableSubsystemState(big_state, integrator1_)
+      ->get_mutable_continuous_state()
+      ->get_mutable_vector()
+      ->SetAtIndex(0, 2);
+  big_diagram_
+      ->GetMutableSubsystemState(big_state, integrator2_)
+      ->get_mutable_continuous_state()
+      ->get_mutable_vector()
+      ->SetAtIndex(0, 3);
+  big_diagram_
+      ->GetMutableSubsystemState(big_state, integrator3_)
+      ->get_mutable_continuous_state()
+      ->get_mutable_vector()
+      ->SetAtIndex(0, 4);
+
+  // Checks state.
+  EXPECT_EQ(big_diagram_->GetSubsystemState(*big_state, integrator0_)
+                .get_continuous_state()->get_vector()[0],
+            1);
+  EXPECT_EQ(big_diagram_->GetSubsystemState(*big_state, integrator1_)
+                .get_continuous_state()->get_vector()[0],
+            2);
+  EXPECT_EQ(big_diagram_->GetSubsystemState(*big_state, integrator2_)
+                .get_continuous_state()->get_vector()[0],
+            3);
+  EXPECT_EQ(big_diagram_->GetSubsystemState(*big_state, integrator3_)
+                .get_continuous_state()->get_vector()[0],
+            4);
+
+  // Checks output.
+  big_diagram_->CalcOutput(*big_context_, big_output_.get());
+
+  EXPECT_EQ(big_output_->get_vector_data(0)->GetAtIndex(0), 1);
+  EXPECT_EQ(big_output_->get_vector_data(1)->GetAtIndex(0), 2);
+  EXPECT_EQ(big_output_->get_vector_data(2)->GetAtIndex(0), 3);
+  EXPECT_EQ(big_output_->get_vector_data(3)->GetAtIndex(0), 4);
+}
+
+// Tests that an exception is thrown if the systems in a Diagram do not have
+// unique names.
+GTEST_TEST(NonUniqueNamesTest, NonUniqueNames) {
+  DiagramBuilder<double> builder;
+  const int kInputs = 2;
+  const int kSize = 1;
+  auto adder0 = builder.AddSystem<Adder<double>>(kInputs, kSize);
+  adder0->set_name("unoriginal");
+  auto adder1 = builder.AddSystem<Adder<double>>(kInputs, kSize);
+  adder1->set_name("unoriginal");
+  EXPECT_THROW(builder.Build(), std::runtime_error);
+}
+
+// Tests that an exception is thrown if any system in the Diagram has an empty
+// name.
+GTEST_TEST(NonUniqueNamesTest, EmptyName) {
+  DiagramBuilder<double> builder;
+  const int kInputs = 2;
+  const int kSize = 1;
+  auto adder0 = builder.AddSystem<Adder<double>>(kInputs, kSize);
+  adder0->set_name("");
+  auto adder1 = builder.AddSystem<Adder<double>>(kInputs, kSize);
+  adder1->set_name("nonempty");
+  EXPECT_THROW(builder.Build(), std::runtime_error);
 }
 
 }  // namespace

@@ -50,14 +50,14 @@ class LeafContextTest : public ::testing::Test {
     xd.push_back(BasicVector<double>::Make({128.0}));
     xd.push_back(BasicVector<double>::Make({256.0, 512.0}));
     context_.set_discrete_state(
-        std::make_unique<DiscreteState<double>>(std::move(xd)));
+        std::make_unique<DiscreteValues<double>>(std::move(xd)));
 
     // Reserve an abstract state with one element, which is not owned.
     abstract_state_ = PackValue(42);
-    std::vector<AbstractValue*> xm;
-    xm.push_back(abstract_state_.get());
+    std::vector<AbstractValue*> xa;
+    xa.push_back(abstract_state_.get());
     context_.set_abstract_state(
-        std::make_unique<AbstractValues>(std::move(xm)));
+        std::make_unique<AbstractValues>(std::move(xa)));
 
     // Reserve two numeric parameters, of size 3 and size 4.
     std::vector<std::unique_ptr<BasicVector<double>>> params;
@@ -174,7 +174,7 @@ TEST_F(LeafContextTest, IsStateless) {
 
 TEST_F(LeafContextTest, HasOnlyContinuousState) {
   EXPECT_FALSE(context_.has_only_continuous_state());
-  context_.set_discrete_state(std::make_unique<DiscreteState<double>>());
+  context_.set_discrete_state(std::make_unique<DiscreteValues<double>>());
   context_.set_abstract_state(std::make_unique<AbstractValues>());
   EXPECT_TRUE(context_.has_only_continuous_state());
 }
@@ -323,17 +323,17 @@ TEST_F(LeafContextTest, SetTimeStateAndParametersFrom) {
   xd.push_back(std::make_unique<BasicVector<AutoDiffXd>>(1));
   xd.push_back(std::make_unique<BasicVector<AutoDiffXd>>(2));
   target.set_discrete_state(
-      std::make_unique<DiscreteState<AutoDiffXd>>(std::move(xd)));
+      std::make_unique<DiscreteValues<AutoDiffXd>>(std::move(xd)));
 
-  std::vector<std::unique_ptr<AbstractValue>> xm;
-  xm.push_back(PackValue(76));
-  target.set_abstract_state(std::make_unique<AbstractValues>(std::move(xm)));
+  std::vector<std::unique_ptr<AbstractValue>> xa;
+  xa.push_back(PackValue(76));
+  target.set_abstract_state(std::make_unique<AbstractValues>(std::move(xa)));
 
   std::vector<std::unique_ptr<BasicVector<AutoDiffXd>>> params;
   params.push_back(std::make_unique<BasicVector<AutoDiffXd>>(3));
   params.push_back(std::make_unique<BasicVector<AutoDiffXd>>(4));
   target.get_mutable_parameters().set_numeric_parameters(
-      std::make_unique<DiscreteState<AutoDiffXd>>(std::move(params)));
+      std::make_unique<DiscreteValues<AutoDiffXd>>(std::move(params)));
 
   // Set the target from the source.
   target.SetTimeStateAndParametersFrom(context_);

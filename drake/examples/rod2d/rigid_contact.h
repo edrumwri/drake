@@ -49,6 +49,10 @@ struct RigidContact {
 /// problems at the acceleration-level.
 template <class T>
 struct RigidContactAccelProblemData {
+  /// Flag that indicates whether one or more points of contact is transitioning
+  /// from not-sliding to sliding, indicating whether LCP solver must be used.
+  bool transitioning_contacts{false};
+
   /// The indices of the sliding contacts (those contacts at which there is
   /// non-zero relative velocity between bodies in the plane tangent to the
   /// point of contact) in the vector of possible contacts.
@@ -56,7 +60,10 @@ struct RigidContactAccelProblemData {
 
   /// The indices of the non-sliding contacts (those contacts at which there
   /// is zero relative velocity between bodies in the plane tangent to the
-  /// point of contact) in the vector of possible contacts.
+  /// point of contact) in the vector of possible contacts. This group also
+  /// includes those contacts which have a sliding mode but for which the
+  /// tangential velocity is momentarily below the floating point tolerance for
+  /// zero.
   std::vector<int> non_sliding_contacts;
 
   /// Coefficients of friction for the sliding contacts.
@@ -98,7 +105,7 @@ struct RigidContactAccelProblemData {
 
   /// The ℝᵐˣⁿᵏ matrix M⁻¹Fᵀ that transforms forces along the k spanning vectors
   /// in the n non-sliding contact planes to generalized accelerations.
-  MatrixX<T> iM_x_FT;
+  MatrixX<T> M_inv_x_FT;
 };
 
 /// Structure for holding rigid contact data for computing rigid contact

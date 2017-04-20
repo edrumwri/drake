@@ -56,21 +56,9 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
     DRAKE_DEMAND(contact.state ==
         RigidContact::ContactState::kContactingAndSliding);
 
-    // Get the relevant parts of the state.
-    const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-    const T& xdot = state.GetAtIndex(3);
-    const T& ydot = state.GetAtIndex(4);
-    const T& thetadot = state.GetAtIndex(5);
-
-    // Compute the velocity at the point of contact.
-    const Vector2<T> v(xdot, ydot);
-
-    // Get the time derivative of the rotation matrix.
-    const Matrix2<T> Rdot = rod_->get_rotation_matrix_derivative(
-        context.get_state());
-
     // Compute the translational velocity at the point of contact.
-    const Vector2<T> pdot = v + Rdot * contact.u.segment(0,2) * thetadot;
+    const Vector2<T> pdot = rod_->CalcContactVelocity(context.get_state(),
+                                                      contact);
 
     // Return the tangent velocity.
     return pdot[0];
