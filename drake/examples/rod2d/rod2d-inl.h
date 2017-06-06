@@ -159,7 +159,7 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
     if (Fvplus)
       *Fvplus = F * v;
     if (zero_tol)
-      zero_tol = 0;
+      *zero_tol = 10 * std::numeric_limits<double>::epsilon();
 
     return;
   }
@@ -281,11 +281,13 @@ void Rod2D<T>::DetermineVelLevelActiveSet(systems::State<T>* state,
       // It's conceivable that no impulsive force was applied but the contact
       // is still active. Either way, check to see whether the contact is
       // sliding or not-sliding.
-      if (fabs(Fvplus[contact_index]) > 10 * zero_tol)
-        contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
-      else
+      if (IsTangentVelocityZero(*state, contacts[contact_index])) {
         contacts[i].state =
             RigidContact::ContactState::kContactingWithoutSliding;
+      }
+      else {
+        contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
+      }
     }
 
     contact_index++;
@@ -318,17 +320,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
     }
   }
 
-  // Check whether the rod is undergoing an impact.
-  if (IsImpacting(*state)) {
-    // Rod IS undergoing an impact. Model the impact problem (which also
-    // redetermines contact modes).
-    T zero_tol;
-    VectorX<T> Nvplus, Fvplus;
-    ModelImpact(state, &Nvplus, &Fvplus, &zero_tol);
-    DetermineVelLevelActiveSet(state, Nvplus, Fvplus, zero_tol);
-  } else {
-    DRAKE_DEMAND(!impact_occurring);
-  }
+  // Handle any impacts.
+  T zero_tol;
+  VectorX<T> Nvplus, Fvplus;
+  ModelImpact(state, &Nvplus, &Fvplus, &zero_tol);
+  DetermineVelLevelActiveSet(state, Nvplus, Fvplus, zero_tol);
 
   // The active set must now be redetermined using the derivative at the current
   // time. Only active contacts are processed, and whether the contact is
@@ -2100,7 +2096,7 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     auto calc_tan_accel = [=](int d, const T N, const T F) {
       const T thetaddot = ((cx - x) * N - (cy - y) * F + tau) / J;
       return (F + fX) / mass +
-          r * k * (-stheta * thetaddot - ctheta * thetadot * thetadot) / 2;
+          r * d * (-stheta * thetaddot - ctheta * thetadot * thetadot) / 2;
     };
 
     // Compute two tangential acceleration candidates.

@@ -979,6 +979,14 @@ class System {
     return std::vector<WitnessFunction<T>*>();
   }
 
+  /// Evaluates the given witness function for this diagram.
+  virtual T EvalWitnessFunction(const Context<T>& context,
+                                WitnessFunction<T>* witness_function)
+                                const {
+    DRAKE_ASSERT(&witness_function->get_system() == this);
+    return witness_function->Evaluate(context);
+  }
+
  protected:
   //----------------------------------------------------------------------------
   /// @name                 System construction

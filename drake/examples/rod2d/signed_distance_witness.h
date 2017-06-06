@@ -18,8 +18,11 @@ class Rod2D;
 template <class T>
 class SignedDistanceWitness : public systems::WitnessFunction<T> {
  public:
-  SignedDistanceWitness(Rod2D<T>* rod, int contact_index) :
-      rod_(rod), contact_index_(contact_index) {}
+  SignedDistanceWitness(const Rod2D<T>* rod, int contact_index) :
+      systems::WitnessFunction<T>(rod), rod_(rod),
+      contact_index_(contact_index) {
+    this->name_ = "SignedDistance";
+  }
 
   // Gets the contact index for this witness function.
   int get_contact_index() const { return contact_index_; }
@@ -70,14 +73,14 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
     return p[1];
   }
 
-  // Uninformed time tolerance.
+  // Time tolerance- never want to stop due to time tolerance.
   T get_time_isolation_tolerance() const override {
-    return std::numeric_limits<double>::epsilon();
+    return 0;
   }
 
   // Dead-band value here should be strictly zero to match true solution.
   T get_positive_dead_band() const override { return
-        std::numeric_limits<double>::epsilon(); }
+        1e4 * std::numeric_limits<double>::epsilon(); }
 
   // Uninformed dead-band values and time tolerance.
   T get_negative_dead_band() const override { return
@@ -85,7 +88,7 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
 
  private:
   /// Pointer to the rod system.
-  Rod2D<T>* rod_;
+  const Rod2D<T>* rod_;
 
   /// Index of the contact point that this witness function applies to.
   int contact_index_{-1};

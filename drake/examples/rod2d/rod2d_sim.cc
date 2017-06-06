@@ -8,9 +8,10 @@
 
 #include <gflags/gflags.h>
 
+#include "drake/common/text_logging.h"
 #include "drake/lcm/drake_lcm.h"
-#include "drake/systems/analysis/simulator.h"
 #include "drake/lcmt_viewer_draw.hpp"
+#include "drake/lcmtypes/drake/lcmt_viewer_load_robot.hpp"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -20,7 +21,6 @@
 #include "drake/systems/rendering/drake_visualizer_client.h"
 #include "drake/systems/rendering/pose_aggregator.h"
 #include "drake/systems/rendering/pose_bundle_to_draw_message.h"
-#include "drake/lcmtypes/drake/lcmt_viewer_load_robot.hpp"
 
 namespace drake {
 namespace examples {
@@ -46,6 +46,7 @@ using drake::systems::rendering::PoseBundleToDrawMessage;
 using drake::systems::Simulator;
 
 // Simulation parameters.
+DEFINE_bool(logging, false, "Activates/deactivates logging");
 DEFINE_string(simulation_type, "timestepping",
               "Type of simulation, valid values are 'pDAE',"
                   "'timestepping','compliant'");
@@ -56,15 +57,19 @@ int main(int argc, char* argv[]) {
   // Parse any flags.
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  DrakeLcm lcm;
-  DiagramBuilder<double> builder;
+  // Enable logging, if desired.
+  if (FLAGS_logging)
+    drake::log()->set_level(spdlog::level::debug);
 
   // Emit a one-time load message.
   Serializer<drake::lcmt_viewer_load_robot> load_serializer;
   std::vector<uint8_t> message_bytes;
 
   // Build the simulation diagram.
-  PoseAggregator<double>* aggregator = builder.template AddSystem<PoseAggregator>();
+  DrakeLcm lcm;
+  DiagramBuilder<double> builder;
+  PoseAggregator<double>* aggregator = builder.template AddSystem<
+      PoseAggregator>();
   PoseBundleToDrawMessage* converter =
       builder.template AddSystem<PoseBundleToDrawMessage>();
   LcmPublisherSystem* publisher =
@@ -109,7 +114,8 @@ int main(int argc, char* argv[]) {
   const int message_length = message.getEncodedSize();
   message_bytes.resize(message_length);
   message.encode(message_bytes.data(), 0, message_length);
-  lcm.Publish("DRAKE_VIEWER_LOAD_ROBOT", message_bytes.data(), message_bytes.size());
+  lcm.Publish("DRAKE_VIEWER_LOAD_ROBOT", message_bytes.data(), 
+    message_bytes.size());
 
   // Set the names of the systems.
   rod->set_name("rod");

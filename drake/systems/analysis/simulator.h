@@ -532,11 +532,19 @@ template <class T>
 std::list<WitnessFunction<T>*> Simulator<T>::IsolateWitnessTriggers(
     const std::vector<WitnessFunction<T>*>& witnesses, const VectorX<T>& w0,
     const T& t0, const VectorX<T>& x0, const T& tf) {
+  using std::max;
+
   const T inf = std::numeric_limits<double>::infinity();
 
   // TODO(edrumwri): Speed this process using interpolation between states.
   // TODO(edrumwri): Speed this process using more powerful root finding
   //                 methods.
+
+  // Get the tolerance for floating point equivalence.
+  const T zero_tol = max(tf, T(1)) * std::numeric_limits<double>::epsilon();
+
+  // Get the system.
+  const System<T>& system = get_system();
 
   // Will need to alter the context repeatedly.
   Context<T>* context = get_mutable_context();
@@ -558,16 +566,24 @@ std::list<WitnessFunction<T>*> Simulator<T>::IsolateWitnessTriggers(
     // Restore the state and time to a and then integrate to b.
     context->set_time(t0);
     context->get_mutable_continuous_state()->SetFromVector(x0);
-    integrator_->StepOnceAtMost(inf, inf, t_first);
+    T t_remaining = t_first - t0;
+    while (t_remaining > zero_tol) {
+      integrator_->StepOnceAtMost(inf, inf, t_remaining);
+      t_remaining = t_first - context->get_time();
+    }
 
     // Evaluate the witness function.
-    T fb = witnesses[i]->Evaluate(*context);
+    T fb = system.EvalWitnessFunction(*context, witnesses[i]);
 
     // See whether there has been a sign change; after shrinking the time
     // interval one or more times, there may no longer be one, in which case
     // we can skip the bisection for this interval.
     if (!witnesses[i]->should_trigger(fa, fb))
       continue;
+
+    // Get the dead bands.
+    const T pos_dead = witnesses[i]->get_positive_dead_band();
+    const T neg_dead = witnesses[i]->get_negative_dead_band();
 
     while (true) {
       // See whether the solution has been found to the desired tolerance.
@@ -593,10 +609,14 @@ std::list<WitnessFunction<T>*> Simulator<T>::IsolateWitnessTriggers(
       // Restore the state and time to t0, then integrate to c.
       context->set_time(t0);
       context->get_mutable_continuous_state()->SetFromVector(x0);
-      integrator_->StepOnceAtMost(inf, inf, c);
+      T t_remaining = c - t0;
+      while (t_remaining > zero_tol) {
+        integrator_->StepOnceAtMost(inf, inf, t_remaining);
+        t_remaining = c - context->get_time();
+      }
 
       // Evaluate the witness function.
-      T fc = witnesses[i]->Evaluate(*context);
+      T fc = system.EvalWitnessFunction(*context, witnesses[i]);
 
       // Bisect.
       if (witnesses[i]->should_trigger(fa, fc)) {
@@ -605,6 +625,23 @@ std::list<WitnessFunction<T>*> Simulator<T>::IsolateWitnessTriggers(
       } else {
         a = c;
         fa = fc;
+      }
+
+      // If fc is within the dead band, quit.
+      if (fc < pos_dead && fc > neg_dead) {
+        T t_trigger = witnesses[i]->get_trigger_time(std::make_pair(a, fa),
+                                                     std::make_pair(b, fb));
+
+        // Only clear the list of witnesses if t_trigger strictly less than
+        // t_first.
+        DRAKE_DEMAND(t_first >= t_trigger);
+        if (t_trigger < t_first)
+          triggered_witnesses.clear();
+
+        // Set the first trigger time and add the witness index.
+        triggered_witnesses.push_back(witnesses[i]);
+        t_first = t_trigger;
+        break;
       }
     }
   }
@@ -634,7 +671,7 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
   // Evaluate the witness functions.
   VectorX<T> w0(witness_functions.size());
   for (size_t i = 0; i < witness_functions.size(); ++i)
-      w0[i] = witness_functions[i]->Evaluate(context);
+      w0[i] = system.EvalWitnessFunction(context, witness_functions[i]);
 
   // Attempt to integrate. Updates and boundary times are consciously
   // distinguished between. See internal documentation for
@@ -647,7 +684,7 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
   // Evaluate the witness functions again.
   VectorX<T> wf(witness_functions.size());
   for (size_t i =0; i < witness_functions.size(); ++i)
-    wf[i] = witness_functions[i]->Evaluate(context);
+    wf[i] = system.EvalWitnessFunction(context, witness_functions[i]);
 
   // See whether a witness function triggered.
   bool witness_triggered = false;
@@ -664,6 +701,8 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
 
     // TODO(edrumwri): Store witness function(s) that triggered.
     for (WitnessFunction<T>* wf : witness_functions) {
+      SPDLOG_DEBUG(drake::log(), "Witness function {} crossed zero at time {}",
+                   wf->get_name(), context.get_time());
       update_actions->time = context.get_time();
       update_actions->events.push_back(DiscreteEvent<T>());
       DiscreteEvent<T>& event = update_actions->events.back();

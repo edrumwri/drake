@@ -199,24 +199,24 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
 
-  static const Rod2dStateVector<T>& get_state(
+  static const Rod2DStateVector<T>& get_state(
       const systems::ContinuousState<T>& cstate) {
-    return dynamic_cast<const Rod2dStateVector<T>&>(cstate);
+    return dynamic_cast<const Rod2DStateVector<T>&>(cstate);
   }
 
-  static Rod2dStateVector<T>* get_mutable_state(
+  static Rod2DStateVector<T>* get_mutable_state(
       systems::ContinuousState<T>* cstate) {
-    return dynamic_cast<Rod2dStateVector<T>*>(cstate); }
+    return dynamic_cast<Rod2DStateVector<T>*>(cstate); }
 
-  static const Rod2dStateVector<T>& get_state(
+  static const Rod2DStateVector<T>& get_state(
       const systems::Context<T>& context) {
-    return dynamic_cast<const Rod2dStateVector<T>&>(
+    return dynamic_cast<const Rod2DStateVector<T>&>(
         *context.get_continuous_state());
   }
 
-  static Rod2dStateVector<T>* get_mutable_state(
+  static Rod2DStateVector<T>* get_mutable_state(
       systems::Context<T>* context) {
-    return dynamic_cast<Rod2dStateVector<T>*>(
+    return dynamic_cast<Rod2DStateVector<T>*>(
         context->get_mutable_continuous_state());
   }
 
@@ -395,6 +395,7 @@ class Rod2D : public systems::LeafSystem<T> {
  private:
   friend class Rod2DDAETest;
   friend class Rod2DCrossValidationTest;
+  friend class Rod2DCrossValidationSlidingTest;
   FRIEND_TEST(Rod2DDAETest, ImpactWorks);
   FRIEND_TEST(Rod2DDAETest, ImpactNoChange);
   FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact);
@@ -412,6 +413,7 @@ class Rod2D : public systems::LeafSystem<T> {
   FRIEND_TEST(Rod2DDAETest, SeparationWitness);
   FRIEND_TEST(Rod2DDAETest, VelocityChangesWitness);
   FRIEND_TEST(Rod2DDAETest, StickingSlidingWitness);
+  FRIEND_TEST(Rod2DCrossValidationSlidingTest, Interval);
 
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of

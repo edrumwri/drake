@@ -16,8 +16,11 @@ class Rod2D;
 template <class T>
 class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
  public:
-  StickingFrictionForcesSlackWitness(Rod2D<T>* rod, int contact_index) :
-      rod_(rod), contact_index_(contact_index) {}
+  StickingFrictionForcesSlackWitness(const Rod2D<T>* rod, int contact_index) :
+      systems::WitnessFunction<T>(rod), rod_(rod),
+      contact_index_(contact_index) {
+    this->name_ = "StickingFrictionForcesSlack";
+  }
 
   /// This witness function indicates an unrestricted update needs to be taken.
   typename systems::DiscreteEvent<T>::ActionType get_action_type()
@@ -104,12 +107,12 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
   // Uninformed dead-band values and time tolerance.
   T get_negative_dead_band() const override {
     using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
+    return -sqrt(std::numeric_limits<double>::epsilon());
   }
 
  private:
   /// Pointer to the rod system.
-  Rod2D<T>* rod_;
+  const Rod2D<T>* rod_;
 
   /// Index of the contact point that this witness function applies to.
   int contact_index_{-1};

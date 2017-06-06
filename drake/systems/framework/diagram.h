@@ -372,6 +372,30 @@ class Diagram : public System<T>,
         new internal::DiagramDiscreteVariables<T>(std::move(sub_differences)));
   }
 
+  /// Gets the witness functions for this diagram.
+  std::vector<WitnessFunction<T>*> get_witness_functions(
+      const Context<T>& context) const override {
+    std::vector<WitnessFunction<T>*> wf_vector;
+    for (const System<T>* const system : sorted_systems_) {
+      const Context<T>& sub_context = GetSubsystemContext(context, system);
+      std::vector<WitnessFunction<T>*> wf_sub_vector = system->
+          get_witness_functions(sub_context);
+      wf_vector.insert(wf_vector.end(), wf_sub_vector.begin(),
+                       wf_sub_vector.end());
+    }
+
+    return wf_vector;
+  }
+
+  /// Evaluates the given witness function for this diagram.
+  T EvalWitnessFunction(const Context<T>& context,
+                        WitnessFunction<T>* witness_function) const override {
+    // Get the sub-context.
+    const System<T>& subsystem = witness_function->get_system();
+    const Context<T>& sub_context = GetSubsystemContext(context, &subsystem);
+    return witness_function->Evaluate(sub_context);
+  }
+
   void DoCalcTimeDerivatives(const Context<T>& context,
                              ContinuousState<T>* derivatives) const override {
     auto diagram_context = dynamic_cast<const DiagramContext<T>*>(&context);

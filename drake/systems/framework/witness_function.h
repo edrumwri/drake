@@ -9,6 +9,7 @@ template <class T>
 class WitnessFunction {
  public:
   virtual ~WitnessFunction() {}
+  WitnessFunction(const System<T>* system) { system_ = system; }
 
   enum TriggerType {
     /// This witness function will never be triggered.
@@ -27,6 +28,20 @@ class WitnessFunction {
     /// kPositiveThenNegative and kNegativeThenPositive.
     kCrossesZero = 3,
   };
+
+  /// Gets the reference to the system corresponding to this witness function.
+  const System<T>& get_system() const { return *system_; }
+
+  /// Gets a mutable pointer to the system corresponding to this witness
+  /// function.
+  System<T>* get_mutable_system() { return system_; }
+
+  /// Gets the name of this witness function (used primarily for logging and
+  /// debugging).
+  const std::string& get_name() const { return name_; }
+
+  /// Sets the name of this witness function.
+  void set_name(const std::string& name) { name_ = name; }
 
   /// Derived classes will override this function to get the type of event
   /// that the witness function will trigger.
@@ -61,19 +76,12 @@ class WitnessFunction {
 
   /// Gets the time that the witness function should trigger, given two times
   /// and two function evaluations. Calls do_get_trigger_time().
-  /// @throws std::logic_error If the difference between the two times is
-  ///         greater than the time isolation tolerance or the second time
-  ///         is less than the first time.
+  /// @throws std::logic_error if the second time is less than the first time.
   T get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
                      const std::pair<T, T>& time_and_witness_valuef) const {
     if (time_and_witness_value0.first > time_and_witness_valuef.first) {
       throw std::logic_error("First time should not be greater than the second"
                                  "time.");
-    }
-    if (time_and_witness_valuef.first - time_and_witness_value0.first >
-        get_time_isolation_tolerance()) {
-      throw std::logic_error("Difference in times is greater than the time"
-                                 "isolation tolerance.");
     }
 
     return do_get_trigger_time(time_and_witness_value0,
@@ -113,6 +121,13 @@ class WitnessFunction {
     // No triggers triggered.
     return false;
   }
+
+ protected:
+  // The name of this witness function.
+  std::string name_;
+
+ private:
+  const System<T>* system_;
 };
 
 }  // namespace systems

@@ -18,6 +18,8 @@ using drake::systems::AbstractValues;
 using drake::systems::Simulator;
 using drake::systems::SemiExplicitEulerIntegrator;
 using drake::systems::Context;
+using drake::systems::System;
+using drake::systems::DiscreteValues;
 
 using Eigen::Vector2d;
 using Eigen::Vector3d;
@@ -1081,13 +1083,84 @@ TEST_F(Rod2DTimeSteppingTest, NumWitnessFunctions) {
   EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 0);
 }
 
+// Class that adds publishing to the Rod 2D system and uses it to determine
+// intervals of continuous time.
+class Rod2DPlus : public Rod2D<double> {
+ public:
+  Rod2DPlus(Rod2D<double>::SimulationType simulation_type, double dt) :
+      Rod2D<double>(simulation_type, dt) {}
+
+  // Gets the time steps that the simulator was called upon.
+  std::vector<double> get_dts(const Context<double>& context) {
+    std::vector<double> dts;
+    for (size_t i = 1; i < times_.size(); ++i) {
+      if (times_[i] - times_[i-1] > 0)
+        dts.push_back(times_[i] - times_[i-1]);
+    }
+
+    // See whether to add the time to the end.
+    if (context.get_time() > times_.back())
+      dts.push_back(context.get_time() - times_.back());
+
+    return dts;
+  }
+
+ protected:
+  void DoPublish(const systems::Context<double>& context) const override {
+    times_.push_back(context.get_time());
+  }
+
+ private:
+  // Times at which the publisher was called; assumes publishing is called
+  // at the endpoints of continuous interval.
+  mutable std::vector<double> times_;
+};
+
+// Steps a rod forward with a non-uniform step using time stepping. Used
+// for cross validation tests to ensure that time stepping and piecewise DAE
+// are integrated from the same starting points.
+void StepNonuniform(const Rod2D<double>& rod_ts, Context<double>* context,
+                    double dt) {
+  // Get the existing context.
+  DiscreteValues<double>* xd = context->get_mutable_discrete_state();
+
+  // Create a new time stepping system.
+  Rod2D<double> rod(Rod2D<double>::SimulationType::kTimeStepping, dt);
+
+  // Set pertiennt data.
+  rod.set_rod_half_length(rod_ts.get_rod_half_length());
+  rod.set_rod_mass(rod_ts.get_rod_mass());
+  rod.set_rod_moment_of_inertia(rod_ts.get_rod_moment_of_inertia());
+  rod.set_cfm(rod_ts.get_cfm());
+  rod.set_erp(rod_ts.get_erp());
+  rod.set_mu_coulomb(rod_ts.get_mu_coulomb());
+
+  // Allocate variables.
+  std::unique_ptr<DiscreteValues<double>> discrete_updates = rod.
+      AllocateDiscreteVariables();
+
+  // Create the event.
+  systems::DiscreteEvent<double> event;
+  event.action = systems::DiscreteEvent<double>::kDiscreteUpdateAction;
+
+  // Compute the update.
+  rod.CalcDiscreteVariableUpdates(*context, event,
+                                  discrete_updates.get());
+
+  // Then, write them back into the context.
+  xd->CopyFrom(*discrete_updates);
+
+  // Update the context.
+  context->set_time(context->get_time() + dt);
+}
+
 // Class for cross-testing the Rod2D example using piecewise DAE and time
 // stepping approaches.
 class Rod2DCrossValidationTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // Create both test devices.
-    pdae_ = std::make_unique<Rod2D<double>>(
+    pdae_ = std::make_unique<Rod2DPlus>(
         Rod2D<double>::SimulationType::kPiecewiseDAE, 0.0);
     ts_ = std::make_unique<Rod2D<double>>(
         Rod2D<double>::SimulationType::kTimeStepping, dt_);
@@ -1225,7 +1298,7 @@ class Rod2DCrossValidationTest : public ::testing::Test {
   // The integration step size (should be large to allow for event transitions).
   const double dt_{0.1};
 
-  std::unique_ptr<Rod2D<double>> pdae_;
+  std::unique_ptr<Rod2DPlus> pdae_;
   std::unique_ptr<Rod2D<double>> ts_;
   std::unique_ptr<Simulator<double>> simulator_pdae_;
   std::unique_ptr<Simulator<double>> simulator_ts_;
@@ -1308,6 +1381,44 @@ TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionSliding) {
   EXPECT_NEAR(xc[5], xd[5], tol);
 }
 
+// This test checks to see whether a piecewise DAE simulation is equal to a
+// time stepping simulation over a given interval.
+TEST_F(Rod2DCrossValidationSlidingTest, Interval) {
+  // Integrate forward to one second.
+//  simulator_pdae_->get_mutable_integrator()->set_maximum_step_size(1);
+  simulator_pdae_->StepTo(0.100001);
+  std::vector<double> dts = pdae_->get_dts(simulator_pdae_->get_context());
+  for (size_t i = 0; i < dts.size(); ++i)
+    StepNonuniform(*ts_, simulator_ts_->get_mutable_context(), dts[i]);
+  std::cout << "Integration steps:";
+  for (size_t i = 0; i < dts.size(); ++i)
+    std::cout << " " << dts[i];
+  std::cout << std::endl;
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solution is nearly identical.
+//  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  const double tol = 0;
+  EXPECT_NEAR(context_ts.get_time(), context_pdae.get_time(), tol);
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+
+  // Verify that the signed distance is correct for the piecewise DAE
+  // approach.
+  Rod2D<double>* rod = (Rod2D<double>*) pdae_.get();
+  EXPECT_GT(rod->signed_distance_witnesses_[0]->Evaluate(context_pdae), -tol);
+  EXPECT_GT(rod->signed_distance_witnesses_[1]->Evaluate(context_pdae), -tol);
+}
+
 // This test checks to see whether a simulation step of the piecewise
 // DAE based Rod2D system is equivalent to a single step of the semi-explicit
 // time stepping based system for two sliding contacts *without any transitions
@@ -1333,6 +1444,42 @@ TEST_F(Rod2DCrossValidationSlidingTest, OneStepSolutionTwoSliding) {
 
   // Check that the solution is nearly identical.
   const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(xc[0], xd[0], tol);
+  EXPECT_NEAR(xc[1], xd[1], tol);
+  EXPECT_NEAR(xc[2], xd[2], tol);
+  EXPECT_NEAR(xc[3], xd[3], tol);
+  EXPECT_NEAR(xc[4], xd[4], tol);
+  EXPECT_NEAR(xc[5], xd[5], tol);
+}
+
+class Rod2DCrossValidationLargeMuSlidingTest : public Rod2DCrossValidationTest {
+ protected:
+  double get_horizontal_external_force() const override { return 0; }
+  double get_mu_coulomb() const override { return 1; }
+};
+
+// This test checks solution equality when the rod starts with sliding and
+// transitions to non-sliding.
+TEST_F(Rod2DCrossValidationLargeMuSlidingTest, OneStepSolutionSliding) {
+  set_horizontal_sliding_configuration();
+
+  // Integrate forward by a single *large* dt. Note that the update rate
+  // is set by the time stepping system, so stepping to dt should yield
+  // exactly one step.
+  simulator_pdae_->StepTo(dt_ * 2);
+  std::vector<double> dts = pdae_->get_dts(simulator_pdae_->get_context());
+  for (size_t i = 0; i < dts.size(); ++i)
+    StepNonuniform(*ts_, simulator_ts_->get_mutable_context(), dts[i]);
+
+  // See whether the states are equal.
+  const Context<double>& context_ts = simulator_ts_->get_context();
+  const Context<double>& context_pdae = simulator_pdae_->get_context();
+  const auto& xd = context_ts.get_discrete_state(0)->get_value();
+  const auto& xc = context_pdae.get_continuous_state_vector();
+
+  // Check that the solutions are nearly identical.
+  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  EXPECT_NEAR(context_ts.get_time(), context_pdae.get_time(), tol);
   EXPECT_NEAR(xc[0], xd[0], tol);
   EXPECT_NEAR(xc[1], xd[1], tol);
   EXPECT_NEAR(xc[2], xd[2], tol);

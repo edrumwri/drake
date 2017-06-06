@@ -17,8 +17,11 @@ class Rod2D;
 template <class T>
 class SlidingDotWitness : public systems::WitnessFunction<T> {
  public:
-  SlidingDotWitness(Rod2D<T>* rod, int contact_index) :
-      rod_(rod), contact_index_(contact_index) {}
+  SlidingDotWitness(const Rod2D<T>* rod, int contact_index) :
+      systems::WitnessFunction<T>(rod), rod_(rod),
+      contact_index_(contact_index) {
+    this->name_ = "SlidingDot";
+  }
 
   /// This witness function indicates an unrestricted update needs to be taken.
   typename systems::DiscreteEvent<T>::ActionType get_action_type()
@@ -64,27 +67,28 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
     return pdot[0];
   }
 
-  // Uninformed time tolerance.
+  // Time tolerance- we want to ensure that the zero is isolated within the
+  // dead bands (i.e., zero finding should not terminate based on this
+  // tolerance).
   T get_time_isolation_tolerance() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
+    return 0;
   }
 
-  // Uninformed dead-band values and time tolerance.
+  // Informed dead-band values (dictated by Rod2D::IsTangentVelocityZero()).
   T get_positive_dead_band() const override {
     using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
+    return 1e-10;
   }
 
-  // Uninformed dead-band values and time tolerance.
+  // Informed dead-band values (dictated by Rod2D::IsTangentVelocityZero()).
   T get_negative_dead_band() const override {
     using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
+    return -1e-10;
   }
 
  private:
   /// Pointer to the rod system.
-  Rod2D<T>* rod_;
+  const Rod2D<T>* rod_;
 
   /// Index of the contact point that this witness function applies to.
   int contact_index_{-1};
