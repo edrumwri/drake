@@ -20,6 +20,10 @@ struct LaneId {
   std::string id;
 };
 
+/// Streams a string representation of @p lane_id into @p out. Returns @p out.
+/// This method is provided for the purposes of debugging or text-logging. It is
+/// not intended for serialization.
+std::ostream& operator<<(std::ostream& out, const LaneId& lane_id);
 
 /// A Lane represents a lane of travel in a road network.  A Lane defines
 /// a curvilinear coordinate system covering the road surface, with a
@@ -80,6 +84,13 @@ class Lane {
   /// the lane's segment.
   RBounds driveable_bounds(double s) const { return do_driveable_bounds(s); }
 
+  /// Returns the elevation (`h`) bounds of the lane as a function of `(s, r)`.
+  ///
+  /// These are the elevation bounds for a position that is considered to be
+  /// within the volume modelled by the RoadGeometry.
+  HBounds elevation_bounds(double s, double r) const {
+    return do_elevation_bounds(s, r); }
+
   /// Returns the GeoPosition corresponding to the given LanePosition.
   ///
   /// @pre The s component of @p lane_pos must be in domain [0, Lane::length()].
@@ -115,17 +126,17 @@ class Lane {
   //                                    const Lane* other_lane) const;
 
   /// Returns the rotation which expresses the orientation of the
-  /// LANE-space basis at @p lane_pos with regards to the (single, global)
-  /// GEO-space basis.
+  /// `Lane`-frame basis at @p lane_pos with respect to the
+  /// world frame basis.
   Rotation GetOrientation(const LanePosition& lane_pos) const {
     return DoGetOrientation(lane_pos);
   }
 
   /// Computes derivatives of LanePosition given a velocity vector @p velocity.
-  /// @p velocity is a isometric velocity vector oriented in the LANE-space
-  /// reference frame at @p position.
+  /// @p velocity is a isometric velocity vector oriented in the `Lane`-frame
+  /// at @p position.
   ///
-  /// @returns LANE-space derivatives packed into a LanePosition struct.
+  /// @returns `Lane`-frame derivatives packed into a LanePosition struct.
   LanePosition EvalMotionDerivatives(const LanePosition& position,
                                      const IsoLaneVelocity& velocity) const {
     return DoEvalMotionDerivatives(position, velocity);
@@ -189,6 +200,8 @@ class Lane {
   virtual RBounds do_lane_bounds(double s) const = 0;
 
   virtual RBounds do_driveable_bounds(double s) const = 0;
+
+  virtual HBounds do_elevation_bounds(double s, double r) const = 0;
 
   virtual GeoPosition DoToGeoPosition(const LanePosition& lane_pos) const = 0;
 

@@ -89,12 +89,6 @@ Eigen::Index minCoeffIdx(const Eigen::MatrixBase<Derived>& in) {
 const double kSqrtEps = std::sqrt(std::numeric_limits<double>::epsilon());
 }  // anonymous namespace
 
-// Sole constructor
-template <typename T>
-MobyLCPSolver<T>::MobyLCPSolver()
-    : MathematicalProgramSolverInterface(SolverType::kMobyLCP),
-      log_enabled_(false) {}
-
 template <typename T>
 void MobyLCPSolver<T>::SetLoggingEnabled(bool enabled) {
   log_enabled_ = enabled; }
@@ -120,7 +114,7 @@ void MobyLCPSolver<T>::ClearIndexVectors() const {
 template <>
 SolutionResult MobyLCPSolver<Eigen::AutoDiffScalar<drake::Vector1d>>::Solve(
 // NOLINTNEXTLINE(*)  Don't lint old, non-style-compliant code below.
-    MathematicalProgram& prog) const {
+    MathematicalProgram&) const {
   DRAKE_ABORT_MSG("MobyLCPSolver cannot yet be used in a MathematicalProgram "
                   "while templatized as an AutoDiff");
   return SolutionResult::kUnknownError;

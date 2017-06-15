@@ -65,6 +65,7 @@ drake_cc_binary(
 # TODO(jwnimmer-tri) This is just some random program.  Do we want to keep it?
 drake_cc_binary(
     name = "urdf_manipulator_dynamics_test",
+    testonly = 1,
     srcs = ["test/urdf_manipulator_dynamics_test.cc"],
     deps = [
         ":parsers",
@@ -118,6 +119,14 @@ drake_cc_googletest(
     name = "xml_util_test",
     deps = [
         ":parsers",
+    ],
+)
+
+drake_cc_googletest(
+    name = "sdformat_test",
+    srcs = ["test/sdformat_test.cc"],
+    deps = [
+        "@sdformat",
     ],
 )
 

@@ -40,6 +40,18 @@ struct UpdateActions {
   std::vector<DiscreteEvent<T>> events;
 };
 
+/** @cond */
+// Private helper class for System.
+class SystemImpl {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SystemImpl)
+  SystemImpl() = delete;
+
+  // The implementation of System<T>::GetMemoryObjectName.
+  static std::string GetMemoryObjectName(const std::string&, int64_t);
+};
+/** @endcond */
+
 /// A superclass template for systems that receive input, maintain state, and
 /// produce output of a given mathematical type T.
 ///
@@ -449,7 +461,7 @@ class System {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
     DRAKE_DEMAND(event.action == DiscreteEvent<T>::kUnrestrictedUpdateAction);
     const int continuous_state_dim = state->get_continuous_state()->size();
-    const int discrete_state_dim = state->get_discrete_state()->size();
+    const int discrete_state_dim = state->get_discrete_state()->num_groups();
     const int abstract_state_dim = state->get_abstract_state()->size();
 
     // Copy current state to the passed-in state, as specified in the
@@ -462,7 +474,7 @@ class System {
       event.do_unrestricted_update(context, state);
     }
     if (continuous_state_dim != state->get_continuous_state()->size() ||
-        discrete_state_dim != state->get_discrete_state()->size() ||
+        discrete_state_dim != state->get_discrete_state()->num_groups() ||
         abstract_state_dim != state->get_abstract_state()->size())
       throw std::logic_error(
           "State variable dimensions cannot be changed "
@@ -484,6 +496,19 @@ class System {
     actions->events.clear();
     DoCalcNextUpdateTime(context, actions);
     return actions->time;
+  }
+
+  /// This method is called by a Simulator in its Initialize() to gather all
+  /// the update and publish events that need to be handled before it computes
+  /// derivatives and performs integration. It is assumed that these events
+  /// remain constant throughout the simulation. The `Step` here refers to the
+  /// major time step taken by the Simulator. @p events cannot be null.
+  void GetPerStepEvents(const Context<T>& context,
+                        std::vector<DiscreteEvent<T>>* events) const {
+    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    DRAKE_ASSERT(events != nullptr);
+    events->clear();
+    DoGetPerStepEvents(context, events);
   }
 
   /// Computes the output values that should result from the current contents
@@ -650,8 +675,20 @@ class System {
   /// Diagram, names of sibling subsystems should be unique.
   void set_name(const std::string& name) { name_ = name; }
 
-  /// Retrieves the name last supplied to set_name().
+  /// Returns the name last supplied to set_name(), or empty if set_name() was
+  /// never called.  Systems created through transmogrification have by default
+  /// an identical name to the system they were created from.
   std::string get_name() const { return name_; }
+
+  /// Returns a name for this %System based on a stringification of its type
+  /// name and memory address.  This is intended for use in diagnostic output
+  /// and should not be used for behavioral logic, because the stringification
+  /// of the type name may produce differing results across platforms and
+  /// because the address can vary from run to run.
+  std::string GetMemoryObjectName() const {
+    return SystemImpl::GetMemoryObjectName(
+        NiceTypeName::Get(*this), GetGraphvizId());
+  }
 
   /// Writes the full path of this System in the tree of Systems to @p output.
   /// The path has the form (::ancestor_system_name)*::this_system_name.
@@ -661,8 +698,7 @@ class System {
     if (parent_ != nullptr) {
       parent_->GetPath(output);
     }
-    *output << "::";
-    *output << (get_name().empty() ? "<unnamed System>" : get_name());
+    *output << "::" << (get_name().empty() ? "_" : get_name());
   }
 
   // Returns the full path of the System in the tree of Systems.
@@ -971,23 +1007,31 @@ class System {
 
   //@}
 
-  /// Derived classes can override this method to provide witness functions
-  /// active at the beginning of a continuous time interval. The default
-  /// implementation returns an empty vector.
-  virtual std::vector<WitnessFunction<T>*> get_witness_functions(
-      const Context<T>& context) const {
-    return std::vector<WitnessFunction<T>*>();
-  }
-
-  /// Evaluates the given witness function for this diagram.
-  virtual T EvalWitnessFunction(const Context<T>& context,
-                                WitnessFunction<T>* witness_function)
-                                const {
-    DRAKE_ASSERT(&witness_function->get_system() == this);
-    return witness_function->Evaluate(context);
+  /// Gets the witness functions active at the beginning of a continuous time
+  /// interval. DoGetWitnessFunctions() does the actual work.
+  /// @param context a valid context for the System (aborts if not true).
+  /// @param[out] w a valid pointer to an empty vector that will store
+  ///             pointers to the witness functions active at the beginning of
+  ///             the continuous time interval. The method aborts if witnesses
+  ///             is null or non-empty.
+  void GetWitnessFunctions(const Context<T>& context,
+                           std::vector<const WitnessFunction<T>*>* w) const {
+    DRAKE_DEMAND(w);
+    DRAKE_DEMAND(w->empty());
+    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    DoGetWitnessFunctions(context, w);
   }
 
  protected:
+  /// Derived classes can override this method to provide witness functions
+  /// active at the beginning of a continuous time interval. The default
+  /// implementation does nothing. On entry to this function, the context will
+  /// have already been validated and the vector of witness functions will have
+  /// been validated to be both empty and non-null.
+  virtual void DoGetWitnessFunctions(const Context<T>&,
+      std::vector<const WitnessFunction<T>*>*) const {
+  }
+
   //----------------------------------------------------------------------------
   /// @name                 System construction
   /// Authors of derived %Systems can use these methods in the constructor
@@ -1165,6 +1209,25 @@ class System {
                                     UpdateActions<T>* actions) const {
     unused(context);
     actions->time = std::numeric_limits<T>::infinity();
+  }
+
+  /// This method is intended to get all the events that need to be handled
+  /// before the simulator can take a step. @p events is cleared in the
+  /// public non-virtual GetPerStepEvents() before calling this function.
+  /// Overriding implementation should not clear @p events, and only append
+  /// to it.
+  ///
+  /// Override this method if your System needs such events. This method is
+  /// called only from the public non-virtual GetPerStepEvents(), which will
+  /// already have error-checked the parameters so you don't have to. You
+  /// may assume that @p context has already been validated and @p events is
+  /// not null, and it can be changed freely by the overriding implementation.
+  ///
+  /// The default implementation returns without changing @p events.
+  virtual void DoGetPerStepEvents(
+      const Context<T>& context,
+      std::vector<DiscreteEvent<T>>* events) const {
+    unused(context, events);
   }
 
   /// Override this method for physical systems to calculate the potential

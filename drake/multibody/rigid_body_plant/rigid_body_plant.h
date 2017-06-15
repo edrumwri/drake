@@ -210,7 +210,7 @@ class RigidBodyPlant : public LeafSystem<T> {
   /// Sets the state in `context` so that generalized positions and velocities
   /// are zero. For quaternion based joints the quaternion is set to be the
   /// identity (or equivalently a zero rotation).
-  void SetDefaultState(const Context<T>& context,
+  void SetDefaultState(const Context<T>&,
                        State<T>* state) const override {
     DRAKE_DEMAND(state != nullptr);
 
@@ -227,7 +227,7 @@ class RigidBodyPlant : public LeafSystem<T> {
     } else {
       // Extract a pointer to the discrete state from the context.
       BasicVector<T>* xd =
-          state->get_mutable_discrete_state()->get_mutable_discrete_state(0);
+          state->get_mutable_discrete_state()->get_mutable_vector(0);
       DRAKE_DEMAND(xd != nullptr);
 
       // Write the zero configuration into the discrete state.
@@ -363,19 +363,19 @@ class RigidBodyPlant : public LeafSystem<T> {
   // TODO(amcastro-tri): provide proper implementations for these methods to
   // track energy conservation.
   // TODO(amcastro-tri): provide a method to track applied actuator power.
-  T DoCalcPotentialEnergy(const Context<T>& context) const override {
+  T DoCalcPotentialEnergy(const Context<T>&) const override {
     return T(NAN);
   }
 
-  T DoCalcKineticEnergy(const Context<T>& context) const override {
+  T DoCalcKineticEnergy(const Context<T>&) const override {
     return T(NAN);
   }
 
-  T DoCalcConservativePower(const Context<T>& context) const override {
+  T DoCalcConservativePower(const Context<T>&) const override {
     return T(NAN);
   }
 
-  T DoCalcNonConservativePower(const Context<T>& context) const override {
+  T DoCalcNonConservativePower(const Context<T>&) const override {
     return T(NAN);
   }
 

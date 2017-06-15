@@ -19,34 +19,16 @@ template <class T>
 class SeparatingAccelWitness : public systems::WitnessFunction<T> {
  public:
   SeparatingAccelWitness(const Rod2D<T>* rod, int contact_index) :
-      systems::WitnessFunction<T>(rod), rod_(rod),
+      systems::WitnessFunction<T>(rod,
+          WitnessFunctionDirection::kPositiveThenNegative,
+          systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction),
+      rod_(rod),
       contact_index_(contact_index) {
     this->name_ = "SeparatingAccel";
   }
 
-  /// This witness function indicates an unrestricted update needs to be taken.
-  typename systems::DiscreteEvent<T>::ActionType get_action_type()
-  const override {
-    return systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction;
-  }
-
-  /// This witness triggers only when the signed distance goes from strictly
-  /// positive to zero/negative.
-  typename systems::WitnessFunction<T>::TriggerType get_trigger_type()
-  const override {
-    return systems::WitnessFunction<T>::TriggerType::kPositiveThenNegative;
-  }
-
-  // Select the trigger time for this witness function to bisect the two
-  // time values.
-  T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
-                        const std::pair<T, T>& time_and_witness_valuef)
-  const override {
-    return (time_and_witness_value0.first + time_and_witness_valuef.first) / 2;
-  }
-
   /// The witness function itself.
-  T Evaluate(const systems::Context<T>& context) override {
+  T DoEvaluate(const systems::Context<T>& context) override {
     using std::sin;
 
     // Verify the system is simulated using piecewise DAE.
@@ -70,24 +52,6 @@ class SeparatingAccelWitness : public systems::WitnessFunction<T> {
     // Return the normal force. A negative value means that the force has
     // become tensile, which violates the compressiveness constraint.
     return cf[contact_index_];
-  }
-
-  // Uninformed time tolerance.
-  T get_time_isolation_tolerance() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
-
-  // Uninformed dead-band values and time tolerance.
-  T get_positive_dead_band() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
-
-  // Uninformed dead-band values and time tolerance.
-  T get_negative_dead_band() const override {
-    using std::sqrt;
-    return -sqrt(std::numeric_limits<double>::epsilon());
   }
 
  private:

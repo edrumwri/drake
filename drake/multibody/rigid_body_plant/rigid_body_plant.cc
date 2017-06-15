@@ -160,9 +160,8 @@ void RigidBodyPlant<T>::set_friction_contact_parameters(
 }
 
 template <typename T>
-bool RigidBodyPlant<T>::DoHasDirectFeedthrough(const SparsityMatrix* sparsity,
-                                               int input_port,
-                                               int output_port) const {
+bool RigidBodyPlant<T>::DoHasDirectFeedthrough(const SparsityMatrix*, int, int)
+    const {
   return false;
 }
 
@@ -276,9 +275,8 @@ void RigidBodyPlant<T>::set_state_vector(
   DRAKE_ASSERT(state != nullptr);
   DRAKE_ASSERT(x.size() == get_num_states());
   if (timestep_ > 0.0) {
-    state->get_mutable_discrete_state()
-        ->get_mutable_discrete_state(0)
-        ->SetFromVector(x);
+    auto* xd = state->get_mutable_discrete_state();
+    xd->get_mutable_vector(0)->SetFromVector(x);
   } else {
     state->get_mutable_continuous_state()->SetFromVector(x);
   }
@@ -567,7 +565,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // qn = q + h*qdn.
   xn << q + timestep_ * tree_->transformVelocityToQDot(kinsol, vn_sol), vn_sol;
-  updates->get_mutable_discrete_state(0)->SetFromVector(xn);
+  updates->get_mutable_vector(0)->SetFromVector(xn);
 }
 
 template <typename T>

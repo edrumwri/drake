@@ -25,7 +25,7 @@ drake_cc_library(
     deps = [
         "//drake/automotive/maliput/api",
         "//drake/math:geometric_transform",
-        "@fmt//:fmt",
+        "@fmt",
     ],
 )
 
@@ -41,6 +41,24 @@ drake_cc_binary(
 
 # === test/ ===
 
+filegroup(
+    name = "test_data",
+    testonly = 1,
+    srcs = glob(["test/data/*"]),
+)
+
+drake_cc_googletest(
+    name = "generate_obj_test",
+    data = [
+        ":test_data",
+    ],
+    deps = [
+        ":utility",
+        "//drake/automotive/maliput/monolane",
+        "//drake/thirdParty:spruce",
+    ],
+)
+
 drake_cc_googletest(
     name = "generate_urdf_test",
     deps = [
@@ -52,7 +70,7 @@ drake_cc_googletest(
 
 py_test(
     name = "yaml_to_obj_test",
-    size = "small",
+    size = "medium",
     srcs = ["test/yaml_to_obj_test.py"],
     args = ["drake/automotive/maliput/utility/yaml_to_obj"],
     data = [

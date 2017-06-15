@@ -19,7 +19,10 @@ template <class T>
 class SignedDistanceWitness : public systems::WitnessFunction<T> {
  public:
   SignedDistanceWitness(const Rod2D<T>* rod, int contact_index) :
-      systems::WitnessFunction<T>(rod), rod_(rod),
+      systems::WitnessFunction<T>(rod,
+          WitnessFunctionDirection::kPositiveThenNegative,
+          systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction),
+      rod_(rod),
       contact_index_(contact_index) {
     this->name_ = "SignedDistance";
   }
@@ -27,29 +30,9 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
   // Gets the contact index for this witness function.
   int get_contact_index() const { return contact_index_; }
 
-  /// This witness function indicates an unrestricted update needs to be taken.
-  typename systems::DiscreteEvent<T>::ActionType get_action_type()
-      const override {
-    return systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction;
-  }
-
-  /// This witness triggers only when the signed distance goes from strictly
-  /// positive to zero/negative.
-  typename systems::WitnessFunction<T>::TriggerType get_trigger_type()
-      const override {
-    return systems::WitnessFunction<T>::TriggerType::kPositiveThenNegative;
-  }
-
-  // Select the trigger time for this witness function to always go with the
-  // earlier time.
-  T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
-                        const std::pair<T, T>& time_and_witness_valuef)
-                        const override {
-    return time_and_witness_value0.first;
-  }
-
+ protected:
   /// The witness function itself.
-  T Evaluate(const systems::Context<T>& context) override {
+  T DoEvaluate(const systems::Context<T>& context) override {
     using std::sin;
 
     // Verify the system is simulated using piecewise DAE.
@@ -73,18 +56,6 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
     return p[1];
   }
 
-  // Time tolerance- never want to stop due to time tolerance.
-  T get_time_isolation_tolerance() const override {
-    return 0;
-  }
-
-  // Dead-band value here should be strictly zero to match true solution.
-  T get_positive_dead_band() const override { return
-        1e4 * std::numeric_limits<double>::epsilon(); }
-
-  // Uninformed dead-band values and time tolerance.
-  T get_negative_dead_band() const override { return
-        -std::numeric_limits<double>::epsilon(); }
 
  private:
   /// Pointer to the rod system.

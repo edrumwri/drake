@@ -3,7 +3,7 @@
 #include <cmath>
 #include <memory>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "drake/automotive/maliput/api/lane.h"
 #include "drake/automotive/maliput/api/lane_data.h"
@@ -42,6 +42,7 @@ const EndpointZ kEndZ{0, 0, 0, 0};  // Specifies zero elevation/super-elevation.
 std::unique_ptr<const RoadGeometry> MakeTwoLaneRoad(bool is_opposing) {
   Builder builder(maliput::api::RBounds(-2, 2), /* lane_bounds */
                   maliput::api::RBounds(-4, 4), /* driveable_bounds */
+                  maliput::api::HBounds(0, 5),  /* elevation bounds */
                   0.01,                         /* linear tolerance */
                   M_PI_2 / 180.0);              /* angular_tolerance */
   builder.Connect("0_fwd",                      /* id */

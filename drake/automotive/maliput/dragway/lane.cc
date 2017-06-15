@@ -17,14 +17,16 @@ namespace dragway {
 
 Lane::Lane(const Segment* segment, const api::LaneId& id,  int index,
     double length, double y_offset, const api::RBounds& lane_bounds,
-    const api::RBounds& driveable_bounds)
+    const api::RBounds& driveable_bounds,
+    const api::HBounds& elevation_bounds)
     : segment_(segment),
       id_(id),
       index_(index),
       length_(length),
       y_offset_(y_offset),
       lane_bounds_(lane_bounds),
-      driveable_bounds_(driveable_bounds) {
+      driveable_bounds_(driveable_bounds),
+      elevation_bounds_(elevation_bounds) {
   DRAKE_DEMAND(segment != nullptr);
   DRAKE_DEMAND(lane_bounds_.r_min >= driveable_bounds_.r_min);
   DRAKE_DEMAND(lane_bounds_.r_max <= driveable_bounds_.r_max);
@@ -48,7 +50,7 @@ void Lane::set_lane_to_right(api::Lane* lane_to_right) {
 }
 
 const api::BranchPoint* Lane::DoGetBranchPoint(
-    const api::LaneEnd::Which which_end) const {
+    const api::LaneEnd::Which) const {
   return branch_point_.get();
 }
 
@@ -75,20 +77,24 @@ api::RBounds Lane::do_driveable_bounds(double) const {
   return driveable_bounds_;
 }
 
+api::HBounds Lane::do_elevation_bounds(double, double) const {
+  return elevation_bounds_;
+}
+
 api::LanePosition Lane::DoEvalMotionDerivatives(
-    const api::LanePosition& position,
+    const api::LanePosition&,
     const api::IsoLaneVelocity& velocity) const {
   return api::LanePosition(velocity.sigma_v, velocity.rho_v, velocity.eta_v);
 }
 
 api::GeoPosition Lane::DoToGeoPosition(
     const api::LanePosition& lane_pos) const {
-  return {lane_pos.s, lane_pos.r + Lane::y_offset(), lane_pos.h};
+  return {lane_pos.s(), lane_pos.r() + Lane::y_offset(), lane_pos.h()};
 }
 
 api::Rotation Lane::DoGetOrientation(
-    const api::LanePosition& lane_pos) const {
-  return api::Rotation(0, 0, 0);  // roll, pitch, yaw.
+    const api::LanePosition&) const {
+  return api::Rotation();  // Default is Identity.
 }
 
 api::LanePosition Lane::DoToLanePosition(
@@ -100,23 +106,24 @@ api::LanePosition Lane::DoToLanePosition(
   const double max_x = length_;
   const double min_y = driveable_bounds_.r_min + y_offset_;
   const double max_y = driveable_bounds_.r_max + y_offset_;
+  const double min_z = elevation_bounds_.min();
+  const double max_z = elevation_bounds_.max();
 
-  const api::GeoPosition closest_point{math::saturate(geo_pos.x, min_x, max_x),
-                                       math::saturate(geo_pos.y, min_y, max_y),
-                                       geo_pos.z};
+  const api::GeoPosition closest_point{
+    math::saturate(geo_pos.x(), min_x, max_x),
+    math::saturate(geo_pos.y(), min_y, max_y),
+    math::saturate(geo_pos.z(), min_z, max_z)};
   if (nearest_point != nullptr) {
     *nearest_point = closest_point;
   }
 
   if (distance != nullptr) {
-    *distance = std::sqrt(std::pow(geo_pos.x - closest_point.x, 2) +
-                          std::pow(geo_pos.y - closest_point.y, 2) +
-                          std::pow(geo_pos.z - closest_point.z, 2));
+    *distance = (geo_pos.xyz() - closest_point.xyz()).norm();
   }
 
-  return api::LanePosition(closest_point.x              /* s */,
-                           closest_point.y - y_offset_  /* r */,
-                           closest_point.z              /* h */);
+  return api::LanePosition(closest_point.x()              /* s */,
+                           closest_point.y() - y_offset_  /* r */,
+                           closest_point.z()              /* h */);
 }
 
 }  // namespace dragway

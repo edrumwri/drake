@@ -4,7 +4,6 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <regex>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -61,7 +60,7 @@ class LeafSystem : public System<T> {
   // Implementations of System<T> methods.
 
   std::unique_ptr<Context<T>> AllocateContext() const override {
-    std::unique_ptr<LeafContext<T>> context(new LeafContext<T>);
+    std::unique_ptr<LeafContext<T>> context = DoMakeContext();
     // Reserve inputs that have already been declared.
     context->SetNumInputPorts(this->get_num_input_ports());
     // Reserve continuous state via delegation to subclass.
@@ -96,7 +95,7 @@ class LeafSystem : public System<T> {
     // Note that the outputs are not part of the Context, but instead are
     // checked by LeafSystemOutput::add_port.
 
-    return std::unique_ptr<Context<T>>(context.release());
+    return std::move(context);
   }
 
   /// Default implementation: sets all continuous and discrete state variables
@@ -109,8 +108,8 @@ class LeafSystem : public System<T> {
     ContinuousState<T>* xc = state->get_mutable_continuous_state();
     xc->SetFromVector(VectorX<T>::Zero(xc->size()));
     DiscreteValues<T>* xd = state->get_mutable_discrete_state();
-    for (int i = 0; i < xd->size(); i++) {
-      BasicVector<T>* s = xd->get_mutable_discrete_state(i);
+    for (int i = 0; i < xd->num_groups(); i++) {
+      BasicVector<T>* s = xd->get_mutable_vector(i);
       s->SetFromVector(VectorX<T>::Zero(s->size()));
     }
   }
@@ -223,6 +222,24 @@ class LeafSystem : public System<T> {
  protected:
   LeafSystem() {}
 
+  /// Provides a new instance of the leaf context for this system. Derived
+  /// leaf systems with custom derived leaf system contexts should override this
+  /// to provide a context of the appropriate type. The returned context should
+  /// be "empty"; invoked by AllocateContext(), the caller will take the
+  /// responsibility to initialize the core LeafContext data.
+  // TODO(SeanCurtis-TRI): This currently assumes that derived LeafContext
+  // classes do *not* add new data members. If that changes, e.g., with the
+  // advent of the cache, this documentation should be changed to include the
+  // initialization of the sub-class's *unique* data members.
+  virtual std::unique_ptr<LeafContext<T>> DoMakeContext() const {
+    return std::make_unique<LeafContext<T>>();
+  }
+
+  /// Returns the per step events declared through DeclarePerStepAction().
+  const std::vector<DiscreteEvent<T>>& get_per_step_events() const {
+    return per_step_events_;
+  }
+
   // =========================================================================
   // Implementations of System<T> methods.
 
@@ -289,9 +306,7 @@ class LeafSystem : public System<T> {
     const int64_t id = this->GetGraphvizId();
     std::string name = this->get_name();
     if (name.empty()) {
-      const std::string type = NiceTypeName::Get(*this);
-      // Drop the template parameters.
-      name = std::regex_replace(type, std::regex("<.*>$"), std::string());
+      name = this->GetMemoryObjectName();
     }
 
     // Open the attributes and label.
@@ -542,6 +557,22 @@ class LeafSystem : public System<T> {
     DeclarePeriodicAction(period_sec, 0, DiscreteEvent<T>::kPublishAction);
   }
 
+  /// Declares a per step action using the default handlers given type
+  /// @p action. This method aborts if the same type has already been declared.
+  // TODO(siyuan): provide a API for declaration with custom handlers.
+  void DeclarePerStepAction(
+      const typename DiscreteEvent<T>::ActionType& action) {
+    DiscreteEvent<T> event;
+    event.action = action;
+    for (const auto& declared_event : per_step_events_) {
+      if (declared_event.action == action) {
+        DRAKE_ABORT_MSG("Per step action has already been declared.");
+      }
+    }
+
+    per_step_events_.push_back(event);
+  }
+
   /// Declares that this System should reserve continuous state with
   /// @p num_state_variables state variables, which have no second-order
   /// structure. Has no effect if AllocateContinuousState is overridden.
@@ -679,14 +710,19 @@ class LeafSystem : public System<T> {
   }
 
  private:
+  void DoGetPerStepEvents(
+      const Context<T>&,
+      std::vector<DiscreteEvent<T>>* events) const override {
+    *events = per_step_events_;
+  }
+
   // Aborts for scalar types that are not numeric, since there is no reasonable
   // definition of "next update time" outside of the real line.
   //
   // @tparam T1 SFINAE boilerplate for the scalar type. Do not set.
   template <typename T1 = T>
   typename std::enable_if<!is_numeric<T1>::value>::type
-  DoCalcNextUpdateTimeImpl(const Context<T1>& context,
-                           UpdateActions<T1>* events) const {
+  DoCalcNextUpdateTimeImpl(const Context<T1>&, UpdateActions<T1>*) const {
     DRAKE_ABORT_MSG(
         "The default implementation of LeafSystem<T>::DoCalcNextUpdateTime "
         "only works with types that are drake::is_numeric.");
@@ -700,6 +736,7 @@ class LeafSystem : public System<T> {
   typename std::enable_if<is_numeric<T1>::value>::type DoCalcNextUpdateTimeImpl(
       const Context<T1>& context, UpdateActions<T1>* actions) const {
     T1 min_time = std::numeric_limits<double>::infinity();
+    // No periodic events events.
     if (periodic_events_.empty()) {
       // No discrete update.
       actions->time = min_time;
@@ -769,6 +806,10 @@ class LeafSystem : public System<T> {
 
   // Periodic Update or Publish events registered on this system.
   std::vector<PeriodicEvent<T>> periodic_events_;
+
+  // Update or Publish events registered on this system for every simulator
+  // major time step.
+  std::vector<DiscreteEvent<T>> per_step_events_;
 
   // A model continuous state to be used in AllocateDefaultContext.
   std::unique_ptr<BasicVector<T>> model_continuous_state_vector_;

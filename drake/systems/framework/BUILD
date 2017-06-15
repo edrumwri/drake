@@ -58,6 +58,8 @@ drake_cc_library(
     deps = [
         ":vector",
         "//drake/common",
+        "//drake/common:copyable_unique_ptr",
+        "//drake/common:is_cloneable",
     ],
 )
 
@@ -225,9 +227,11 @@ drake_cc_library(
 drake_cc_library(
     name = "system",
     srcs = ["system.cc"],
-    hdrs = ["system.h",
-            "discrete_event.h",
-            "witness_function.h"],
+    hdrs = [
+        "discrete_event.h",
+        "system.h",
+        "witness_function.h",
+    ],
     deps = [
         ":cache",
         ":context",
@@ -426,6 +430,7 @@ drake_cc_googletest(
         ":leaf_context",
         "//drake/common",
         "//drake/common:eigen_matrix_compare",
+        "//drake/common:is_dynamic_castable",
         "//drake/systems/framework/test_utilities",
     ],
 )
@@ -435,6 +440,7 @@ drake_cc_googletest(
     deps = [
         ":leaf_system",
         "//drake/common",
+        "//drake/common:is_dynamic_castable",
         "//drake/systems/framework/test_utilities",
     ],
 )
@@ -515,7 +521,6 @@ drake_cc_googletest(
     deps = [
         ":value",
         "//drake/common",
-        "//drake/systems/framework/test_utilities",
     ],
 )
 

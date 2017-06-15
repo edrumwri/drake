@@ -1,12 +1,19 @@
 # -*- python -*-
 
-load("@//tools:cmake_configure_file.bzl", "cmake_configure_file")
+load("@drake//tools:cmake_configure_file.bzl", "cmake_configure_file")
+load(
+    "@drake//tools:generate_include_header.bzl",
+    "drake_generate_include_header",
+)
+load(
+    "@drake//tools:install.bzl",
+    "cmake_config",
+    "install",
+    "install_cmake_config",
+)
 
-# Lets other packages inspect the CMake code, e.g., for the version number.
-filegroup(
-    name = "cmakelists_with_version",
-    srcs = ["CMakeModules/FCLVersion.cmake"],
-    visibility = ["//visibility:public"],
+package(
+    default_visibility = ["//visibility:public"],
 )
 
 # Generates config.h based on the version numbers in CMake code.
@@ -15,51 +22,58 @@ cmake_configure_file(
     src = "include/fcl/config.h.in",
     out = "include/fcl/config.h",
     cmakelists = [
-        ":cmakelists_with_version",
+        "CMakeModules/FCLVersion.cmake",
         "@octomap//:cmakelists_with_version",
     ],
     defines = ["FCL_HAVE_OCTOMAP"],
-    visibility = [],
-)
-
-# Generates the entire FCL library except the fcl/fcl.h generated header.
-# The globbed srcs= and hdrs= matches upstream's explicit globs of the same.
-cc_library(
-    name = "lib_without_fclh",
-    srcs = glob(["src/**/*.cpp"]),
-    hdrs = glob(["include/**/*.h"]) + [
-        "include/fcl/config.h",  # From :config above.
-    ],
-    includes = ["include"],
-    linkstatic = 1,
-    visibility = [],
-    deps = [
-        "@ccd//:lib",
-        "@eigen//:eigen",
-        "@octomap//:lib",
-    ],
+    visibility = ["//visibility:private"],
 )
 
 # Generates fcl.h, which consists of #include statements for *all* of the other
 # headers in the library (!!!).  The first line is '#pragma once' followed by
 # one line like '#include "fcl/common/types.h"' for each non-generated header.
-genrule(
-    name = "fclh_genrule",
-    srcs = glob(["include/**/*.h"]),
-    outs = ["include/fcl/fcl.h"],
-    cmd = "(" + (
-        "echo '#pragma once' && " +
-        "echo '$(SRCS)' | tr ' ' '\\n' | " +
-        "sed 's|.*include/\(.*\)|#include \\\"\\1\\\"|g'"
-    ) + ") > '$@'",
-    visibility = [],
+drake_generate_include_header(
+    name = "fcl_h_genrule",
+    out = "include/fcl/fcl.h",
+    hdrs = glob(["include/**/*.h"]),
 )
 
-# Generates the library exported to users.
+# The globbed srcs= and hdrs= matches upstream's explicit globs of the same.
 cc_library(
-    name = "lib",
-    hdrs = ["include/fcl/fcl.h"],  # From :fclh_genrule above.
+    name = "fcl",
+    srcs = glob(["src/**/*.cpp"]),
+    hdrs = glob(["include/**/*.h"]) + [
+        ":config",
+        ":fcl_h_genrule",
+    ],
     includes = ["include"],
-    visibility = ["//visibility:public"],
-    deps = [":lib_without_fclh"],
+    deps = [
+        "@ccd",
+        "@eigen",
+        "@octomap",
+    ],
+)
+
+cmake_config(
+    package = "fcl",
+    script = "@drake//tools:fcl-create-cps.py",
+    version_file = "CMakeModules/FCLVersion.cmake",
+    deps = [
+        "@ccd//:cps",
+        "@eigen//:cps",
+        "@octomap//:cps",
+    ],
+)
+
+install_cmake_config(package = "fcl")  # Creates rule :install_cmake_config.
+
+install(
+    name = "install",
+    doc_dest = "share/doc/fcl",
+    guess_hdrs = "PACKAGE",
+    hdr_dest = "include/fcl",
+    hdr_strip_prefix = ["include/fcl"],
+    license_docs = glob(["LICENSE"]),
+    targets = [":fcl"],
+    deps = [":install_cmake_config"],
 )

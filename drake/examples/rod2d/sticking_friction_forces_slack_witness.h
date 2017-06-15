@@ -17,34 +17,17 @@ template <class T>
 class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
  public:
   StickingFrictionForcesSlackWitness(const Rod2D<T>* rod, int contact_index) :
-      systems::WitnessFunction<T>(rod), rod_(rod),
+      systems::WitnessFunction<T>(rod, 
+          WitnessFunctionDirection::kPositiveThenNegative,
+          systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction), 
+      rod_(rod),
       contact_index_(contact_index) {
     this->name_ = "StickingFrictionForcesSlack";
   }
 
-  /// This witness function indicates an unrestricted update needs to be taken.
-  typename systems::DiscreteEvent<T>::ActionType get_action_type()
-  const override {
-    return systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction;
-  }
-
-  /// This witness triggers only when the signed distance goes from strictly
-  /// positive to zero/negative.
-  typename systems::WitnessFunction<T>::TriggerType get_trigger_type()
-  const override {
-    return systems::WitnessFunction<T>::TriggerType::kPositiveThenNegative;
-  }
-
-  // Select the trigger time for this witness function to bisect the two
-  // time values.
-  T do_get_trigger_time(const std::pair<T, T>& time_and_witness_value0,
-                        const std::pair<T, T>& time_and_witness_valuef)
-  const override {
-    return (time_and_witness_value0.first + time_and_witness_valuef.first) / 2;
-  }
-
+ protected:
   /// The witness function itself.
-  T Evaluate(const systems::Context<T>& context) override {
+  T DoEvaluate(const systems::Context<T>& context) override {
     using std::sin;
     using std::abs;
 
@@ -90,24 +73,6 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
 
     // Determine the slack.
     return contact.mu*fN - fF;
-  }
-
-  // Uninformed time tolerance.
-  T get_time_isolation_tolerance() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
-
-  // Uninformed dead-band values and time tolerance.
-  T get_positive_dead_band() const override {
-    using std::sqrt;
-    return sqrt(std::numeric_limits<double>::epsilon());
-  }
-
-  // Uninformed dead-band values and time tolerance.
-  T get_negative_dead_band() const override {
-    using std::sqrt;
-    return -sqrt(std::numeric_limits<double>::epsilon());
   }
 
  private:

@@ -8,6 +8,8 @@ load(
     "drake_cc_googletest",
     "drake_cc_library",
 )
+load("//tools:gurobi.bzl", "gurobi_test_tags")
+load("//tools:mosek.bzl", "mosek_test_tags")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -32,13 +34,68 @@ drake_cc_library(
     ],
 )
 
+# TODO(eric.cousineau): Remove CostShim that produces coupling
+drake_cc_library(
+    name = "cost",
+    srcs = ["cost.cc"],
+    hdrs = ["cost.h"],
+    deps = [
+        ":constraint",
+        ":function",
+    ],
+)
+
+drake_cc_library(
+    name = "symbolic_extraction",
+    srcs = ["symbolic_extraction.cc"],
+    hdrs = ["symbolic_extraction.h"],
+    deps = [
+        ":decision_variable",
+        "//drake/common",
+        "//drake/common:autodiff",
+        "//drake/common:monomial",
+        "//drake/common:number_traits",
+        "//drake/common:polynomial",
+        "//drake/common:symbolic",
+    ],
+)
+
+drake_cc_library(
+    name = "create_constraint",
+    srcs = ["create_constraint.cc"],
+    hdrs = ["create_constraint.h"],
+    deps = [
+        ":binding",
+        ":constraint",
+        ":symbolic_extraction",
+        "//drake/common",
+        "//drake/common:monomial",
+        "//drake/common:polynomial",
+        "//drake/common:symbolic",
+    ],
+)
+
+drake_cc_library(
+    name = "create_cost",
+    srcs = ["create_cost.cc"],
+    hdrs = ["create_cost.h"],
+    deps = [
+        ":binding",
+        ":cost",
+        ":symbolic_extraction",
+        "//drake/common",
+        "//drake/common:monomial",
+        "//drake/common:polynomial",
+        "//drake/common:symbolic",
+        "//drake/common:unused",
+    ],
+)
+
 drake_cc_library(
     name = "decision_variable",
     srcs = ["decision_variable.cc"],
     hdrs = ["decision_variable.h"],
     deps = [
-        "//drake/common",
-        "//drake/common:number_traits",
         "//drake/common:symbolic",
     ],
 )
@@ -88,14 +145,15 @@ drake_cc_library(
     ],
     deps = [
         ":binding",
-        ":constraint",
+        ":create_constraint",
+        ":create_cost",
         ":decision_variable",
-        ":function",
         ":gurobi_solver",
         ":ipopt_solver",
         ":mosek_solver",
         ":nlopt_solver",
         ":snopt_solver",
+        ":symbolic_extraction",
         "//drake/common",
         "//drake/common:autodiff",
         "//drake/common:monomial",
@@ -154,6 +212,17 @@ drake_cc_library(
     hdrs = ["test/add_solver_util.h"],
     deps = [
         ":mathematical_program",
+    ],
+)
+
+drake_cc_library(
+    name = "generic_trivial_cost",
+    testonly = 1,
+    srcs = [],
+    hdrs = ["test/generic_trivial_costs.h"],
+    deps = [
+        ":constraint",
+        ":cost",
     ],
 )
 
@@ -217,7 +286,8 @@ drake_cc_library(
     ],
     deps = [
         ":binding",
-        ":constraint",
+        ":create_constraint",
+        ":create_cost",
         ":decision_variable",
         ":function",
         "//drake/common",
@@ -243,7 +313,7 @@ drake_cc_library(
         "//tools:with_gurobi": [
             ":mathematical_program_api",
             "//drake/math:eigen_sparse_triplet",
-            "@gurobi//:lib",
+            "@gurobi",
         ],
         "//conditions:default": [
             ":mathematical_program_api",
@@ -264,7 +334,8 @@ drake_cc_library(
     deps = select({
         "//tools:with_mosek": [
             ":mathematical_program_api",
-            "@mosek//:mosek",
+            "//drake/common:scoped_singleton",
+            "@mosek",
         ],
         "//conditions:default": [
             ":mathematical_program_api",
@@ -282,6 +353,17 @@ drake_cc_library(
         "//conditions:default": ["no_snopt.cc"],
     }),
     hdrs = ["snopt_solver.h"],
+    # Some versions of SNOPT's API require passing a `std::string::c_str()`
+    # result of `const char*` to a function taking a `char*`, or passing a
+    # function pointer that receives parameters to a function that takes a
+    # (mismatched) function pointer with no arguments.  We could carefully
+    # craft our snopt_solver.cc to have appropriate casts depending on the
+    # signatures of the version of SNOPT in use, but choose instead to just
+    # suppress all such warnings until we find some case where they matter.
+    # (The next best step would be to write a sensible C++ SNOPT API wrapper,
+    # and contain the language abuses there, so that the actual logic of our
+    # snopt_wrapper.cc could still have full `-pedantic` checks enabled.)
+    copts = ["-fpermissive"],
     deps = select({
         "//tools:with_snopt": [
             ":mathematical_program_api",
@@ -303,8 +385,9 @@ drake_cc_library(
     hdrs = ["ipopt_solver.h"],
     deps = select({
         "//conditions:default": [
-            "@ipopt//:lib",
+            "@ipopt",
             ":mathematical_program_api",
+            "//drake/common:unused",
             "//drake/math:autodiff",
         ],
         "//tools:no_ipopt": [
@@ -315,13 +398,46 @@ drake_cc_library(
 
 drake_cc_library(
     name = "nlopt_solver",
-    srcs = ["nlopt_solver.cc"],
+    srcs = select({
+        "//tools:no_nlopt": ["no_nlopt.cc"],
+        "//conditions:default": ["nlopt_solver.cc"],
+    }),
     hdrs = ["nlopt_solver.h"],
-    deps = [
-        ":mathematical_program_api",
-        "//drake/math:autodiff",
-        "@nlopt//:lib",
-    ],
+    deps = select({
+        "//conditions:default": [
+            ":mathematical_program_api",
+            "//drake/math:autodiff",
+            "@nlopt",
+        ],
+        "//tools:no_nlopt": [
+            ":mathematical_program_api",
+        ],
+    }),
+)
+
+# This library is empty unless Gurobi is available.
+drake_cc_library(
+    name = "gurobi_qp",
+    srcs = select({
+        "//tools:with_gurobi": [
+            "qp.cc",
+        ],
+        "//conditions:default": [],
+    }),
+    hdrs = select({
+        "//tools:with_gurobi": [
+            "fast_qp.h",
+            "gurobi_qp.h",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = select({
+        "//tools:with_gurobi": [
+            "@eigen",
+            "@gurobi",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 # === test/ ===
@@ -346,32 +462,49 @@ drake_cc_googletest(
     ],
 )
 
-# Temporarily disabled because we have no Gurobi license in CI. #5862
+# TODO(eric.cousineau): Remove dependence on create_cost
+drake_cc_googletest(
+    name = "cost_test",
+    deps = [
+        ":cost",
+        ":create_cost",
+        ":generic_trivial_cost",
+        "//drake/common:eigen_matrix_compare",
+        "//drake/common:is_dynamic_castable",
+        "//drake/math:gradient",
+    ],
+)
+
+drake_cc_googletest(
+    name = "symbolic_extraction_test",
+    deps = [
+        ":symbolic_extraction",
+        "//drake/common:eigen_matrix_compare",
+        "//drake/common:symbolic_test_util",
+    ],
+)
+
 # TODO(hongkai-dai): Separate this test into a test that uses Gurobi, and a
 # test that doesn't.
-#drake_cc_googletest(
-#    name = "convex_optimization_test",
-#    srcs = [
-#        "test/convex_optimization_test.cc",
-#    ],
-#    # This test uses Gurobi if present, but does not require it.
-#    tags = [
-#        "exclusive",
-#        "local",
-#    ],
-#    deps = [
-#        ":add_solver_util",
-#        ":mathematical_program",
-#        ":mathematical_program_test_util",
-#        "//drake/common:eigen_matrix_compare",
-#    ],
-#)
+drake_cc_googletest(
+    name = "convex_optimization_test",
+    srcs = [
+        "test/convex_optimization_test.cc",
+    ],
+    # This test uses Gurobi if present, but does not require it.
+    tags = gurobi_test_tags(gurobi_required = False),
+    deps = [
+        ":add_solver_util",
+        ":mathematical_program",
+        ":mathematical_program_test_util",
+        "//drake/common:eigen_matrix_compare",
+    ],
+)
 
 drake_cc_googletest(
     name = "decision_variable_test",
     deps = [
         ":mathematical_program",
-        "//drake/common:eigen_matrix_compare",
         "//drake/common:symbolic_test_util",
     ],
 )
@@ -388,26 +521,21 @@ drake_cc_googletest(
     ],
 )
 
-# Temporarily disabled because we have no Gurobi license in CI. #5862
-#drake_cc_googletest(
-#    name = "gurobi_solver_test",
-#    srcs = [
-#        "test/gurobi_solver_test.cc",
-#    ],
-#    tags = [
-#        "exclusive",
-#        "gurobi",
-#        "local",
-#    ],
-#    deps = [
-#        ":gurobi_solver",
-#        ":linear_program_examples",
-#        ":mathematical_program",
-#        ":mathematical_program_test_util",
-#        ":quadratic_program_examples",
-#        "//drake/common:eigen_matrix_compare",
-#    ],
-#)
+drake_cc_googletest(
+    name = "gurobi_solver_test",
+    srcs = [
+        "test/gurobi_solver_test.cc",
+    ],
+    tags = gurobi_test_tags(),
+    deps = [
+        ":gurobi_solver",
+        ":linear_program_examples",
+        ":mathematical_program",
+        ":mathematical_program_test_util",
+        ":quadratic_program_examples",
+        "//drake/common:eigen_matrix_compare",
+    ],
+)
 
 drake_cc_googletest(
     name = "ipopt_solver_test",
@@ -454,6 +582,7 @@ drake_cc_googletest(
         "test/mathematical_program_test.cc",
     ],
     deps = [
+        ":generic_trivial_cost",
         ":mathematical_program",
         ":mathematical_program_test_util",
         "//drake/common:eigen_matrix_compare",
@@ -464,24 +593,20 @@ drake_cc_googletest(
 
 # TODO(hongkai-dai): Separate this test into a test that uses Gurobi, and a
 # test that doesn't.
-# Temporarily disabled because we have no Gurobi license in CI. #5862
-#drake_cc_googletest(
-#    name = "mixed_integer_optimization_test",
-#    srcs = [
-#        "test/mixed_integer_optimization_test.cc",
-#    ],
-#    # This test uses Gurobi if present, but does not require it.
-#    tags = [
-#        "exclusive",
-#        "local",
-#    ],
-#    deps = [
-#        ":add_solver_util",
-#        ":mathematical_program",
-#        ":mathematical_program_test_util",
-#        "//drake/common:eigen_matrix_compare",
-#    ],
-#)
+drake_cc_googletest(
+    name = "mixed_integer_optimization_test",
+    srcs = [
+        "test/mixed_integer_optimization_test.cc",
+    ],
+    # This test uses Gurobi if present, but does not require it.
+    tags = gurobi_test_tags(),
+    deps = [
+        ":add_solver_util",
+        ":mathematical_program",
+        ":mathematical_program_test_util",
+        "//drake/common:eigen_matrix_compare",
+    ],
+)
 
 drake_cc_googletest(
     name = "moby_lcp_solver_test",
@@ -496,7 +621,8 @@ drake_cc_googletest(
     srcs = [
         "test/mosek_solver_test.cc",
     ],
-    tags = ["mosek"],
+    tags = mosek_test_tags(),
+    use_default_main = False,
     deps = [
         ":linear_program_examples",
         ":mathematical_program",
@@ -519,24 +645,19 @@ drake_cc_googletest(
     ],
 )
 
-# Temporarily disabled because we have no Gurobi license in CI. #5862
-#drake_cc_googletest(
-#    name = "rotation_constraint_test",
-#    size = "medium",
-#    tags = [
-#        "exclusive",
-#        "gurobi",
-#        "local",
-#        "mosek",
-#    ],
-#    deps = [
-#        ":gurobi_solver",
-#        ":mathematical_program",
-#        ":rotation_constraint",
-#        "//drake/common:eigen_matrix_compare",
-#        "//drake/math:geometric_transform",
-#    ],
-#)
+drake_cc_googletest(
+    name = "rotation_constraint_test",
+    size = "medium",
+    # Excluding because an assertion fails in LLVM code. Issue #6179.
+    tags = gurobi_test_tags() + mosek_test_tags() + ["no_tsan"],
+    deps = [
+        ":gurobi_solver",
+        ":mathematical_program",
+        ":rotation_constraint",
+        "//drake/common:eigen_matrix_compare",
+        "//drake/math:geometric_transform",
+    ],
+)
 
 drake_cc_binary(
     name = "plot_feasible_rotation_matrices",
@@ -549,22 +670,18 @@ drake_cc_binary(
     ],
 )
 
-# Temporarily disabled because we have no Gurobi license in CI. #5862
-#drake_cc_googletest(
-#    name = "rotation_constraint_limit_test",
-#    size = "large",
-#    tags = [
-#        "exclusive",
-#        "gurobi",
-#        "local",
-#    ],
-#    deps = [
-#        ":gurobi_solver",
-#        ":mathematical_program",
-#        ":rotation_constraint",
-#        "//drake/common:eigen_matrix_compare",
-#    ],
-#)
+drake_cc_googletest(
+    name = "rotation_constraint_limit_test",
+    size = "large",
+    # Excluding because an assertion fails in LLVM code. Issue #6179.
+    tags = gurobi_test_tags() + ["no_tsan"],
+    deps = [
+        ":gurobi_solver",
+        ":mathematical_program",
+        ":rotation_constraint",
+        "//drake/common:eigen_matrix_compare",
+    ],
+)
 
 drake_cc_googletest(
     name = "snopt_solver_test",
@@ -584,9 +701,8 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "system_identification_test",
     # The test takes ~20 sec in opt mode but ~140 sec in dbg mode.
-    # To avoid timeouts in dbg or valgrind, we need "moderate" here.
-    # TODO(bazelbuild/bazel#1748) This produces a spurious complaint.
-    timeout = "moderate",
+    # To avoid timeouts in dbg and valgrind, we need "large" here.
+    size = "large",
     deps = [
         ":system_identification",
         "//drake/common:eigen_matrix_compare",
@@ -605,13 +721,22 @@ drake_cc_binary(
 # The extra_srcs are required here because cpplint() doesn't understand how to
 # extract labels from select() functions yet.
 cpplint(extra_srcs = [
+    "fast_qp.h",
+    "gurobi_qp.h",
     "gurobi_solver.cc",
     "gurobi_solver.h",
-    "no_gurobi.cc",
-    "snopt_solver.cc",
-    "snopt_solver.h",
-    "no_snopt.cc",
     "ipopt_solver.cc",
     "ipopt_solver.h",
+    "mosek_solver.cc",
+    "mosek_solver.h",
+    "nlopt_solver.cc",
+    "nlopt_solver.h",
+    "no_gurobi.cc",
     "no_ipopt.cc",
+    "no_mosek.cc",
+    "no_nlopt.cc",
+    "no_snopt.cc",
+    "qp.cc",
+    "snopt_solver.cc",
+    "snopt_solver.h",
 ])

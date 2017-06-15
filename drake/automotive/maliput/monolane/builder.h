@@ -3,9 +3,9 @@
 #include <cmath>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 #include <vector>
 
 #include "drake/automotive/maliput/api/lane_data.h"
@@ -25,7 +25,8 @@ class RoadGeometry;
 ///
 /// monolane is a simple road-network implementation:
 ///  - single lane per segment;
-///  - constant lane_bounds and driveable_bounds, same for all lanes;
+///  - constant lane_bounds, driveable_bounds, and elevation_bounds,
+///    same for all lanes;
 ///  - only linear and constant-curvature-arc primitives in XY-plane;
 ///  - cubic polynomials (parameterized on XY-arc-length) for elevation
 ///    and superelevation;
@@ -283,25 +284,31 @@ class Group {
   /// Constructs a Group with @p id, populated by @p connections.
   Group(const std::string& id,
         const std::vector<const Connection*>& connections)
-      : id_(id), connections_(connections.begin(), connections.end()) {}
+      : id_(id) {
+    for (const Connection* connection : connections) {
+      Add(connection);
+    }
+  }
 
   /// Adds a Connection.
   void Add(const Connection* connection) {
-    auto result = connections_.insert(connection);
+    auto result = connection_set_.insert(connection);
     DRAKE_DEMAND(result.second);
+    connection_vector_.push_back(connection);
   }
 
   /// Returns the ID string.
   const std::string& id() const { return id_; }
 
   /// Returns the grouped Connections.
-  const std::set<const Connection*>& connections() const {
-    return connections_;
+  const std::vector<const Connection*>& connections() const {
+    return connection_vector_;
   }
 
  private:
   std::string id_;
-  std::set<const Connection*> connections_;
+  std::unordered_set<const Connection*> connection_set_;
+  std::vector<const Connection*> connection_vector_;
 };
 
 
@@ -313,12 +320,14 @@ class Builder {
   /// Constructs a Builder which can be used to specify and assemble a
   /// monolane implementation of an api::RoadGeometry.
   ///
-  /// The bounds @p lane_bounds and @p driveable_bounds are applied uniformly
-  /// to the single lanes of every segment; @p lane_bounds must be a subset
-  /// of @p driveable_bounds.  @p linear_tolerance and @p angular_tolerance
-  /// specify the respective tolerances for the resulting RoadGeometry.
+  /// The bounds @p lane_bounds, @p driveable_bounds, and @p elevation_bounds
+  /// are applied uniformly to the single lanes of every segment;
+  /// @p lane_bounds must be a subset of @p driveable_bounds.
+  /// @p linear_tolerance and @p angular_tolerance specify the respective
+  /// tolerances for the resulting RoadGeometry.
   Builder(const api::RBounds& lane_bounds,
           const api::RBounds& driveable_bounds,
+          const api::HBounds& elevation_bounds,
           const double linear_tolerance,
           const double angular_tolerance);
 
@@ -449,6 +458,7 @@ class Builder {
 
   api::RBounds lane_bounds_;
   api::RBounds driveable_bounds_;
+  api::HBounds elevation_bounds_;
   double linear_tolerance_{};
   double angular_tolerance_{};
   std::vector<std::unique_ptr<Connection>> connections_;

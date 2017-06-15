@@ -15,7 +15,6 @@
 
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/witness_function.h"
 #include "drake/systems/rendering/pose_vector.h"
 
 namespace drake {
@@ -159,9 +158,9 @@ States: planar position (state indices 0 and 1) and orientation (state
         endpoint Rr, and k=0 indicates that both endpoints of the rod are
         contacting the halfspace).
 
-Outputs: output port 0 corresponds to the state vector; output port 1
-         returns a PoseVector corresponding to the 3D pose of the rod in the
-         world frame.
+Outputs: Output Port 0 corresponds to the state vector; Output Port 1
+         corresponds to a PoseVector giving the 3D pose of the rod in the world
+         frame.
 
 - [Stewart, 2000]  D. Stewart, "Rigid-Body Dynamics with Friction and
                    Impact". SIAM Rev., 42(1), 3-39, 2000. **/
@@ -174,6 +173,8 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class SignedDistanceWitness<T>;
 
  public:
+  ~Rod2D() override {}
+
   /// Simulation model and approach for the system.
   enum class SimulationType {
     /// For simulating the system using rigid contact, Coulomb friction, and
@@ -218,16 +219,6 @@ class Rod2D : public systems::LeafSystem<T> {
       systems::Context<T>* context) {
     return dynamic_cast<Rod2DStateVector<T>*>(
         context->get_mutable_continuous_state());
-  }
-
-  /// Returns the state from this rod.
-  const systems::OutputPortDescriptor<T>& state_output() const  {
-    return this->get_output_port(0);
-  }
-
-  /// Returns the 3D pose of this rod.
-  const systems::OutputPortDescriptor<T>& pose_output() const {
-    return this->get_output_port(1);
   }
 
   /// Gets the constraint force mixing parameter (CFM, used for time stepping
@@ -370,12 +361,16 @@ class Rod2D : public systems::LeafSystem<T> {
   std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
 
   /// Gets the set of witness functions active at the given context.
-  std::vector<systems::WitnessFunction<T>*> get_witness_functions(
-      const systems::Context<T>& context) const override;
+  void DoGetWitnessFunctions(const systems::Context<T>& context, std::vector<const systems::WitnessFunction<T>*>* witnesses) const override;
 
   /// Processes mode changes.
   void DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
                                 systems::State<T>* state) const override;
+
+  /// Returns the 3D pose of this rod.
+  const systems::OutputPortDescriptor<T>& pose_output() const {
+    return *pose_output_descriptor_;
+  }
 
  protected:
   int get_k(const systems::Context<T>& context) const;
@@ -424,8 +419,6 @@ class Rod2D : public systems::LeafSystem<T> {
   VectorX<T> SolveContactProblem(const systems::Context<T>& context,
                                  RigidContactAccelProblemData<T>* problem_data)
                                  const;
-  void ConvertStateToPose(const VectorX<T>& state,
-                          systems::rendering::PoseVector<T>* pose) const;
   void InitRigidContactAccelProblemData(const systems::State<T>& state,
       RigidContactAccelProblemData<T>* problem_data) const;
   void FormRigidContactVelJacobians(const systems::State<T>& state,
@@ -461,6 +454,8 @@ class Rod2D : public systems::LeafSystem<T> {
                                   const T& zero_tol) const;
   bool IsTangentVelocityZero(const systems::State<T>& state,
                              const RigidContact& c) const;
+  static void ConvertStateToPose(const VectorX<T>& state,
+                                 systems::rendering::PoseVector<T>* pose);
   Matrix3<T> get_inverse_inertia_matrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
@@ -495,7 +490,6 @@ class Rod2D : public systems::LeafSystem<T> {
                         systems::VectorBase<T>* const f) const;
   Vector2<T> CalcStickingContactForces(
       const systems::Context<T>& context) const;
-
 
   // Utility method for determining the World frame location of one of three
   // points on the rod whose origin is Ro. Let r be the half-length of the rod.
@@ -563,8 +557,12 @@ class Rod2D : public systems::LeafSystem<T> {
   double stiffness_{10000};   // Normal stiffness of the ground plane (N/m).
   double dissipation_{1};     // Dissipation factor in 1/velocity (s/m).
   double mu_s_{mu_};          // Static coefficient of friction (>= mu).
-  double v_stick_tol_{1e-3};  // Slip speed below which the compliant model
+  double v_stick_tol_{1e-5};  // Slip speed below which the compliant model
                               //   considers the rod to be in stiction.
+
+  // Output port descriptors.
+  const systems::OutputPortDescriptor<T>* pose_output_descriptor_{nullptr};
+  const systems::OutputPortDescriptor<T>* state_output_descriptor_{nullptr};
 };
 
 }  // namespace rod2d

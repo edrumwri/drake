@@ -1,5 +1,7 @@
 # These lines tell reviewable.io how to highlight source code.
 **/*.bzl diff=python
+**/*.BUILD diff=python
 **/BUILD diff=python
 **/BUILD.bazel diff=python
 WORKSPACE diff=python
+**/*.cps diff=json

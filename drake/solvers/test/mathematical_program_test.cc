@@ -1,6 +1,7 @@
 #include "drake/solvers/mathematical_program.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <map>
@@ -27,6 +28,7 @@
 #include "drake/common/test/symbolic_test_util.h"
 #include "drake/math/matrix_util.h"
 #include "drake/solvers/constraint.h"
+#include "drake/solvers/test/generic_trivial_costs.h"
 #include "drake/solvers/test/mathematical_program_test_util.h"
 
 using Eigen::Dynamic;
@@ -41,6 +43,7 @@ using Eigen::Vector3d;
 using Eigen::Vector4d;
 using Eigen::VectorXd;
 
+using drake::Vector1d;
 using drake::solvers::detail::VecIn;
 using drake::solvers::detail::VecOut;
 using drake::symbolic::Expression;
@@ -59,6 +62,7 @@ using std::map;
 using std::move;
 using std::numeric_limits;
 using std::ostringstream;
+using std::pair;
 using std::runtime_error;
 using std::set;
 using std::shared_ptr;
@@ -139,12 +143,9 @@ void CheckAddedVariable(const MathematicalProgram& prog,
   }
 
   // Checks the type of the newly added variables.
-  const auto& variable_types = prog.DecisionVariableTypes();
   for (int i = 0; i < var.rows(); ++i) {
     for (int j = 0; j < var.cols(); ++j) {
-      EXPECT_EQ(variable_types[prog.FindDecisionVariableIndex(var(i, j))],
-                type_expected);
-      EXPECT_EQ(prog.DecisionVariableType(var(i, j)), type_expected);
+      EXPECT_EQ(var(i, j).get_type(), type_expected);
     }
   }
 }
@@ -391,62 +392,11 @@ GTEST_TEST(testMathematicalProgram, BoundingBoxTest2) {
       CompareMatrices(constraint5->upper_bound(), constraint6->upper_bound()));
 }
 
-// A generic cost derived from Constraint class. This is meant for testing
-// adding a cost to optimization program, and the cost is in the form of a
-// derived class of Constraint.
-class GenericTrivialCost1 : public Constraint {
- public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(GenericTrivialCost1)
-
-  GenericTrivialCost1()
-      : Constraint(1, 3, Vector1d(numeric_limits<double>::infinity()),
-                   Vector1d(numeric_limits<double>::infinity())),
-        private_val_(2) {}
-
- protected:
-  void DoEval(const Ref<const Eigen::VectorXd>& x, VectorXd& y) const override {
-    y.resize(1);
-    y(0) = x(0) * x(1) + x(2) / x(0) * private_val_;
-  }
-
-  void DoEval(const Ref<const AutoDiffVecXd>& x,
-              AutoDiffVecXd& y) const override {
-    y.resize(1);
-    y(0) = x(0) * x(1) + x(2) / x(0) * private_val_;
-  }
-
- private:
-  // Add a private data member to make sure no slicing on this class, derived
-  // from Constraint.
-  double private_val_{0};
-};
-
-// A generic cost. This class is meant for testing adding a cost to the
-// optimization program, by calling `MathematicalProgram::MakeCost` to
-// convert this class to a ConstraintImpl object.
-class GenericTrivialCost2 {
- public:
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(GenericTrivialCost2)
-
-  GenericTrivialCost2() = default;
-
-  static size_t numInputs() { return 2; }
-  static size_t numOutputs() { return 1; }
-
-  template <typename ScalarType>
-  // TODO(#2274) Fix NOLINTNEXTLINE(runtime/references).
-  void eval(VecIn<ScalarType> const& x, VecOut<ScalarType>& y) const {
-    DRAKE_ASSERT(static_cast<size_t>(x.rows()) == numInputs());
-    DRAKE_ASSERT(static_cast<size_t>(y.rows()) == numOutputs());
-    y(0) = x(0) * x(0) - x(1) * x(1) + 2;
-  }
-};
-
 // Verifies if the added cost evaluates the same as the original cost.
 // This function is supposed to test these costs added as a derived class
 // from Constraint.
 void VerifyAddedCost1(const MathematicalProgram& prog,
-                      const shared_ptr<Constraint>& cost,
+                      const shared_ptr<Cost>& cost,
                       const Eigen::Ref<const Eigen::VectorXd>& x_value,
                       int num_generic_costs_expected) {
   EXPECT_EQ(static_cast<int>(prog.generic_costs().size()),
@@ -462,7 +412,7 @@ void VerifyAddedCost1(const MathematicalProgram& prog,
 // a class to ConstraintImpl through MakeCost.
 void VerifyAddedCost2(const MathematicalProgram& prog,
                       const GenericTrivialCost2& cost,
-                      const shared_ptr<Constraint>& returned_cost,
+                      const shared_ptr<Cost>& returned_cost,
                       const Eigen::Ref<const Eigen::Vector2d>& x_value,
                       int num_generic_costs_expected) {
   EXPECT_EQ(static_cast<int>(prog.generic_costs().size()),
@@ -493,12 +443,11 @@ GTEST_TEST(testMathematicalProgram, AddCostTest) {
   EXPECT_EQ(static_cast<int>(prog.generic_costs().size()), num_generic_costs);
   EXPECT_EQ(prog.linear_costs().size(), 0u);
 
-  shared_ptr<Constraint> generic_trivial_cost1 =
-      make_shared<GenericTrivialCost1>();
+  shared_ptr<Cost> generic_trivial_cost1 = make_shared<GenericTrivialCost1>();
 
   // Adds Binding<Constraint>
-  prog.AddCost(Binding<Constraint>(
-      generic_trivial_cost1, VectorDecisionVariable<3>(x(0), x(1), y(1))));
+  prog.AddCost(Binding<Cost>(generic_trivial_cost1,
+                             VectorDecisionVariable<3>(x(0), x(1), y(1))));
   ++num_generic_costs;
   VerifyAddedCost1(prog, generic_trivial_cost1, Eigen::Vector3d(1, 3, 5),
                    num_generic_costs);
@@ -539,7 +488,7 @@ GTEST_TEST(testMathematicalProgram, AddCostTest) {
 
 void CheckAddedSymbolicLinearCostUserFun(const MathematicalProgram& prog,
                                          const Expression& e,
-                                         const Binding<Constraint>& binding,
+                                         const Binding<Cost>& binding,
                                          int num_linear_costs) {
   EXPECT_EQ(prog.linear_costs().size(), num_linear_costs);
   EXPECT_EQ(prog.linear_costs().back().constraint(), binding.constraint());
@@ -548,7 +497,7 @@ void CheckAddedSymbolicLinearCostUserFun(const MathematicalProgram& prog,
   EXPECT_EQ(binding.constraint()->num_constraints(), 1);
   auto cnstr = prog.linear_costs().back().constraint();
   auto vars = prog.linear_costs().back().variables();
-  const Expression cx{(cnstr->A() * vars)(0)};
+  const Expression cx{cnstr->a().dot(vars)};
   double constant_term{0};
   if (is_addition(e)) {
     constant_term = get_constant_in_addition(e);
@@ -1139,9 +1088,10 @@ GTEST_TEST(testMathematicalProgram, AddLinearConstraintSymbolicArrayFormula2) {
   const auto lb_in_ctr = constraint_ptr->lower_bound();
   const auto ub_in_ctr = constraint_ptr->upper_bound();
   int k{0};
-  for (int i{0}; i < M_e.rows(); ++i) {
-    for (int j{0}; j < M_e.cols(); ++j, ++k) {
+  for (int j{0}; j < M_e.cols(); ++j) {
+    for (int i{0}; i < M_e.rows(); ++i) {
       EXPECT_PRED2(ExprEqual, M_e(i, j) - M_lb(i, j), Ax(k) - lb_in_ctr(k));
+      ++k;
     }
   }
 }
@@ -1877,8 +1827,7 @@ GTEST_TEST(testMathematicalProgram, AddQuadraticCost) {
 
 void CheckAddedSymbolicQuadraticCostUserFun(const MathematicalProgram& prog,
                                             const Expression& e,
-                                            double constant,
-                                            const Binding<Constraint>& binding,
+                                            const Binding<Cost>& binding,
                                             int num_quadratic_cost) {
   EXPECT_EQ(num_quadratic_cost, prog.quadratic_costs().size());
   EXPECT_EQ(binding.constraint(), prog.quadratic_costs().back().constraint());
@@ -1887,19 +1836,19 @@ void CheckAddedSymbolicQuadraticCostUserFun(const MathematicalProgram& prog,
   auto cnstr = prog.quadratic_costs().back().constraint();
   // Check the added cost is 0.5 * x' * Q * x + b' * x
   const auto& x_bound = binding.variables();
-  const Expression e_added =
-      0.5 * x_bound.dot(cnstr->Q() * x_bound) + cnstr->b().dot(x_bound);
-  EXPECT_PRED2(ExprEqual, e_added.Expand() + constant, e.Expand());
+  const Expression e_added = 0.5 * x_bound.dot(cnstr->Q() * x_bound) +
+                             cnstr->b().dot(x_bound) + cnstr->c();
+  EXPECT_PRED2(ExprEqual, e_added.Expand(), e.Expand());
 }
 
 void CheckAddedSymbolicQuadraticCost(MathematicalProgram* prog,
-                                     const Expression& e, double constant) {
+                                     const Expression& e) {
   int num_quadratic_cost = prog->quadratic_costs().size();
   auto binding1 = prog->AddQuadraticCost(e);
-  CheckAddedSymbolicQuadraticCostUserFun(*prog, e, constant, binding1,
+  CheckAddedSymbolicQuadraticCostUserFun(*prog, e, binding1,
                                          ++num_quadratic_cost);
   auto binding2 = prog->AddCost(e);
-  CheckAddedSymbolicQuadraticCostUserFun(*prog, e, constant, binding2,
+  CheckAddedSymbolicQuadraticCostUserFun(*prog, e, binding2,
                                          ++num_quadratic_cost);
 }
 
@@ -1909,32 +1858,32 @@ GTEST_TEST(testMathematicalProgram, AddSymbolicQuadraticCost) {
 
   // Identity diagonal term.
   Expression e1 = x.transpose() * x;
-  CheckAddedSymbolicQuadraticCost(&prog, e1, 0);
+  CheckAddedSymbolicQuadraticCost(&prog, e1);
 
   // Identity diagonal term.
   Expression e2 = x.transpose() * x + 1;
-  CheckAddedSymbolicQuadraticCost(&prog, e2, 1);
+  CheckAddedSymbolicQuadraticCost(&prog, e2);
 
   // Identity diagonal term.
   Expression e3 = x(0) * x(0) + x(1) * x(1) + 2;
-  CheckAddedSymbolicQuadraticCost(&prog, e3, 2);
+  CheckAddedSymbolicQuadraticCost(&prog, e3);
 
   // Non-identity diagonal term.
   Expression e4 = x(0) * x(0) + 2 * x(1) * x(1) + 3 * x(2) * x(2) + 3;
-  CheckAddedSymbolicQuadraticCost(&prog, e4, 3);
+  CheckAddedSymbolicQuadraticCost(&prog, e4);
 
   // Cross terms.
   Expression e5 = x(0) * x(0) + 2 * x(1) * x(1) + 4 * x(0) * x(1) + 2;
-  CheckAddedSymbolicQuadraticCost(&prog, e5, 2);
+  CheckAddedSymbolicQuadraticCost(&prog, e5);
 
   // Linear terms.
   Expression e6 = x(0) * x(0) + 2 * x(1) * x(1) + 4 * x(0);
-  CheckAddedSymbolicQuadraticCost(&prog, e6, 0);
+  CheckAddedSymbolicQuadraticCost(&prog, e6);
 
   // Cross terms and linear terms.
   Expression e7 = (x(0) + 2 * x(1) + 3) * (x(0) + x(1) + 4) + 3 * x(0) * x(0) +
                   6 * pow(x(1) + 1, 2);
-  CheckAddedSymbolicQuadraticCost(&prog, e7, 18);
+  CheckAddedSymbolicQuadraticCost(&prog, e7);
 
   // Cubic polynomial case.
   Expression e8 = pow(x(0), 3) + 1;
@@ -1967,13 +1916,82 @@ GTEST_TEST(testMathematicalProgram, TestL2NormCost) {
     obj2->Eval(x0, y2);
 
     EXPECT_TRUE(CompareMatrices(y1, y2));
-    EXPECT_TRUE(CompareMatrices(
-        y2, (A * x0 - b).transpose() * (A * x0 - b) - b.transpose() * b));
-    // Note: Currently have to subtract out the constant term (b'*b) due to
-    // issue #3500.
+    EXPECT_TRUE(CompareMatrices(y2, (A * x0 - b).transpose() * (A * x0 - b)));
 
     x0 += Eigen::Vector2d::Constant(2);
   }
+}
+
+// Helper function for AreMonomialToCoefficientMapIsomorphic.
+//
+// Transforms a monomial into an isomorphic one up to a given map (Variable::Id
+// → Variable). Consider an example where monomial is "x³y⁴" and var_id_to_var
+// is {x.get_id() ↦ z, y.get_id() ↦ w}. We have transform(x³y⁴, {x.get_id() ↦ z,
+// y.get_id() ↦ w}) = z³w⁴.
+//
+// @pre `var_id_to_var` is 1-1.
+// @pre The domain of `var_id_to_var` includes all variables in `monomial`.
+// @pre `var_id_to_var` should be chain-free. Formally, for all variable v in
+// the image of var_id_to_var, its ID, id(v) should not be in the domain of
+// var_id_to_var. For example, {x.get_id() -> y, y.get_id() -> z} is not
+// allowed.
+symbolic::Monomial transform(const symbolic::Monomial& monomial,
+                             const map<Variable::Id, Variable>& var_id_to_var) {
+  // var_id_to_var should be chain-free.
+  for (const pair<Variable::Id, Variable>& p : var_id_to_var) {
+    const Variable& var{p.second};
+    DRAKE_DEMAND(var_id_to_var.find(var.get_id()) == var_id_to_var.end());
+  }
+  map<Variable, int> new_powers;
+  for (const pair<Variable, int> p : monomial.get_powers()) {
+    const Variable& var_in_monomial{p.first};
+    const int exponent{p.second};
+    const auto it = var_id_to_var.find(var_in_monomial.get_id());
+
+    // There should be a mapping for the ID in var_id_to_var.
+    DRAKE_DEMAND(it != var_id_to_var.end());
+    const Variable new_var{it->second};
+
+    // var_id_to_var should be 1-1.
+    DRAKE_DEMAND(new_powers.find(new_var) == new_powers.end());
+    new_powers.emplace(new_var, exponent);
+  }
+  return symbolic::Monomial{new_powers};
+}
+
+// Helper function for AreMonomialToCoefficientMapIsomorphic.
+//
+// Transforms a MonomialToCoefficientMap into an isomorphic one up to a given
+// map (Variable::Id → Variable). Consider an example where m is {x³y⁴ ↦ 1, x² ↦
+// 2} and var_id_to_var is {x.get_id() ↦ z, y.get_id() ↦ w}. We have
+// transform(m, var_id_to_var) = {z³w⁴ ↦ 1, z² ↦ 2}.
+//
+// @pre `var_id_to_var` is 1-1.
+// @pre The domain of `var_id_to_var` includes all variables in `m`.
+// @pre `var_id_to_var` should be chain-free.
+symbolic::MonomialToCoefficientMap transform(
+    const symbolic::MonomialToCoefficientMap& m,
+    const map<Variable::Id, Variable>& var_id_to_var) {
+  symbolic::MonomialToCoefficientMap new_map;
+  for (const pair<symbolic::Monomial, symbolic::Expression>& p : m) {
+    new_map.emplace(transform(p.first, var_id_to_var), p.second);
+  }
+  return new_map;
+}
+
+// Helper function for CheckAddedPolynomialCost.
+//
+// Checks if two MonomialToCoefficientMap `map1` and `map2` are isomorphic with
+// respect to a bijection `var_id_to_var`.
+//
+// @pre `var_id_to_var` is 1-1.
+// @pre The domain of `var_id_to_var` includes all variables in `m`.
+// @pre `var_id_to_var` should be chain-free.
+bool AreMonomialToCoefficientMapIsomorphic(
+    const symbolic::MonomialToCoefficientMap& map1,
+    const symbolic::MonomialToCoefficientMap& map2,
+    const map<Variable::Id, Variable>& var_id_to_var) {
+  return transform(map1, var_id_to_var) == map2;
 }
 
 void CheckAddedPolynomialCost(MathematicalProgram* prog, const Expression& e) {
@@ -1983,24 +2001,34 @@ void CheckAddedPolynomialCost(MathematicalProgram* prog, const Expression& e) {
   EXPECT_EQ(binding.constraint(), prog->generic_costs().back().constraint());
   // Now reconstruct the symbolic expression from `binding`.
   const auto polynomial = binding.constraint()->polynomials()(0);
+
+  // map_expected : symbolic::Monomial → symbolic::Expression.
   symbolic::MonomialToCoefficientMap map_expected;
-  for (const auto& m : polynomial.GetMonomials()) {
-    map<Variable::Id, int> map_var_to_power;
-    for (const auto& term : m.terms) {
-      map_var_to_power.emplace(term.var, term.power);
+  // var_id_to_var : Variable::Id → Variable. It keeps the relation between a
+  // variable in a Polynomial<double> and symbolic::Monomial.
+  map<Variable::Id, Variable> var_id_to_var;
+  for (const Polynomial<double>::Monomial& m : polynomial.GetMonomials()) {
+    map<Variable, int> map_var_to_power;
+    for (const Polynomial<double>::Term& term : m.terms) {
+      auto it = var_id_to_var.find(term.var);
+      if (it == var_id_to_var.end()) {
+        Variable var{std::to_string(term.var)};
+        var_id_to_var.emplace_hint(it, term.var, var);
+        map_var_to_power.emplace(var, term.power);
+      } else {
+        map_var_to_power.emplace(it->second, term.power);
+      }
     }
     symbolic::Monomial m_symbolic(map_var_to_power);
     map_expected.emplace(m_symbolic, m.coefficient);
   }
   // Now compare the reconstructed symbolic polynomial with `e`.
-  const auto map =
+  const symbolic::MonomialToCoefficientMap map =
       symbolic::DecomposePolynomialIntoMonomial(e, e.GetVariables());
-  EXPECT_EQ(map.size(), map_expected.size());
-  for (const auto& m : map) {
-    const auto m_expected_it = map_expected.find(m.first);
-    EXPECT_NE(m_expected_it, map_expected.end());
-    EXPECT_EQ(m_expected_it->second, m.second);
-  }
+  // Checks if the two map, `map` and `map_expected` are isomorphic with respect
+  // to `var_id_to_var`.
+  EXPECT_TRUE(
+      AreMonomialToCoefficientMapIsomorphic(map, map_expected, var_id_to_var));
 }
 
 GTEST_TEST(testMathematicalProgram, testAddPolynomialCost) {
@@ -2029,6 +2057,23 @@ GTEST_TEST(testMathematicalProgram, testAddCostThrowError) {
   EXPECT_THROW(prog.AddCost(x(0) + y), runtime_error);
   EXPECT_THROW(prog.AddCost(x(0) * x(0) + y), runtime_error);
 }
+
+GTEST_TEST(testMathematicalProgram, testAddGenericCost) {
+  using GenericPtr = shared_ptr<Cost>;
+  using Matrix1d = Vector1d;
+
+  MathematicalProgram prog;
+  auto x = prog.NewContinuousVariables<1>();
+
+  GenericPtr linear_cost(new LinearCost(Matrix1d(1)));
+  prog.AddCost(linear_cost, x);
+  EXPECT_EQ(prog.linear_costs().size(), 1);
+
+  GenericPtr quadratic_cost(new QuadraticCost(Matrix1d(1), Vector1d(1)));
+  prog.AddCost(quadratic_cost, x);
+  EXPECT_EQ(prog.quadratic_costs().size(), 1);
+}
+
 }  // namespace test
 }  // namespace solvers
 }  // namespace drake

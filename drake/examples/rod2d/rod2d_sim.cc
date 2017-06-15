@@ -1,5 +1,4 @@
-// NOLINTNEXTLINE(build/include) False positive on inl file.
-#include "drake/examples/rod2d/rod2d-inl.h"
+#include "drake/examples/rod2d/rod2d.h"
 
 #include <cmath>
 #include <iomanip>
@@ -9,9 +8,12 @@
 #include <gflags/gflags.h>
 
 #include "drake/common/text_logging.h"
+#include "drake/common/text_logging_gflags.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_viewer_draw.hpp"
 #include "drake/lcmtypes/drake/lcmt_viewer_load_robot.hpp"
+#include "drake/systems/analysis/implicit_euler_integrator.h"
+#include "drake/systems/analysis/runge_kutta3_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -22,17 +24,7 @@
 #include "drake/systems/rendering/pose_aggregator.h"
 #include "drake/systems/rendering/pose_bundle_to_draw_message.h"
 
-namespace drake {
-namespace examples {
-namespace rod2d {
-
-template class Rod2D<double>;
-
-}  // namespace rod2d
-}  // namespace examples
-}  // namespace drake
-
-using drake::examples::rod2d::Rod2D;
+using Rod2D = drake::examples::rod2d::Rod2D<double>;
 using drake::lcm::DrakeLcm;
 using drake::systems::BasicVector;
 using drake::systems::Context;
@@ -44,61 +36,63 @@ using drake::systems::rendering::MakeGeometryData;
 using drake::systems::rendering::PoseAggregator;
 using drake::systems::rendering::PoseBundleToDrawMessage;
 using drake::systems::Simulator;
+using drake::systems::ImplicitEulerIntegrator;
+using drake::systems::RungeKutta3Integrator;
 
 // Simulation parameters.
-DEFINE_bool(logging, false, "Activates/deactivates logging");
 DEFINE_string(simulation_type, "timestepping",
-              "Type of simulation, valid values are 'pDAE',"
-                  "'timestepping','compliant'");
+              "Type of simulation, valid values are "
+              "'timestepping','compliant'");
 DEFINE_double(dt, 1e-2, "Integration step size");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
+DEFINE_double(sim_duration, 10, "Simulation duration in virtual seconds");
+DEFINE_double(accuracy, 1e-5,
+              "Requested simulation accuracy (ignored for time stepping)");
 
 int main(int argc, char* argv[]) {
   // Parse any flags.
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-  // Enable logging, if desired.
-  if (FLAGS_logging)
-    drake::log()->set_level(spdlog::level::debug);
+  drake::logging::HandleSpdlogGflags();
 
   // Emit a one-time load message.
   Serializer<drake::lcmt_viewer_load_robot> load_serializer;
   std::vector<uint8_t> message_bytes;
 
+  // TODO(edrumwri): Remove the DRAKE_VIEWER_DRAW, DRAKE_VIEWER_LOAD_ROBOT
+  //                 magic strings as soon as they are a named constant within
+  //                 Drake (or, even better, remove as much of this
+  //                 copy/pasted visualization code when possible).
   // Build the simulation diagram.
   DrakeLcm lcm;
   DiagramBuilder<double> builder;
-  PoseAggregator<double>* aggregator = builder.template AddSystem<
-      PoseAggregator>();
+  PoseAggregator<double>* aggregator =
+      builder.template AddSystem<PoseAggregator>();
   PoseBundleToDrawMessage* converter =
       builder.template AddSystem<PoseBundleToDrawMessage>();
   LcmPublisherSystem* publisher =
-      builder.template AddSystem<LcmPublisherSystem>("DRAKE_VIEWER_DRAW",
-  std::make_unique<Serializer<drake::lcmt_viewer_draw>>(), &lcm);
+      builder.template AddSystem<LcmPublisherSystem>(
+          "DRAKE_VIEWER_DRAW",
+          std::make_unique<Serializer<drake::lcmt_viewer_draw>>(), &lcm);
   publisher->set_publish_period(0.01);
 
   // Create the rod and add it to the diagram.
-  Rod2D<double>* rod;
-  if (FLAGS_simulation_type == "pDAE") {
-    rod = builder.template AddSystem<Rod2D<double>>(
-        Rod2D<double>::SimulationType::kPiecewiseDAE, 0.0);
-  } else if (FLAGS_simulation_type == "timestepping") {
-    rod = builder.template AddSystem<Rod2D<double>>(
-        Rod2D<double>::SimulationType::kTimeStepping, FLAGS_dt);
+  Rod2D* rod;
+  if (FLAGS_simulation_type == "timestepping") {
+    rod = builder.template AddSystem<Rod2D>(
+        Rod2D::SimulationType::kTimeStepping, FLAGS_dt);
   } else if (FLAGS_simulation_type == "compliant") {
-    rod = builder.template AddSystem<Rod2D<double>>(
-        Rod2D<double>::SimulationType::kCompliant, 0.0);
+    rod = builder.template AddSystem<Rod2D>(Rod2D::SimulationType::kCompliant,
+                                            0.0);
   } else {
-    std::cerr << "Invalid simulation type '" << FLAGS_simulation_type <<
-              "'; note that types are case sensitive." << std::endl;
+    std::cerr << "Invalid simulation type '" << FLAGS_simulation_type
+              << "'; note that types are case sensitive." << std::endl;
     return -1;
   }
 
   // Create the rod visualization.
   DrakeShapes::VisualElement rod_vis(
-      DrakeShapes::Cylinder(FLAGS_rod_radius, rod->get_rod_half_length()*2),
-      Eigen::Isometry3d::Identity(),
-      Eigen::Vector4d(0.7, 0.7, 0.7, 1));
+      DrakeShapes::Cylinder(FLAGS_rod_radius, rod->get_rod_half_length() * 2),
+      Eigen::Isometry3d::Identity(), Eigen::Vector4d(0.7, 0.7, 0.7, 1));
 
   // Create the load message.
   drake::lcmt_viewer_load_robot message;
@@ -114,50 +108,47 @@ int main(int argc, char* argv[]) {
   const int message_length = message.getEncodedSize();
   message_bytes.resize(message_length);
   message.encode(message_bytes.data(), 0, message_length);
-  lcm.Publish("DRAKE_VIEWER_LOAD_ROBOT", message_bytes.data(), 
-    message_bytes.size());
+  lcm.Publish("DRAKE_VIEWER_LOAD_ROBOT", message_bytes.data(),
+              message_bytes.size());
 
   // Set the names of the systems.
   rod->set_name("rod");
   aggregator->set_name("aggregator");
   converter->set_name("converter");
 
-  /*
-  DrivingCommandTranslator driving_command_translator;
-  for (int i = 0; i < 5; ++i) {
-    auto command_subscriber =
-        builder.template AddSystem<LcmSubscriberSystem>(
-            "DRIVING_COMMAND_" + names[i], driving_command_translator, &lcm);
-    SimpleCar<double>* car = builder.template AddSystem<SimpleCar>();
-    builder.Connect(*command_subscriber, *car);
-    builder.Connect(car->pose_output(), aggregator->AddSingleInput(names[i], i));
-  }
-*/
   builder.Connect(rod->pose_output(), aggregator->AddSingleInput("rod", 0));
   builder.Connect(*aggregator, *converter);
   builder.Connect(*converter, *publisher);
   auto diagram = builder.Build();
 
-  // Give the rod no inputs.
+  // Make no external forces act on the rod.
   auto context = diagram->CreateDefaultContext();
-  Context<double>* rod_context = diagram->GetMutableSubsystemContext(
-      context.get(), rod);
-  std::unique_ptr<BasicVector<double>> ext_input =
-     std::make_unique<BasicVector<double>>(3);
+  Context<double>* rod_context =
+      diagram->GetMutableSubsystemContext(context.get(), rod);
+  auto ext_input = std::make_unique<BasicVector<double>>(3);
   ext_input->SetAtIndex(0, 0.0);
   ext_input->SetAtIndex(1, 0.0);
   ext_input->SetAtIndex(2, 0.0);
   rod_context->FixInputPort(0, std::move(ext_input));
 
-  // Start simulating.
+  // Set up the integrator.
   Simulator<double> simulator(*diagram, std::move(context));
+  if (FLAGS_simulation_type == "compliant") {
+    auto mut_context = simulator.get_mutable_context();
+    simulator.reset_integrator<ImplicitEulerIntegrator<double>>(*diagram,
+                                                                mut_context);
+  } else {
+    auto mut_context = simulator.get_mutable_context();
+    simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
+                                                              mut_context);
+  }
+  simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
   simulator.get_mutable_integrator()->set_maximum_step_size(FLAGS_dt);
+
+  // Start simulating.
   simulator.set_target_realtime_rate(1.0);
-  double t = 1.0;
-  lcm.StartReceiveThread();
-  while (true) {
-    simulator.StepTo(t);
-    t += 1.0;
+  while (simulator.get_context().get_time() < FLAGS_sim_duration) {
+    const double t = simulator.get_context().get_time();
+    simulator.StepTo(std::min(t + 1, FLAGS_sim_duration));
   }
 }
-

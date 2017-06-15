@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_optional.h"
 #include "drake/common/drake_throw.h"
 #include "drake/systems/framework/input_port_evaluator_interface.h"
 #include "drake/systems/framework/input_port_value.h"
@@ -115,7 +116,7 @@ class Context {
 
   /// Returns the number of elements in the discrete state.
   int get_num_discrete_state_groups() const {
-    return get_state().get_discrete_state()->size();
+    return get_state().get_discrete_state()->num_groups();
   }
 
   /// Returns a mutable pointer to the discrete component of the state,
@@ -128,7 +129,7 @@ class Context {
   /// Asserts if @p index doesn't exist.
   BasicVector<T>* get_mutable_discrete_state(int index) {
     DiscreteValues<T>* xd = get_mutable_discrete_state();
-    return xd->get_mutable_discrete_state(index);
+    return xd->get_mutable_vector(index);
   }
 
   /// Sets the discrete state to @p xd, deleting whatever was there before.
@@ -140,7 +141,7 @@ class Context {
   /// state at @p index.  Asserts if @p index doesn't exist.
   const BasicVector<T>* get_discrete_state(int index) const {
     const DiscreteValues<T>* xd = get_state().get_discrete_state();
-    return xd->get_discrete_state(index);
+    return xd->get_vector(index);
   }
 
   /// Returns the number of elements in the abstract state.
@@ -328,6 +329,11 @@ class Context {
     return get_mutable_parameters().get_mutable_numeric_parameter(index);
   }
 
+  /// Returns the number of abstract-valued parameters.
+  int num_abstract_parameters() const {
+    return get_parameters().num_abstract_parameters();
+  }
+
   /// Returns a const reference to the abstract-valued parameter at @p index.
   /// Asserts if @p index doesn't exist.
   const AbstractValue& get_abstract_parameter(int index) const {
@@ -339,6 +345,43 @@ class Context {
   AbstractValue& get_mutable_abstract_parameter(int index) {
     return get_mutable_parameters().get_mutable_abstract_parameter(index);
   }
+
+  // =========================================================================
+  // Accessors and Mutators for Accuracy.
+
+  /// Records the user's requested accuracy. If no accuracy is requested,
+  /// computations are free to choose suitable defaults, or to refuse to
+  /// proceed without an explicit accuracy setting.
+  ///
+  /// Requested accuracy is stored in the %Context for two reasons:
+  /// - It permits all computations performed over a System to see the _same_
+  ///   accuracy request since accuracy is stored in one shared place, and
+  /// - it allows us to invalidate accuracy-dependent cached computations when
+  ///   the requested accuracy has changed.
+  ///
+  /// The accuracy of a complete simulation or other numerical study depends on
+  /// the accuracy of _all_ contributing computations, so it is important that
+  /// each computation is done in accordance with the overall requested
+  /// accuracy. Some examples of where this is needed:
+  /// - Error-controlled numerical integrators use the accuracy setting to
+  ///   decide what step sizes to take.
+  /// - The Simulator employs a numerical integrator, but also uses accuracy to
+  ///   decide how precisely to isolate witness function zero crossings.
+  /// - Iterative calculations reported as results or cached internally depend
+  ///   on accuracy to decide how strictly to converge the results. Examples of
+  ///   these are: constraint projection, calculation of distances between
+  ///   smooth shapes, and deformation calculations for soft contact.
+  ///
+  /// The common thread among these examples is that they all share the
+  /// same %Context, so by keeping accuracy here it can be used effectively to
+  /// control all accuracy-dependent computations.
+  // TODO(edrumwri) Invalidate all cached accuracy-dependent computations, and
+  // propagate accuracy to all subcontexts in a diagram context.
+  void set_accuracy(const optional<double>& accuracy) { accuracy_ = accuracy; }
+
+  /// Returns the accuracy setting (if any).
+  /// @see set_accuracy() for details.
+  const optional<double>& get_accuracy() const { return accuracy_; }
 
   // =========================================================================
   // Miscellaneous Public Methods
@@ -360,6 +403,7 @@ class Context {
   /// Requires a constructor T(double).
   void SetTimeStateAndParametersFrom(const Context<double>& source) {
     set_time(T(source.get_time()));
+    set_accuracy(source.get_accuracy());
     get_mutable_state()->SetFrom(source.get_state());
     get_mutable_parameters().SetFrom(source.get_parameters());
   }
@@ -432,6 +476,9 @@ class Context {
  private:
   // Current time and step information.
   StepInfo<T> step_info_;
+
+  // Accuracy setting.
+  optional<double> accuracy_;
 
   // The context of the enclosing Diagram, used in EvalInputPort.
   // This pointer MUST be treated as a black box. If you call any substantive

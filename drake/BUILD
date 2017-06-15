@@ -3,7 +3,7 @@
 
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:drake.bzl", "drake_header_tar")
+load("//tools:install.bzl", "install")
 load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 
 # This list is obviously incomplete.
@@ -12,7 +12,11 @@ load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 # When adding new components to the package, please also add the licenses for
 # any new external dependencies to :external_licenses.
 _LIBDRAKE_COMPONENTS = [
+    "//drake/lcm",
+    "//drake/multibody:inverse_kinematics",
+    "//drake/multibody:rigid_body_tree",
     "//drake/multibody/parsers",
+    "//drake/solvers:mathematical_program",
     "//drake/systems/framework",
     "//drake/systems/primitives",
 ]
@@ -28,22 +32,13 @@ cc_binary(
     deps = _LIBDRAKE_COMPONENTS,
 )
 
-# All the headers mentioned in "hdrs" attributes of the transitive closure of
-# dependencies of the _LIBDRAKE_COMPONENTS. This is a superset of the headers
-# actually required to operate Drake.
-drake_header_tar(
-    name = "libdrake_headers",
-    deps = _LIBDRAKE_COMPONENTS,
-)
-
-pkg_tar(
-    name = "external_licenses",
-    extension = "tar.gz",
-    deps = [
-        "@bullet//:license",
-        "@eigen//:license",
-        "@fmt//:license",
-        "@spdlog//:license",
-        "@tinyobjloader//:license",
-    ],
+# Install libdrake.so along with all transitive headers in the same workspace
+# (i.e. in Drake itself; not externals).
+install(
+    name = "install",
+    doc_dest = "share/doc/drake",
+    guess_hdrs = "WORKSPACE",
+    hdr_dest = "include/drake",
+    targets = ["libdrake.so"],
+    deps = ["//drake/bindings:install"],
 )

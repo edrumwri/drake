@@ -4,9 +4,11 @@
 #include <stdexcept>
 
 #include <Eigen/Dense>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "drake/common/eigen_types.h"
+#include "drake/common/test/is_dynamic_castable.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/leaf_context.h"
@@ -49,6 +51,11 @@ class TestSystem : public LeafSystem<T> {
 
   void AddPublish(double period) {
     this->DeclarePublishPeriodSec(period);
+  }
+
+  void AddPerStepAction(
+      const typename DiscreteEvent<T>::ActionType& action) {
+    this->DeclarePerStepAction(action);
   }
 
   void DoCalcOutput(const Context<T>& context,
@@ -320,6 +327,22 @@ TEST_F(LeafSystemTest, DeclareAbstractOutput) {
   std::unique_ptr<Context<double>> context = system_.CreateDefaultContext();
   auto output = system_.AllocateOutput(*context);
   EXPECT_EQ(42, UnpackIntValue(output->get_data(1)));
+}
+
+TEST_F(LeafSystemTest, DeclarePerStepActions) {
+  std::unique_ptr<Context<double>> context = system_.CreateDefaultContext();
+
+  system_.AddPerStepAction(DiscreteEvent<double>::kPublishAction);
+  system_.AddPerStepAction(DiscreteEvent<double>::kDiscreteUpdateAction);
+  system_.AddPerStepAction(DiscreteEvent<double>::kUnrestrictedUpdateAction);
+
+  std::vector<DiscreteEvent<double>> events;
+  system_.GetPerStepEvents(*context, &events);
+
+  EXPECT_EQ(events.size(), 3);
+  EXPECT_EQ(events[0].action, DiscreteEvent<double>::kPublishAction);
+  EXPECT_EQ(events[1].action, DiscreteEvent<double>::kDiscreteUpdateAction);
+  EXPECT_EQ(events[2].action, DiscreteEvent<double>::kUnrestrictedUpdateAction);
 }
 
 // A system that exercises the model_value-based input and output ports,
@@ -696,10 +719,10 @@ GTEST_TEST(GraphvizTest, Attributes) {
   ASSERT_EQ(reinterpret_cast<int64_t>(&system), system.GetGraphvizId());
   const std::string dot = system.GetGraphvizString();
   // Check that left-to-right ranking is imposed.
-  EXPECT_NE(std::string::npos, dot.find("rankdir=LR")) << dot;
+  EXPECT_THAT(dot, ::testing::HasSubstr("rankdir=LR"));
   // Check that NiceTypeName is used to compute the label.
-  EXPECT_NE(std::string::npos, dot.find(
-      "label=\"drake::systems::(anonymous)::DefaultFeedthroughSystem|"));
+  EXPECT_THAT(dot, ::testing::HasSubstr(
+      "label=\"drake/systems/(anonymous)/DefaultFeedthroughSystem@"));
 }
 
 GTEST_TEST(GraphvizTest, Ports) {
@@ -708,7 +731,33 @@ GTEST_TEST(GraphvizTest, Ports) {
   system.AddAbstractInputPort();
   system.AddAbstractOutputPort();
   const std::string dot = system.GetGraphvizString();
-  EXPECT_NE(std::string::npos, dot.find("{{<u0>u0|<u1>u1} | {<y0>y0}}")) << dot;
+  EXPECT_THAT(dot, ::testing::HasSubstr(
+      "{{<u0>u0|<u1>u1} | {<y0>y0}}"));
+}
+
+// The custom context type for the CustomContextSystem.
+template <typename T>
+class CustomContext : public LeafContext<T> {};
+
+// CustomContextSystem has a LeafContext-derived custom context type. This
+// confirms that the appropriate context type is generated..
+template <typename T>
+class CustomContextSystem : public LeafSystem<T> {
+ public:
+  void DoCalcOutput(const Context<T>& context,
+                    SystemOutput<T>* output) const override {}
+ protected:
+  std::unique_ptr<LeafContext<T>> DoMakeContext() const override {
+    return std::make_unique<CustomContext<T>>();
+  }
+};
+
+GTEST_TEST(CustomContextTest, AllocatedContext) {
+  CustomContextSystem<double> system;
+  auto allocated = system.AllocateContext();
+  ASSERT_TRUE(is_dynamic_castable<CustomContext<double>>(allocated.get()));
+  auto defaulted = system.CreateDefaultContext();
+  ASSERT_TRUE(is_dynamic_castable<CustomContext<double>>(defaulted.get()));
 }
 
 }  // namespace

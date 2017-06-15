@@ -31,7 +31,10 @@ class MobilPlannerTest : public ::testing::Test {
     road_.reset(new maliput::dragway::RoadGeometry(
         maliput::api::RoadGeometryId({"Two-Lane Dragway"}), num_lanes,
         100 /* length */, kLaneWidth /* lane_width */,
-        0. /* shoulder_width */));
+        0. /* shoulder_width */,
+        5. /* maximum_height */,
+        std::numeric_limits<double>::epsilon() /* linear_tolerance */,
+        std::numeric_limits<double>::epsilon() /* angular_tolerance */));
     segment_ = road_->junction(0)->segment(0);
     ExtractLaneDirectionsFromDragway();
     right_lane_index_ = 0;
@@ -321,6 +324,26 @@ TEST_F(MobilPlannerTest, ThreeLaneIncentiveTestPreferRight) {
   EXPECT_EQ(lane_directions_[right_lane_index_].lane->id().id,
             lane_direction.lane->id().id);
 }
+
+// Tests that MobilPlanner is failsafe to two cars side-by-side.
+TEST_F(MobilPlannerTest, SideBySideCars) {
+  InitializeDragway(2 /* num_lanes */);
+  InitializeMobilPlanner(true /* initial_with_s */);
+
+  // Arrange the ego car and traffic cars to have identical poses.
+  SetDefaultMultiLanePoses(lane_directions_[right_lane_index_], /* ego lane */
+                           {10., 0.}); /* traffic car position */
+
+  // Expect failsafe behavior.
+  const auto result = output_->GetMutableData(lane_output_index_);
+  dut_->CalcOutput(*context_, output_.get());
+  auto lane_direction = result->template GetMutableValue<LaneDirection>();
+
+  // Expect the rightmost lane (ego car's lane) to be more desirable.
+  EXPECT_EQ(lane_directions_[right_lane_index_].lane->id().id,
+            lane_direction.lane->id().id);
+}
+
 }  // namespace
 }  // namespace automotive
 }  // namespace drake

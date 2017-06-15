@@ -3,6 +3,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -10,6 +11,7 @@
 #include "drake/common/autodiff_overloads.h"
 #include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test/is_dynamic_castable.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/input_port_value.h"
 #include "drake/systems/framework/test_utilities/pack_value.h"
@@ -26,6 +28,13 @@ constexpr int kGeneralizedVelocitySize = 2;
 constexpr int kMiscContinuousStateSize = 1;
 
 constexpr double kTime = 12.0;
+
+// Defines a simple class for evaluating abstract types.
+class TestAbstractType {
+ public:
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(TestAbstractType)
+  TestAbstractType() = default;
+};
 
 class LeafContextTest : public ::testing::Test {
  protected:
@@ -59,12 +68,16 @@ class LeafContextTest : public ::testing::Test {
     context_.set_abstract_state(
         std::make_unique<AbstractValues>(std::move(xa)));
 
-    // Reserve two numeric parameters, of size 3 and size 4.
-    std::vector<std::unique_ptr<BasicVector<double>>> params;
-    params.push_back(BasicVector<double>::Make({1.0, 2.0, 4.0}));
-    params.push_back(BasicVector<double>::Make({8.0, 16.0, 32.0, 64.0}));
-    context_.set_parameters(
-        std::make_unique<Parameters<double>>(std::move(params)));
+    // Reserve two numeric parameters of size 3 and size 4, and one abstract
+    // valued parameter of type TestAbstractType.
+    std::vector<std::unique_ptr<BasicVector<double>>> vector_params;
+    vector_params.push_back(BasicVector<double>::Make({1.0, 2.0, 4.0}));
+    vector_params.push_back(BasicVector<double>::Make({8.0, 16.0, 32.0, 64.0}));
+    std::vector<std::unique_ptr<AbstractValue>> abstract_params;
+    abstract_params.push_back(std::make_unique<Value<TestAbstractType>>());
+    context_.set_parameters(std::make_unique<Parameters<double>>(
+        std::move(vector_params),
+        std::move(abstract_params)));
   }
 
   // Mocks up a descriptor sufficient to read a FreestandingInputPortValue
@@ -107,11 +120,9 @@ void VerifyClonedState(const State<double>& clone) {
     EXPECT_EQ(expected, contents);
   }
 
-  EXPECT_EQ(2, clone.get_discrete_state()->size());
-  const BasicVector<double>* xd0 =
-      clone.get_discrete_state()->get_discrete_state(0);
-  const BasicVector<double>* xd1 =
-      clone.get_discrete_state()->get_discrete_state(1);
+  EXPECT_EQ(2, clone.get_discrete_state()->num_groups());
+  const BasicVector<double>* xd0 = clone.get_discrete_state()->get_vector(0);
+  const BasicVector<double>* xd1 = clone.get_discrete_state()->get_vector(1);
   {
     VectorX<double> contents = xd0->CopyToVector();
     VectorX<double> expected(1);
@@ -281,6 +292,9 @@ TEST_F(LeafContextTest, Clone) {
   EXPECT_EQ(16.0, param1[1]);
   EXPECT_EQ(32.0, param1[2]);
   EXPECT_EQ(64.0, param1[3]);
+  ASSERT_EQ(1, leaf_clone->num_abstract_parameters());
+  EXPECT_TRUE(is_dynamic_castable<const TestAbstractType>(
+      &leaf_clone->get_abstract_parameter(0).GetValue<TestAbstractType>()));
 
   // Verify that changes to the cloned parameters do not affect the originals.
   (*leaf_clone->get_mutable_numeric_parameter(0))[0] = 76.0;
@@ -335,8 +349,21 @@ TEST_F(LeafContextTest, SetTimeStateAndParametersFrom) {
   target.get_mutable_parameters().set_numeric_parameters(
       std::make_unique<DiscreteValues<AutoDiffXd>>(std::move(params)));
 
+  std::vector<std::unique_ptr<AbstractValue>> abstract_params;
+  abstract_params.push_back(std::make_unique<Value<TestAbstractType>>());
+  target.get_mutable_parameters().set_abstract_parameters(
+      std::make_unique<AbstractValues>(std::move(abstract_params)));
+
+  // Set the accuracy in the target- setting time, state, and parameters
+  // should reset it.
+  const double accuracy = 0.1;
+  target.set_accuracy(accuracy);
+
   // Set the target from the source.
   target.SetTimeStateAndParametersFrom(context_);
+
+  // Verify that accuracy is no longer set.
+  EXPECT_FALSE(target.get_accuracy());
 
   // Verify that time was set.
   EXPECT_EQ(kTime, target.get_time());
@@ -349,6 +376,23 @@ TEST_F(LeafContextTest, SetTimeStateAndParametersFrom) {
   // Verify that parameters were set.
   target.get_numeric_parameter(0);
   EXPECT_EQ(2.0, (target.get_numeric_parameter(0)->GetAtIndex(1).value()));
+
+  // Set the accuracy in the context.
+  context_.set_accuracy(accuracy);
+  target.SetTimeStateAndParametersFrom(context_);
+  EXPECT_EQ(target.get_accuracy(), accuracy);
+}
+
+// Verifies that accuracy is set properly.
+TEST_F(LeafContextTest, Accuracy) {
+  // Verify accuracy is not set by default.
+  EXPECT_FALSE(context_.get_accuracy());
+
+  // Verify that setting the accuracy is reflected in cloning.
+  const double unity = 1.0;
+  context_.set_accuracy(unity);
+  std::unique_ptr<Context<double>> clone = context_.Clone();
+  EXPECT_EQ(clone->get_accuracy().value_or(999), unity);
 }
 
 }  // namespace systems
