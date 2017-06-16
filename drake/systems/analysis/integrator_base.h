@@ -1521,10 +1521,12 @@ std::pair<bool, T> IntegratorBase<T>::CalcAdjustedStepSize(
   // achieved the desired accuracy last time, we won't change the step now.
   // Otherwise, if we are going to shrink the step, let's not be shy -- we'll
   // shrink it by at least a factor of kHysteresisLow.
+  bool shrink = false; 
   if (new_step_size < current_step_size) {
     if (err <= get_accuracy_in_use()) {
       new_step_size = current_step_size;  // not this time
     } else {
+      shrink = true;
       T test_value = kHysteresisLow * current_step_size;
       new_step_size = min(new_step_size, test_value);
     }
@@ -1547,7 +1549,7 @@ std::pair<bool, T> IntegratorBase<T>::CalcAdjustedStepSize(
   ValidateSmallerStepSize(current_step_size, new_step_size);
   new_step_size = max(new_step_size, get_working_minimum_step_size());
 
-  return std::make_pair(new_step_size >= current_step_size, new_step_size);
+  return std::make_pair(!shrink, new_step_size);
 }
 
 template <class T>
