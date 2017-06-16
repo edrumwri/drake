@@ -368,16 +368,18 @@ class Rod2D : public systems::LeafSystem<T> {
                                 systems::State<T>* state) const override;
 
   /// Returns the 3D pose of this rod.
-  const systems::OutputPortDescriptor<T>& pose_output() const {
-    return *pose_output_descriptor_;
+  const systems::OutputPort<T>& pose_output() const {
+    return *pose_output_port_;
   }
 
  protected:
   int get_k(const systems::Context<T>& context) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
-  void DoCalcOutput(const systems::Context<T>& context,
-                    systems::SystemOutput<T>* output) const override;
+  void CopyStateOut(const systems::Context<T>& context,
+                    systems::BasicVector<T>* output) const;
+  void CopyPoseOut(const systems::Context<T>& context,
+                   systems::rendering::PoseVector<T>* output) const;
   void DoCalcTimeDerivatives(const systems::Context<T>& context,
                              systems::ContinuousState<T>* derivatives)
                                const override;
@@ -560,9 +562,9 @@ class Rod2D : public systems::LeafSystem<T> {
   double v_stick_tol_{1e-5};  // Slip speed below which the compliant model
                               //   considers the rod to be in stiction.
 
-  // Output port descriptors.
-  const systems::OutputPortDescriptor<T>* pose_output_descriptor_{nullptr};
-  const systems::OutputPortDescriptor<T>* state_output_descriptor_{nullptr};
+  // Output ports.
+  const systems::OutputPort<T>* pose_output_port_{nullptr};
+  const systems::OutputPort<T>* state_output_port_{nullptr};
 };
 
 }  // namespace rod2d

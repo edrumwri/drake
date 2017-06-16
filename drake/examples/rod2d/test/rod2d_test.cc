@@ -18,6 +18,8 @@ using drake::systems::AbstractValues;
 using drake::systems::Simulator;
 using drake::systems::SemiExplicitEulerIntegrator;
 using drake::systems::Context;
+using drake::systems::WitnessFunction;
+using drake::systems::DiscreteValues;
 using drake::systems::rendering::PoseVector;
 
 using Eigen::Vector2d;
@@ -856,25 +858,35 @@ TEST_F(Rod2DDAETest, NumWitnessFunctions) {
 
   // Verify that the correct number of witness functions is reported for...
   // (a) Sliding single contact (default initial state).
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 3);
+  std::vector<const WitnessFunction<double>*> witnesses;
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 3);
 
   // (b) Ballistic motion.
   SetBallisticState();
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 2);
+  witnesses.clear();
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 2);
 
   // (c) Sticking single contact.
   contacts.front().state =
       RigidContact::ContactState::kContactingWithoutSliding;
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 3);
+  witnesses.clear();
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 3);
 
   // (d) Sticking two contacts.
   contacts.back().state = RigidContact::ContactState::kContactingWithoutSliding;
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 4);
+  witnesses.clear();
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 4);
 
   // (e) Sliding two contacts.
   contacts.front().state = RigidContact::ContactState::kContactingAndSliding;
   contacts.back().state = contacts.front().state;
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 4);
+  witnesses.clear();
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 4);
 }
 
 // Checks the witness function for calculating the signed distance.
@@ -1080,7 +1092,9 @@ TEST_F(Rod2DTimeSteppingTest, RodGoesToRest) {
 
 // Validates the number of witness functions is determined correctly.
 TEST_F(Rod2DTimeSteppingTest, NumWitnessFunctions) {
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 0);
+  std::vector<const WitnessFunction<double>*> witnesses;
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 0);
 }
 
 // Class that adds publishing to the Rod 2D system and uses it to determine
@@ -1882,7 +1896,9 @@ TEST_F(Rod2DCompliantTest, ForcesHaveRightSign) {
 
 // Validates the number of witness functions is determined correctly.
 TEST_F(Rod2DCompliantTest, NumWitnessFunctions) {
-  EXPECT_EQ(dut_->get_witness_functions(*context_).size(), 0);
+  std::vector<const WitnessFunction<double>*> witnesses;
+  dut_->GetWitnessFunctions(*context_, &witnesses);
+  EXPECT_EQ(witnesses.size(), 0);
 }
 
 // Verifies that output ports give expected values.

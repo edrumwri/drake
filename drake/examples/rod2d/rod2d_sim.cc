@@ -38,11 +38,12 @@ using drake::systems::rendering::PoseBundleToDrawMessage;
 using drake::systems::Simulator;
 using drake::systems::ImplicitEulerIntegrator;
 using drake::systems::RungeKutta3Integrator;
+using drake::systems::RungeKutta2Integrator;
 
 // Simulation parameters.
 DEFINE_string(simulation_type, "timestepping",
               "Type of simulation, valid values are "
-              "'timestepping','compliant'");
+              "'timestepping','compliant', 'piecewiseDAE'");
 DEFINE_double(dt, 1e-2, "Integration step size");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
 DEFINE_double(sim_duration, 10, "Simulation duration in virtual seconds");
@@ -83,6 +84,9 @@ int main(int argc, char* argv[]) {
   } else if (FLAGS_simulation_type == "compliant") {
     rod = builder.template AddSystem<Rod2D>(Rod2D::SimulationType::kCompliant,
                                             0.0);
+  } else if (FLAGS_simulation_type == "piecewiseDAE") {
+    rod = builder.template AddSystem<Rod2D>(
+        Rod2D::SimulationType::kPiecewiseDAE, 0.0); 
   } else {
     std::cerr << "Invalid simulation type '" << FLAGS_simulation_type
               << "'; note that types are case sensitive." << std::endl;
@@ -137,12 +141,20 @@ int main(int argc, char* argv[]) {
     auto mut_context = simulator.get_mutable_context();
     simulator.reset_integrator<ImplicitEulerIntegrator<double>>(*diagram,
                                                                 mut_context);
+    simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
   } else {
+    if (FLAGS_simulation_type == "timestepping") {
     auto mut_context = simulator.get_mutable_context();
-    simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
+    simulator.reset_integrator<RungeKutta2Integrator<double>>(*diagram,
+                                                              FLAGS_dt,
                                                               mut_context);
+    } else {
+      auto mut_context = simulator.get_mutable_context();
+      simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
+                                                              mut_context);
+      simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
+    }
   }
-  simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
   simulator.get_mutable_integrator()->set_maximum_step_size(FLAGS_dt);
 
   // Start simulating.

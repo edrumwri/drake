@@ -64,12 +64,9 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt) :
   }
 
   this->DeclareInputPort(systems::kVectorValued, 3);
-  this->DeclareOutputPort(systems::kVectorValued, 6);
-  this->DeclareVectorOutputPort(systems::rendering::PoseVector<T>());
-  state_output_descriptor_ = &this->DeclareOutputPort(systems::kVectorValued,
-                                                      6);
-  pose_output_descriptor_ = &this->DeclareVectorOutputPort(
-      systems::rendering::PoseVector<T>());
+  state_output_port_ = &this->DeclareVectorOutputPort(
+      systems::BasicVector<T>(6), &Rod2D::CopyStateOut);
+  pose_output_port_ = &this->DeclareVectorOutputPort(&Rod2D::CopyPoseOut);
 }
 
 // Computes the external forces on the rod.
@@ -334,8 +331,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
     // Contact is not active; see whether the signed distance witness function
     // is triggered. If so, change the contact state to sliding (arbitrarily);
     // the impact handler should be triggered.
+    const double zero_tol = 1e6 * std::numeric_limits<double>::epsilon();
     if (signed_distance_witnesses_[i]->Evaluate(context) <=
-        signed_distance_witnesses_[i]->get_positive_dead_band()) {
+        zero_tol) {
       contacts[i].state = RigidContact::ContactState::kContactingAndSliding;
       impact_occurring = true;
     }
@@ -1007,27 +1005,22 @@ Vector2<T> Rod2D<T>::CalcCoincidentRodPointVelocity(
 }
 
 template <typename T>
-void Rod2D<T>::DoCalcOutput(const systems::Context<T>& context,
-                               systems::SystemOutput<T>* output) const {
-  // Get the indices for the output ports.
-  const int state_output_port_index = state_output_descriptor_->get_index();
-  const int pose_output_port_index = pose_output_descriptor_->get_index();
-
-  // Obtain the structure we need to write into.
-  systems::BasicVector<T>* const state_port_value = output->
-      GetMutableVectorData(state_output_port_index);
-  systems::rendering::PoseVector<T>* const pose_port_value = dynamic_cast<
-      systems::rendering::PoseVector<T>*>(output->GetMutableVectorData(
-          pose_output_port_index));
-  DRAKE_ASSERT(state_port_value != nullptr);
-  DRAKE_ASSERT(pose_port_value != nullptr);
-
-  // Convert state to pose.
-  const VectorX<T>& state = (simulation_type_ ==
-      SimulationType::kTimeStepping) ?
-          context.get_discrete_state(0)->CopyToVector() :
-          context.get_continuous_state()->CopyToVector();
+void Rod2D<T>::CopyStateOut(const systems::Context<T>& context,
+                            systems::BasicVector<T>* state_port_value) const {
+  // Output port value is just the continuous or discrete state.
+  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
+                               ? context.get_discrete_state(0)->CopyToVector()
+                               : context.get_continuous_state()->CopyToVector();
   state_port_value->SetFromVector(state);
+}
+
+template <typename T>
+void Rod2D<T>::CopyPoseOut(
+    const systems::Context<T>& context,
+    systems::rendering::PoseVector<T>* pose_port_value) const {
+  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
+                               ? context.get_discrete_state(0)->CopyToVector()
+                               : context.get_continuous_state()->CopyToVector();
   ConvertStateToPose(state, pose_port_value);
 }
 
@@ -1446,7 +1439,7 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
 template <class T>
 void Rod2D<T>::CalcTwoContactSlidingForces(
     const systems::Context<T>& context, Vector2<T>* fN, Vector2<T>* fF) const {
-  using std::fabs;
+  using std::abs;
 
   // Get the necessary state variables.
   const VectorX<T> state = context.get_continuous_state_vector().
@@ -1528,7 +1521,7 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   Vector2<T> qq;
   qq = N * M_inv * fext + Ndot * v;
 
-  // Form the 2x2 linear complementarity problem.
+  // Form the 2x2 linear complementarity problem matrix.
   Matrix2<T> MM;
   MM = N * M_inv * (N.transpose() - mu * F.transpose());
 
@@ -1554,7 +1547,7 @@ void Rod2D<T>::CalcTwoContactSlidingForces(
   // copositive problem without actually finding a solution. Thus, we also
   // check that the LCP solution really is a solution.
   if (!success || zz.minCoeff() < -zero_tol || ww.minCoeff() < -zero_tol ||
-      fabs(zz.dot(ww)) > zero_tol)
+      abs(zz.dot(ww)) > zero_tol)
     throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
 
   // Obtain the normal and frictional contact forces.
@@ -1816,7 +1809,7 @@ Vector3<T> Rod2D<T>::CalcCompliantContactForces(
   // Depends on continuous state being available.
   DRAKE_DEMAND(simulation_type_ == SimulationType::kCompliant);
 
-  using std::fabs;
+  using std::abs;
   using std::max;
 
   // Get the necessary parts of the state.
@@ -1851,7 +1844,7 @@ Vector3<T> Rod2D<T>::CalcCompliantContactForces(
       const T fD = fK * get_dissipation() * hdot;
       const T fN = max(fK + fD, T(0));
       const T mu = CalcMuStribeck(get_mu_static(), get_mu_coulomb(),
-                                  fabs(v) / get_stiction_speed_tolerance());
+                                  abs(v) / get_stiction_speed_tolerance());
       const T fF = -mu * fN * T(sign_v);
 
       // Find the point Rc of the rod that is coincident with the contact point
@@ -1875,7 +1868,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactSliding(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::fabs;
+  using std::abs;
   using std::max;
 
   // Get the necessary parts of the state.
@@ -2004,7 +1997,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::fabs;
+  using std::abs;
 
   // Obtain the structure we need to write into.
   systems::VectorBase<T>* const f = derivatives->get_mutable_vector();
@@ -2041,7 +2034,7 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
   // Recompute fF if it does not lie within the friction cone.
   // Constrain F such that it lies on the edge of the friction cone.
   const double mu = get_mu_coulomb();
-  if (fabs(fF) > mu * fN) {
+  if (abs(fF) > mu * fN) {
     // Set named Mathematica constants.
     const double mass = get_rod_mass();
     const double r = 2 * get_rod_half_length();
@@ -2094,7 +2087,7 @@ void Rod2D<T>::CalcAccelerationsOneContactNoSliding(
     const T cxddot2 = calc_tan_accel(fN2, fF2);
 
     // Pick the one that is smaller in magnitude.
-    if (fabs(cxddot1) < fabs(cxddot2)) {
+    if (abs(cxddot1) < abs(cxddot2)) {
       SetAccelerations(context, fN1, fF1, c, f);
     } else {
       SetAccelerations(context, fN2, fF2, c, f);
@@ -2114,7 +2107,7 @@ template <class T>
 void Rod2D<T>::CalcAccelerationsTwoContact(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-  using std::fabs;
+  using std::abs;
 
   // Get the necessary parts of the state.
   const systems::VectorBase<T>& state = context.get_continuous_state_vector();
@@ -2137,7 +2130,7 @@ void Rod2D<T>::CalcAccelerationsTwoContact(
 
   // Call the appropriate contact force computation method.
   Vector2<T> fN, fF;
-  if (fabs(xdot) < std::numeric_limits<double>::epsilon()) {
+  if (abs(xdot) < std::numeric_limits<double>::epsilon()) {
     CalcTwoContactNoSlidingForces(context, &fN, &fF);
   } else {
     CalcTwoContactSlidingForces(context, &fN, &fF);
@@ -2165,7 +2158,7 @@ Matrix2<T> Rod2D<T>::get_rotation_matrix_derivative(
 
 template <class T>
 bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
-  using std::fabs;
+  using std::abs;
   using std::max;
 
   // Get the contact states.
@@ -2181,8 +2174,8 @@ bool Rod2D<T>::IsImpacting(const systems::State<T>& state) const {
   // Compute the zero tolerance.
   const int ndim = 2;
   const T zero_tol = 100 * ndim * std::numeric_limits<double>::epsilon() *
-                       max(10.0, max(fabs(xdot), max(fabs(ydot),
-                                                     fabs(thetadot))));
+                       max(10.0, max(abs(xdot), max(abs(ydot),
+                                                    abs(thetadot))));
 
   // Loop through all points of contact.
   for (size_t i = 0; i < contacts.size(); ++i) {
@@ -2249,7 +2242,7 @@ template <typename T>
 VectorX<T> Rod2D<T>::SolveContactProblem(const systems::Context<T>& context,
     RigidContactAccelProblemData<T>* problem_data) const {
   using std::max;
-  using std::fabs;
+  using std::abs;
   DRAKE_DEMAND(problem_data);
 
   // Populate problem data.
@@ -2318,14 +2311,14 @@ VectorX<T> Rod2D<T>::SolveContactProblem(const systems::Context<T>& context,
     // Check the answer and throw a runtime error if it's no good.
     if (!success || (zz.size() > 0 && (zz.minCoeff() < -10*zero_tol ||
         ww.minCoeff() < -10*zero_tol ||
-        fabs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
+        abs(zz.dot(ww)) > nvars * 100 * zero_tol))) {
       throw std::runtime_error("Unable to solve LCP- it may be unsolvable.");
     }
 
     // Get the contact forces in the contact frame.
     cf.segment(0, nc) = zz.segment(0, nc);
     cf.segment(nc, half_nk) = zz.segment(nc, half_nk) -
-        zz.segment(nc + half_nk, half_nk);
+    zz.segment(nc + half_nk, half_nk);
   } else {
     // No contacts transitioning means that an easier problem can be solved.
     FormSustainedContactLinearSystem(context, *problem_data, &MM, &qq);

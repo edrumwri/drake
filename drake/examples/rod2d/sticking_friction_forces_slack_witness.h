@@ -16,9 +16,11 @@ class Rod2D;
 template <class T>
 class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
  public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(StickingFrictionForcesSlackWitness)
+
   StickingFrictionForcesSlackWitness(const Rod2D<T>* rod, int contact_index) :
-      systems::WitnessFunction<T>(rod, 
-          WitnessFunctionDirection::kPositiveThenNegative,
+      systems::WitnessFunction<T>(*rod, 
+          systems::WitnessFunctionDirection::kPositiveThenNonPositive,
           systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction), 
       rod_(rod),
       contact_index_(contact_index) {
@@ -27,7 +29,7 @@ class StickingFrictionForcesSlackWitness : public systems::WitnessFunction<T> {
 
  protected:
   /// The witness function itself.
-  T DoEvaluate(const systems::Context<T>& context) override {
+  T DoEvaluate(const systems::Context<T>& context) const override {
     using std::sin;
     using std::abs;
 
