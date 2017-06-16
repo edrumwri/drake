@@ -38,7 +38,6 @@ using drake::systems::rendering::PoseBundleToDrawMessage;
 using drake::systems::Simulator;
 using drake::systems::ImplicitEulerIntegrator;
 using drake::systems::RungeKutta3Integrator;
-using drake::systems::RungeKutta2Integrator;
 
 // Simulation parameters.
 DEFINE_string(simulation_type, "timestepping",
@@ -141,20 +140,12 @@ int main(int argc, char* argv[]) {
     auto mut_context = simulator.get_mutable_context();
     simulator.reset_integrator<ImplicitEulerIntegrator<double>>(*diagram,
                                                                 mut_context);
-    simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
   } else {
-    if (FLAGS_simulation_type == "timestepping") {
     auto mut_context = simulator.get_mutable_context();
-    simulator.reset_integrator<RungeKutta2Integrator<double>>(*diagram,
-                                                              FLAGS_dt,
+    simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
                                                               mut_context);
-    } else {
-      auto mut_context = simulator.get_mutable_context();
-      simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
-                                                              mut_context);
-      simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
-    }
   }
+  simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
   simulator.get_mutable_integrator()->set_maximum_step_size(FLAGS_dt);
 
   // Start simulating.
