@@ -17,6 +17,10 @@ If the build fails for other various reasons you can rebuild:
 
 * "@drake-jenkins-bot retest this please" to start a new build.
 
+or, for performing a single test:
+
+* "@drake-jenkins-bot linux-xenial-clang-bazel-experimental-memcheck-lsan please", where "linux-xenial-clang-bazel-experimental-memcheck-lsan" is the name of the failed test.
+
 You can also view the `Jenkins UI <https://drake-jenkins.csail.mit.edu/>`_
 directly.
 
