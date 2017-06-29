@@ -46,10 +46,12 @@ own projects.  Please consider contributing to our :doc:`gallery` by editing
 Licensing
 =========
 
-**Important note:** Drake is an open source project licensed under
+**Important note:** Drake is an open source project licensed_ under
 extremely flexible terms intended to encourage use by anyone, for any
 purpose. When you make a contribution to the Drake project, you are
 agreeing to do so under those same terms.
+
+.. _licensed: https://github.com/RobotLocomotion/drake/blob/master/LICENSE.TXT
 
 Testing
 =======

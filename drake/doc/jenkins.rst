@@ -24,6 +24,19 @@ or, for performing a single test:
 You can also view the `Jenkins UI <https://drake-jenkins.csail.mit.edu/>`_
 directly.
 
+.. _building a failed build locally:
+
+Building a Failed Remote Build Locally
+======================================
+
+A common process for fixing a failed CI build is examining the CI log messages,
+writing a candidate fix, committing, pushing, and then waiting for CI to check the build again. You can instead build the remote build locally by:
+
+1. Finding the BAZEL_BUILD_TEST_OPTIONS in the console text of the failed CI build (e.g., "--compilation_mode=opt --compiler=gcc-5 --keep_going")
+2. Run bazel test with those same options (e.g., "bazel test --compilation_mode=opt --compiler=gcc-5 --keep_going //...") from the drake distro directory. 
+
+These instructions are, of course, bazel-specific.
+
 .. _run_specific_build:
 
 Running an On-Demand Build
