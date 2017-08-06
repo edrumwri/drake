@@ -56,7 +56,15 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // Get the generalized inertia matrix and set up the inertia solve function.
   auto H = tree_->massMatrix(kinsol);
-  
+
+  // Compute the LDLT factorization, which will be used by the solver.
+  Eigen::LDLT<MatrixX<double>> ldlt(H);
+  DRAKE_DEMAND(ldlt.info() == Eigen::Success);
+
+  // Set the inertia solver.
+  data->solve_inertia = [&ldlt](const MatrixX<T>& m) {
+    return ldlt.solve(m);
+  };
 
   // There are no external wrenches, but it is a required argument in
   // dynamicsBiasTerm().
