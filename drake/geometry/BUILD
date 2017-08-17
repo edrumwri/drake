@@ -29,7 +29,9 @@ drake_cc_library(
     srcs = ["geometry_instance.cc"],
     hdrs = ["geometry_instance.h"],
     deps = [
+        ":shape_specification",
         "//drake/common",
+        "//drake/common:copyable_unique_ptr",
     ],
 )
 
@@ -42,6 +44,7 @@ drake_cc_library(
         ":geometry_ids",
         ":geometry_instance",
         ":internal_frame",
+        ":internal_geometry",
     ],
 )
 
@@ -73,9 +76,26 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "internal_geometry",
+    srcs = [],
+    hdrs = ["internal_geometry.h"],
+    deps = [
+        ":geometry_ids",
+        "//drake/common",
+    ],
+)
+
+drake_cc_library(
     name = "identifier",
     srcs = [],
     hdrs = ["identifier.h"],
+    deps = ["//drake/common"],
+)
+
+drake_cc_library(
+    name = "shape_specification",
+    srcs = ["shape_specification.cc"],
+    hdrs = ["shape_specification.h"],
     deps = ["//drake/common"],
 )
 
@@ -85,6 +105,14 @@ drake_cc_library(
     name = "expect_error_message",
     srcs = [],
     hdrs = ["test/expect_error_message.h"],
+)
+
+drake_cc_googletest(
+    name = "geometry_state_test",
+    deps = [
+        ":expect_error_message",
+        ":geometry_state",
+    ],
 )
 
 drake_cc_googletest(
@@ -98,6 +126,15 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "identifier_test",
     deps = [":identifier"],
+)
+
+drake_cc_googletest(
+    name = "shape_specification_test",
+    deps = [
+        ":shape_specification",
+        "//drake/common:eigen_matrix_compare",
+        "//drake/common:is_dynamic_castable",
+    ],
 )
 
 add_lint_tests()

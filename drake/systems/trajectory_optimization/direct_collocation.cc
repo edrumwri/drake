@@ -17,11 +17,20 @@ DircolTrajectoryOptimization::DircolTrajectoryOptimization(
     : systems::DirectTrajectoryOptimization(
           system->get_num_total_inputs(),
           context.get_continuous_state()->size(), num_time_samples,
-          trajectory_time_lower_bound, trajectory_time_upper_bound),
+          trajectory_time_lower_bound / (num_time_samples - 1),
+          trajectory_time_upper_bound / (num_time_samples - 1)),
       system_(system),
       context_(system_->CreateDefaultContext()),
       continuous_state_(system_->AllocateTimeDerivatives()) {
   DRAKE_DEMAND(context.has_only_continuous_state());
+
+  // TODO(russt):  This should NOT be set automatically.
+  // Once it is removed, the proper constraint to be added will be
+  //   AddDurationBounds(trajectory_time_lower_bound,
+  //                     trajectory_time_upper_bound);
+  // but that constraint is currently implied already by the min/max
+  // timestep + all timesteps equal constraints.
+  AddEqualTimeIntervalsConstraints();
 
   context_->SetTimeStateAndParametersFrom(context);
 
@@ -51,60 +60,6 @@ DircolTrajectoryOptimization::DircolTrajectoryOptimization(
   }
 }
 
-namespace {
-/// Since the running cost evaluation needs the timestep mangled, we
-/// need to wrap it and convert the input.
-class RunningCostEndWrapper : public solvers::Cost {
- public:
-  explicit RunningCostEndWrapper(const std::shared_ptr<solvers::Cost>& cost)
-      : solvers::Cost(cost->num_vars()), cost_(cost) {}
-
- protected:
-  void DoEval(const Eigen::Ref<const Eigen::VectorXd>&,
-              Eigen::VectorXd&) const override {
-    throw std::runtime_error("Non-Taylor constraint eval not implemented.");
-  }
-
-  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
-              AutoDiffVecXd& y) const override {
-    AutoDiffVecXd wrapped_x = x;
-    wrapped_x(0) *= 0.5;
-    cost_->Eval(wrapped_x, y);
-  };
-
- private:
-  const std::shared_ptr<Cost> cost_;
-};
-
-class RunningCostMidWrapper : public solvers::Cost {
- public:
-  explicit RunningCostMidWrapper(const std::shared_ptr<solvers::Cost>& cost)
-      : Cost(cost->num_vars() + 1),  // We wrap x(0) and x(1) into
-                                     // (x(0) + x(1)) * 0.5, so one
-                                     // less variable when calling
-                                     // Eval.
-        cost_(cost) {}
-
- protected:
-  void DoEval(const Eigen::Ref<const Eigen::VectorXd>&,
-              Eigen::VectorXd&) const override {
-    throw std::runtime_error("Non-Taylor constraint eval not implemented.");
-  }
-
-  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
-              AutoDiffVecXd& y) const override {
-    AutoDiffVecXd wrapped_x(x.rows() - 1);
-    wrapped_x.tail(x.rows() - 2) = x.tail(x.rows() - 2);
-    wrapped_x(0) = (x(0) + x(1)) * 0.5;
-    cost_->Eval(wrapped_x, y);
-  };
-
- private:
-  const std::shared_ptr<solvers::Cost> cost_;
-};
-
-}  // anon namespace
-
 void DircolTrajectoryOptimization::DoAddRunningCost(
     const symbolic::Expression& g) {
   // Trapezoidal integration:
@@ -121,42 +76,40 @@ void DircolTrajectoryOptimization::DoAddRunningCost(
           SubstitutePlaceholderVariables(g * h_vars()(N() - 2) / 2, N() - 1));
 }
 
-// We just use a generic constraint here since we need to mangle the
-// input and output anyway.
-void DircolTrajectoryOptimization::DoAddRunningCost(
-    std::shared_ptr<solvers::Cost> cost) {
-  AddCost(std::make_shared<RunningCostEndWrapper>(cost),
-          {h_vars().head(1), x_vars().head(num_states()),
-           u_vars().head(num_inputs())});
+PiecewisePolynomialTrajectory
+DircolTrajectoryOptimization::ReconstructInputTrajectory() const {
+  Eigen::VectorXd times = GetSampleTimes();
+  std::vector<double> times_vec(N());
+  std::vector<Eigen::MatrixXd> inputs(N());
 
-  for (int i = 1; i < N() - 1; i++) {
-    AddCost(std::make_shared<RunningCostMidWrapper>(cost),
-            {h_vars().segment(i - 1, 2),
-             x_vars().segment(i * num_states(), num_states()),
-             u_vars().segment(i * num_inputs(), num_inputs())});
+  for (int i = 0; i < N(); i++) {
+    times_vec[i] = times(i);
+    inputs[i] = GetSolution(input(i));
   }
-
-  AddCost(std::make_shared<RunningCostEndWrapper>(cost),
-          {h_vars().tail(1), x_vars().tail(num_states()),
-           u_vars().tail(num_inputs())});
+  return PiecewisePolynomialTrajectory(
+      PiecewisePolynomial<double>::FirstOrderHold(times_vec, inputs));
 }
 
 PiecewisePolynomialTrajectory
 DircolTrajectoryOptimization::ReconstructStateTrajectory() const {
-  const std::vector<Eigen::MatrixXd> input_vec = GetInputVector();
-  const std::vector<Eigen::MatrixXd> state_vec = GetStateVector();
-  std::vector<Eigen::MatrixXd> derivatives;
-  derivatives.reserve(input_vec.size());
+  // TODO(russt): Fix this!  It's not using the same interpolation scheme as the
+  // actual collocation method.
+  Eigen::VectorXd times = GetSampleTimes();
+  std::vector<double> times_vec(N());
+  std::vector<Eigen::MatrixXd> states(N());
+  std::vector<Eigen::MatrixXd> derivatives(N());
 
-  for (size_t i = 0; i < input_vec.size(); ++i) {
+  for (int i = 0; i < N(); i++) {
+    times_vec[i] = times(i);
+    states[i] = GetSolution(state(i));
     input_port_value_->GetMutableVectorData<double>()->SetFromVector(
-        input_vec[i]);
-    context_->get_mutable_continuous_state()->SetFromVector(state_vec[i]);
+        GetSolution(input(i)));
+    context_->get_mutable_continuous_state()->SetFromVector(states[i]);
     system_->CalcTimeDerivatives(*context_, continuous_state_.get());
-    derivatives.push_back(continuous_state_->CopyToVector());
+    derivatives[i] = continuous_state_->CopyToVector();
   }
-  return PiecewisePolynomialTrajectory(PiecewisePolynomial<double>::Cubic(
-      GetTimeVector(), state_vec, derivatives));
+  return PiecewisePolynomialTrajectory(
+      PiecewisePolynomial<double>::Cubic(times_vec, states, derivatives));
 }
 
 }  // namespace systems

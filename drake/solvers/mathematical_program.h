@@ -1017,9 +1017,9 @@ class MathematicalProgram {
    * Add a linear constraint represented by a symbolic formula to the
    * program. The input formula @p f can be of the following forms:
    *
-   *  1. e1  <=  e2 , which is 0 <= e2 - e1 <= ∞
-   *  2. e1  >=  e2 , which is 0 <= e1 - e2 <= ∞
-   *  3. e1  ==  e2
+   *  1. e1 <= e2
+   *  2. e1 >= e2
+   *  3. e1 == e2
    *  4. A conjunction of relational formulas where each conjunct is
    *     a relational formula matched by 1, 2, or 3.
    *
@@ -1033,6 +1033,10 @@ class MathematicalProgram {
    *  2. @p f includes a non-linear expression.
    *  3. @p f is either a trivial constraint such as "1 <= 2" or an
    *     unsatisfiable constraint such as "2 <= 1".
+   *  4. It is not possible to find numerical bounds of `e1` and `e2` where @p f
+   *     = e1 ≃ e2. We allow `e1` and `e2` to be infinite but only if there are
+   *     no other terms. For example, `x <= ∞` is allowed. However, `x - ∞ <= 0`
+   *     is not allowed because `x ↦ ∞` introduces `nan` in the evaluation.
    */
   Binding<LinearConstraint> AddLinearConstraint(const symbolic::Formula& f);
 
@@ -1053,17 +1057,12 @@ class MathematicalProgram {
    *
    * A formula in @p formulas can be of the following forms:
    *
-   *  1. e1 <= e2 , which is -∞ <= e1 - e2 <= 0
-   *  2. e1 >= e2 , which is  0 <= e1 - e2 <= ∞
-   *  3. e1 == e2 , which is  0 <= e1 - e2 <= 0
+   *  1. e1 <= e2
+   *  2. e1 >= e2
+   *  3. e1 == e2
    *
-   * It throws an exception if
-   *  1. A formula in @p formulas is not matched with one of the above
-   *     patterns. Especially, strict inequalities (<, >) are not allowed.
-   *  2. A formula in @p formulas includes a non-linear expression.
-   *  3. A formula in @p formulas is either a trivial constraint such
-   *     as "1 <= 2" or an unsatisfiable constraint such as "2 <= 1".
-   *
+   * It throws an exception if AddLinearConstraint(const symbolic::Formula& f)
+   * throws an exception for f ∈ @p formulas.
    * @tparam Derived An Eigen Array type of Formula.
    */
   template <typename Derived>
@@ -2096,15 +2095,6 @@ class MathematicalProgram {
   /** Getter for the initial guess */
   const Eigen::VectorXd& initial_guess() const { return x_initial_guess_; }
 
-  /**
-   * Returns the solution in a flat Eigen::VectorXd. The caller needs to
-   * compute the solution first by calling Solve.
-   * @return a flat Eigen vector that represents the solution.
-   */
-  const Eigen::VectorXd GetSolutionVectorValues() const {
-    return GetSolution(decision_variables_);
-  }
-
   /** Returns the index of the decision variable. Internally the solvers thinks
    * all variables are stored in an array, and it acceses each individual
    * variable using its index. This index is used when adding constraints
@@ -2170,7 +2160,7 @@ class MathematicalProgram {
    */
   template <typename C>
   Eigen::VectorXd EvalBindingAtSolution(const Binding<C>& binding) const {
-    Eigen::VectorXd val(binding.constraint()->num_constraints());
+    Eigen::VectorXd val(binding.constraint()->num_outputs());
     Eigen::VectorXd binding_var_vals = GetSolution(binding.variables());
     binding.constraint()->Eval(binding_var_vals, val);
     return val;
