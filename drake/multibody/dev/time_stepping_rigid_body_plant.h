@@ -11,7 +11,7 @@
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 #include "drake/multibody/rigid_body_tree.h"
-#include "drake/multibody/rigid_constraint/rigid_constraint_solver.h"
+#include "drake/multibody/constraint/constraint_solver.h"
 
 namespace drake {
 namespace systems {
@@ -55,8 +55,10 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
 
   // Pointer to the class that encapsulates all the rigid constraint
   // computations.
-  const std::unique_ptr<multibody::rigid_constraint::RigidConstraintModel<T>>
-      constraint_model_;
+  multibody::constraint::ConstraintSolver<T> constraint_solver_;
+
+ private:
+
 };
 
 }  // namespace systems
