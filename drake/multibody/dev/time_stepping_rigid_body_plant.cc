@@ -28,12 +28,16 @@ namespace drake {
 namespace systems {
 
 template <typename T>
-TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
-                                  double timestep)
+TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
+    std::unique_ptr<const RigidBodyTree<T>> tree, double timestep)
     : RigidBodyPlant<T>(tree, timestep), rigid_constraint_model_(
     std::make_unique<RigidConstraintModel<T>>()) {
 
   // Verify that the time-step is strictly positive.
+  if (timestep <= 0.0) {
+    throw std::logic_error("TimeSteppingRigidBodyPlant requires a positive "
+                               "integration time step.");
+  }
 }
 
 template <typename T>
@@ -42,10 +46,11 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     const std::vector<const drake::systems::DiscreteUpdateEvent<double>*>&,
     drake::systems::DiscreteValues<T>* updates) const {
   using std::abs;
+  std::vector<JointLimit> limits;
 
   static_assert(std::is_same<double, T>::value,
                 "Only support templating on double for now");
-  if (timestep_ == 0.0) return;
+  DRAKE_DEMAND(timestep_ > 0.0);
 
   VectorX<T> u = EvaluateActuatorInputs(context);
 
@@ -106,39 +111,71 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // Determine the contact Jacobians corresponding to each projected direction
   // at each point of contact.
 
-  // Set the joint limits.
+  // Set the joint range of motion limits.
+  for (auto const& b : tree_->bodies) {
+    if (!b->has_parent_body()) continue;
+    auto const& joint = b->getJoint();
 
-  // Applies joint limit forces.
-  // TODO(amcastro-tri): Maybe move to
-  // RBT::ComputeGeneralizedJointLimitForces(C)?
-  {
-    for (auto const& b : tree_->bodies) {
-      if (!b->has_parent_body()) continue;
-      auto const& joint = b->getJoint();
-      // Joint limit forces are only implemented for single-axis joints.
-      if (joint.get_num_positions() == 1 && joint.get_num_velocities() == 1) {
-        const T limit_force =
-            JointLimitForce(joint, q(b->get_position_start_index()),
-                            v(b->get_velocity_start_index()));
-        right_hand_side(b->get_velocity_start_index()) += limit_force;
+    // Joint limit forces are only implemented for single-axis joints.
+    if (joint.get_num_positions() == 1 && joint.get_num_velocities() == 1) {
+      const T qmin = joint.getJointLimitMin()(0);
+      const T qmax = joint.getJointLimitMax()(0);
+      DRAKE_DEMAND(qmin < qmax);
+
+      // Get the current joint position and velocity.
+      const T& qjoint = q(b->get_position_start_index());
+      const T& vjoint = v(b->get_velocity_start_index());
+
+      // See whether the *current* joint velocity might lead to a limit
+      // violation.
+      if (qjoint < qmin || qjoint + vjoint*timestep_ < qmin) {
+        // Institute a lower limit.
+        limits.push_back(JointLimit());
+        limits.back().v_index = b->get_velocity_start_index();
+        limits.back().error = (qjoint - qmin)/timestep_ * erp_;
+        limits.back().lower_limit = true;
+      }
+      if (qjoint > qmax || qjoint + vjoint*timestep_ > qmax) {
+        // Institute an upper limit.
+        limits.push_back(JointLimit());
+        limits.back().v_index = b->get_velocity_start_index();
+        limits.back().error = (qmax - qjoint)/timestep_ * erp_;
+        limits.back().lower_limit = false;
       }
     }
   }
 
-  // Set the constraint violations.
+  // Set the number of generic unilateral constraint functions.
+  data->num_limit_constraints = limits.size();
+
+  // Set the constraint Jacobian transpose operator.
+  data->L_mult = [this, &limits](const VectorX<T>& v) -> VectorX<T> {
+    VectorX<T> result(limits.size());
+    for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
+      const int index = limits[i].v_index;
+      result[i] = (limits[i].lower_limit) ? v[index] : -v[index];
+    }
+    return result;
+  };
+  data->L_transpose_mult = [this, &v, &limits](const VectorX<T>& lambda) {
+    VectorX<T> result(v.size());
+    for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
+      const int index = limits[i].v_index;
+      result[index] = (limits[i].lower_limit) ? lambda[i] : -lambda[i];
+    }
+    return result;
+  };
+
+  // Set the constraint error.
 
   // Integrate the forces into the velocity.
   data.v = v + right_hand_side * timestep_;
 
   // Solve the rigid impact problem.
-  const double cfm = 1e-8;
   VectorX<T> vnew, cf;
-  constraint_solver_.SolveImpactProblem(cfm, data, &cf);
+  constraint_solver_.SolveImpactProblem(cfm_, data, &cf);
   constraint_solver_.ComputeGeneralizedVelocityChange(data, cf, &vnew);
   vnew += v;
-
-  // TODO(russt): Handle joint limits.
-  // TODO(russt): Handle contact constraints.
 
   // qn = q + h*qdot.
   VectorX<T> xn(get_num_states());
