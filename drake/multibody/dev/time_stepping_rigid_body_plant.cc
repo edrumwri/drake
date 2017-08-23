@@ -87,7 +87,6 @@ Vector3<T> TimeSteppingRigidBodyPlant<T>::CalcRelTranslationalVelocity(
 // contact normals.
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
-    const Context<T>& context,
     const std::vector<ContactData>& contacts,
     const VectorX<T>& q,
     const VectorX<T>& v) const {
@@ -111,43 +110,17 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
 }
 
 // Evaluates the relative velocities between two bodies projected along the
-// contact normals.
-template <class T>
-VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
-    const Context<T>& context,
-    const std::vector<ContactData>& contacts,
-    const VectorX<T>& q,
-    const VectorX<T>& v) const {
-  const auto& tree = this->get_tree();
-  auto kinsol = tree.doKinematics(q, v);
-
-  // Create a result vector.
-  VectorX<T> result(contacts.size());
-
-  // Loop through all contacts.
-  for (int i = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
-    // The *relative* velocity of the contact point in A relative to that in
-    // B.
-    const auto v_W = CalcRelTranslationalVelocity(kinsol, p_W);
-
-    // Get the projected normal velocity.
-    result[i] = v_W.dot(contacts[i].normal);
-  }
-
-  return result;
-}
-
-// Evaluates the relative velocities between two bodies projected along the
-// contact normals.
+// contact tangent directions.
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
-    const Context<T>& context,
     const std::vector<ContactData>& contacts,
     const VectorX<T>& q,
     const VectorX<T>& v) const {
+  using std::cos;
+  using std::sin;
+
   const auto& tree = this->get_tree();
   std::vector<Vector3<T>> basis_vecs;
-
   auto kinsol = tree.doKinematics(q, v);
 
   // Create a result vector.
@@ -163,16 +136,21 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
 
     // Set spanning tangent directions.
     basis_vecs.resize(contacts[i].num_contact_edges);
-    basis_vecs.front() = tan1_dir;
-    basis_vecs.back() = tan2_dir;
-    for (int j = 1; j < contacts[i].num_cone_edges - 1; ++j) {
-      double theta = M_PI * j / contacts[i].num_cone_edges;
+    if (contacts[i].num_contact_edges == 2) {
+      // Special case: pyramid friction.
+      basis_vecs.front() = tan1_dir;
+      basis_vecs.back() = tan2_dir;
+    } else {
+      for (int j = 0; j < contacts[i].num_cone_edges; ++j) {
+        double theta = M_PI * j / (contacts[i].num_cone_edges - 1);
+        basis_vecs[i] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
+      }
     }
 
     // Loop over the spanning tangent directions.
-    for (int j = 0; j < contacts[i].num_cone_edges; ++j) {
+    for (int j = 0; j < basis_vecs.size(); ++j) {
       // Get the projected tangent velocity.
-      result[k++] = v_W.dot(contacts[i].normal);
+      result[k++] = v_W.dot(basis_vecs[j]);
     }
   }
 
@@ -214,28 +192,45 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // Get the generalized inertia matrix and set up the inertia solve function.
   auto H = tree.massMatrix(kinsol);
 
-  // Get H as a sparse matrix.
-  std::vector<Eigen::Triplet<double>> coefficients;
-  Eigen::SparseMatrix<double> sparseH(H.rows(), H.cols());
-  const double zero_tol = 1e-12;
-  for (int i = 0; i < H.rows(); ++i) {
-    for (int j = 0; j < H.cols(); ++j) {
-      if (abs(H(i,j)) > zero_tol) {
-        const T& value = H(i,j);
-        coefficients.push_back(Eigen::Triplet<double>(i, j, value));
-        coefficients.push_back(Eigen::Triplet<double>(j, i, value));
+  // TODO: Get H as a vector of block matrices.
+  std::vector<Eigen::Ref<MatrixX<T>>> H_blocks;
+  for (int i = 0; i < tree.get_num_model_instances(); ++i) {
+    std::vector<const RigidBody<T>*> bodies = tree.FindModelInstanceBodies(i);
+
+    // Determine the generalized velocity starting index and number of values
+    // for this body.
+    int gv_start = -1, nv = 0;
+    for (int j = 0; static_cast<size_t>(j) < bodies.size(); ++j) {
+      const RigidBody<T>& body_j = *bodies[j];
+      if (body_j.has_parent_body()) {
+        int v_start_j = body_j.get_velocity_start_index();
+        int nv_j = body_j.getJoint().get_num_velocities();
+        gv_start = min(gv_start, v_start_j);
+        nv += nv_j;
       }
     }
+
+    // Get the corresponding block of H.
+    H_blocks.push_back(H.block(gv_start, gv_start, nv, nv));
   }
-  sparseH.setFromTriplets(coefficients.begin(), coefficients.end());
 
-  // Compute the LDLT factorization, which will be used by the solver.
-  Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(sparseH);
-  DRAKE_DEMAND(ldlt.info() == Eigen::Success);
+  // Compute the LDLT factorizations, which will be used by the solver.
+  std::vector<Eigen::LDLT<Eigen::Matrix<T>>> ldlt(H_blocks.size());
+  for (int i = 0; static_cast<size_t>(i) < H_blocks.size(); ++i) {
+    ldlt[i].compute(H_blocks[i]);
+    DRAKE_DEMAND(ldlt[i].info() == Eigen::Success);
+  }
 
-  // Set the inertia solver.
+  // Set the inertia matrix solver.
   data->solve_inertia = [this, &ldlt](const MatrixX<T>& m) {
-    return ldlt.solve(m);
+    DRAKE_DEMAND(m.rows() == v.size());
+    MatrixX<T> result(v.size(), m.cols());
+    for (int i = 0, start = 0; static_cast<size_t>(i) < H_blocks.size(); ++i) {
+      result.block(start, 0, H_blocks[i].rows(), m.cols()) =
+          ldlt[i].solve(m.block(start, 0, H_blocks[i].rows(), m.cols()))
+      start += H_blocks[i].rows();
+    }
+    return result;
   };
 
   // There are no external wrenches, but it is a required argument in
@@ -292,11 +287,21 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   }
 
   // Set the number of generic unilateral constraint functions.
-  data->num_limit_constraints = limits.size();
+  data.num_limit_constraints = limits.size();
+
+  // Set up the N multiplication operator.
+  data.N_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
+    return N_mult(contacts, q, w);
+  };
+
+  // Set up the F multiplication operator.
+  data.F_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
+    return F_mult(contacts, q, w);
+  };
 
   /*
   // Set the constraint Jacobian transpose operator.
-  data->L_mult = [this, &limits](const VectorX<T>& v) -> VectorX<T> {
+  data.L_mult = [this, &limits](const VectorX<T>& v) -> VectorX<T> {
     VectorX<T> result(limits.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
@@ -304,7 +309,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     }
     return result;
   };
-  data->L_transpose_mult = [this, &v, &limits](const VectorX<T>& lambda) {
+  data.L_transpose_mult = [this, &v, &limits](const VectorX<T>& lambda) {
     VectorX<T> result(v.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
