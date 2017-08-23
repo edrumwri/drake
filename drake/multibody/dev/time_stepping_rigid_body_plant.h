@@ -75,6 +75,30 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
 
   // Structure for storing contact data for time stepping.
   struct ContactData {
+    /// Model Id of Body A participating in the contact.
+    int idA{0};
+
+    /// Model Id of Body B participating in the contact.
+    int idB{0};
+
+    /// Point of contact on the surface of Body A, expressed in A's frame.
+    Vector3<T> ptA;
+
+    /// Point of contact on the surface of Body B, expressed in B's frame.
+    Vector3<T> ptB;
+
+    /// Coefficient of friction at the point of contact. A small amount of
+    /// friction is employed by default.
+    double mu{0.1};
+
+    /// Outward-pointing normal on body B, expressed in the world frame. On
+    /// Body A it points in the opposite direction.
+    Vector3<T> normal;
+
+    /// The number of edges in the friction cone approximation. Must be a
+    /// multiple of two *and* must be at least two.
+    int num_cone_edges{2};
+
     // Gets the "error", meaning the amount of interpenetration (if the error
     // is positive) or separation distance (if the error is negative). Negative
     // error is not error per se, but rather a way to limit the relative motion

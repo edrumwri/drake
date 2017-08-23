@@ -235,6 +235,9 @@ class RigidBodyPlant : public LeafSystem<T> {
     }
   }
 
+  /// Gets a reference to the rigid body tree for this plant.
+  const RigidBodyTree<T>& get_tree() const { return *tree_; }
+
   /// Computes the force exerted by the stop when a joint hits its limit,
   /// using a linear stiffness model.
   /// Exposed for unit testing of the formula.
@@ -320,6 +323,9 @@ class RigidBodyPlant : public LeafSystem<T> {
   }
   ///@}
 
+  /// Gets the time step that this RigidBodyPlant was constructed with.
+  double get_time_step() const { return timestep_; }
+
  protected:
   // LeafSystem<T> overrides.
 
@@ -366,6 +372,12 @@ class RigidBodyPlant : public LeafSystem<T> {
       const Eigen::Ref<const VectorX<T>>& configuration_dot,
       VectorBase<T>* generalized_velocity) const override;
 
+  // Other functions.
+
+  // Evaluates the actuator command input ports and throws a runtime_error
+  // exception if at least one of the ports is not connected.
+  VectorX<T> EvaluateActuatorInputs(const Context<T>& context) const;
+
  private:
   // These four are the output port calculator methods.
   void CopyStateToOutput(const Context<T>& context,
@@ -382,10 +394,6 @@ class RigidBodyPlant : public LeafSystem<T> {
                                 ContactResults<T>* output) const;
 
   void ExportModelInstanceCentricPorts();
-
-  // Evaluates the actuator command input ports and throws a runtime_error
-  // exception if at least one of the ports is not connected.
-  VectorX<T> EvaluateActuatorInputs(const Context<T>& context) const;
 
   std::unique_ptr<const RigidBodyTree<T>> tree_;
 

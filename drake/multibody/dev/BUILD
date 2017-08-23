@@ -5,83 +5,27 @@ load(
     "//tools:drake.bzl",
     "drake_cc_googletest",
     "drake_cc_library",
+    "drake_cc_binary",
 )
-load("//tools:gurobi.bzl", "gurobi_test_tags")
 load("//tools:lint.bzl", "add_lint_tests")
 
+package(default_visibility = ["//visibility:public"])
+
 drake_cc_library(
-    name = "global_inverse_kinematics_test_util",
-    testonly = 1,
-    srcs = [
-        "test/global_inverse_kinematics_test_util.cc",
-    ],
+    name = "time_stepping_rigid_body_plant",
     hdrs = [
-        "test/global_inverse_kinematics_test_util.h",
+        "time_stepping_rigid_body_plant.h",
     ],
+    srcs = ["time_stepping_rigid_body_plant.cc"],
     deps = [
-        "//drake/common:eigen_matrix_compare",
-        "//drake/common:find_resource",
-        "//drake/multibody:global_inverse_kinematics",
-        "//drake/multibody:inverse_kinematics",
-        "//drake/multibody:rigid_body_tree_construction",
-        "//drake/multibody/parsers",
-        "@gtest//:without_main",
+        "//drake/common",
+	"//drake/multibody/rigid_body_plant",
+	"//drake/multibody/constraint",
+	"//drake/multibody/constraint:constraint_solver",
     ],
 )
 
-drake_cc_googletest(
-    name = "global_inverse_kinematics_test",
-    size = "medium",
-    srcs = ["test/global_inverse_kinematics_test.cc"],
-    data = [
-        "//drake/manipulation/models/iiwa_description:models",
-    ],
-    # Excluding because an assertion fails in LLVM code. Issue #6179.
-    tags = gurobi_test_tags() + ["no_tsan"],
-    deps = [
-        ":global_inverse_kinematics_test_util",
-    ],
-)
 
-drake_cc_googletest(
-    name = "global_inverse_kinematics_reachable_test",
-    size = "medium",
-    srcs = ["test/global_inverse_kinematics_reachable_test.cc"],
-    data = [
-        "//drake/manipulation/models/iiwa_description:models",
-    ],
-    # Excluding because an assertion fails in LLVM code. Issue #6179.
-    tags = gurobi_test_tags() + ["no_tsan"],
-    deps = [
-        ":global_inverse_kinematics_test_util",
-    ],
-)
-
-drake_cc_googletest(
-    name = "global_inverse_kinematics_collision_avoidance_test",
-    size = "medium",
-    srcs = ["test/global_inverse_kinematics_collision_avoidance_test.cc"],
-    data = [
-        "//drake/manipulation/models/iiwa_description:models",
-    ],
-    # Excluding because an assertion fails in LLVM code. Issue #6179.
-    tags = gurobi_test_tags() + ["no_tsan"],
-    deps = [
-        ":global_inverse_kinematics_test_util",
-    ],
-)
-
-drake_cc_googletest(
-    name = "global_inverse_kinematics_feasible_posture_test",
-    size = "large",
-    srcs = ["test/global_inverse_kinematics_feasible_posture_test.cc"],
-    data = [
-        "//drake/manipulation/models/iiwa_description:models",
-    ],
-    tags = gurobi_test_tags() + ["no_tsan"],
-    deps = [
-        ":global_inverse_kinematics_test_util",
-    ],
-)
+# === test/ ===
 
 add_lint_tests()
