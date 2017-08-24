@@ -45,23 +45,11 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
 // @returns the relative velocity at p_W expressed in the world frame.
 template <class T>
 Vector3<T> TimeSteppingRigidBodyPlant<T>::CalcRelTranslationalVelocity(
-    const KinematicsCache<T>& kcache, const RigidBody* A, const RigidBody* B,
+    const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
     const Vector3<T>& p_W) const {
   const auto& tree = this->get_tree();
 
   // TODO(edrumwri): Convert this method to avoid Jacobian computation.
-
-  // Get the two body indices.
-  const int body_a_index = A->get_body_index();
-  const int body_b_index = B->get_body_index();
-
-  // The reported point on A's surface (As) in the world frame (W).
-  const Vector3<T> p_WAs =
-      kcache.get_element(body_a_index).transform_to_world * pair.ptA;
-
-  // The reported point on B's surface (Bs) in the world frame (W).
-  const Vector3<T> p_WBs =
-      kinsol.get_element(body_b_index).transform_to_world * pair.ptB;
 
   // The contact point in A's frame.
   const auto X_AW = kcache.get_element(body_a_index)
@@ -87,20 +75,35 @@ Vector3<T> TimeSteppingRigidBodyPlant<T>::CalcRelTranslationalVelocity(
 // contact normals.
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
-    const std::vector<ContactData>& contacts,
+    const std::vector<drake::multibody::collision::PointPair>& contacts,
     const VectorX<T>& q,
     const VectorX<T>& v) const {
   const auto& tree = this->get_tree();
-  auto kinsol = tree.doKinematics(q, v);
+  auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
   VectorX<T> result(contacts.size());
 
   // Loop through all contacts.
   for (int i = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
+    // Get the two body indices.
+    const int body_a_index = contacts[i].elementA->get_body()->get_body_index();
+    const int body_b_index = contacts[i].elementB->get_body()->get_body_index();
+
+    // The reported point on A's surface (As) in the world frame (W).
+    const Vector3<T> p_WAs =
+        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+
+    // The reported point on B's surface (Bs) in the world frame (W).
+    const Vector3<T> p_WBs =
+        kinsol.get_element(body_b_index).transform_to_world * pair.ptB;
+
+    // Get the point of contact in the world frame.
+    const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
+
     // The *relative* velocity of the contact point in A relative to that in
     // B.
-    const auto v_W = CalcRelTranslationalVelocity(kinsol, p_W);
+    const auto v_W = CalcRelTranslationalVelocity(kcache, p_W);
 
     // Get the projected normal velocity
     result[i] = v_W.dot(contacts[i].normal);
@@ -113,7 +116,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
 // contact tangent directions.
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
-    const std::vector<ContactData>& contacts,
+    const std::vector<drake::multibody::collision::PointPair>& contacts,
     const VectorX<T>& q,
     const VectorX<T>& v) const {
   using std::cos;
@@ -121,16 +124,31 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
 
   const auto& tree = this->get_tree();
   std::vector<Vector3<T>> basis_vecs;
-  auto kinsol = tree.doKinematics(q, v);
+  auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
   VectorX<T> result(contacts.size());
 
   // Loop through all contacts.
   for (int i = 0, k = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
+    // Get the two body indices.
+    const int body_a_index = contacts[i].elementA->get_body()->get_body_index();
+    const int body_b_index = contacts[i].elementB->get_body()->get_body_index();
+
+    // The reported point on A's surface (As) in the world frame (W).
+    const Vector3<T> p_WAs =
+        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+
+    // The reported point on B's surface (Bs) in the world frame (W).
+    const Vector3<T> p_WBs =
+        kinsol.get_element(body_b_index).transform_to_world * pair.ptB;
+
+    // Get the point of contact in the world frame.
+    const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
+
     // The *relative* velocity of the contact point in A relative to that in
     // B.
-    const auto v_W = CalcRelTranslationalVelocity(kinsol, p_W);
+    const auto v_W = CalcRelTranslationalVelocity(kcache, p_W);
 
     // Compute an orthonormal basis.
 
@@ -192,45 +210,13 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // Get the generalized inertia matrix and set up the inertia solve function.
   auto H = tree.massMatrix(kinsol);
 
-  // TODO: Get H as a vector of block matrices.
-  std::vector<Eigen::Ref<MatrixX<T>>> H_blocks;
-  for (int i = 0; i < tree.get_num_model_instances(); ++i) {
-    std::vector<const RigidBody<T>*> bodies = tree.FindModelInstanceBodies(i);
-
-    // Determine the generalized velocity starting index and number of values
-    // for this body.
-    int gv_start = -1, nv = 0;
-    for (int j = 0; static_cast<size_t>(j) < bodies.size(); ++j) {
-      const RigidBody<T>& body_j = *bodies[j];
-      if (body_j.has_parent_body()) {
-        int v_start_j = body_j.get_velocity_start_index();
-        int nv_j = body_j.getJoint().get_num_velocities();
-        gv_start = min(gv_start, v_start_j);
-        nv += nv_j;
-      }
-    }
-
-    // Get the corresponding block of H.
-    H_blocks.push_back(H.block(gv_start, gv_start, nv, nv));
-  }
-
   // Compute the LDLT factorizations, which will be used by the solver.
-  std::vector<Eigen::LDLT<Eigen::Matrix<T>>> ldlt(H_blocks.size());
-  for (int i = 0; static_cast<size_t>(i) < H_blocks.size(); ++i) {
-    ldlt[i].compute(H_blocks[i]);
-    DRAKE_DEMAND(ldlt[i].info() == Eigen::Success);
-  }
+  Eigen::LDLT<Eigen::Matrix<T>> ldlt(H);
+  DRAKE_DEMAND(ldlt[i].info() == Eigen::Success);
 
   // Set the inertia matrix solver.
   data->solve_inertia = [this, &ldlt](const MatrixX<T>& m) {
-    DRAKE_DEMAND(m.rows() == v.size());
-    MatrixX<T> result(v.size(), m.cols());
-    for (int i = 0, start = 0; static_cast<size_t>(i) < H_blocks.size(); ++i) {
-      result.block(start, 0, H_blocks[i].rows(), m.cols()) =
-          ldlt[i].solve(m.block(start, 0, H_blocks[i].rows(), m.cols()))
-      start += H_blocks[i].rows();
-    }
-    return result;
+    return ldlt.solve(m);
   };
 
   // There are no external wrenches, but it is a required argument in
@@ -245,7 +231,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // TODO(edrumwri): Complete me!
   // Determine the set of contact points corresponding to the current q.
-  std::vector<ContactData> contacts;
+  std::vector<drake::multibody::collision::PointPair> contacts;
 
   // Determine the set of tangent spanning directions at each point of contact.
 
