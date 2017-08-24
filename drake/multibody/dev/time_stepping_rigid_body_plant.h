@@ -35,18 +35,9 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   TimeSteppingRigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
                           double timestep);
 
-  // TODO(SeanCurtis-TRI): Link to documentation explaining these parameters
-  // in detail.  To come in a subsequent PR.
-  /// Sets only the parameters for *normal* contact.  This is a convenience
-  /// function to allow for more targeted parameter tuning.
-  void set_normal_contact_parameters(double penetration_stiffness,
-                                     double dissipation);
-
-  /// Sets only the parameters for *friction* contact.  This is a convenience
-  /// function to allow for more targeted parameter tuning.
-  void set_friction_contact_parameters(double static_friction_coef,
-                                       double dynamic_friction_coef,
-                                       double v_stiction_tolerance);
+  /// Sets the coefficient of Coulomb/stiction friction (they're identical in
+  /// time stepping) and the number of edges in the friction cone.
+  void set_contact_parameters(double mu, int num_cone_edges);
 
  protected:
   void DoCalcDiscreteVariableUpdates(const Context<T>& context,
