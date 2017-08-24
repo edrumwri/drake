@@ -96,7 +96,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3<T> p_WBs =
-        kinsol.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
 
     // Get the point of contact in the world frame.
     const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
@@ -118,7 +118,8 @@ template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
     const VectorX<T>& q,
-    const VectorX<T>& v) const {
+    const VectorX<T>& v,
+    int num_cone_edges) const {
   using std::cos;
   using std::sin;
 
@@ -141,7 +142,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3<T> p_WBs =
-        kinsol.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
 
     // Get the point of contact in the world frame.
     const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
@@ -151,16 +152,19 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
     const auto v_W = CalcRelTranslationalVelocity(kcache, p_W);
 
     // Compute an orthonormal basis.
+    Vector3<T> normal_copy = contacts[i].normal.normalized();
+    Vector3<T> tan1_dir, tan2_dir;
+    CalcOrthonormalBasis(&normal_copy, &tan1_dir, &tan2_dir);
 
     // Set spanning tangent directions.
-    basis_vecs.resize(contacts[i].num_contact_edges);
-    if (contacts[i].num_contact_edges == 2) {
+    basis_vecs.resize(num_cone_edges * contacts.size());
+    if (num_cone_edges == 2) {
       // Special case: pyramid friction.
       basis_vecs.front() = tan1_dir;
       basis_vecs.back() = tan2_dir;
     } else {
-      for (int j = 0; j < contacts[i].num_cone_edges; ++j) {
-        double theta = M_PI * j / (contacts[i].num_cone_edges - 1);
+      for (int j = 0; j < num_cone_edges; ++j) {
+        double theta = M_PI * j / ((double) num_cone_edges - 1);
         basis_vecs[i] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
       }
     }
@@ -205,10 +209,10 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   auto x = context.get_discrete_state(0)->get_value();
   VectorX<T> q = x.topRows(nq);
   VectorX<T> v = x.bottomRows(nv);
-  auto kinsol = tree.doKinematics(q, v);
+  auto kcache = tree.doKinematics(q, v);
 
   // Get the generalized inertia matrix and set up the inertia solve function.
-  auto H = tree.massMatrix(kinsol);
+  auto H = tree.massMatrix(kcache);
 
   // Compute the LDLT factorizations, which will be used by the solver.
   Eigen::LDLT<Eigen::Matrix<T>> ldlt(H);
@@ -226,18 +230,14 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // right_hand_side is the right hand side of the system's equations:
   //   right_hand_side = B*u - C(q,v)
   VectorX<T> right_hand_side =
-      -tree.dynamicsBiasTerm(kinsol, no_external_wrenches);
+      -tree.dynamicsBiasTerm(kcache, no_external_wrenches);
   if (num_actuators > 0) right_hand_side += tree.B * u;
 
-  // TODO(edrumwri): Complete me!
   // Determine the set of contact points corresponding to the current q.
-  std::vector<drake::multibody::collision::PointPair> contacts;
-
-  // Determine the set of tangent spanning directions at each point of contact.
-
-  // Determine the contact Jacobians corresponding to each projected direction
-  // at each point of contact.
-
+  std::vector<drake::multibody::collision::PointPair> contacts = 
+      const_cast<RigidBodyTree<T>*>(&tree)->ComputeMaximumDepthCollisionPoints(
+          kcache, true);
+  
   // Set the joint range of motion limits.
   for (auto const& b : tree.bodies) {
     if (!b->has_parent_body()) continue;
@@ -280,10 +280,14 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     return N_mult(contacts, q, w);
   };
 
+  // TODO: Set up the N' multiplication operator.
+
   // Set up the F multiplication operator.
-  data.F_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
+  data.F_mult = [this, &contacts, &q, nk](const VectorX<T>& w) -> VectorX<T> {
     return F_mult(contacts, q, w);
   };
+
+  // TODO: Set up the F' multiplication operator.
 
   /*
   // Set the constraint Jacobian transpose operator.
@@ -317,7 +321,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // qn = q + h*qdot.
   VectorX<T> xn(this->get_num_states());
-  xn << q + dt * tree.transformVelocityToQDot(kinsol, vnew), vnew;
+  xn << q + dt * tree.transformVelocityToQDot(kcache, vnew), vnew;
   updates->get_mutable_vector(0)->SetFromVector(xn);
 }
 
