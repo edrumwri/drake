@@ -7,25 +7,9 @@ load("//tools:lint.bzl", "add_lint_tests")
 package(default_visibility = ["//visibility:public"])
 
 drake_cc_library(
-    name = "direct_collocation",
-    srcs = [
-        "direct_collocation.cc",
-        "direct_collocation_constraint.cc",
-    ],
-    hdrs = [
-        "direct_collocation.h",
-        "direct_collocation_constraint.h",
-    ],
-    deps = [
-        ":direct_trajectory_optimization",
-        "//drake/math:autodiff",
-    ],
-)
-
-drake_cc_library(
-    name = "direct_trajectory_optimization",
-    srcs = ["direct_trajectory_optimization.cc"],
-    hdrs = ["direct_trajectory_optimization.h"],
+    name = "multiple_shooting",
+    srcs = ["multiple_shooting.cc"],
+    hdrs = ["multiple_shooting.h"],
     deps = [
         "//drake/common",
         "//drake/common/trajectories:piecewise_polynomial_trajectory",
@@ -34,21 +18,28 @@ drake_cc_library(
     ],
 )
 
-# === test/ ===
-
-drake_cc_googletest(
-    name = "direct_collocation_constraint_test",
+drake_cc_library(
+    name = "direct_collocation",
+    srcs = [
+        "direct_collocation.cc",
+    ],
+    hdrs = [
+        "direct_collocation.h",
+    ],
     deps = [
-        ":direct_collocation",
-        "//drake/common:eigen_matrix_compare",
+        ":multiple_shooting",
+        "//drake/math:autodiff",
+        "//drake/math:gradient",
     ],
 )
 
+# === test/ ===
+
 drake_cc_googletest(
-    name = "trajectory_optimization_test",
+    name = "multiple_shooting_test",
     size = "small",
     deps = [
-        ":direct_trajectory_optimization",
+        ":multiple_shooting",
         "//drake/common:eigen_matrix_compare",
         "//drake/common/trajectories:piecewise_polynomial",
     ],

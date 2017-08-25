@@ -23,6 +23,7 @@ drake_cc_library(
     name = "pendulum_plant",
     srcs = ["pendulum_plant.cc"],
     hdrs = ["pendulum_plant.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":pendulum_state_vector",
         "//drake/systems/framework",
@@ -130,15 +131,6 @@ drake_cc_googletest(
         "//drake/multibody:rigid_body_tree",
         "//drake/multibody/parsers",
         "//drake/multibody/rigid_body_plant",
-    ],
-)
-
-drake_cc_googletest(
-    name = "pendulum_dynamic_constraint_test",
-    deps = [
-        ":pendulum_plant",
-        "//drake/common:eigen_matrix_compare",
-        "//drake/systems/trajectory_optimization:direct_collocation",
     ],
 )
 
