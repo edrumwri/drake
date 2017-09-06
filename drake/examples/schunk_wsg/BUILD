@@ -15,6 +15,7 @@ drake_cc_library(
     hdrs = ["simulated_schunk_wsg_system.h"],
     deps = [
         "//drake/common:find_resource",
+        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody/parsers",
         "//drake/multibody/rigid_body_plant",
     ],
@@ -48,20 +49,19 @@ drake_cc_binary(
 
 drake_cc_googletest(
     name = "schunk_wsg_lift_test",
-    size = "large",
     data = [
         "test/test_lifter.sdf",
         "//drake/manipulation/models/wsg_50_description:models",
         "//drake/multibody:models",
     ],
     # This test is prohibitively slow with --compilation_mode=dbg.
-    disable_in_compilation_mode_dbg = True,
     deps = [
         "//drake/common",
         "//drake/common:find_resource",
         "//drake/common/trajectories:piecewise_polynomial_trajectory",
         "//drake/common/trajectories:trajectory",
         "//drake/lcm",
+        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody:rigid_body_tree",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/parsers",

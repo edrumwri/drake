@@ -20,6 +20,7 @@
 #include "drake/multibody/rigid_body_plant/contact_results_to_lcm.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/rigid_body_tree_construction.h"
 #include "drake/systems/analysis/semi_explicit_euler_integrator.h"
 #include "drake/systems/analysis/simulator.h"
@@ -51,7 +52,8 @@ class ValkyrieSimulationDiagram : public systems::Diagram<double> {
 
     // Instantiate a RigidBodyPlant from the RigidBodyTree.
     plant_ =
-        builder.AddSystem<systems::RigidBodyPlant<double>>(std::move(tree_ptr));
+        builder.AddSystem<systems::TimeSteppingRigidBodyPlant<double>>(std::move(tree_ptr), 1e-3);
+//        builder.AddSystem<systems::RigidBodyPlant<double>>(std::move(tree_ptr));
     plant_->set_name("plant");
 
     // Contact parameters

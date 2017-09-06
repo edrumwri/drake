@@ -39,6 +39,12 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   /// time stepping) and the number of edges in the friction cone.
   void set_contact_parameters(double mu, int num_cone_edges);
 
+  /// Sets the ERP parameter. Aborts if not in the range [0,1].
+  void set_erp(double erp) { DRAKE_DEMAND(erp >= 0 && erp <= 1); erp_ = erp; }
+
+  /// Sets the CFM parameter. Aborts if negative.
+  void set_cfm(double cfm) { DRAKE_DEMAND(cfm >= 0); cfm_ = cfm; }
+
  protected:
   void DoCalcDiscreteVariableUpdates(const Context<T>& context,
       const std::vector<const DiscreteUpdateEvent<double>*>&,
@@ -64,38 +70,40 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
     T error{0};
   };
 
-  // Structure for storing contact data for time stepping.
-  struct ContactData {
-    /// Model Id of Body A participating in the contact.
-    int idA{0};
+  static void CalcOrthonormalBasis(const Vector3<T>& ii,
+                                   Vector3<T>* jj,
+                                   Vector3<T>* kk);
+  Vector3<T> CalcRelTranslationalVelocity(
+      const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
+      const Vector3<T>& p_W) const;
+  void UpdateGeneralizedForce(
+      const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
+      const Vector3<T>& p, const Vector3<T>& f, VectorX<T>* gf) const;
+  VectorX<T> N_mult(
+      const std::vector<drake::multibody::collision::PointPair>& contacts,
+      const VectorX<T>& q,
+      const VectorX<T>& v) const;
+  VectorX<T> N_transpose_mult(
+      const std::vector<drake::multibody::collision::PointPair>& contacts,
+      const VectorX<T>& q,
+      const VectorX<T>& v,
+      const VectorX<T>& f) const;
+  VectorX<T> F_mult(
+      const std::vector<drake::multibody::collision::PointPair>& contacts,
+      const VectorX<T>& q,
+      const VectorX<T>& v) const;
+  VectorX<T> F_transpose_mult(
+      const std::vector<drake::multibody::collision::PointPair>& contacts,
+      const VectorX<T>& q,
+      const VectorX<T>& v,
+      const VectorX<T>& f) const;
 
-    /// Model Id of Body B participating in the contact.
-    int idB{0};
+  // The coefficient of friction. Must be non-negative.
+  double mu_{0.1};
 
-    /// Point of contact on the surface of Body A, expressed in A's frame.
-    Vector3<T> ptA;
-
-    /// Point of contact on the surface of Body B, expressed in B's frame.
-    Vector3<T> ptB;
-
-    /// Coefficient of friction at the point of contact. A small amount of
-    /// friction is employed by default.
-    double mu{0.1};
-
-    /// Outward-pointing normal on body B, expressed in the world frame. On
-    /// Body A it points in the opposite direction.
-    Vector3<T> normal;
-
-    /// The number of edges in the friction cone approximation. Must be a
-    /// multiple of two *and* must be at least two.
-    int num_cone_edges{2};
-
-    // Gets the "error", meaning the amount of interpenetration (if the error
-    // is positive) or separation distance (if the error is negative). Negative
-    // error is not error per se, but rather a way to limit the relative motion
-    // of two bodies not yet in contact by the step into the future.
-    T error{0};
-  };
+  // Half of the number of edges in the friction cone approximation for
+  // contacts in 3D. Must be no fewer than 2 (equates to a friction pyramid).
+  int half_cone_edges_{2};
 
   // The "error reduction parameter" (ERP), first seen in CM Labs' Vortex and
   // Open Dynamics Engine, and formulated from [Lacoursiere 2007], which
@@ -118,7 +126,7 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   // values of zero yield no softening, while CFM values of infinity yield
   // constraints that are completely unenforced. Typical values for CFM
   // lie in the range [1e-12, 1e-6], but this range is just a rough guideline.
-  double cfm_{1e-12};
+  double cfm_{1e-4};
 };
 
 }  // namespace systems

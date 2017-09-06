@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include <Eigen/SparseCholesky>
+#include <Eigen/Cholesky>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_autodiff_types.h"
@@ -37,6 +37,44 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
     throw std::logic_error("TimeSteppingRigidBodyPlant requires a positive "
                                "integration time step.");
   }
+
+  // Schedule the time stepping.
+  this->DeclarePeriodicDiscreteUpdate(timestep);
+}
+
+/// Computes an orthonormal basis { ii, jj, kk } from provided vector @p ii
+/// such that ii x jj = kk (with a right-handed cross product).
+/// @param[in] ii   A non-zero vector.
+/// @param[out] jj  On return, a second vector in the basis.
+/// @param[out] kk  On return, the third vector in the basis.
+/// @throws std::logic_error if @p jj or @p kk is null or @p ii is zero.
+template <class T>
+void TimeSteppingRigidBodyPlant<T>::CalcOrthonormalBasis(const Vector3<T>& ii,
+                                                         Vector3<T>* jj,
+                                                         Vector3<T>* kk) {
+  if (!jj)
+    throw std::logic_error("jj vector is null.");
+  if (!kk)
+    throw std::logic_error("kk vector is null.");
+
+  // Normalize ii.
+  T ii_nrm = ii.norm();
+  if (ii_nrm < std::numeric_limits<double>::epsilon()) {
+    throw std::logic_error("ii vector is zero.");
+  }
+  const Vector3<T> ii_normalized = ii / ii_nrm;
+
+  // The axis corresponding to the smallest component of ii will be *most*
+  // perpendicular.
+  const Vector3<T> u(ii.cwiseAbs());
+  int minAxis;
+  u.minCoeff(&minAxis);
+  Vector3<T> perpAxis = Vector3<T>::Zero();
+  perpAxis[minAxis] = 1;
+
+  // Now define jj and kk.
+  *jj = ii_normalized.cross(perpAxis).normalized();
+  *kk = ii_normalized.cross(*jj);
 }
 
 // Gets A's translational velocity relative to B's translational velocity at a
@@ -47,7 +85,7 @@ template <class T>
 Vector3<T> TimeSteppingRigidBodyPlant<T>::CalcRelTranslationalVelocity(
     const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
     const Vector3<T>& p_W) const {
-  const auto& tree = this->get_tree();
+  const auto& tree = this->get_rigid_body_tree();
 
   // TODO(edrumwri): Convert this method to avoid Jacobian computation using
   // RigidBodyTree::CalcBodySpatialVelocityInWorldFrame().
@@ -77,7 +115,8 @@ Vector3<T> TimeSteppingRigidBodyPlant<T>::CalcRelTranslationalVelocity(
 template <class T>
 void TimeSteppingRigidBodyPlant<T>::UpdateGeneralizedForce(
     const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
-    const Vector3<T>& p, const Vector3<T>& f, VectorX<T>* gf) {
+    const Vector3<T>& p_W, const Vector3<T>& f, VectorX<T>* gf) const {
+  const auto& tree = this->get_rigid_body_tree();
 
   // TODO(edrumwri): Convert this method to avoid Jacobian computation using
   // RigidBodyTree::dynamicsBiasTerm().
@@ -109,7 +148,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
     const VectorX<T>& q,
     const VectorX<T>& v) const {
-  const auto& tree = this->get_tree();
+  const auto& tree = this->get_rigid_body_tree();
   auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
@@ -123,20 +162,23 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
 
     // The reported point on A's surface (As) in the world frame (W).
     const Vector3<T> p_WAs =
-        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+        kcache.get_element(body_a_index).transform_to_world * contacts[i].ptA;
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3<T> p_WBs =
-        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * contacts[i].ptB;
 
     // Get the point of contact in the world frame.
     const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
 
     // The *relative* velocity of the contact point in A relative to that in
     // B.
-    const auto v_W = CalcRelTranslationalVelocity(kcache, p_W);
+    const auto v_W = CalcRelTranslationalVelocity(kcache, body_a_index,
+                                                  body_b_index, p_W);
 
     // Get the projected normal velocity
+auto RA = kcache.get_element(body_a_index).transform_to_world;
+auto RB = kcache.get_element(body_b_index).transform_to_world;
     result[i] = v_W.dot(contacts[i].normal);
   }
 
@@ -151,7 +193,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
     const VectorX<T>& q,
     const VectorX<T>& v,
     const VectorX<T>& f) const {
-  const auto& tree = this->get_tree();
+  const auto& tree = this->get_rigid_body_tree();
   auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
@@ -165,11 +207,11 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
 
     // The reported point on A's surface (As) in the world frame (W).
     const Vector3<T> p_WAs =
-        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+        kcache.get_element(body_a_index).transform_to_world * contacts[i].ptA;
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3<T> p_WBs =
-        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * contacts[i].ptB;
 
     // Get the point of contact in the world frame.
     const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
@@ -177,7 +219,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
     // Get the contribution to the generalized force from a force of the
     // specified normal applied at this point.
     UpdateGeneralizedForce(kcache, body_a_index, body_b_index, p_W,
-                           contacts[i].normal, &result);
+                           contacts[i].normal * f[i], &result);
   }
 
   return result;
@@ -189,17 +231,15 @@ template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
     const VectorX<T>& q,
-    const VectorX<T>& v,
-    int num_cone_edges) const {
+    const VectorX<T>& v) const {
   using std::cos;
   using std::sin;
-
-  const auto& tree = this->get_tree();
   std::vector<Vector3<T>> basis_vecs;
+  const auto& tree = this->get_rigid_body_tree();
   auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
-  VectorX<T> result(contacts.size());
+  VectorX<T> result(contacts.size() * half_cone_edges_);
 
   // Loop through all contacts.
   for (int i = 0, k = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
@@ -209,39 +249,39 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
 
     // The reported point on A's surface (As) in the world frame (W).
     const Vector3<T> p_WAs =
-        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+        kcache.get_element(body_a_index).transform_to_world * contacts[i].ptA;
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3<T> p_WBs =
-        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * contacts[i].ptB;
 
     // Get the point of contact in the world frame.
     const Vector3<T> p_W = (p_WAs + p_WBs) * 0.5;
 
     // The *relative* velocity of the contact point in A relative to that in
     // B.
-    const auto v_W = CalcRelTranslationalVelocity(kcache, p_W);
+    const auto v_W = CalcRelTranslationalVelocity(kcache, body_a_index,
+                                                  body_b_index, p_W);
 
     // Compute an orthonormal basis.
-    Vector3<T> normal_copy = contacts[i].normal.normalized();
     Vector3<T> tan1_dir, tan2_dir;
-    CalcOrthonormalBasis(&normal_copy, &tan1_dir, &tan2_dir);
+    CalcOrthonormalBasis(contacts[i].normal, &tan1_dir, &tan2_dir);
 
     // Set spanning tangent directions.
-    basis_vecs.resize(num_cone_edges * contacts.size());
-    if (num_cone_edges == 2) {
+    basis_vecs.resize(half_cone_edges_);
+    if (half_cone_edges_ == 2) {
       // Special case: pyramid friction.
       basis_vecs.front() = tan1_dir;
       basis_vecs.back() = tan2_dir;
     } else {
-      for (int j = 0; j < num_cone_edges; ++j) {
-        double theta = M_PI * j / ((double) num_cone_edges - 1);
-        basis_vecs[i] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
+      for (int j = 0; j < half_cone_edges_; ++j) {
+        double theta = M_PI * j / ((double) half_cone_edges_ - 1);
+        basis_vecs[j] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
       }
     }
 
     // Loop over the spanning tangent directions.
-    for (int j = 0; j < basis_vecs.size(); ++j) {
+    for (int j = 0; j < static_cast<int>(basis_vecs.size()); ++j) {
       // Get the projected tangent velocity.
       result[k++] = v_W.dot(basis_vecs[j]);
     }
@@ -258,52 +298,52 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_transpose_mult(
     const VectorX<T>& q,
     const VectorX<T>& v,
     const VectorX<T>& f) const {
-  const auto& tree = this->get_tree();
+  std::vector<Vector3<T>> basis_vecs;
+  const auto& tree = this->get_rigid_body_tree();
   auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
   VectorX<T> result = VectorX<T>::Zero(v.size());
 
   // Loop through all contacts.
-  for (int i = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
+  for (int i = 0, k = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
     // Get the two body indices.
     const int body_a_index = contacts[i].elementA->get_body()->get_body_index();
     const int body_b_index = contacts[i].elementB->get_body()->get_body_index();
 
     // The reported point on A's surface (As) in the world frame (W).
     const Vector3 <T> p_WAs =
-        kcache.get_element(body_a_index).transform_to_world * pair.ptA;
+        kcache.get_element(body_a_index).transform_to_world * contacts[i].ptA;
 
     // The reported point on B's surface (Bs) in the world frame (W).
     const Vector3 <T> p_WBs =
-        kcache.get_element(body_b_index).transform_to_world * pair.ptB;
+        kcache.get_element(body_b_index).transform_to_world * contacts[i].ptB;
 
     // Get the point of contact in the world frame.
     const Vector3 <T> p_W = (p_WAs + p_WBs) * 0.5;
 
     // Compute an orthonormal basis.
-    Vector3 <T> normal_copy = contacts[i].normal.normalized();
     Vector3 <T> tan1_dir, tan2_dir;
-    CalcOrthonormalBasis(&normal_copy, &tan1_dir, &tan2_dir);
+    CalcOrthonormalBasis(contacts[i].normal, &tan1_dir, &tan2_dir);
 
     // Set spanning tangent directions.
-    basis_vecs.resize(num_cone_edges * contacts.size());
-    if (num_cone_edges == 2) {
+    basis_vecs.resize(half_cone_edges_);
+    if (half_cone_edges_ == 2) {
       // Special case: pyramid friction.
       basis_vecs.front() = tan1_dir;
       basis_vecs.back() = tan2_dir;
     } else {
-      for (int j = 0; j < num_cone_edges; ++j) {
-        double theta = M_PI * j / ((double) num_cone_edges - 1);
-        basis_vecs[i] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
+      for (int j = 0; j < half_cone_edges_; ++j) {
+        double theta = M_PI * j / ((double) half_cone_edges_ - 1);
+        basis_vecs[j] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
       }
     }
 
     // Get the contribution to the generalized force from a force of the
     // specified normal applied at this point.
-    for (int j = 0; j < basis_vecs.size(); ++j) {
+    for (int j = 0; j < static_cast<int>(basis_vecs.size()); ++j) {
       UpdateGeneralizedForce(kcache, body_a_index, body_b_index, p_W,
-                             basis_vecs[j], &result);
+                             basis_vecs[j] * f[k++], &result);
     }
   }
 
@@ -334,7 +374,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   drake::multibody::constraint::ConstraintVelProblemData<T> data(nv);
 
   // Get the rigid body tree.
-  const auto& tree = this->get_tree();
+  const auto& tree = this->get_rigid_body_tree();
 
   // Get the system state.
   auto x = context.get_discrete_state(0)->get_value();
@@ -346,11 +386,11 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   auto H = tree.massMatrix(kcache);
 
   // Compute the LDLT factorizations, which will be used by the solver.
-  Eigen::LDLT<Eigen::Matrix<T>> ldlt(H);
-  DRAKE_DEMAND(ldlt[i].info() == Eigen::Success);
+  Eigen::LDLT<MatrixX<T>> ldlt(H);
+  DRAKE_DEMAND(ldlt.info() == Eigen::Success);
 
   // Set the inertia matrix solver.
-  data->solve_inertia = [this, &ldlt](const MatrixX<T>& m) {
+  data.solve_inertia = [this, &ldlt](const MatrixX<T>& m) {
     return ldlt.solve(m);
   };
 
@@ -365,13 +405,22 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   if (num_actuators > 0) right_hand_side += tree.B * u;
 
   // Determine the set of contact points corresponding to the current q.
-  std::vector<drake::multibody::collision::PointPair> contacts = 
+  std::vector<drake::multibody::collision::PointPair> contacts =
       const_cast<RigidBodyTree<T>*>(&tree)->ComputeMaximumDepthCollisionPoints(
           kcache, true);
 
-  // TODO(edrumwri): Set the friction directions.
+  // Verify the friction directions are set correctly.
+  DRAKE_DEMAND(half_cone_edges_ >= 2);
 
-  // TODO(edrumwri): Set the coefficients of friction.
+  // Set the coefficients of friction.
+  data.mu.resize(contacts.size());
+  data.r.resize(contacts.size());
+  for (int i = 0; i < data.mu.rows(); ++i) {
+    data.mu[i] = mu_;
+    data.r[i] = half_cone_edges_;
+  }
+  const int total_friction_cone_edges = std::accumulate(
+      data.r.begin(), data.r.end(), 0);
 
   // Set the joint range of motion limits.
   for (auto const& b : tree.bodies) {
@@ -394,14 +443,14 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
         // Institute a lower limit.
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
-        limits.back().error = (qjoint - qmin) / dt * erp_;
+        limits.back().error = (qjoint - qmin);
         limits.back().lower_limit = true;
       }
       if (qjoint > qmax || qjoint + vjoint * dt > qmax) {
         // Institute an upper limit.
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
-        limits.back().error = (qmax - qjoint) / dt * erp_;
+        limits.back().error = (qmax - qjoint);
         limits.back().lower_limit = false;
       }
     }
@@ -422,7 +471,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   };
 
   // Set up the F multiplication operator.
-  data.F_mult = [this, &contacts, &q, nk](const VectorX<T>& w) -> VectorX<T> {
+  data.F_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
     return F_mult(contacts, q, w);
   };
 
@@ -433,17 +482,17 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   };
 
   // Set the constraint Jacobian transpose operator.
-  data.L_mult = [this, &limits](const VectorX<T>& v) -> VectorX<T> {
+  data.L_mult = [this, &limits](const VectorX<T>& w) -> VectorX<T> {
     VectorX<T> result(limits.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
-      result[i] = (limits[i].lower_limit) ? v[index] : -v[index];
+      result[i] = (limits[i].lower_limit) ? w[index] : -w[index];
     }
     return result;
   };
 
   data.L_transpose_mult = [this, &v, &limits](const VectorX<T>& lambda) {
-    VectorX<T> result(v.size());
+    VectorX<T> result = VectorX<T>::Zero(v.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
       result[index] = (limits[i].lower_limit) ? lambda[i] : -lambda[i];
@@ -451,20 +500,33 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     return result;
   };
 
-  // TODO: Set the constraint error.
+  // Set the stabilization terms.
+  data.kN.resize(contacts.size());
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i)
+    data.kN[i] = erp_ * contacts[i].distance / dt;
+  data.kF.setZero(total_friction_cone_edges);
+  data.kL.resize(limits.size());
+  for (int i = 0; i < static_cast<int>(limits.size()); ++i)
+    data.kL[i] = erp_ * limits[i].error / dt;
 
   // Integrate the forces into the velocity.
-  data.v = v + right_hand_side * dt;
+  data.v = v + data.solve_inertia(right_hand_side) * dt;
 
   // Solve the rigid impact problem.
   VectorX<T> vnew, cf;
   constraint_solver_.SolveImpactProblem(cfm_, data, &cf);
   constraint_solver_.ComputeGeneralizedVelocityChange(data, cf, &vnew);
-  vnew += v;
+  vnew += data.v;
+std::cout << "N * vnew: " << data.N_mult(vnew).transpose() << std::endl;
+std::cout << "F * vnew: " << data.F_mult(vnew).transpose() << std::endl;
 
   // qn = q + h*qdot.
   VectorX<T> xn(this->get_num_states());
   xn << q + dt * tree.transformVelocityToQDot(kcache, vnew), vnew;
+std::cout << "force: " << right_hand_side.transpose() << std::endl;
+std::cout << "old velocity: " << v.transpose() << std::endl;
+std::cout << "new velocity: " << vnew.transpose() << std::endl;
+std::cout << "new configuration: " << (q + dt * tree.transformVelocityToQDot(kcache, vnew)).transpose() << std::endl;
   updates->get_mutable_vector(0)->SetFromVector(xn);
 }
 

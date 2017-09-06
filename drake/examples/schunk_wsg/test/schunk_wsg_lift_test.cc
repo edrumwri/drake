@@ -22,6 +22,7 @@
 #include "drake/common/trajectories/piecewise_polynomial_trajectory.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/sdf_parser.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_frame.h"
@@ -98,9 +99,10 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
 
   int lifter_instance_id{};
   int gripper_instance_id{};
-  systems::RigidBodyPlant<double>* plant =
-      builder.AddSystem<systems::RigidBodyPlant<double>>(
-          BuildLiftTestTree(&lifter_instance_id, &gripper_instance_id));
+  systems::TimeSteppingRigidBodyPlant<double>* plant =
+      builder.AddSystem<systems::TimeSteppingRigidBodyPlant<double>>(
+          BuildLiftTestTree(&lifter_instance_id, &gripper_instance_id), 1e-4);
+  plant->set_cfm(1e-2);
   plant->set_name("plant");
 
   ASSERT_EQ(plant->get_num_actuators(), 2);
@@ -144,8 +146,8 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   // is to allow the gripper to settle on the box before we start
   // moving.
   const double kLiftHeight = 1.0;
-  const double kLiftStart = 1.0;
-  std::vector<double> lift_breaks{0., 0.9, kLiftStart, 4., 5};
+  const double kLiftStart = 3.0;
+  std::vector<double> lift_breaks{0., 0.9, kLiftStart, 6., 7};
   std::vector<Eigen::MatrixXd> lift_knots;
   lift_knots.push_back(Eigen::Vector2d(0., 0.));
   lift_knots.push_back(Eigen::Vector2d(0., 0.));

@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "drake/common/find_resource.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/sdf_parser.h"
 
 namespace drake {
@@ -20,8 +21,8 @@ CreateSimulatedSchunkWsgSystem() {
       FindResourceOrThrow(
           "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf"),
       kFixed, nullptr /* weld to frame */, rigid_body_tree.get());
-  return std::make_unique<drake::systems::RigidBodyPlant<T>>(
-      std::move(rigid_body_tree));
+  return std::make_unique<systems::TimeSteppingRigidBodyPlant<T>>(
+      std::move(rigid_body_tree), 1e-3);
 }
 
 template std::unique_ptr<drake::systems::RigidBodyPlant<double>>

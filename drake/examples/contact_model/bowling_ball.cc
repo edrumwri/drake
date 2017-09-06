@@ -31,6 +31,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/lcm/drake_lcm.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
@@ -99,7 +100,7 @@ int main() {
   multibody::AddFlatTerrainToWorld(tree_ptr.get(), 100., 10.);
 
   // Instantiate a RigidBodyPlant from the RigidBodyTree.
-  auto& plant = *builder.AddSystem<RigidBodyPlant<double>>(move(tree_ptr));
+  auto& plant = *builder.AddSystem<TimeSteppingRigidBodyPlant<double>>(move(tree_ptr), 1e-3);
   plant.set_name("plant");
 
   // Note: this sets identical contact parameters across all object pairs:

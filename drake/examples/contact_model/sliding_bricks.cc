@@ -7,6 +7,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/lcm/drake_lcm.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
@@ -80,7 +81,7 @@ int main() {
   multibody::AddFlatTerrainToWorld(tree_ptr.get(), 100., 10.);
 
   // Instantiate a RigidBodyPlant from the RigidBodyTree.
-  auto& plant = *builder.AddSystem<RigidBodyPlant<double>>(move(tree_ptr));
+  auto& plant = *builder.AddSystem<TimeSteppingRigidBodyPlant<double>>(move(tree_ptr), 1e-3);
   plant.set_name("plant");
   // Contact parameters set arbitrarily.
   plant.set_normal_contact_parameters(FLAGS_stiffness, FLAGS_dissipation);
@@ -127,8 +128,6 @@ int main() {
   auto& plant_context = diagram->GetMutableSubsystemContext(plant, context);
   // 6 1-dof joints * 2 = 6 * (x, ẋ) * 2
   const int kStateSize = 24;
-  DRAKE_DEMAND(plant_context.get_continuous_state_vector().size() ==
-               kStateSize);
   VectorX<double> initial_state(kStateSize);
   initial_state << 0, -0.5, 0, 0, 0, 0,  // brick 1 position
                    0, 0.5, 0, 0, 0, 0,   // brick 2 position
