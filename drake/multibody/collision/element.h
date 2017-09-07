@@ -152,6 +152,21 @@ class Element : public DrakeShapes::Element {
    */
   friend std::ostream& operator<<(std::ostream&, const Element&);
 
+  /// The coefficient of Coulomb friction for this element. Must be
+  /// non-negative.
+  double mu_coulomb{0.1};
+
+  /// The coefficient of sticking friction for this element. Must be
+  /// non-negative and should be at least as large as mu_coulomb.
+  double mu_sticking{0.1};
+
+  /// The stiffness of this element (in force per length). Must be
+  /// non-negative. The default parameter is arbitrary.
+  double stiffness{10000.0};
+
+  /// The dissipation of this element (in force-seconds per meter).
+  double dissipation{100.0};
+
  private:
   // Provide a copy constructor for use by our clone() implementation.
   // Delete all of the other operations.
