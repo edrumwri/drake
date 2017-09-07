@@ -502,8 +502,14 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // Set the stabilization terms.
   data.kN.resize(contacts.size());
-  for (int i = 0; i < static_cast<int>(contacts.size()); ++i)
-    data.kN[i] = erp_ * contacts[i].distance / dt;
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    double stiffness, damping;
+    CalcStiffnessAndDamping(contacts[i], &stiffness, &damping);
+    const double denom = dt * stiffness + damping;
+    double contact_cfm = 1.0 / denom;
+    double contact_erp = dt * stiffness / denom;
+    data.kN[i] = contact_erp * contacts[i].distance / dt;
+  }
   data.kF.setZero(total_friction_cone_edges);
   data.kL.resize(limits.size());
   for (int i = 0; i < static_cast<int>(limits.size()); ++i)
