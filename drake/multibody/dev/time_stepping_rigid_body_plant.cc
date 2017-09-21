@@ -146,11 +146,7 @@ void TimeSteppingRigidBodyPlant<T>::UpdateGeneralizedForce(
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const VectorX<T>& q,
-    const VectorX<T>& v) const {
-  const auto& tree = this->get_rigid_body_tree();
-  auto kcache = tree.doKinematics(q, v);
-
+    const KinematicsCache<T>& kcache) const {
   // Create a result vector.
   VectorX<T> result(contacts.size());
 
@@ -177,8 +173,6 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
                                                   body_b_index, p_W);
 
     // Get the projected normal velocity
-auto RA = kcache.get_element(body_a_index).transform_to_world;
-auto RB = kcache.get_element(body_b_index).transform_to_world;
     result[i] = v_W.dot(contacts[i].normal);
   }
 
@@ -190,14 +184,10 @@ auto RB = kcache.get_element(body_b_index).transform_to_world;
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const VectorX<T>& q,
-    const VectorX<T>& v,
+    const KinematicsCache<T>& kcache,
     const VectorX<T>& f) const {
-  const auto& tree = this->get_rigid_body_tree();
-  auto kcache = tree.doKinematics(q, v);
-
   // Create a result vector.
-  VectorX<T> result = VectorX<T>::Zero(v.size());
+  VectorX<T> result = VectorX<T>::Zero(kcache.getV().size());
 
   // Loop through all contacts.
   for (int i = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
@@ -230,13 +220,10 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const VectorX<T>& q,
-    const VectorX<T>& v) const {
+    const KinematicsCache<T>& kcache) const {
   using std::cos;
   using std::sin;
   std::vector<Vector3<T>> basis_vecs;
-  const auto& tree = this->get_rigid_body_tree();
-  auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
   VectorX<T> result(contacts.size() * half_cone_edges_);
@@ -295,15 +282,12 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_transpose_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const VectorX<T>& q,
-    const VectorX<T>& v,
+    const KinematicsCache<T>& kcache,
     const VectorX<T>& f) const {
   std::vector<Vector3<T>> basis_vecs;
-  const auto& tree = this->get_rigid_body_tree();
-  auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
-  VectorX<T> result = VectorX<T>::Zero(v.size());
+  VectorX<T> result = VectorX<T>::Zero(kcache.getV().size());
 
   // Loop through all contacts.
   for (int i = 0, k = 0; static_cast<size_t>(i) < contacts.size(); ++i) {
