@@ -100,7 +100,7 @@ int main() {
   multibody::AddFlatTerrainToWorld(tree_ptr.get(), 100., 10.);
 
   // Instantiate a RigidBodyPlant from the RigidBodyTree.
-  auto& plant = *builder.AddSystem<TimeSteppingRigidBodyPlant<double>>(move(tree_ptr), 1e-3);
+  auto& plant = *builder.AddSystem<TimeSteppingRigidBodyPlant<double>>(move(tree_ptr), 1e-4);
   plant.set_name("plant");
 
   // Note: this sets identical contact parameters across all object pairs:

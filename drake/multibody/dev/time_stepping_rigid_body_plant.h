@@ -53,6 +53,7 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   // Pointer to the class that performs all constraint computations.
   multibody::constraint::ConstraintSolver<T> constraint_solver_;
 
+ private:
   // Structure for storing joint limit data for time stepping.
   struct JointLimit {
     // The index for the joint limit.
@@ -84,8 +85,7 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
       const VectorX<T>& v) const;
   VectorX<T> N_transpose_mult(
       const std::vector<drake::multibody::collision::PointPair>& contacts,
-      const VectorX<T>& q,
-      const VectorX<T>& v,
+      const KinematicsCache<T>& kcache,
       const VectorX<T>& f) const;
   VectorX<T> F_mult(
       const std::vector<drake::multibody::collision::PointPair>& contacts,
@@ -93,8 +93,7 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
       const VectorX<T>& v) const;
   VectorX<T> F_transpose_mult(
       const std::vector<drake::multibody::collision::PointPair>& contacts,
-      const VectorX<T>& q,
-      const VectorX<T>& v,
+      const KinematicsCache<T>& kcache,
       const VectorX<T>& f) const;
 
   // The coefficient of friction. Must be non-negative.

@@ -20,6 +20,7 @@
 #include "drake/manipulation/schunk_wsg/schunk_wsg_lcm.h"
 #include "drake/manipulation/util/world_sim_tree_builder.h"
 #include "drake/math/rotation_matrix.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/contact_results_to_lcm.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
@@ -149,8 +150,8 @@ std::unique_ptr<systems::RigidBodyPlant<double>> BuildCombinedPlant(
       drake::multibody::joints::kFixed);
   *wsg_instance = tree_builder->get_model_info_for_instance(wsg_id);
 
-  return std::make_unique<systems::RigidBodyPlant<double>>(
-      tree_builder->Build());
+  return std::make_unique<systems::TimeSteppingRigidBodyPlant<double>>(
+      tree_builder->Build(), 1e-3);
 }
 
 

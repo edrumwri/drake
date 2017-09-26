@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
 #include "drake/solvers/moby_lcp_solver.h"
 
@@ -606,7 +607,7 @@ ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
 }
 
 template <typename T>
-void ConstraintSolver<T>::SolveConstraintProblem(double cfm,
+void ConstraintSolver<T>::SolveConstraintProblem(
     const ConstraintAccelProblemData<T>& problem_data,
     VectorX<T>* cf) const {
   using std::max;
@@ -1100,6 +1101,11 @@ void ConstraintSolver<T>::SolveImpactProblem(
   cf->segment(0, num_contacts) = fN;
   cf->segment(num_contacts, num_spanning_vectors) = fD_plus - fD_minus;
   cf->segment(num_contacts + num_spanning_vectors, num_limits) = fL;
+  SPDLOG_DEBUG(drake::log(), "Normal contact impulses: {}", fN.transpose());
+  SPDLOG_DEBUG(drake::log(), "Frictional contact impulses: {}",
+               (fD_plus - fD_minus).transpose());
+  SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
+               fL.transpose());
 
   // Determine the new velocity and the bilateral constraint impulses.
   //     Au + Xv + a = 0
@@ -1129,6 +1135,8 @@ void ConstraintSolver<T>::SolveImpactProblem(
          i < static_cast<int>(indep_constraints.size()); ++i, ++j) {
       lambda[indep_constraints[i]] = u[j];
     }
+    SPDLOG_DEBUG(drake::log(), "Bilateral constraint impulses: {}",
+                 lambda.transpose());
   }
 }
 
@@ -1330,7 +1338,6 @@ void ConstraintSolver<T>::FormSustainedConstraintLCP(
   // 0
   // L⋅A⁻¹⋅a + kL
   // where, as above, D is defined as [F -F] (and kD is defined as [kF -kF].
-  VectorX<T> M_inv_x_f = problem_data.solve_inertia(problem_data.tau);
   qq->resize(num_vars, 1);
   qq->segment(0, nc) = N(trunc_neg_invA_a) + kN;
   qq->segment(nc, nr) = F(trunc_neg_invA_a) + kF;

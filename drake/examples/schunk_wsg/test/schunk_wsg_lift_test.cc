@@ -13,6 +13,7 @@
 /// warning that can indicate if something has changed in the system such that
 /// the final system no longer reproduces the expected baseline behavior.
 
+#include <iostream>
 #include <memory>
 
 #include <gtest/gtest.h>
@@ -38,6 +39,7 @@
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/primitives/constant_vector_source.h"
+#include "drake/systems/primitives/signal_logger.h"
 #include "drake/systems/primitives/trajectory_source.h"
 
 namespace drake {
@@ -102,7 +104,7 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   systems::TimeSteppingRigidBodyPlant<double>* plant =
       builder.AddSystem<systems::TimeSteppingRigidBodyPlant<double>>(
           BuildLiftTestTree(&lifter_instance_id, &gripper_instance_id), 1e-4);
-  plant->set_cfm(1e-2);
+  plant->set_cfm(1e-8);
   plant->set_name("plant");
 
   ASSERT_EQ(plant->get_num_actuators(), 2);
@@ -249,6 +251,7 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   simulator.reset_integrator<RungeKutta3Integrator<double>>(*model, context);
   simulator.get_mutable_integrator()->request_initial_step_size_target(1e-4);
   simulator.get_mutable_integrator()->set_target_accuracy(1e-3);
+  simulator.set_target_realtime_rate(1);
 
   simulator.Initialize();
 

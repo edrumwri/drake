@@ -46,6 +46,7 @@ drake_cc_binary(
         "//drake/manipulation/planner:robot_plan_interpolator",
         "//drake/manipulation/schunk_wsg:schunk_wsg_controller",
         "//drake/manipulation/util:world_sim_tree_builder",
+        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody/rigid_body_plant:contact_results_to_lcm",
         "//drake/systems/analysis:simulator",
         "@com_github_gflags_gflags//:gflags",

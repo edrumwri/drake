@@ -72,6 +72,7 @@ drake_cc_googletest(
         "//drake/systems/controllers:pid_controlled_system",
         "//drake/systems/framework:diagram_builder",
         "//drake/systems/primitives:constant_vector_source",
+        "//drake/systems/primitives:signal_logger",
         "//drake/systems/primitives:trajectory_source",
     ],
 )

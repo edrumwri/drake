@@ -1,6 +1,7 @@
 #include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/eigen_types.h"
+#include "drake/math/orthonormal_basis.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
 #include "drake/multibody/kinematics_cache.h"
 #include "drake/solvers/mathematical_program.h"
@@ -43,6 +45,18 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
 
   // Schedule the time stepping.
   this->DeclarePeriodicDiscreteUpdate(timestep);
+}
+
+// Computes the stiffness and damping for a contact.
+template <typename T>
+void TimeSteppingRigidBodyPlant<T>::CalcContactStiffnessAndDamping(
+      const drake::multibody::collision::PointPair& contact,
+      double* stiffness,
+      double* damping) const {
+  DRAKE_DEMAND(stiffness);
+  DRAKE_DEMAND(damping);
+  *stiffness = 5e5;
+  *damping = 1e4;
 }
 
 // Gets A's translational velocity relative to B's translational velocity at a
@@ -114,7 +128,10 @@ void TimeSteppingRigidBodyPlant<T>::UpdateGeneralizedForce(
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::N_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const KinematicsCache<T>& kcache) const {
+    const VectorX<T>& q, const VectorX<T>& v) const {
+  const auto& tree = this->get_rigid_body_tree();
+  auto kcache = tree.doKinematics(q, v);
+
   // Create a result vector.
   VectorX<T> result(contacts.size());
 
@@ -188,10 +205,13 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::N_transpose_mult(
 template <class T>
 VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
     const std::vector<drake::multibody::collision::PointPair>& contacts,
-    const KinematicsCache<T>& kcache) const {
+    const VectorX<T>& q, const VectorX<T>& v) const {
   using std::cos;
   using std::sin;
   std::vector<Vector3<T>> basis_vecs;
+
+  const auto& tree = this->get_rigid_body_tree();
+  auto kcache = tree.doKinematics(q, v);
 
   // Create a result vector.
   VectorX<T> result(contacts.size() * half_cone_edges_);
@@ -219,8 +239,10 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
                                                   body_b_index, p_W);
 
     // Compute an orthonormal basis.
-    Vector3<T> tan1_dir, tan2_dir;
-    CalcOrthonormalBasis(contacts[i].normal, &tan1_dir, &tan2_dir);
+    const int kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2;
+    auto R_WC = math::ComputeBasisFromAxis(kXAxisIndex, contacts[i].normal);
+    const Vector3<T> tan1_dir = R_WC.col(kYAxisIndex);
+    const Vector3<T> tan2_dir = R_WC.col(kZAxisIndex);
 
     // Set spanning tangent directions.
     basis_vecs.resize(half_cone_edges_);
@@ -230,7 +252,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
       basis_vecs.back() = tan2_dir;
     } else {
       for (int j = 0; j < half_cone_edges_; ++j) {
-        double theta = M_PI * j / ((double) half_cone_edges_ - 1);
+        double theta = M_PI * j / (static_cast<double>(half_cone_edges_) - 1);
         basis_vecs[j] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
       }
     }
@@ -275,8 +297,10 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_transpose_mult(
     const Vector3 <T> p_W = (p_WAs + p_WBs) * 0.5;
 
     // Compute an orthonormal basis.
-    Vector3 <T> tan1_dir, tan2_dir;
-    CalcOrthonormalBasis(contacts[i].normal, &tan1_dir, &tan2_dir);
+    const int kXAxisIndex = 0, kYAxisIndex = 1, kZAxisIndex = 2;
+    auto R_WC = math::ComputeBasisFromAxis(kXAxisIndex, contacts[i].normal);
+    const Vector3<T> tan1_dir = R_WC.col(kYAxisIndex);
+    const Vector3<T> tan2_dir = R_WC.col(kZAxisIndex);
 
     // Set spanning tangent directions.
     basis_vecs.resize(half_cone_edges_);
@@ -286,7 +310,7 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_transpose_mult(
       basis_vecs.back() = tan2_dir;
     } else {
       for (int j = 0; j < half_cone_edges_; ++j) {
-        double theta = M_PI * j / ((double) half_cone_edges_ - 1);
+        double theta = M_PI * j / (static_cast<double>(half_cone_edges_) - 1);
         basis_vecs[j] = tan1_dir * cos(theta) + tan2_dir * sin(theta);
       }
     }
@@ -396,6 +420,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
         limits.back().error = (qjoint - qmin);
+        SPDLOG_DEBUG(drake::log(), "joint error: {} ", limits.back().error);
         limits.back().lower_limit = true;
       }
       if (qjoint > qmax || qjoint + vjoint * dt > qmax) {
@@ -403,13 +428,11 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
         limits.back().error = (qmax - qjoint);
+        SPDLOG_DEBUG(drake::log(), "joint error: {} ", limits.back().error);
         limits.back().lower_limit = false;
       }
     }
   }
-
-  // Set the number of generic unilateral constraint functions.
-  data.num_limit_constraints = limits.size();
 
   // Set up the N multiplication operator.
   data.N_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
@@ -417,9 +440,9 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   };
 
   // Set up the N' multiplication operator.
-  data.N_transpose_mult = [this, &contacts, &q, &v](const VectorX<T>& f) ->
+  data.N_transpose_mult = [this, &contacts, &kcache](const VectorX<T>& f) ->
       VectorX<T> {
-    return N_transpose_mult(contacts, q, v, f);
+    return N_transpose_mult(contacts, kcache, f);
   };
 
   // Set up the F multiplication operator.
@@ -428,9 +451,9 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   };
 
   // Set up the N' multiplication operator.
-  data.F_transpose_mult = [this, &contacts, &q, &v](const VectorX<T>& f) ->
+  data.F_transpose_mult = [this, &contacts, &kcache](const VectorX<T>& f) ->
       VectorX<T> {
-    return F_transpose_mult(contacts, q, v, f);
+    return F_transpose_mult(contacts, kcache, f);
   };
 
   // Set the constraint Jacobian transpose operator.
@@ -452,39 +475,70 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     return result;
   };
 
-  // Set the stabilization terms.
+  // Set the stabilization and softening terms.
+  // 1. Normal contact terms.
+  data.gammaN.resize(contacts.size());
   data.kN.resize(contacts.size());
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
     double stiffness, damping;
-    CalcStiffnessAndDamping(contacts[i], &stiffness, &damping);
+    CalcContactStiffnessAndDamping(contacts[i], &stiffness, &damping);
     const double denom = dt * stiffness + damping;
     double contact_cfm = 1.0 / denom;
     double contact_erp = dt * stiffness / denom;
     data.kN[i] = contact_erp * contacts[i].distance / dt;
+    data.gammaN[i] = contact_cfm;
   }
+
+  // 2. Tangential contact terms.
+  data.gammaE.setOnes(contacts.size()) *= cfm_ / dt;
+  data.gammaF.setOnes(total_friction_cone_edges) *= cfm_ / dt;
   data.kF.setZero(total_friction_cone_edges);
   data.kL.resize(limits.size());
   for (int i = 0; i < static_cast<int>(limits.size()); ++i)
     data.kL[i] = erp_ * limits[i].error / dt;
+  data.gammaL.setOnes(limits.size()) *= cfm_ / dt;
+
+  // 4. Bilateral constraint terms.
+  data.kG = tree.positionConstraints(kcache) * 0;
+  const auto G = tree.positionConstraintsJacobian(kcache, false);
+  data.G_mult = [this, &G](const VectorX<T>& w) -> VectorX<T> {
+    return G * w;
+  };
+  data.G_transpose_mult = [this, &G](const VectorX<T>& lambda) {
+    return G.transpose() * lambda;
+  };
 
   // Integrate the forces into the velocity.
   data.v = v + data.solve_inertia(right_hand_side) * dt;
 
   // Solve the rigid impact problem.
   VectorX<T> vnew, cf;
-  constraint_solver_.SolveImpactProblem(cfm_, data, &cf);
+  constraint_solver_.SolveImpactProblem(data, &cf);
   constraint_solver_.ComputeGeneralizedVelocityChange(data, cf, &vnew);
+  SPDLOG_DEBUG(drake::log(), "time: {}", context.get_time());
+  SPDLOG_DEBUG(drake::log(), "Actuator forces: {} ", u.transpose());
+  SPDLOG_DEBUG(drake::log(), "Transformed actuator forces: {} ",
+      (tree.B * u).transpose());
+  SPDLOG_DEBUG(drake::log(), "force: {}", right_hand_side.transpose());
+  SPDLOG_DEBUG(drake::log(), "old velocity: {}", v.transpose());
+  SPDLOG_DEBUG(drake::log(), "integrated forward velocity: {}",
+      data.v.transpose());
+  SPDLOG_DEBUG(drake::log(), "change in velocity: {}", vnew.transpose());
   vnew += data.v;
-std::cout << "N * vnew: " << data.N_mult(vnew).transpose() << std::endl;
-std::cout << "F * vnew: " << data.F_mult(vnew).transpose() << std::endl;
+  SPDLOG_DEBUG(drake::log(), "new velocity: {}", vnew.transpose());
+  SPDLOG_DEBUG(drake::log(), "new configuration: {}",
+      (q + dt * tree.transformVelocityToQDot(kcache, vnew)).transpose());
+  SPDLOG_DEBUG(drake::log(), "N * vnew: {} ", data.N_mult(vnew).transpose());
+  SPDLOG_DEBUG(drake::log(), "F * vnew: {} ", data.F_mult(vnew).transpose());
+  SPDLOG_DEBUG(drake::log(), "L * vnew: {} ", data.L_mult(vnew).transpose());
+  SPDLOG_DEBUG(drake::log(), "G * vnew: {} ", data.G_mult(vnew).transpose());
+  SPDLOG_DEBUG(drake::log(), "G * v: {} ", data.G_mult(v).transpose());
+  SPDLOG_DEBUG(drake::log(), "g(): {}",
+      tree.positionConstraints(kcache).transpose());
 
   // qn = q + dt*qdot.
   VectorX<T> xn(this->get_num_states());
   xn << q + dt * tree.transformVelocityToQDot(kcache, vnew), vnew;
-std::cout << "force: " << right_hand_side.transpose() << std::endl;
-std::cout << "old velocity: " << v.transpose() << std::endl;
-std::cout << "new velocity: " << vnew.transpose() << std::endl;
-std::cout << "new configuration: " << (q + dt * tree.transformVelocityToQDot(kcache, vnew)).transpose() << std::endl;
   updates->get_mutable_vector(0)->SetFromVector(xn);
 }
 

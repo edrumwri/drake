@@ -73,6 +73,7 @@ drake_cc_binary(
     deps = [
         "//drake/common:find_resource",
         "//drake/lcm",
+        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/parsers",
         "//drake/multibody/rigid_body_plant",
