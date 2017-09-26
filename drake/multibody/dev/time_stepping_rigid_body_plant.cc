@@ -32,6 +32,9 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
     std::unique_ptr<const RigidBodyTree<T>> tree, double timestep)
     : RigidBodyPlant<T>(std::move(tree), timestep) {
 
+  static_assert(std::is_same<double, T>::value,
+                "Only support templating on double for now");
+
   // Verify that the time-step is strictly positive.
   if (timestep <= 0.0) {
     throw std::logic_error("TimeSteppingRigidBodyPlant requires a positive "
@@ -40,41 +43,6 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
 
   // Schedule the time stepping.
   this->DeclarePeriodicDiscreteUpdate(timestep);
-}
-
-/// Computes an orthonormal basis { ii, jj, kk } from provided vector @p ii
-/// such that ii x jj = kk (with a right-handed cross product).
-/// @param[in] ii   A non-zero vector.
-/// @param[out] jj  On return, a second vector in the basis.
-/// @param[out] kk  On return, the third vector in the basis.
-/// @throws std::logic_error if @p jj or @p kk is null or @p ii is zero.
-template <class T>
-void TimeSteppingRigidBodyPlant<T>::CalcOrthonormalBasis(const Vector3<T>& ii,
-                                                         Vector3<T>* jj,
-                                                         Vector3<T>* kk) {
-  if (!jj)
-    throw std::logic_error("jj vector is null.");
-  if (!kk)
-    throw std::logic_error("kk vector is null.");
-
-  // Normalize ii.
-  T ii_nrm = ii.norm();
-  if (ii_nrm < std::numeric_limits<double>::epsilon()) {
-    throw std::logic_error("ii vector is zero.");
-  }
-  const Vector3<T> ii_normalized = ii / ii_nrm;
-
-  // The axis corresponding to the smallest component of ii will be *most*
-  // perpendicular.
-  const Vector3<T> u(ii.cwiseAbs());
-  int minAxis;
-  u.minCoeff(&minAxis);
-  Vector3<T> perpAxis = Vector3<T>::Zero();
-  perpAxis[minAxis] = 1;
-
-  // Now define jj and kk.
-  *jj = ii_normalized.cross(perpAxis).normalized();
-  *kk = ii_normalized.cross(*jj);
 }
 
 // Gets A's translational velocity relative to B's translational velocity at a
@@ -510,7 +478,7 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 std::cout << "N * vnew: " << data.N_mult(vnew).transpose() << std::endl;
 std::cout << "F * vnew: " << data.F_mult(vnew).transpose() << std::endl;
 
-  // qn = q + h*qdot.
+  // qn = q + dt*qdot.
   VectorX<T> xn(this->get_num_states());
   xn << q + dt * tree.transformVelocityToQDot(kcache, vnew), vnew;
 std::cout << "force: " << right_hand_side.transpose() << std::endl;

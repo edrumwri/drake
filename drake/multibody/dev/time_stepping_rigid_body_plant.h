@@ -8,16 +8,18 @@
 #include <Eigen/Geometry>
 
 #include "drake/common/drake_copyable.h"
+#include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 #include "drake/multibody/rigid_body_tree.h"
-#include "drake/multibody/constraint/constraint_solver.h"
 
 namespace drake {
 namespace systems {
 
 /// This class provides a System interface around a multibody dynamics model
-/// of the world represented by a RigidBodyTree.
+/// of the world represented by a RigidBodyTree, implemented as a first order
+/// discretization of rigid body dynamics and constraint equations, without
+/// stepping to event times.
 ///
 /// @tparam T The scalar type. Must be a valid Eigen scalar.
 /// @ingroup rigid_body_systems
@@ -32,29 +34,25 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   /// @param[in] tree the dynamic model to use with this plant.
   /// @param[in] timestep a strictly positive, floating point value specifying
   /// the update period of the model (in seconds).
+  /// @throws std::logic_error when timestep is non-positive.
   TimeSteppingRigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
                           double timestep);
 
-  /// Sets the coefficient of Coulomb/stiction friction (they're identical in
-  /// time stepping) and the number of edges in the friction cone.
-  void set_contact_parameters(double mu, int num_cone_edges);
-
-  /// Sets the ERP parameter. Aborts if not in the range [0,1].
+  /// Sets the ERP parameter. Aborts if not in the range [0,1]. Default value
+  /// is 0.1.
   void set_erp(double erp) { DRAKE_DEMAND(erp >= 0 && erp <= 1); erp_ = erp; }
 
-  /// Sets the CFM parameter. Aborts if negative.
+  /// Sets the CFM parameter. Aborts if negative. Default value is 1e-12.
   void set_cfm(double cfm) { DRAKE_DEMAND(cfm >= 0); cfm_ = cfm; }
 
- protected:
+ private:
   void DoCalcDiscreteVariableUpdates(const Context<T>& context,
       const std::vector<const DiscreteUpdateEvent<double>*>&,
       DiscreteValues<T>* updates) const override;
 
-  // Pointer to the class that encapsulates all the rigid constraint
-  // computations.
+  // Pointer to the class that performs all constraint computations.
   multibody::constraint::ConstraintSolver<T> constraint_solver_;
 
- private:
   // Structure for storing joint limit data for time stepping.
   struct JointLimit {
     // The index for the joint limit.
@@ -70,9 +68,10 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
     T error{0};
   };
 
-  static void CalcOrthonormalBasis(const Vector3<T>& ii,
-                                   Vector3<T>* jj,
-                                   Vector3<T>* kk);
+  void CalcContactStiffnessAndDamping(
+      const drake::multibody::collision::PointPair& contact,
+      double* stiffness,
+      double* damping) const;
   Vector3<T> CalcRelTranslationalVelocity(
       const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
       const Vector3<T>& p_W) const;
@@ -113,9 +112,9 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   // outside of the range [0,1] are invalid, and will cause assertion failures).
   // Since Lacoursiere's constraint stabilization process assumes that the
   // constraint function is approximately linear in position, values of ERP
-  // smaller than unity are generally recommended. A generally safe value of 0.1
-  // is the the default, and can be increased as desired to mitigate constraint
-  // error.
+  // strictly smaller than unity are generally recommended. A generally safe
+  // value of 0.1 is the the default, and can be increased as desired to
+  // mitigate constraint error.
   double erp_{0.1};
 
   // The "constraint force mixing" (CFM) parameter, first seen in CM Labs'
@@ -126,7 +125,7 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   // values of zero yield no softening, while CFM values of infinity yield
   // constraints that are completely unenforced. Typical values for CFM
   // lie in the range [1e-12, 1e-6], but this range is just a rough guideline.
-  double cfm_{1e-4};
+  double cfm_{1e-12};
 };
 
 }  // namespace systems

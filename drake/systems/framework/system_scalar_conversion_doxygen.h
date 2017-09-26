@@ -138,8 +138,65 @@ The relevant details of the examples are:
 
 <h3>Systems not marked as `final`</h3>
 
-TODO(jwnimmer-tri) Document how to write a class hierarchy of Systems that
-support scalar conversion.
+For a class hierarchy of Systems that support scalar conversion, a slightly
+different pattern is required.
+
+@code
+namespace sample {
+template <typename T>
+class MySystemBase : public LeafSystem<T> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MySystemBase);
+
+  // Constructs a system with the given `gain`.
+  // Subclasses must use the protected constructor, not this one.
+  explicit MySystemBase(double gain)
+    : LeafSystem<T>(SystemTypeTag<sample::MySystemBase>{}), gain_{gain} {}
+
+  // Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit MySystemBase(const MySystemBase<U>& other)
+    : MySystemBase<T>(other.gain()) {}
+
+  // Returns the gain of this system.
+  double gain() const { return gain_; }
+
+ protected:
+  // Constructor that specifies scalar-type conversion support.
+  // @param converter scalar-type conversion support helper (i.e., AutoDiff,
+  // etc.); pass a default-constructed object if such support is not desired.
+  explicit MySystemBase(SystemScalarConverter converter, double gain)
+    : LeafSystem<T>(std::move(converter)), gain_{gain} {}
+
+  ...
+namespace sample {
+template <typename T>
+class MySystemDerived final : public MySystemBase<T> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MySystemDerived);
+
+  // Constructs a system with a gain of 1.0.
+  MySystemDerived() : MySystemBase<T>(
+      SystemTypeTag<sample::MySystemDerived>{},
+      1.0) {}
+
+  // Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit MySystemDerived(const MySystemDerived<U>&) : MySystemDerived<T>() {}
+
+  ...
+@endcode
+
+The relevant details of the examples are:
+- Non-`final` classes like `MySystemBase` must offer a protected constructor
+  that takes a SystemScalarConverter as the first argument.
+- Constructors for derived classes such as `MySystemDerived` must delegate
+  to a base class protected constructor that takes a %SystemScalarConverter,
+  never to a public constructor without one.
+- `MySystemBase` and `MySystemDerived` both have a public scalar-converting copy
+  constructor;
+  - if the base system is abstract (cannot be constructed), then it may omit
+    this constructor.
 
 <h3>Limiting the supported scalar types</h3>
 
@@ -206,6 +263,57 @@ we have:
 @code
   template <typename U>
   explicit MySystem(const MySystem<U>& other) : MySystem<T>(other.gain()) {}
+@endcode
+
+
+<h2>How to create a Diagram that supports scalar conversion</h2>
+
+In the typical case, no special effort is needed to create a Diagram that
+support scalar-type conversion.  The Diagram does not even need to be templated
+on a scalar type `T`.
+
+Example using DiagramBuilder::BuildInto:
+@code
+namespace sample {
+class MyDiagram : public Diagram<double> {
+ public:
+  MyDiagram() {
+    DiagramBuilder<double> builder;
+    const auto* integrator = builder.AddSystem<Integrator<double>>(1);
+    builder.ExportInput(integrator->get_input_port());
+    builder.ExportOutput(integrator->get_output_port());
+    builder.BuildInto(this);
+  }
+};
+@endcode
+
+In this example, `MyDiagram` will support the same scalar types as the
+Integrator.  If any sub-system had been added that did not support, e.g.,
+symbolic form, then the Diagram would also not support symbolic form.
+
+By default, even subclasses of a `Diagram<U>` will convert to a `Diagram<T>`,
+discarding the diagram subclass details.  For example, in the above sample
+code, `MyDiagram::ToAutoDiffXd()` will return an object of runtime type
+`Diagram<AutoDiffXd>`, not type `MyDiagram<AutoDiffXd>`.  (There is no such
+class as `MyDiagram<AutoDiffXd>` anyway, because `MyDiagram` is not templated.)
+
+In the unusual case that the Diagram's subclass must be preserved during
+conversion, a ::drake::systems::SystemTypeTag should be used:
+
+Example using DiagramBuilder::BuildInto along with a `SystemTypeTag`:
+@code
+namespace sample {
+template <typename T>
+class SpecialDiagram<T> final : public Diagram<T> {
+ public:
+  SpecialDiagram() : Diagram<T>(SystemTypeTag<sample::SpecialDiagram>{}) {
+    DiagramBuilder<T> builder;
+    const auto* integrator = builder.template AddSystem<Integrator<T>>(1);
+    builder.ExportInput(integrator->get_input_port());
+    builder.ExportOutput(integrator->get_output_port());
+    builder.BuildInto(this);
+  }
+};
 @endcode
 
 */

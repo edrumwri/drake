@@ -56,7 +56,7 @@ drake_cc_googletest(
     ],
     # This test is prohibitively slow with --compilation_mode=dbg.
     deps = [
-        "//drake/common",
+        "//drake/common:essential",
         "//drake/common:find_resource",
         "//drake/common/trajectories:piecewise_polynomial_trajectory",
         "//drake/common/trajectories:trajectory",

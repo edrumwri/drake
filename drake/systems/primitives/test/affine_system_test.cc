@@ -1,6 +1,6 @@
 #include "drake/systems/primitives/affine_system.h"
 
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/systems/framework/test_utilities/scalar_conversion.h"
 #include "drake/systems/primitives/test/affine_linear_test.h"
 
@@ -220,8 +220,9 @@ class SimpleTimeVaryingAffineSystem : public TimeVaryingAffineSystem<double> {
   static constexpr int kNumOutputs = 2;
 
   explicit SimpleTimeVaryingAffineSystem(double time_period)
-      : TimeVaryingAffineSystem(kNumStates, kNumInputs, kNumOutputs,
-                                time_period) {}
+      : TimeVaryingAffineSystem(
+            SystemScalarConverter{},  // BR
+            kNumStates, kNumInputs, kNumOutputs, time_period) {}
   ~SimpleTimeVaryingAffineSystem() override {}
 
   Eigen::MatrixXd A(const double& t) const override {
