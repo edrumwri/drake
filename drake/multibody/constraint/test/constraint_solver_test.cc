@@ -1103,7 +1103,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
   // specified. The rod will be constrained to prevent rotational acceleration
   // using a bilateral constraint as well.
   void SlidingPlusBilateral(bool sliding_to_right) {
-    SetRodToRestingVerticalConfig();
+      SetRodToRestingVerticalConfig();
     ContinuousState<double>& xc = *context_->
         get_mutable_continuous_state();
     xc[3] = (sliding_to_right) ? 1 : -1;
@@ -1364,7 +1364,7 @@ TEST_P(Constraint2DSolverTest, TwoPointPulledUpward) {
 
       // Compute the contact forces.
       VectorX<double> cf;
-      solver_.SolveConstraintProblem(cfm_, *accel_data_, &cf);
+      solver_.SolveConstraintProblem(*accel_data_, &cf);
 
       // Verify that the contact forces are zero.
       EXPECT_LT(cf.norm(), lcp_eps_);

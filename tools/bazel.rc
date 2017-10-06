@@ -73,15 +73,6 @@ build:everything --define=WITH_SNOPT=ON
 build:unsupported_crosstool --crosstool_top=//external:cc_toolchain
 build:unsupported_crosstool --action_env=CCACHE_DISABLE=1
 
-### git submodules
-# If a CMake build is performed from the same source tree, it will checkout git
-# submodules, and if they have BUILD files then `bazel build //...` will find
-# them and complain that the paths don't line up correctly anymore.  Here, we
-# manually list out all git submodule externals' BUILD files.
-#
-# TODO(jwnimmer-tri) Remove this once git submodules are no longer used.
-build --deleted_packages=externals/protobuf,externals/protobuf/util/python,externals/gflags
-
 ### Lint. ###
 # Run the tests for code style compliance, but not any functional (unit) tests.
 test:lint --build_tests_only
@@ -239,6 +230,12 @@ build:tsan_everything --copt -g
 build:tsan_everything --copt -fsanitize=thread
 build:tsan_everything --copt -O1
 build:tsan_everything --copt -fno-omit-frame-pointer
+# From Tsan documentation for Clang-3.9:
+# fsanitize=thread flag will cause Clang to act as though the -fPIE flag
+# had been supplied if compiling without -fPIC, and as though the
+# -pie flag had been supplied if linking an executable
+# Bug in GCC: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67308
+build:tsan_everything --noforce_pic
 build:tsan_everything --linkopt -fsanitize=thread
 
 test:tsan_everything --test_env=GRB_LICENSE_FILE
@@ -272,6 +269,7 @@ build:ubsan_everything --define=WITH_MOSEK=ON
 build:ubsan_everything --define=WITH_SNOPT=ON
 build:ubsan_everything --copt -g
 build:ubsan_everything --copt -fsanitize=undefined
+build:ubsan_everything --copt -fno-sanitize=float-divide-by-zero
 build:ubsan_everything --copt -O1
 build:ubsan_everything --copt -fno-omit-frame-pointer
 build:ubsan_everything --linkopt -fsanitize=undefined

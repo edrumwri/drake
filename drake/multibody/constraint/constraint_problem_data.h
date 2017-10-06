@@ -85,14 +85,14 @@ struct ConstraintAccelProblemData {
   /// an acceleration-level formulation (i.e., g̈(t, q, v, v̇), for the
   /// aforementioned definition of g(t,q)). That differentiation yields
   /// g̈ = G⋅v̇ + dG/dt⋅v, which is consistent with the constraint class under
-  /// the definition kᴳ(t,q,v) ≡ dG/dt⋅v. An example such holonomic constraint
+  /// the definition kᴳ(t,q,v) ≡ dG/dt⋅v. An example such (holonomic) constraint
   /// function is the transmission (gearing) constraint below:<pre>
   /// 0 = v̇ᵢ - rv̇ⱼ
   /// </pre>
-  /// which can be read as the acceleration at joint j (v̇ⱼ) must equal to `r`
-  /// times the acceleration at joint i (v̇ᵢ); `r` is thus the gear ratio.
+  /// which can be read as the acceleration at joint i (v̇ᵢ) must equal to `r`
+  /// times the acceleration at joint j (v̇ⱼ); `r` is thus the gear ratio.
   /// In this example, the corresponding holonomic constraint function is
-  /// g(q) ≡ qᵢ - rqⱼ, yielding ̈g(q, v, v̇) = -v̇ⱼ + - rv̇ⱼ.
+  /// g(q) ≡ qᵢ - rqⱼ, yielding ̈g(q, v, v̇) = v̇ᵢ - rv̇ⱼ.
   /// @{
 
   /// An operator that performs the multiplication G⋅v. The default operator
@@ -122,7 +122,7 @@ struct ConstraintAccelProblemData {
   /// constraint (a constraint imposed at the velocity level) as:<pre>
   /// 0 ≤ N(q)⋅v̇ + kᴺ(t,q,v) + γᴺfᶜ  ⊥  fᶜ ≥ 0
   /// </pre>
-  /// which means that the constraint c̈(q,v,v̇) ≡ N(q)⋅v̇ + kᴺ(t,q,v) + γᴺfᶜ is
+  /// which means that the constraint c̈(q,v,v̇) ≡ N(q)⋅v̇ + kᴺ(t,q,v) is
   /// coupled to a force constraint (fᶜ ≥ 0) and a complementarity constraint
   /// fᶜ⋅(Nv̇ + kᴺ(t,q,v) + γᴺfᶜ) = 0, meaning that the constraint can apply no
   /// force if it is inactive (i.e., if c̈(q,v,v̇) is strictly greater than
@@ -157,7 +157,8 @@ struct ConstraintAccelProblemData {
   /// This ℝⁿ vector is the vector kᴺ(t,q,v) defined above.
   VectorX<T> kN;
 
-  /// This ℝⁿ vector represents the diagonal matrix γᴺ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝⁿ vector represents the diagonal matrix γᴺ.
   VectorX<T> gammaN;
   /// @}
 
@@ -214,10 +215,12 @@ struct ConstraintAccelProblemData {
   /// This ℝʸʳ vector is the vector kᶠ(t,q,v) defined above.
   VectorX<T> kF;
 
-  /// This ℝʸʳ vector represents the diagonal matrix γᶠ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝʸʳ vector represents the diagonal matrix γᶠ.
   VectorX<T> gammaF;
 
-  /// This ℝⁿ vector represents the diagonal matrix γᴱ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝᴺ vector represents the diagonal matrix γᴱ.
   VectorX<T> gammaE;
   /// @}
 
@@ -233,10 +236,10 @@ struct ConstraintAccelProblemData {
   /// L is defined as the ℝˢˣᵐ Jacobian matrix that transforms generalized
   /// velocities (v ∈ ℝᵐ) into the time derivatives of s unilateral constraint
   /// functions. The class of constraint functions naturally includes holonomic
-  /// constraints, which are constraints posable as g(q,t). Such holonomic
+  /// constraints, which are constraints posable as g(t,q). Such holonomic
   /// constraints must be twice differentiated with respect to time to yield
   /// an acceleration-level formulation (i.e., g̈(q, v, v̇, t), for the
-  /// aforementioned definition of g(q,t)). That differentiation yields
+  /// aforementioned definition of g(t,q)). That differentiation yields
   /// g̈ = L⋅v̇ + dL/dt⋅v, which is consistent with the constraint class under
   /// the definition kᴸ(t,q,v) ≡ dL/dt⋅v. An example such holonomic constraint
   /// function is a joint acceleration limit:<pre>
@@ -247,7 +250,7 @@ struct ConstraintAccelProblemData {
   /// and the limiting force cannot be applied if the acceleration at the
   /// joint is not at the limit (i.e., v̇ⱼ < r). In this example, the
   /// corresponding holonomic constraint function is g(t,q) ≡ -qⱼ + rt²,
-  /// yielding  ̈g(q, v, v̇) = -v̇ⱼ + r.
+  /// yielding ̈g(q, v, v̇) = -v̇ⱼ + r.
   /// @{
 
   /// An operator that performs the multiplication L⋅v. The default operator
@@ -262,7 +265,8 @@ struct ConstraintAccelProblemData {
   /// This ℝˢ vector is the vector kᴸ(t,q,v) defined above.
   VectorX<T> kL;
 
-  /// This ℝˢ vector represents the diagonal matrix γᴸ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝˢ vector represents the diagonal matrix γᴸ.
   VectorX<T> gammaL;
   /// @}
 
@@ -339,10 +343,10 @@ struct ConstraintVelProblemData {
   /// function is the transmission (gearing) constraint below:<pre>
   /// 0 = vᵢ - rvⱼ
   /// </pre>
-  /// which can be read as the velocity at joint j (vⱼ) must equal to `r`
-  /// times the velocity at joint i (vᵢ); `r` is thus the gear ratio.
+  /// which can be read as the velocity at joint i (vᵢ) must equal to `r`
+  /// times the velocity at joint j (vⱼ); `r` is thus the gear ratio.
   /// In this example, the corresponding holonomic constraint function is
-  /// g(q) ≡ qᵢ -rqⱼ, yielding ġ(q, v) = -vⱼ + - rvⱼ.
+  /// g(q) ≡ qᵢ - rqⱼ, yielding ġ(q, v) = vᵢ - rvⱼ.
   /// @{
 
   /// An operator that performs the multiplication G⋅v. The default operator
@@ -394,7 +398,8 @@ struct ConstraintVelProblemData {
   /// This ℝⁿ vector is the vector kᴺ(t,q,v) defined above.
   VectorX<T> kN;
 
-  /// This ℝⁿ vector represents the diagonal matrix γᴺ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝⁿ vector represents the diagonal matrix γᴺ.
   VectorX<T> gammaN;
   /// @}
 
@@ -450,10 +455,12 @@ struct ConstraintVelProblemData {
   /// This ℝʸʳ vector is the vector kᶠ(t,q,v) defined above.
   VectorX<T> kF;
 
-  /// This ℝʸʳ vector represents the diagonal matrix γᶠ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝʸʳ vector represents the diagonal matrix γᶠ.
   VectorX<T> gammaF;
 
-  /// This ℝⁿ vector represents the diagonal matrix γᴱ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝʸ vector represents the diagonal matrix γᴱ.
   VectorX<T> gammaE;
 
   /// @}
@@ -503,7 +510,8 @@ struct ConstraintVelProblemData {
   /// This ℝˢ vector is the vector kᴸ(t,q) defined above.
   VectorX<T> kL;
 
-  /// This ℝˢ vector represents the diagonal matrix γᴸ defined above.
+  // TODO(edrumwri): define this quantity properly (documentation forthcoming).
+  /// This ℝˢ vector represents the diagonal matrix γᴸ.
   VectorX<T> gammaL;
   /// @}
 

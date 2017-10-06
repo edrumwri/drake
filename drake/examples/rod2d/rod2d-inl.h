@@ -585,27 +585,27 @@ void Rod2D<T>::CalcConstraintProblemData(
         context, points[contact_index], contact_tangent);
   }
   data->kF = Fdot * v;
-  data->gammaF.setOnes(nr) *= cfm_;
-  data->gammaE.setOnes(non_sliding_contacts.size()) *= cfm_;
   data->F_mult = [F](const VectorX<T>& w) -> VectorX<T> { return F * w; };
   data->F_transpose_mult = [F](const VectorX<T>& w) -> VectorX<T> {
     return F.transpose() * w;
   };
+  data->gammaF.setOnes(nr) *= cfm_;
+  data->gammaE.setOnes(non_sliding_contacts.size()) *= cfm_;
 
   // Form N - mu*Q (Q is sliding contact direction Jacobian).
   MatrixX<T> N_minus_mu_Q = N;
   Vector3<T> Qrow;
   for (int i = 0; i < static_cast<int>(sliding_contacts.size()); ++i) {
     const int contact_index = sliding_contacts[i];
-    const auto& sliding_dir = GetSlidingContactFrameToWorldTransform(
-        tangent_vels[contact_index]).col(1);
+    Matrix2<T> sliding_contract_frame = GetSlidingContactFrameToWorldTransform(
+        tangent_vels[contact_index]);
+    const auto& sliding_dir = sliding_contract_frame.col(1);
     Qrow = GetJacobianRow(context, points[contact_index], sliding_dir);
     N_minus_mu_Q.row(contact_index) -= data->mu_sliding[i] * Qrow;
   }
   data->N_minus_muQ_transpose_mult = [N_minus_mu_Q](const VectorX<T>& w) ->
       VectorX<T> { return N_minus_mu_Q.transpose() * w; };
 
-  // Set kL.
   data->kL.resize(0);
   data->gammaL.resize(0);
 
@@ -675,6 +675,7 @@ void Rod2D<T>::CalcImpactProblemData(
   data->gammaE.setOnes(num_contacts) *= cfm_;
 
   // Set the number of limit constraints.
+  data->kL.resize(0);
   data->gammaL.resize(0);
 }
 
