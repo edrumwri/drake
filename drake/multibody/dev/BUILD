@@ -9,6 +9,12 @@ load(
 load("//tools:gurobi.bzl", "gurobi_test_tags")
 load("//tools:lint.bzl", "add_lint_tests")
 
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
+
 drake_cc_library(
     name = "time_stepping_rigid_body_plant",
     srcs = ["time_stepping_rigid_body_plant.cc"],

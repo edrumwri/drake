@@ -38,12 +38,26 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   TimeSteppingRigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
                           double timestep);
 
-  /// Sets the ERP parameter. Aborts if not in the range [0,1]. Default value
-  /// is 0.1.
-  void set_erp(double erp) { DRAKE_DEMAND(erp >= 0 && erp <= 1); erp_ = erp; }
+  /// Sets the default stiffness parameter. Aborts if negative. Default value
+  /// is 1000.
+  void set_default_stiffness(double stiffness) {
+    DRAKE_DEMAND(stiffness >= 0);
+    default_stiffness_ = stiffness;
+  }
 
-  /// Sets the CFM parameter. Aborts if negative. Default value is 1e-12.
-  void set_cfm(double cfm) { DRAKE_DEMAND(cfm >= 0); cfm_ = cfm; }
+  /// Sets the default damping parameter. Aborts if negative. Default value is
+  /// 100.
+  void set_default_damping(double damping) {
+    DRAKE_DEMAND(damping >= 0);
+    default_damping_ = damping;
+  }
+
+  /// Sets the default friction coefficient. Aborts if negative. Default
+  /// value is 0.1.
+  void set_default_friction_coefficient(double mu) {
+    DRAKE_DEMAND(mu >= 0);
+    mu_ = mu;
+  }
 
  private:
   void DoCalcDiscreteVariableUpdates(const Context<T>& context,
@@ -69,10 +83,11 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
     T error{0};
   };
 
-  void CalcContactStiffnessAndDamping(
+  bool CalcContactStiffnessDampingAndMu(
       const drake::multibody::collision::PointPair& contact,
       double* stiffness,
-      double* damping) const;
+      double* damping,
+      double* mu) const;
   Vector3<T> CalcRelTranslationalVelocity(
       const KinematicsCache<T>& kcache, int body_a_index, int body_b_index,
       const Vector3<T>& p_W) const;
@@ -103,28 +118,15 @@ class TimeSteppingRigidBodyPlant : public RigidBodyPlant<T> {
   // contacts in 3D. Must be no fewer than 2 (equates to a friction pyramid).
   int half_cone_edges_{2};
 
-  // The "error reduction parameter" (ERP), first seen in CM Labs' Vortex and
-  // Open Dynamics Engine, and formulated from [Lacoursiere 2007], which
-  // determines how rapidly constraint errors are corrected. ERP values of zero
-  // indicate constraint errors will not be corrected, while ERP values of one
-  // indicate constraint errors will be corrected at every time step (ERP values
-  // outside of the range [0,1] are invalid, and will cause assertion failures).
-  // Since Lacoursiere's constraint stabilization process assumes that the
-  // constraint function is approximately linear in position, values of ERP
-  // strictly smaller than unity are generally recommended. A generally safe
-  // value of 0.1 is the the default, and can be increased as desired to
-  // mitigate constraint error.
-  double erp_{0.1};
+  // The default stiffness value, in the range [0, infinity]. This value will
+  // be applied to all constraints that are not otherwise provided a stiffness.
+  // Low stiffnesses are less likely to cause "popping" effects.
+  double default_stiffness_{1e10};
 
-  // The "constraint force mixing" (CFM) parameter, first seen in CM Labs'
-  // Vortex and Open Dynamics Engine, and formulated from [Lacoursiere 2007],
-  // which determines how constraints are "softened" (allowed to become
-  // violated), which generally provides numerical robustness along with a
-  // reduction in constraint stiffness (particularly useful for contact). CFM
-  // values of zero yield no softening, while CFM values of infinity yield
-  // constraints that are completely unenforced. Typical values for CFM
-  // lie in the range [1e-12, 1e-6], but this range is just a rough guideline.
-  double cfm_{1e-12};
+  // The default damping value, in the range [0, infinity]. This value will
+  // be applied to all constraints that are not otherwise provided a damping
+  // value.
+  double default_damping_{1e7};
 };
 
 }  // namespace systems

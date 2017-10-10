@@ -47,16 +47,21 @@ TimeSteppingRigidBodyPlant<T>::TimeSteppingRigidBodyPlant(
   this->DeclarePeriodicDiscreteUpdate(timestep);
 }
 
-// Computes the stiffness and damping for a contact.
+// Computes the stiffness, damping, and friction coefficient for a contact (if
+// it exists).
 template <typename T>
-void TimeSteppingRigidBodyPlant<T>::CalcContactStiffnessAndDamping(
+bool TimeSteppingRigidBodyPlant<T>::CalcContactStiffnessDampingAndMu(
       const drake::multibody::collision::PointPair& contact,
       double* stiffness,
-      double* damping) const {
+      double* damping,
+      double* mu) const {
   DRAKE_DEMAND(stiffness);
   DRAKE_DEMAND(damping);
-  *stiffness = 5e5;
-  *damping = 1e4;
+  DRAKE_DEMAND(mu);
+
+  // TODO: implement this fully once PR #7016 lands. For now, `false` return
+  //       indicates no contacts have specialized values.
+  return false;
 }
 
 // Gets A's translational velocity relative to B's translational velocity at a
@@ -209,7 +214,6 @@ VectorX<T> TimeSteppingRigidBodyPlant<T>::F_mult(
   using std::cos;
   using std::sin;
   std::vector<Vector3<T>> basis_vecs;
-
   const auto& tree = this->get_rigid_body_tree();
   auto kcache = tree.doKinematics(q, v);
 
@@ -475,28 +479,31 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     return result;
   };
 
-  // Set the stabilization and softening terms.
+  // Compute the default CFM and ERP. 
+  SPDLOG_DEBUG(drake::log(), "time: {}", context.get_time());
+  const double default_denom = dt * default_stiffness_ + default_damping_;
+  const double default_cfm = 1.0 / default_denom;
+  const double default_erp = dt * default_stiffness_ / default_denom;
+  SPDLOG_DEBUG(drake::log(), "default CFM: {} and ERP: {}", default_cfm,
+      default_erp);
+
+  // Set the default stabilization and softening terms.
   // 1. Normal contact terms.
-  data.gammaN.resize(contacts.size());
+  data.gammaN.setOnes(contacts.size()) *= default_cfm;
   data.kN.resize(contacts.size());
-  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
-    double stiffness, damping;
-    CalcContactStiffnessAndDamping(contacts[i], &stiffness, &damping);
-    const double denom = dt * stiffness + damping;
-    double contact_cfm = 1.0 / denom;
-    double contact_erp = dt * stiffness / denom;
-    data.kN[i] = contact_erp * contacts[i].distance / dt;
-    data.gammaN[i] = contact_cfm;
-  }
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i)
+    data.kN[i] = default_erp * contacts[i].distance / dt;
 
   // 2. Tangential contact terms.
-  data.gammaE.setOnes(contacts.size()) *= cfm_ / dt;
-  data.gammaF.setOnes(total_friction_cone_edges) *= cfm_ / dt;
+  data.gammaE.setOnes(contacts.size()) *= default_cfm;
+  data.gammaF.setOnes(total_friction_cone_edges) *= default_cfm; 
   data.kF.setZero(total_friction_cone_edges);
+
+  // 3. Joint limit terms.
   data.kL.resize(limits.size());
   for (int i = 0; i < static_cast<int>(limits.size()); ++i)
-    data.kL[i] = erp_ * limits[i].error / dt;
-  data.gammaL.setOnes(limits.size()) *= cfm_ / dt;
+    data.kL[i] = default_erp * limits[i].error / dt;
+  data.gammaL.setOnes(limits.size()) *= default_cfm; 
 
   // 4. Bilateral constraint terms.
   data.kG = tree.positionConstraints(kcache) * 0;
@@ -508,6 +515,23 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     return G.transpose() * lambda;
   };
 
+  // Overwrite defaults with specific data. 
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    double stiffness, damping, mu;
+    if (CalcContactStiffnessDampingAndMu(
+        contacts[i], &stiffness, &damping, &mu))
+    {
+      const double denom = dt * stiffness + damping;
+      double contact_cfm = 1.0 / denom;
+      double contact_erp = dt * stiffness / denom;
+      data.kN[i] = contact_erp * contacts[i].distance / dt;
+      data.gammaN[i] = contact_cfm;
+      data.mu[i] = mu;
+      SPDLOG_DEBUG(drake::log(), "contact CFM: {}, ERP: {}, mu: {}",
+          contact_cfm, contact_erp, mu);
+    }
+  }
+
   // Integrate the forces into the velocity.
   data.v = v + data.solve_inertia(right_hand_side) * dt;
 
@@ -515,7 +539,6 @@ void TimeSteppingRigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> vnew, cf;
   constraint_solver_.SolveImpactProblem(data, &cf);
   constraint_solver_.ComputeGeneralizedVelocityChange(data, cf, &vnew);
-  SPDLOG_DEBUG(drake::log(), "time: {}", context.get_time());
   SPDLOG_DEBUG(drake::log(), "Actuator forces: {} ", u.transpose());
   SPDLOG_DEBUG(drake::log(), "Transformed actuator forces: {} ",
       (tree.B * u).transpose());

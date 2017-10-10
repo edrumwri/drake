@@ -1103,7 +1103,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
   // specified. The rod will be constrained to prevent rotational acceleration
   // using a bilateral constraint as well.
   void SlidingPlusBilateral(bool sliding_to_right) {
-      SetRodToRestingVerticalConfig();
+    SetRodToRestingVerticalConfig();
     ContinuousState<double>& xc = *context_->
         get_mutable_continuous_state();
     xc[3] = (sliding_to_right) ? 1 : -1;

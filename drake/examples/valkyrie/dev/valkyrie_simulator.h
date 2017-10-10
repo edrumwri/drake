@@ -20,6 +20,7 @@
 #include "drake/multibody/rigid_body_plant/contact_results_to_lcm.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/rigid_body_tree_construction.h"
 #include "drake/systems/analysis/semi_explicit_euler_integrator.h"
 #include "drake/systems/analysis/simulator.h"
@@ -36,7 +37,9 @@ namespace valkyrie {
 
 class ValkyrieSimulationDiagram : public systems::Diagram<double> {
  public:
-  explicit ValkyrieSimulationDiagram(lcm::DrakeLcm* lcm) {
+  ValkyrieSimulationDiagram(
+      lcm::DrakeLcm* lcm, double step_size, double default_stiffness,
+      double default_damping, double default_mu) {
     systems::DiagramBuilder<double> builder;
 
     // Create RigidBodyTree.
@@ -49,23 +52,18 @@ class ValkyrieSimulationDiagram : public systems::Diagram<double> {
         tree_ptr.get());
     multibody::AddFlatTerrainToWorld(tree_ptr.get(), 100., 10.);
 
-    // Instantiate a RigidBodyPlant from the RigidBodyTree.
-    plant_ =
-        builder.AddSystem<systems::RigidBodyPlant<double>>(std::move(tree_ptr));
+    // Instantiate a TimeSteppingRigidBodyPlant from the RigidBodyTree.
+    plant_ = builder.AddSystem<systems::TimeSteppingRigidBodyPlant<double>>(
+        std::move(tree_ptr), step_size);
     plant_->set_name("plant");
 
-    // Contact parameters
-    const double kStiffness = 100000;
-    const double kDissipation = 5.0;
-    const double kStaticFriction = 0.9;
-    const double kDynamicFriction = 0.5;
-    const double kStictionSlipTolerance = 0.01;
-    plant_->set_normal_contact_parameters(kStiffness, kDissipation);
-    plant_->set_friction_contact_parameters(kStaticFriction, kDynamicFriction,
-                                            kStictionSlipTolerance);
-    const auto& tree = plant_->get_rigid_body_tree();
+    // Set default values.
+    plant_->set_default_stiffness(default_stiffness);
+    plant_->set_default_damping(default_damping);
+    plant_->set_default_friction_coefficient(default_mu);
 
     // RigidBodyActuators.
+    const auto& tree = plant_->get_rigid_body_tree();
     std::vector<const RigidBodyActuator*> actuators;
     for (const auto& actuator : tree.actuators) {
       actuators.push_back(&actuator);
@@ -216,7 +214,7 @@ class ValkyrieSimulationDiagram : public systems::Diagram<double> {
   systems::RigidBodyPlant<double>* get_mutable_plant() { return plant_; }
 
  private:
-  systems::RigidBodyPlant<double>* plant_;
+  systems::TimeSteppingRigidBodyPlant<double>* plant_;
 };
 
 }  // namespace valkyrie

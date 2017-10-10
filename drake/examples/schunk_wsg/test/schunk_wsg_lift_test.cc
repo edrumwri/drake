@@ -104,7 +104,6 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   systems::TimeSteppingRigidBodyPlant<double>* plant =
       builder.AddSystem<systems::TimeSteppingRigidBodyPlant<double>>(
           BuildLiftTestTree(&lifter_instance_id, &gripper_instance_id), 1e-4);
-  plant->set_cfm(1e-8);
   plant->set_name("plant");
 
   ASSERT_EQ(plant->get_num_actuators(), 2);

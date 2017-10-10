@@ -7,6 +7,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/lcm/drake_lcm.h"
+#include "drake/multibody/dev/time_stepping_rigid_body_plant.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
@@ -36,14 +37,11 @@ using std::make_unique;
 
 // Simulation parameters.
 DEFINE_double(v, 0.1, "The initial speed of the second brick");
-DEFINE_double(timestep, 1e-4, "The simulator time step");
+DEFINE_double(timestep, 1e-3, "The simulator time step");
 DEFINE_double(push, 260, "The magnitude of the force pushing on the bricks");
 DEFINE_double(stiffness, 100000, "The contact model's stiffness");
-DEFINE_double(us, 0.9, "The static coefficient of friction");
-DEFINE_double(ud, 0.5, "The dynamic coefficient of friction");
-DEFINE_double(v_tol, 0.01,
-              "The maximum slipping speed allowed during stiction");
-DEFINE_double(dissipation, 1.0, "The contact model's dissipation");
+DEFINE_double(damping, 1000, "The contact model's damping coefficient");
+DEFINE_double(mu, 0.9, "The coefficient of friction (static and dynamic)");
 DEFINE_double(sim_duration, 3, "The simulation duration");
 DEFINE_bool(playback, true,
             "If true, enters looping playback after sim finished");
@@ -62,10 +60,8 @@ int main() {
   std::cout << "\tPushing force:    " << FLAGS_push << "\n";
   std::cout << "\tẋ:                " << FLAGS_v << "\n";
   std::cout << "\tStiffness:        " << FLAGS_stiffness << "\n";
-  std::cout << "\tStatic friction:  " << FLAGS_us << "\n";
-  std::cout << "\tDynamic friction: " << FLAGS_ud << "\n";
-  std::cout << "\tSlip Threshold:   " << FLAGS_v_tol << "\n";
-  std::cout << "\tDissipation:      " << FLAGS_dissipation << "\n";
+  std::cout << "\tDamping:          " << FLAGS_damping << "\n";
+  std::cout << "\tFriction:         " << FLAGS_mu << "\n";
 
   DiagramBuilder<double> builder;
 
@@ -80,12 +76,14 @@ int main() {
   multibody::AddFlatTerrainToWorld(tree_ptr.get(), 100., 10.);
 
   // Instantiate a RigidBodyPlant from the RigidBodyTree.
-  auto& plant = *builder.AddSystem<RigidBodyPlant<double>>(move(tree_ptr));
+  auto& plant = *builder.AddSystem<TimeSteppingRigidBodyPlant<double>>(
+      move(tree_ptr), FLAGS_timestep);
   plant.set_name("plant");
 
   // Contact parameters set arbitrarily.
-  plant.set_normal_contact_parameters(FLAGS_stiffness, FLAGS_dissipation);
-  plant.set_friction_contact_parameters(FLAGS_us, FLAGS_ud, FLAGS_v_tol);
+  plant.set_default_stiffness(FLAGS_stiffness);
+  plant.set_default_damping(FLAGS_damping);
+  plant.set_default_friction_coefficient(FLAGS_mu);
   const auto& tree = plant.get_rigid_body_tree();
 
   // RigidBodyActuators.

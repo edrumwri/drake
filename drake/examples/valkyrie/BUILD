@@ -104,7 +104,6 @@ drake_cc_library(
         "//drake/lcm",
         "//drake/lcmtypes:contact_info_for_viz",
         "//drake/lcmtypes:contact_results_for_viz",
-        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/parsers",
         "//drake/multibody/rigid_body_plant",

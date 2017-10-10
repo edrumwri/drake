@@ -122,7 +122,7 @@ struct ConstraintAccelProblemData {
   /// constraint (a constraint imposed at the velocity level) as:<pre>
   /// 0 ≤ N(q)⋅v̇ + kᴺ(t,q,v) + γᴺfᶜ  ⊥  fᶜ ≥ 0
   /// </pre>
-  /// which means that the constraint c̈(q,v,v̇) ≡ N(q)⋅v̇ + kᴺ(t,q,v) is
+  /// which means that the constraint c̈(q,v,v̇) ≡ N(q)⋅v̇ + kᴺ(t,q,v) + γᴺfᶜ is
   /// coupled to a force constraint (fᶜ ≥ 0) and a complementarity constraint
   /// fᶜ⋅(Nv̇ + kᴺ(t,q,v) + γᴺfᶜ) = 0, meaning that the constraint can apply no
   /// force if it is inactive (i.e., if c̈(q,v,v̇) is strictly greater than
@@ -250,7 +250,7 @@ struct ConstraintAccelProblemData {
   /// and the limiting force cannot be applied if the acceleration at the
   /// joint is not at the limit (i.e., v̇ⱼ < r). In this example, the
   /// corresponding holonomic constraint function is g(t,q) ≡ -qⱼ + rt²,
-  /// yielding ̈g(q, v, v̇) = -v̇ⱼ + r.
+  /// yielding  ̈g(q, v, v̇) = -v̇ⱼ + r.
   /// @{
 
   /// An operator that performs the multiplication L⋅v. The default operator
@@ -343,8 +343,8 @@ struct ConstraintVelProblemData {
   /// function is the transmission (gearing) constraint below:<pre>
   /// 0 = vᵢ - rvⱼ
   /// </pre>
-  /// which can be read as the velocity at joint i (vᵢ) must equal to `r`
-  /// times the velocity at joint j (vⱼ); `r` is thus the gear ratio.
+  /// which can be read as the velocity at joint j (vⱼ) must equal to `r`
+  /// times the velocity at joint i (vᵢ); `r` is thus the gear ratio.
   /// In this example, the corresponding holonomic constraint function is
   /// g(q) ≡ qᵢ - rqⱼ, yielding ġ(q, v) = vᵢ - rvⱼ.
   /// @{

@@ -13,14 +13,10 @@ package(default_visibility = ["//visibility:public"])
 drake_cc_binary(
     name = "sliding_bricks",
     srcs = ["sliding_bricks.cc"],
-    add_test_rule = 1,
-    data = ["sliding_brick.urdf"],
-    test_rule_args = [
-        " --sim_duration=0.01",
-        " --playback=false",
-    ],
+    data = ["//drake/examples/contact_model:sliding_bricks"],
     deps = [
         "//drake/common:find_resource",
+        "//drake/common:text_logging_gflags",
         "//drake/lcm",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/dev:time_stepping_rigid_body_plant",
@@ -36,18 +32,16 @@ drake_cc_binary(
 drake_cc_binary(
     name = "rigid_gripper",
     srcs = ["rigid_gripper.cc"],
-    add_test_rule = 1,
     data = [
-        "rigid_gripper.urdf",
+	"//drake/examples/contact_model:rigid_gripper",
+#        "rigid_gripper.urdf",
         "//drake/multibody:models",
-    ],
-    test_rule_args = [
-        " --sim_duration=0.01",
-        " --playback=false",
     ],
     deps = [
         "//drake/common:find_resource",
+        "//drake/common:text_logging_gflags",
         "//drake/lcm",
+        "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/parsers",
         "//drake/multibody/rigid_body_plant",
@@ -63,7 +57,7 @@ drake_cc_binary(
     srcs = ["bowling_ball.cc"],
     add_test_rule = 1,
     data = [
-        ":bowling_models",
+        "//drake/examples/contact_model:bowling_models",
     ],
     test_rule_args = [
         " --sim_duration=0.01",
@@ -71,6 +65,7 @@ drake_cc_binary(
     ],
     deps = [
         "//drake/common:find_resource",
+        "//drake/common:text_logging_gflags",
         "//drake/lcm",
         "//drake/multibody/dev:time_stepping_rigid_body_plant",
         "//drake/multibody:rigid_body_tree_construction",
