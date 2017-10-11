@@ -49,7 +49,7 @@ drake_cc_binary(
 drake_cc_googletest(
     name = "schunk_wsg_lift_test",
     data = [
-        "//drake/example/schun_wsg/test/test_lifter.sdf",
+        "test/test_lifter.sdf",
         "//drake/manipulation/models/wsg_50_description:models",
         "//drake/multibody:models",
     ],

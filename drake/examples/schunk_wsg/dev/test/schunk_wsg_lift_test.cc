@@ -109,15 +109,13 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   ASSERT_EQ(plant->get_num_actuators(), 2);
   ASSERT_EQ(plant->get_num_model_instances(), 3);
 
-  // Arbitrary contact parameters.
+  // (Somewhat) arbitrary contact parameters.
   const double kStiffness = 10000;
-  const double kDissipation = 2.0;
-  const double kStaticFriction = 0.9;
-  const double kDynamicFriction = 0.5;
-  const double kVStictionTolerance = 0.01;
-  plant->set_normal_contact_parameters(kStiffness, kDissipation);
-  plant->set_friction_contact_parameters(kStaticFriction, kDynamicFriction,
-                                         kVStictionTolerance);
+  const double kDamping = 100;
+  const double kFriction = 0.9;
+  plant->set_default_stiffness(kStiffness);
+  plant->set_default_damping(kDamping);
+  plant->set_default_friction_coefficient(kFriction);
 
   // Build a trajectory and PID controller for the lifting joint.
   const auto& lifting_input_port =
@@ -245,11 +243,6 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   plant_initial_state(5) = 0.009759;
   plant->set_state_vector(&plant_context, plant_initial_state);
 
-  auto context = simulator.get_mutable_context();
-
-  simulator.reset_integrator<RungeKutta3Integrator<double>>(*model, context);
-  simulator.get_mutable_integrator()->request_initial_step_size_target(1e-4);
-  simulator.get_mutable_integrator()->set_target_accuracy(1e-3);
   simulator.set_target_realtime_rate(1);
 
   simulator.Initialize();
@@ -355,7 +348,7 @@ GTEST_TEST(SchunkWsgLiftTest, BoxLiftTest) {
   // Lift duration is a sub-interval of the full simulation.
   const double kLiftDuration = kSimDuration - kLiftStart;
   const double kMeanSlipSpeed = distance / kLiftDuration;
-  EXPECT_LT(kMeanSlipSpeed, kVStictionTolerance);
+  EXPECT_LT(kMeanSlipSpeed, 1e-5);
 }
 
 }  // namespace
