@@ -1,10 +1,7 @@
-#include "drake/common/symbolic_expression.h"
-
 #include <gtest/gtest.h>
 
-#include "drake/common/symbolic_formula.h"
-#include "drake/common/symbolic_variable.h"
-#include "drake/common/test/symbolic_test_util.h"
+#include "drake/common/symbolic.h"
+#include "drake/common/test_utilities/symbolic_test_util.h"
 
 namespace drake {
 namespace symbolic {

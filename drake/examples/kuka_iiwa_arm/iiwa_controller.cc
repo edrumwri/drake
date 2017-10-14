@@ -7,14 +7,14 @@
 #include <gflags/gflags.h>
 #include "robotlocomotion/robot_plan_t.hpp"
 
-#include "drake/common/drake_path.h"
+#include "drake/common/find_resource.h"
 #include "drake/common/text_logging.h"
 #include "drake/common/text_logging_gflags.h"
 #include "drake/examples/kuka_iiwa_arm/iiwa_lcm.h"
-#include "drake/examples/kuka_iiwa_arm/robot_plan_interpolator.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_iiwa_command.hpp"
 #include "drake/lcmt_iiwa_status.hpp"
+#include "drake/manipulation/planner/robot_plan_interpolator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram.h"
@@ -27,13 +27,18 @@
 using robotlocomotion::robot_plan_t;
 
 DEFINE_string(urdf, "", "Name of urdf to load");
+DEFINE_string(interp_type, "cubic",
+              "Robot plan interpolation type. Can be {zoh, foh, cubic, pchip}");
 
 namespace drake {
 namespace examples {
 namespace kuka_iiwa_arm {
 namespace {
+using manipulation::planner::RobotPlanInterpolator;
+using manipulation::planner::InterpolatorType;
 
-const char* const kIiwaUrdf = "/manipulation/models/iiwa_description/urdf/"
+const char* const kIiwaUrdf =
+    "drake/manipulation/models/iiwa_description/urdf/"
     "iiwa14_polytope_collision.urdf";
 const char* const kLcmStatusChannel = "IIWA_STATUS";
 const char* const kLcmCommandChannel = "IIWA_COMMAND";
@@ -50,10 +55,31 @@ int DoMain() {
           kLcmPlanChannel, &lcm));
   plan_sub->set_name("plan_sub");
 
-  const std::string urdf = (!FLAGS_urdf.empty() ? FLAGS_urdf :
-                            GetDrakePath() + kIiwaUrdf);
-  auto plan_source =
-      builder.AddSystem<RobotPlanInterpolator>(urdf);
+  const std::string urdf =
+      (!FLAGS_urdf.empty() ? FLAGS_urdf : FindResourceOrThrow(kIiwaUrdf));
+
+  // Sets the robot plan interpolation type.
+  RobotPlanInterpolator* plan_source;
+  std::string interp_str(FLAGS_interp_type);
+  std::transform(interp_str.begin(), interp_str.end(),
+                 interp_str.begin(), ::tolower);
+  if (interp_str == "zoh") {
+    plan_source = builder.AddSystem<RobotPlanInterpolator>(
+        urdf, InterpolatorType::ZeroOrderHold);
+  } else if (interp_str == "foh") {
+    plan_source = builder.AddSystem<RobotPlanInterpolator>(
+        urdf, InterpolatorType::FirstOrderHold);
+  } else if (interp_str == "cubic") {
+    plan_source = builder.AddSystem<RobotPlanInterpolator>(
+        urdf, InterpolatorType::Cubic);
+  } else if (interp_str == "pchip") {
+    plan_source = builder.AddSystem<RobotPlanInterpolator>(
+        urdf, InterpolatorType::Pchip);
+  } else {
+    DRAKE_ABORT_MSG("Robot plan interpolation type not recognized. "
+                    "Use the gflag --helpshort to display "
+                    "flag options for interpolator type.");
+  }
   plan_source->set_name("plan_source");
   const int num_joints = plan_source->tree().get_num_positions();
 
@@ -109,16 +135,16 @@ int DoMain() {
     q0[i] = first_status.joint_position_measured[i];
 
   systems::Context<double>* diagram_context = loop.get_mutable_context();
-  systems::Context<double>* status_sub_context =
-      diagram->GetMutableSubsystemContext(diagram_context, status_sub);
-  status_sub->SetDefaults(status_sub_context);
+  systems::Context<double>& status_sub_context =
+      diagram->GetMutableSubsystemContext(*status_sub, diagram_context);
+  status_sub->SetDefaultContext(&status_sub_context);
 
   // Explicit initialization.
   diagram_context->set_time(msg_time);
-  auto plan_source_context =
-      diagram->GetMutableSubsystemContext(diagram_context, plan_source);
+  auto& plan_source_context =
+      diagram->GetMutableSubsystemContext(*plan_source, diagram_context);
   plan_source->Initialize(msg_time, q0,
-                          plan_source_context->get_mutable_state());
+                          plan_source_context.get_mutable_state());
 
   loop.RunToSecondsAssumingInitialized();
   return 0;

@@ -13,6 +13,7 @@
 
 namespace drake {
 namespace systems {
+namespace controllers {
 
 /// A system that encapsulates a PidController and a controlled System (a.k.a
 /// the "plant").
@@ -128,6 +129,10 @@ class PidControlledSystem : public Diagram<T> {
     return this->get_input_port(1);
   }
 
+  const OutputPort<T>& get_state_output_port() const {
+    return this->get_output_port(0);
+  }
+
   /// The return type of ConnectController.
   struct ConnectResult {
     /// The feed forward control input.
@@ -194,5 +199,6 @@ class PidControlledSystem : public Diagram<T> {
   System<T>* plant_{nullptr};
 };
 
+}  // namespace controllers
 }  // namespace systems
 }  // namespace drake

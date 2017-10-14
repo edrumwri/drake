@@ -4,8 +4,8 @@
 
 #include <gurobi_c++.h>
 
-#include "drake/multibody/constraint/rigid_body_constraint.h"
 #include "drake/multibody/ik_options.h"
+#include "drake/multibody/rigid_body_constraint.h"
 #include "drake/multibody/rigid_body_ik.h"
 #include "drake/multibody/rigid_body_tree.h"
 
@@ -202,7 +202,8 @@ void approximateIK(RigidBodyTree<double>* model,
     {
       GRBgetcoeff(grb_model, i, j,&J(i, j));
     }
-    GRBgetdblattrarray(grb_model, GRB_DBL_ATTR_RHS, 0, num_gurobi_cnst, rhs.data());
+    GRBgetdblattrarray(grb_model, GRB_DBL_ATTR_RHS, 0, num_gurobi_cnst,
+                       rhs.data());
   }
   */
 

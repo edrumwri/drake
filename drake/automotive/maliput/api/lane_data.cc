@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+#include "drake/common/default_scalars.h"
+
 namespace drake {
 namespace maliput {
 namespace api {
@@ -29,3 +31,9 @@ std::ostream& operator<<(std::ostream& out, const LanePosition& lane_position) {
 }  // namespace api
 }  // namespace maliput
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::maliput::api::GeoPositionT)
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::maliput::api::LanePositionT)

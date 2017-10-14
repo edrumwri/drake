@@ -1,23 +1,26 @@
 #include "drake/systems/primitives/affine_system.h"
 
+#include <utility>
+
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/eigen_types.h"
-#include "drake/common/symbolic_formula.h"
+#include "drake/common/symbolic.h"
+#include "drake/common/symbolic_decompose.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/leaf_context.h"
 
 namespace drake {
 namespace systems {
 
 using std::make_unique;
+using std::unique_ptr;
 
 template <typename T>
-TimeVaryingAffineSystem<T>::TimeVaryingAffineSystem(int num_states,
-                                                    int num_inputs,
-                                                    int num_outputs,
-                                                    double time_period)
-    : num_states_(num_states),
+TimeVaryingAffineSystem<T>::TimeVaryingAffineSystem(
+    SystemScalarConverter converter,
+    int num_states, int num_inputs, int num_outputs, double time_period)
+    : LeafSystem<T>(std::move(converter)),
+      num_states_(num_states),
       num_inputs_(num_inputs),
       num_outputs_(num_outputs),
       time_period_(time_period) {
@@ -69,9 +72,10 @@ void TimeVaryingAffineSystem<T>::CalcOutputY(
   if (num_states_ > 0) {
     const MatrixX<T> Ct = C(t);
     DRAKE_DEMAND(Ct.rows() == num_outputs_ && Ct.cols() == num_states_);
-    const auto& x = dynamic_cast<const BasicVector<T>&>(
-                        context.get_continuous_state_vector())
-                        .get_value();
+    const VectorX<T>& x = (this->time_period() == 0.)
+        ? dynamic_cast<const BasicVector<T>&>(
+            context.get_continuous_state_vector()).get_value()
+        : context.get_discrete_state()->get_vector()->get_value();
     y += Ct * x;
   }
 
@@ -119,6 +123,7 @@ void TimeVaryingAffineSystem<T>::DoCalcTimeDerivatives(
 template <typename T>
 void TimeVaryingAffineSystem<T>::DoCalcDiscreteVariableUpdates(
     const drake::systems::Context<T>& context,
+    const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>&,
     drake::systems::DiscreteValues<T>* updates) const {
   if (num_states_ == 0 || time_period_ == 0.0) return;
 
@@ -148,9 +153,8 @@ void TimeVaryingAffineSystem<T>::DoCalcDiscreteVariableUpdates(
   updates->get_mutable_vector()->SetFromVector(xn);
 }
 
-template class TimeVaryingAffineSystem<double>;
-template class TimeVaryingAffineSystem<AutoDiffXd>;
-
+// Our public constructor declares that our most specific subclass is
+// AffineSystem, and then delegates to our protected constructor.
 template <typename T>
 AffineSystem<T>::AffineSystem(const Eigen::Ref<const Eigen::MatrixXd>& A,
                               const Eigen::Ref<const Eigen::MatrixXd>& B,
@@ -159,7 +163,23 @@ AffineSystem<T>::AffineSystem(const Eigen::Ref<const Eigen::MatrixXd>& A,
                               const Eigen::Ref<const Eigen::MatrixXd>& D,
                               const Eigen::Ref<const Eigen::VectorXd>& y0,
                               double time_period)
-    : TimeVaryingAffineSystem<T>(f0.size(), D.cols(), D.rows(), time_period),
+    : AffineSystem<T>(
+          SystemTypeTag<systems::AffineSystem>{},
+          A, B, f0, C, D, y0, time_period) {}
+
+// Our protected constructor does all of the real work -- everything else
+// delegates to here.
+template <typename T>
+AffineSystem<T>::AffineSystem(SystemScalarConverter converter,
+                              const Eigen::Ref<const Eigen::MatrixXd>& A,
+                              const Eigen::Ref<const Eigen::MatrixXd>& B,
+                              const Eigen::Ref<const Eigen::VectorXd>& f0,
+                              const Eigen::Ref<const Eigen::MatrixXd>& C,
+                              const Eigen::Ref<const Eigen::MatrixXd>& D,
+                              const Eigen::Ref<const Eigen::VectorXd>& y0,
+                              double time_period)
+    : TimeVaryingAffineSystem<T>(
+          std::move(converter), f0.size(), D.cols(), D.rows(), time_period),
       A_(A),
       B_(B),
       f0_(f0),
@@ -176,25 +196,56 @@ AffineSystem<T>::AffineSystem(const Eigen::Ref<const Eigen::MatrixXd>& A,
   DRAKE_DEMAND(this->num_outputs() == D.rows());
 }
 
-// Setup equivalent system with a different scalar type.
+// Our copy constructor delegates to the public constructor; this used only by
+// SystemScalarConverter as known to our public constructor, not by subclasses.
 template <typename T>
-AffineSystem<AutoDiffXd>* AffineSystem<T>::DoToAutoDiffXd() const {
-  return new AffineSystem<AutoDiffXd>(A_, B_, f0_, C_, D_, y0_,
-                                      this->time_period());
-}
+template <typename U>
+AffineSystem<T>::AffineSystem(const AffineSystem<U>& other)
+    : AffineSystem(other.A(), other.B(), other.f0(), other.C(), other.D(),
+                   other.y0(), other.time_period()) {}
 
 template <typename T>
-AffineSystem<symbolic::Expression>* AffineSystem<T>::DoToSymbolic() const {
-  return new AffineSystem<symbolic::Expression>(A_, B_, f0_, C_, D_, y0_,
-                                                this->time_period());
+unique_ptr<AffineSystem<T>> AffineSystem<T>::MakeAffineSystem(
+    const Eigen::Ref<const VectorX<symbolic::Expression>>& dynamics,
+    const Eigen::Ref<const VectorX<symbolic::Expression>>& output,
+    const Eigen::Ref<const VectorX<symbolic::Variable>>& state_vars,
+    const Eigen::Ref<const VectorX<symbolic::Variable>>& input_vars,
+    const double time_period) {
+  // Need to extract, A, B, f₀, C, D, y₀ such that,
+  //
+  //     dynamics = Ax + Bu + f₀
+  //     output   = Cx + Du + y₀
+  //
+  // where x = state_vars and u = input_vars.
+  const int num_states = state_vars.size();
+  DRAKE_ASSERT(num_states == dynamics.size());
+  const int num_inputs = input_vars.size();
+  const int num_outputs = output.size();
+
+  Eigen::MatrixXd AB(num_states, num_states + num_inputs);
+  Eigen::VectorXd f0(num_states);
+  VectorX<symbolic::Variable> vars(num_states + num_inputs);
+  vars << state_vars, input_vars;
+  DecomposeAffineExpressions(dynamics, vars, &AB, &f0);
+  const auto A = AB.leftCols(num_states);
+  const auto B = AB.rightCols(num_inputs);
+
+  Eigen::MatrixXd CD(num_outputs, num_states + num_inputs);
+  Eigen::VectorXd y0(num_outputs);
+  DecomposeAffineExpressions(output, vars, &CD, &y0);
+  const auto C = CD.leftCols(num_states);
+  const auto D = CD.rightCols(num_inputs);
+
+  return make_unique<AffineSystem<T>>(A, B, f0, C, D, y0, time_period);
 }
 
 template <typename T>
 void AffineSystem<T>::CalcOutputY(const Context<T>& context,
                                   BasicVector<T>* output_vector) const {
-  const auto& x =
-      dynamic_cast<const BasicVector<T>&>(context.get_continuous_state_vector())
-          .get_value();
+  const VectorX<T>& x = (this->time_period() == 0.)
+      ? dynamic_cast<const BasicVector<T>&>(
+          context.get_continuous_state_vector()).get_value()
+      : context.get_discrete_state()->get_vector()->get_value();
 
   auto y = output_vector->get_mutable_value();
   y = C_ * x + y0_;
@@ -231,6 +282,7 @@ void AffineSystem<T>::DoCalcTimeDerivatives(
 template <typename T>
 void AffineSystem<T>::DoCalcDiscreteVariableUpdates(
     const drake::systems::Context<T>& context,
+    const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>&,
     drake::systems::DiscreteValues<T>* updates) const {
   if (this->num_states() == 0 || this->time_period() == 0.0) return;
 
@@ -248,8 +300,12 @@ void AffineSystem<T>::DoCalcDiscreteVariableUpdates(
   updates->get_mutable_vector()->SetFromVector(xnext);
 }
 
-template class AffineSystem<double>;
-template class AffineSystem<AutoDiffXd>;
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::TimeVaryingAffineSystem)
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::AffineSystem)

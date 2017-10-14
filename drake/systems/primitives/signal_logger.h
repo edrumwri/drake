@@ -1,12 +1,15 @@
 #pragma once
 
+#include <vector>
+
 #include <Eigen/Dense>
 
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
 #include "drake/systems/framework/context.h"
+#include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/output_port_value.h"
+#include "drake/systems/framework/output_port.h"
 #include "drake/systems/primitives/signal_log.h"
 
 namespace drake {
@@ -23,6 +26,7 @@ namespace systems {
 /// Instantiated templates for the following kinds of T's are provided:
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// @ingroup primitive_systems
 template <typename T>
@@ -48,12 +52,35 @@ class SignalLogger : public LeafSystem<T> {
     return log_.data();
   }
 
+  /// Returns the only input port.
+  const InputPortDescriptor<T>& get_input_port() const;
+
  private:
   // Logging is done in this method.
-  void DoPublish(const Context<T>& context) const override;
+  void DoPublish(const Context<T>& context,
+                 const std::vector<const systems::PublishEvent<T>*>& events)
+      const override;
 
   mutable SignalLog<T> log_;
 };
+
+/// Provides a convenience function for adding a SignalLogger, initialized to
+/// the correct size, and connected to another output in a DiagramBuilder.
+///
+/// @code
+///   DiagramBuilder<double> builder;
+///   auto foo = builder.AddSystem<Foo>("name", 3.14);
+///   auto logger = LogOutput(foo->get_output_port(), &builder);
+/// @endcode
+
+template <typename T>
+SignalLogger<T>* LogOutput(const OutputPort<T>& src,
+                           systems::DiagramBuilder<T>* builder) {
+  SignalLogger<T>* logger =
+      builder->template AddSystem<SignalLogger<T>>(src.size());
+  builder->Connect(src, logger->get_input_port());
+  return logger;
+}
 
 }  // namespace systems
 }  // namespace drake

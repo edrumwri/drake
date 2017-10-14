@@ -4,7 +4,8 @@
 #include <cmath>
 
 #include <Eigen/Dense>
-#include <unsupported/Eigen/AutoDiff>
+
+#include "drake/common/autodiff.h"
 
 namespace drake {
 namespace math {

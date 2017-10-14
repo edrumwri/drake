@@ -49,11 +49,15 @@ namespace automotive {
 ///
 /// @ingroup automotive_plants
 template <typename T>
-class SimpleCar : public systems::LeafSystem<T> {
+class SimpleCar final : public systems::LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SimpleCar)
 
   SimpleCar();
+
+  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit SimpleCar(const SimpleCar<U>&);
 
   // System<T> overrides
   void DoCalcTimeDerivatives(
@@ -63,11 +67,6 @@ class SimpleCar : public systems::LeafSystem<T> {
   const systems::OutputPort<T>& state_output() const;
   const systems::OutputPort<T>& pose_output() const;
   const systems::OutputPort<T>& velocity_output() const;
-
- protected:
-  // System<T> overrides
-  systems::System<AutoDiffXd>* DoToAutoDiffXd() const override;
-  systems::System<symbolic::Expression>* DoToSymbolic() const override;
 
  private:
   void CalcStateOutput(const systems::Context<T>&, SimpleCarState<T>*) const;
@@ -80,6 +79,12 @@ class SimpleCar : public systems::LeafSystem<T> {
                                const SimpleCarState<T>& state,
                                const DrivingCommand<T>& input,
                                SimpleCarState<T>* rates) const;
+
+  void CalcSteeringAngleConstraint(const systems::Context<T>&,
+                                   VectorX<T>*) const;
+  void CalcAccelerationConstraint(const systems::Context<T>&,
+                                  VectorX<T>*) const;
+  void CalcVelocityConstraint(const systems::Context<T>&, VectorX<T>*) const;
 };
 
 }  // namespace automotive

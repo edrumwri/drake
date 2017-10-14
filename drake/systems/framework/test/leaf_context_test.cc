@@ -8,10 +8,9 @@
 
 #include <gtest/gtest.h>
 
-#include "drake/common/autodiff_overloads.h"
-#include "drake/common/eigen_autodiff_types.h"
-#include "drake/common/eigen_matrix_compare.h"
-#include "drake/common/test/is_dynamic_castable.h"
+#include "drake/common/autodiff.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/is_dynamic_castable.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/input_port_value.h"
 #include "drake/systems/framework/test_utilities/pack_value.h"
@@ -84,7 +83,8 @@ class LeafContextTest : public ::testing::Test {
   // connected to @p context at @p index.
   static const BasicVector<double>* ReadVectorInputPort(
       const Context<double>& context, int index) {
-    InputPortDescriptor<double> descriptor(nullptr, index, kVectorValued, 0);
+    InputPortDescriptor<double> descriptor(nullptr, index, kVectorValued, 0,
+                                           nullopt);
     return context.EvalVectorInput(nullptr, descriptor);
   }
 
@@ -92,7 +92,8 @@ class LeafContextTest : public ::testing::Test {
   // connected to @p context at @p index.
   static const std::string* ReadStringInputPort(
       const Context<double>& context, int index) {
-    InputPortDescriptor<double> descriptor(nullptr, index, kAbstractValued, 0);
+    InputPortDescriptor<double> descriptor(nullptr, index, kAbstractValued, 0,
+                                           nullopt);
     return context.EvalInputValue<std::string>(nullptr, descriptor);
   }
 
@@ -100,7 +101,8 @@ class LeafContextTest : public ::testing::Test {
   // connected to @p context at @p index.
   static const AbstractValue* ReadAbstractInputPort(
       const Context<double>& context, int index) {
-    InputPortDescriptor<double> descriptor(nullptr, index, kAbstractValued, 0);
+    InputPortDescriptor<double> descriptor(nullptr, index, kAbstractValued, 0,
+                                           nullopt);
     return context.EvalAbstractInput(nullptr, descriptor);
   }
 
@@ -195,6 +197,31 @@ TEST_F(LeafContextTest, HasOnlyDiscreteState) {
   context_.set_continuous_state(std::make_unique<ContinuousState<double>>());
   context_.set_abstract_state(std::make_unique<AbstractValues>());
   EXPECT_TRUE(context_.has_only_discrete_state());
+}
+
+TEST_F(LeafContextTest, GetNumStates) {
+  LeafContext<double> context;
+  EXPECT_EQ(context.get_num_total_states(), 0);
+
+  // Reserve a continuous state with five elements.
+  context.set_continuous_state(std::make_unique<ContinuousState<double>>(
+      BasicVector<double>::Make({1.0, 2.0, 3.0, 5.0, 8.0})));
+  EXPECT_EQ(context.get_num_total_states(), 5);
+
+  // Reserve a discrete state with two elements, of size 1 and size 2.
+  std::vector<std::unique_ptr<BasicVector<double>>> xd;
+  xd.push_back(BasicVector<double>::Make({128.0}));
+  xd.push_back(BasicVector<double>::Make({256.0, 512.0}));
+  context.set_discrete_state(
+      std::make_unique<DiscreteValues<double>>(std::move(xd)));
+  EXPECT_EQ(context.get_num_total_states(), 8);
+
+  // Reserve an abstract state with one element, which is not owned.
+  std::unique_ptr<AbstractValue> abstract_state = PackValue(42);
+  std::vector<AbstractValue*> xa;
+  xa.push_back(abstract_state.get());
+  context.set_abstract_state(std::make_unique<AbstractValues>(std::move(xa)));
+  EXPECT_THROW(context.get_num_total_states(), std::runtime_error);
 }
 
 TEST_F(LeafContextTest, GetVectorInput) {

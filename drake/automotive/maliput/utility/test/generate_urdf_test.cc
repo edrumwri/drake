@@ -4,7 +4,7 @@
 #include <fstream>
 
 #include <gtest/gtest.h>
-#include "spruce.hh"
+#include <spruce.hh>
 
 #include "drake/automotive/maliput/monolane/builder.h"
 #include "drake/automotive/maliput/monolane/loader.h"
@@ -47,7 +47,8 @@ TEST_F(GenerateUrdfTest, AtLeastRunIt) {
   const mono::EndpointZ kZeroZ{0., 0., 0., 0.};
   const mono::Endpoint start{{0., 0., 0.}, kZeroZ};
   b.Connect("0", start, 10., kZeroZ);
-  const std::unique_ptr<const api::RoadGeometry> dut = b.Build({"dut"});
+  const std::unique_ptr<const api::RoadGeometry> dut =
+      b.Build(api::RoadGeometryId{"dut"});
 
   GenerateUrdfFile(dut.get(), directory_.getStr(), kJunkBasename,
                    ObjFeatures());

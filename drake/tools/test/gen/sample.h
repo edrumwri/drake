@@ -42,9 +42,9 @@ class Sample : public systems::BasicVector<T> {
   typedef SampleIndices K;
 
   /// Default constructor.  Sets all rows to their default value:
-  /// @arg @c x defaults to 42.0 in units of m/s.
-  /// @arg @c two_word defaults to 0.0 in units of unknown.
-  /// @arg @c absone defaults to 0.0 in units of unknown.
+  /// @arg @c x defaults to 42.0 m/s.
+  /// @arg @c two_word defaults to 0.0 with unknown units.
+  /// @arg @c absone defaults to 0.0 with unknown units.
   Sample() : systems::BasicVector<T>(K::kNumCoordinates) {
     this->set_x(42.0);
     this->set_two_word(0.0);
@@ -88,6 +88,14 @@ class Sample : public systems::BasicVector<T> {
     result = result && (absone() >= T(-1.0));
     result = result && (absone() <= T(1.0));
     return result;
+  }
+
+  // VectorBase override.
+  void CalcInequalityConstraint(VectorX<T>* value) const override {
+    value->resize(3);
+    (*value)[0] = x() - T(0.0);
+    (*value)[1] = absone() - T(-1.0);
+    (*value)[2] = T(1.0) - absone();
   }
 };
 

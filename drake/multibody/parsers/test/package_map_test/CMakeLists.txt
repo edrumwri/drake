@@ -1,2 +1,0 @@
-drake_add_cc_test(package_map_test)
-target_link_libraries(package_map_test drakeMultibodyParsers)

@@ -11,13 +11,14 @@
 #include "drake/automotive/maliput/dragway/road_geometry.h"
 #include "drake/automotive/maliput/monolane/builder.h"
 #include "drake/automotive/monolane_onramp_merge.h"
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 
 namespace drake {
 namespace automotive {
 namespace {
 
 using maliput::api::GeoPosition;
+using maliput::api::JunctionId;
 using maliput::api::Lane;
 using maliput::api::LaneEnd;
 using maliput::api::LanePosition;
@@ -68,12 +69,12 @@ std::unique_ptr<const RoadGeometry> MakeTwoLaneRoad(bool is_opposing) {
                     kEndZ);                                       /* z_end */
   }
 
-  return builder.Build(maliput::api::RoadGeometryId({"TwoLaneStretchOfRoad"}));
+  return builder.Build(maliput::api::RoadGeometryId("TwoLaneStretchOfRoad"));
 }
 
 const Lane* GetLaneById(const RoadGeometry& road, const std::string& lane_id) {
   for (int i = 0; i < road.num_junctions(); ++i) {
-    if (road.junction(i)->id().id == lane_id) {
+    if (road.junction(i)->id() == JunctionId(lane_id)) {
       return road.junction(i)->segment(0)->lane(0);
     }
   }

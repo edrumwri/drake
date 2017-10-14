@@ -3,7 +3,6 @@
 #include <sstream>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/systems/framework/output_port_value.h"
 #include "drake/systems/framework/input_port_descriptor.h"
 
 namespace drake {

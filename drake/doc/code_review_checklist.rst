@@ -14,13 +14,11 @@ Does your code compile?  :facepalm:
 
 - If your code doesn't pass Jenkins, why are you asking for a detailed
   code review?
-- Did you remember to add all new headers to the list of installed
-  files within the ``CMakeLists.txt``?
 
 Is the code the minimal set of what you want?
 =============================================
 
-- If the PR includes more than 500 lines of new code, excluding comments,
+- If the PR includes more than 750 added or changed lines,
   try to divide it into multiple PRs. The following techniques may be useful.
   If you don't think it can be done, talk to a platform reviewer before
   sending the PR.
@@ -107,8 +105,8 @@ Did you use ``const`` where you could?
 
 - Do all "plain old data" member fields have ``{}``?
 
-  - See :ref:`C++ style rules <code-style-guide-cpp-addon-rules>`
-    citing "in-class member initialization".
+  - See `our style guide <http://drake.mit.edu/styleguide/cppguide.html#Variable_and_Array_Initialization>`_
+    citing "in-class member initialization."
 
 Did you use a C-style cast by accident?
 =======================================
@@ -123,8 +121,7 @@ Did you use a C-style cast by accident?
 Have you run linting tools?
 ===========================
 
-- Run ``drake-distro/drake/common/test/cpplint_wrapper.py`` to catch
-  several common errors.
+- See :ref:`Automated style checks <code-style-tools>`.
 
 Is your code deterministic?
 ===========================

@@ -1,16 +1,11 @@
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator-inl.h"
 
-#include <unsupported/Eigen/AutoDiff>
+#include "drake/common/autodiff.h"
 
 namespace drake {
 namespace systems {
 template class RungeKutta3Integrator<double>;
+template class RungeKutta3Integrator<AutoDiffXd>;
 }  // namespace systems
 }  // namespace drake
-
-// TODO(edrumwri): correct compile bug from uncommenting line below.
-// template class
-// drake::systems::RungeKutta3Integrator<
-// Eigen::AutoDiffScalar<drake::Vector1d>>;
-

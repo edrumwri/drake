@@ -4,6 +4,7 @@
 #include "drake/examples/rod2d/rigid_contact.h"
 
 #include "drake/systems/framework/context.h"
+#include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
@@ -22,10 +23,11 @@ class SeparatingAccelWitness : public systems::WitnessFunction<T> {
 
   SeparatingAccelWitness(const Rod2D<T>* rod, int contact_index) :
       systems::WitnessFunction<T>(*rod,
-          systems::WitnessFunctionDirection::kPositiveThenNonPositive,
-          systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction),
+          systems::WitnessFunctionDirection::kPositiveThenNonPositive),
       rod_(rod),
       contact_index_(contact_index) {
+    event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
+      systems::Event<T>::TriggerType::kWitness);
     this->name_ = "SeparatingAccel";
   }
 
@@ -56,6 +58,13 @@ class SeparatingAccelWitness : public systems::WitnessFunction<T> {
     // become tensile, which violates the compressiveness constraint.
     return cf[contact_index_];
   }
+
+  void DoAddEvent(systems::CompositeEventCollection<T>* events) const override {
+    event_->add_to_composite(events);
+  }
+
+  /// Unique pointer to the event.
+  std::unique_ptr<systems::UnrestrictedUpdateEvent<T>> event_;
 
   /// Pointer to the rod system.
   const Rod2D<T>* rod_;

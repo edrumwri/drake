@@ -41,9 +41,9 @@ class MobilPlannerParameters : public systems::BasicVector<T> {
   typedef MobilPlannerParametersIndices K;
 
   /// Default constructor.  Sets all rows to their default value:
-  /// @arg @c p defaults to 0.5 in units of dimensionless.
-  /// @arg @c threshold defaults to 0.1 in units of m/s^2.
-  /// @arg @c max_deceleration defaults to 4.0 in units of m/s^2.
+  /// @arg @c p defaults to 0.5 dimensionless.
+  /// @arg @c threshold defaults to 0.1 m/s^2.
+  /// @arg @c max_deceleration defaults to 4.0 m/s^2.
   MobilPlannerParameters() : systems::BasicVector<T>(K::kNumCoordinates) {
     this->set_p(0.5);
     this->set_threshold(0.1);
@@ -97,6 +97,15 @@ class MobilPlannerParameters : public systems::BasicVector<T> {
     result = result && !isnan(max_deceleration());
     result = result && (max_deceleration() >= T(0.0));
     return result;
+  }
+
+  // VectorBase override.
+  void CalcInequalityConstraint(VectorX<T>* value) const override {
+    value->resize(4);
+    (*value)[0] = p() - T(0.0);
+    (*value)[1] = T(1.0) - p();
+    (*value)[2] = threshold() - T(0.0);
+    (*value)[3] = max_deceleration() - T(0.0);
   }
 };
 

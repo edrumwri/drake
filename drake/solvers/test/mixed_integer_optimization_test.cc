@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mosek_solver.h"
@@ -13,8 +13,8 @@ namespace test {
 namespace {
 void GetMixedIntegerLinearProgramSolvers(
     std::list<std::unique_ptr<MathematicalProgramSolverInterface>>* solvers) {
-  AddSolverIfAvailable(SolverType::kGurobi, solvers);
-  AddSolverIfAvailable(SolverType::kMosek, solvers);
+  AddSolverIfAvailable<GurobiSolver>(solvers);
+  AddSolverIfAvailable<MosekSolver>(solvers);
 }
 }  // namespace
 

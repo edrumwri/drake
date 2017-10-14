@@ -4,6 +4,7 @@
 #include "drake/examples/rod2d/rigid_contact.h"
 
 #include "drake/systems/framework/context.h"
+#include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
@@ -21,14 +22,15 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
 
   SlidingDotWitness(const Rod2D<T>* rod, int contact_index) :
       systems::WitnessFunction<T>(*rod,
-          systems::WitnessFunctionDirection::kPositiveThenNonPositive,
-          systems::DiscreteEvent<T>::ActionType::kUnrestrictedUpdateAction),
+          systems::WitnessFunctionDirection::kPositiveThenNonPositive),
       rod_(rod),
       contact_index_(contact_index) {
     this->name_ = "SlidingDot";
+    event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
+      systems::Event<T>::TriggerType::kWitness);
   }
 
- protected:
+ private:
   /// The witness function itself.
   T DoEvaluate(const systems::Context<T>& context) const override {
     using std::sin;
@@ -53,7 +55,13 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
     return pdot[0];
   }
 
- private:
+  void DoAddEvent(systems::CompositeEventCollection<T>* events) const override {
+    event_->add_to_composite(events);
+  }
+
+  /// Unique pointer to the event.
+  std::unique_ptr<systems::UnrestrictedUpdateEvent<T>> event_;
+
   /// Pointer to the rod system.
   const Rod2D<T>* rod_;
 

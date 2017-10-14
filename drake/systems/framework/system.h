@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <limits>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -9,37 +10,27 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/nice_type_name.h"
-#include "drake/common/symbolic_expression.h"
+#include "drake/common/symbolic.h"
+#include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/cache.h"
 #include "drake/systems/framework/context.h"
-#include "drake/systems/framework/discrete_event.h"
+#include "drake/systems/framework/event_collection.h"
 #include "drake/systems/framework/input_port_descriptor.h"
 #include "drake/systems/framework/input_port_evaluator_interface.h"
 #include "drake/systems/framework/output_port.h"
 #include "drake/systems/framework/output_port_value.h"
+#include "drake/systems/framework/system_constraint.h"
+#include "drake/systems/framework/system_scalar_converter.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
 namespace systems {
-
-/// A token that identifies the next sample time at which a System must
-/// perform some actions, and the actions that must be performed.
-template <typename T>
-struct UpdateActions {
-  /// When the System next requires a discrete action. If the System is
-  /// not discrete, time should be set to infinity.
-  T time{std::numeric_limits<T>::quiet_NaN()};
-
-  /// The events that should occur when the sample time arrives.
-  std::vector<DiscreteEvent<T>> events;
-};
 
 /** @cond */
 // Private helper class for System.
@@ -50,8 +41,32 @@ class SystemImpl {
 
   // The implementation of System<T>::GetMemoryObjectName.
   static std::string GetMemoryObjectName(const std::string&, int64_t);
+
+ private:
+  // Attorney-Client idiom to expose a subset of private elements of System.
+  // We are the attorney.  These are the clients that can access our private
+  // members, and thus access some subset of System's private members.
+  template <typename> friend class Diagram;
+
+  // Return a mutable reference to the System's SystemScalarConverter.  Diagram
+  // needs this in order to withdraw support for certain scalar type conversion
+  // operations once it learns about what its subsystems support.
+  template <typename T>
+  static SystemScalarConverter& get_mutable_system_scalar_converter(
+      System<T>* system) {
+    DRAKE_DEMAND(system != nullptr);
+    return system->system_scalar_converter_;
+  }
 };
 /** @endcond */
+
+/// Defines the implementation of the stdc++ concept UniformRandomBitGenerator
+/// to be used by the Systems classes.  This is provided as a work-around to
+/// enable the use of the generator in virtual methods (which cannot be
+/// templated on the generator type).
+// TODO(russt): As discussed with sammy-tri, we could replace this with a
+// a templated class that exposes the required methods from the concept.
+typedef std::mt19937 RandomGenerator;
 
 /// A superclass template for systems that receive input, maintain state, and
 /// produce output of a given mathematical type T.
@@ -75,6 +90,13 @@ class System {
   /// pointers are not owned by the context, they should simply be initialized
   /// to nullptr.
   virtual std::unique_ptr<Context<T>> AllocateContext() const = 0;
+
+  /// Allocates a CompositeEventCollection for this system. The allocated
+  /// instance is used for registering events; for example, Simulator passes
+  /// this object to System::CalcNextUpdateTime() to allow the system to
+  /// register upcoming events.
+  virtual std::unique_ptr<CompositeEventCollection<T>>
+      AllocateCompositeEventCollection() const = 0;
 
   /// Given a port descriptor, allocates the vector storage.  The default
   /// implementation in this class allocates a BasicVector.  Subclasses must
@@ -132,10 +154,10 @@ class System {
   }
 
   /// This convenience method allocates a context using AllocateContext() and
-  /// sets its default values using SetDefaults().
+  /// sets its default values using SetDefaultContext().
   std::unique_ptr<Context<T>> CreateDefaultContext() const {
     std::unique_ptr<Context<T>> context = AllocateContext();
-    SetDefaults(context.get());
+    SetDefaultContext(context.get());
     return context;
   }
 
@@ -144,9 +166,86 @@ class System {
   virtual void SetDefaultState(const Context<T>& context,
                                State<T>* state) const = 0;
 
+  /// Assigns default values to all parameters. Overrides must not
+  /// change the number of parameters.
+  virtual void SetDefaultParameters(const Context<T>& context,
+                                    Parameters<T>* parameters) const = 0;
+
   // Sets Context fields to their default values.  User code should not
   // override.
-  virtual void SetDefaults(Context<T>* context) const = 0;
+  void SetDefaultContext(Context<T>* context) const {
+    // Set the default state, checking that the number of state variables does
+    // not change.
+    const int n_xc = context->get_continuous_state()->size();
+    const int n_xd = context->get_num_discrete_state_groups();
+    const int n_xa = context->get_num_abstract_state_groups();
+
+    SetDefaultState(*context, context->get_mutable_state());
+
+    DRAKE_DEMAND(n_xc == context->get_continuous_state()->size());
+    DRAKE_DEMAND(n_xd == context->get_num_discrete_state_groups());
+    DRAKE_DEMAND(n_xa == context->get_num_abstract_state_groups());
+
+    // Set the default parameters, checking that the number of parameters does
+    // not change.
+    const int num_params = context->num_numeric_parameters();
+    SetDefaultParameters(*context, &context->get_mutable_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+  }
+
+  /// Assigns random values to all elements of the state.
+  /// This default implementation calls SetDefaultState; override this method to
+  /// provide random initial conditions using the stdc++ random library, e.g.:
+  /// @code
+  ///   std::normal_distribution<T> gaussian();
+  ///   state->get_mutable_continuous_state()->get_mutable_vector()
+  ///        ->SetAtIndex(0, gaussian(*generator));
+  /// @endcode
+  /// Overrides must not change the number of state variables.
+  virtual void SetRandomState(const Context<T>& context, State<T>* state,
+                              RandomGenerator* generator) const {
+    unused(generator);
+    SetDefaultState(context, state);
+  }
+
+  /// Assigns random values to all parameters.
+  /// This default implementation calls SetDefaultParameters; override this
+  /// method to provide random parameters using the stdc++ random library, e.g.:
+  /// @code
+  ///   std::uniform_real_distribution<T> uniform();
+  ///   parameters->get_mutable_numeric_parameter(0)
+  ///             ->SetAtIndex(0, uniform(*generator));
+  /// @endcode
+  /// Overrides must not change the number of state variables.
+  virtual void SetRandomParameters(const Context<T>& context,
+                                   Parameters<T>* parameters,
+                                   RandomGenerator* generator) const {
+    unused(generator);
+    SetDefaultParameters(context, parameters);
+  }
+
+  // Sets Context fields to random values.  User code should not
+  // override.
+  void SetRandomContext(Context<T>* context, RandomGenerator* generator) const {
+    // Set the default state, checking that the number of state variables does
+    // not change.
+    const int n_xc = context->get_continuous_state()->size();
+    const int n_xd = context->get_num_discrete_state_groups();
+    const int n_xa = context->get_num_abstract_state_groups();
+
+    SetRandomState(*context, context->get_mutable_state(), generator);
+
+    DRAKE_DEMAND(n_xc == context->get_continuous_state()->size());
+    DRAKE_DEMAND(n_xd == context->get_num_discrete_state_groups());
+    DRAKE_DEMAND(n_xa == context->get_num_abstract_state_groups());
+
+    // Set the default parameters, checking that the number of parameters does
+    // not change.
+    const int num_params = context->num_numeric_parameters();
+    SetRandomParameters(*context, &context->get_mutable_parameters(),
+                        generator);
+    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+  }
 
   /// For each input port, allocates a freestanding input of the concrete type
   /// that this System requires, and binds it to the port, disconnecting any
@@ -162,26 +261,42 @@ class System {
     }
   }
 
+  /// Reports all direct feedthroughs from input ports to output ports. For
+  /// a system with m input ports: `I = i₀, i₁, ..., iₘ₋₁`, and n output ports,
+  /// `O = o₀, o₁, ..., oₙ₋₁`, the return map will contain pairs (u, v) such
+  /// that
+  ///     - 0 ≤ u < m,
+  ///     - 0 ≤ v < n,
+  ///     - and there _might_ be a direct feedthrough from input iᵤ to each
+  ///       output oᵥ.
+  virtual std::multimap<int, int> GetDirectFeedthroughs() const = 0;
+
   /// Returns `true` if any of the inputs to the system might be directly
   /// fed through to any of its outputs and `false` otherwise.
-  ///
-  /// This method is virtual for framework purposes only. User code should not
-  /// override it.
-  virtual bool HasAnyDirectFeedthrough() const = 0;
+  bool HasAnyDirectFeedthrough() const {
+    return GetDirectFeedthroughs().size() > 0;
+  }
 
   /// Returns true if there might be direct-feedthrough from any input port to
   /// the given @p output_port, and false otherwise.
-  ///
-  /// This method is virtual for framework purposes only. User code should not
-  /// override it.
-  virtual bool HasDirectFeedthrough(int output_port) const = 0;
+  bool HasDirectFeedthrough(int output_port) const {
+    std::multimap<int, int> pairs = GetDirectFeedthroughs();
+    for (const auto& pair : pairs) {
+      if (pair.second == output_port) return true;
+    }
+    return false;
+  }
 
   /// Returns true if there might be direct-feedthrough from the given
   /// @p input_port to the given @p output_port, and false otherwise.
-  ///
-  /// This method is virtual for framework purposes only. User code should not
-  /// override it.
-  virtual bool HasDirectFeedthrough(int input_port, int output_port) const = 0;
+  bool HasDirectFeedthrough(int input_port, int output_port) const {
+    std::multimap<int, int> pairs = GetDirectFeedthroughs();
+    auto range = pairs.equal_range(input_port);
+    for (auto i = range.first; i != range.second; ++i) {
+      if (i->second == output_port) return true;
+    }
+    return false;
+  }
 
   //@}
 
@@ -195,22 +310,11 @@ class System {
   /// on the progress of a simulation.
   //@{
 
-  /// This method is invoked by the Simulator when every-time step publishing
-  /// is enabled, at the start of each continuous integration step, after
-  /// discrete variables have been updated to the values
-  /// they will hold throughout the step. It will always be called at the start
-  /// of the first step of a simulation (after initialization) and after the
-  /// final simulation step (after a final update to discrete variables).
-  /// Dispatches to DoPublish().
-  void Publish(const Context<T>& context) const {
-    DiscreteEvent<T> event;
-    event.action = DiscreteEvent<T>::kPublishAction;
-    Publish(context, event);
-  }
-
-  /// This method publishes as a result of a specified `event`, such as the
-  /// arrival of the sample time requested by `event`. Dispatches to
-  /// DoPublish() by default, or to `event.do_publish()` if provided.
+  /// This method is the public entry point for dispatching all publish event
+  /// handlers. It checks the validity of @p context, and directly calls
+  /// DispatchPublishHandler. @p events is a homogeneous collection of publish
+  /// events, which is typically the publish portion of the heterogeneous
+  /// event collection generated by CalcNextUpdateTime or GetPerStepEvents.
   ///
   /// @note When publishing is scheduled at particular times, those times likely
   /// will not coincide with integrator step times. A Simulator may interpolate
@@ -218,14 +322,19 @@ class System {
   /// so that a step begins exactly at the next publication time. In the latter
   /// case the change in step size may affect the numerical result somewhat
   /// since a smaller integrator step produces a more accurate solution.
-  void Publish(const Context<T>& context, const DiscreteEvent<T>& event) const {
+  void Publish(const Context<T>& context,
+               const EventCollection<PublishEvent<T>>& events) const {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
-    DRAKE_DEMAND(event.action == DiscreteEvent<T>::kPublishAction);
-    if (event.do_publish == nullptr) {
-      DoPublish(context);
-    } else {
-      event.do_publish(context);
-    }
+    DispatchPublishHandler(context, events);
+  }
+
+  /// Forces a publish on the system, given a @p context. The publish event will
+  /// have a trigger type of kForced, with no additional data, attribute or
+  /// custom callback. The Simulator can be configured to call this in
+  /// Simulator::Initialize() and at the start of each continuous integration
+  /// step. See the Simulator API for more details.
+  void Publish(const Context<T>& context) const {
+    Publish(context, this->get_forced_publish_events());
   }
   //@}
 
@@ -434,35 +543,45 @@ class System {
     DoCalcTimeDerivatives(context, derivatives);
   }
 
-  /// This method is called to calculate the correct update `xd(n+1)` to
-  /// discrete variables `xd` given a Context containing their current values
-  /// `xd(n)`, because the given `event` has arrived.  Dispatches to
-  /// DoCalcDiscreteVariableUpdates by default, or to `event.do_update` if
-  /// provided.
-  void CalcDiscreteVariableUpdates(const Context<T>& context,
-                                   const DiscreteEvent<T>& event,
-                                   DiscreteValues<T>* discrete_state) const {
+  /// This method is the public entry point for dispatching all discrete
+  /// variable update event handlers. Using all the discrete update handlers in
+  /// @p events, the method calculates the update `xd(n+1)` to discrete
+  /// variables `xd(n)` in @p context and outputs the results to @p
+  /// discrete_state. See documentation for
+  /// DispatchDiscreteVariableUpdateHandler() for more details.
+  void CalcDiscreteVariableUpdates(
+      const Context<T>& context,
+      const EventCollection<DiscreteUpdateEvent<T>>& events,
+      DiscreteValues<T>* discrete_state) const {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
-    DRAKE_DEMAND(event.action == DiscreteEvent<T>::kDiscreteUpdateAction);
-    if (event.do_calc_discrete_variable_update == nullptr) {
-      DoCalcDiscreteVariableUpdates(context, discrete_state);
-    } else {
-      event.do_calc_discrete_variable_update(context, discrete_state);
-    }
+
+    DispatchDiscreteVariableUpdateHandler(context, events, discrete_state);
   }
 
-  /// This method is called to update *any* state variables in the @p context
-  /// because the given @p event has arrived. Dispatches to
-  /// DoCalcUnrestrictedUpdate() by default, or to
-  /// `event.do_unrestricted_update` if provided. Does not allow the
-  /// dimensionality of the state variables to change.
+  /// This method forces a discrete update on the system given a @p context,
+  /// and the updated discrete state is stored in @p discrete_state. The
+  /// discrete update event will have a trigger type of kForced, with no
+  /// attribute or custom callback.
+  void CalcDiscreteVariableUpdates(const Context<T>& context,
+                                   DiscreteValues<T>* discrete_state) const {
+    CalcDiscreteVariableUpdates(
+        context, this->get_forced_discrete_update_events(), discrete_state);
+  }
+
+  /// This method is the public entry point for dispatching all unrestricted
+  /// update event handlers. Using all the unrestricted update handers in
+  /// @p events, it updates *any* state variables in the @p context, and
+  /// outputs the results to @p state. It does not allow the dimensionality
+  /// of the state variables to change. See the documentation for
+  /// DispatchUnrestrictedUpdateHandler() for more details.
+  ///
   /// @throws std::logic_error if the dimensionality of the state variables
   ///         changes in the callback.
-  void CalcUnrestrictedUpdate(const Context<T>& context,
-                              const DiscreteEvent<T>& event,
-                              State<T>* state) const {
+  void CalcUnrestrictedUpdate(
+      const Context<T>& context,
+      const EventCollection<UnrestrictedUpdateEvent<T>>& events,
+      State<T>* state) const {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
-    DRAKE_DEMAND(event.action == DiscreteEvent<T>::kUnrestrictedUpdateAction);
     const int continuous_state_dim = state->get_continuous_state()->size();
     const int discrete_state_dim = state->get_discrete_state()->num_groups();
     const int abstract_state_dim = state->get_abstract_state()->size();
@@ -471,11 +590,8 @@ class System {
     // documentation for DoCalcUnrestrictedUpdate().
     state->CopyFrom(context.get_state());
 
-    if (event.do_unrestricted_update == nullptr) {
-      DoCalcUnrestrictedUpdate(context, state);
-    } else {
-      event.do_unrestricted_update(context, state);
-    }
+    DispatchUnrestrictedUpdateHandler(context, events, state);
+
     if (continuous_state_dim != state->get_continuous_state()->size() ||
         discrete_state_dim != state->get_discrete_state()->num_groups() ||
         abstract_state_dim != state->get_abstract_state()->size())
@@ -484,33 +600,56 @@ class System {
           "in CalcUnrestrictedUpdate().");
   }
 
+  /// This method forces an unrestricted update on the system given a
+  /// @p context, and the updated state is stored in @p discrete_state. The
+  /// unrestricted update event will have a trigger type of kForced, with no
+  /// additional data, attribute or custom callback.
+  ///
+  /// @sa CalcUnrestrictedUpdate(const Context<T>&, const
+  /// EventCollection<UnrestrictedUpdateEvent<T>>*, State<T>* state)
+  ///     for more information.
+  void CalcUnrestrictedUpdate(const Context<T>& context,
+                              State<T>* state) const {
+    CalcUnrestrictedUpdate(
+        context, this->get_forced_unrestricted_update_events(), state);
+  }
+
   /// This method is called by a Simulator during its calculation of the size of
   /// the next continuous step to attempt. The System returns the next time at
   /// which some discrete action must be taken, and records what those actions
-  /// ought to be in the given UpdateActions object, which must not be null.
-  /// Upon reaching that time, the Simulator invokes either a publication
-  /// action (with a const Context) or an update action (with a mutable
-  /// Context). The UpdateAction object is retained and returned to the System
-  /// when it is time to take the action.
+  /// ought to be in @p events. Upon reaching that time, the simulator will
+  /// merge @p events with the other CompositeEventCollection instances
+  /// scheduled through mechanisms (e.g. GetPerStepEvents()), and the merged
+  /// CompositeEventCollection will be passed to all event handling mechanisms.
+  ///
+  /// @p events cannot be null. @p events will be cleared on entry.
   T CalcNextUpdateTime(const Context<T>& context,
-                       UpdateActions<T>* actions) const {
+                       CompositeEventCollection<T>* events) const {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
-    DRAKE_ASSERT(actions != nullptr);
-    actions->events.clear();
-    DoCalcNextUpdateTime(context, actions);
-    return actions->time;
+    DRAKE_DEMAND(events != nullptr);
+    events->Clear();
+    T time;
+    DoCalcNextUpdateTime(context, events, &time);
+    return time;
   }
 
-  /// This method is called by a Simulator in its Initialize() to gather all
-  /// the update and publish events that need to be handled before it computes
-  /// derivatives and performs integration. It is assumed that these events
-  /// remain constant throughout the simulation. The `Step` here refers to the
-  /// major time step taken by the Simulator. @p events cannot be null.
+  /// This method is called by Simulator::Initialize() to gather all
+  /// update and publish events that are to be handled in StepTo() at the point
+  /// before Simulator integrates continuous state. It is assumed that these
+  /// events remain constant throughout the simulation. The "step" here refers
+  /// to the major time step taken by the Simulator. During every simulation
+  /// step, the simulator will merge @p events with the other
+  /// CompositeEventCollection instances generated by other types of event
+  /// triggering mechanism (e.g., CalcNextUpdateTime()), and the merged
+  /// CompositeEventCollection objects will be passed to the appropriate
+  /// handlers before Simulator integrates the continuous state.
+  ///
+  /// @p events cannot be null. @p events will be cleared on entry.
   void GetPerStepEvents(const Context<T>& context,
-                        std::vector<DiscreteEvent<T>>* events) const {
+                        CompositeEventCollection<T>* events) const {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
-    DRAKE_ASSERT(events != nullptr);
-    events->clear();
+    DRAKE_DEMAND(events != nullptr);
+    events->Clear();
     DoGetPerStepEvents(context, events);
   }
 
@@ -641,41 +780,85 @@ class System {
   //@}
 
   //----------------------------------------------------------------------------
-  /// @name Functions to avoid RTTI in Diagram. Conceptually, these should be
-  /// protected and should not be directly called.
-  //@{
+  /// @cond
+  // Functions to avoid RTTI in Diagram. Conceptually, these should be protected
+  // and should not be directly called, so they are hidden from doxygen.
 
-  /// Returns @p context if @p target_system equals `this`, nullptr otherwise.
-  /// Should not be directly called.
+  // TODO(siyuan): change all target_system to reference.
+
+  // Returns @p context if @p target_system equals `this`, nullptr otherwise.
+  // Should not be directly called.
   virtual Context<T>* DoGetMutableTargetSystemContext(
-      const System<T>* target_system, Context<T>* context) const {
-    if (target_system == this) return context;
+      const System<T>& target_system, Context<T>* context) const {
+    if (&target_system == this) return context;
     return nullptr;
   }
 
-  /// Returns @p context if @p target_system equals `this`, nullptr otherwise.
-  /// Should not be directly called.
+  // Returns @p context if @p target_system equals `this`, nullptr otherwise.
+  // Should not be directly called.
   virtual const Context<T>* DoGetTargetSystemContext(
-      const System<T>* target_system, const Context<T>* context) const {
-    if (target_system == this) return context;
+      const System<T>& target_system, const Context<T>* context) const {
+    if (&target_system == this) return context;
     return nullptr;
   }
 
-  /// Returns @p state if @p target_system equals `this`, nullptr otherwise.
-  /// Should not be directly called.
+  // Returns @p state if @p target_system equals `this`, nullptr otherwise.
+  // Should not be directly called.
   virtual State<T>* DoGetMutableTargetSystemState(
-      const System<T>* target_system, State<T>* state) const {
-    if (target_system == this) return state;
+      const System<T>& target_system, State<T>* state) const {
+    if (&target_system == this) return state;
     return nullptr;
   }
 
   /// Returns @p state if @p target_system equals `this`, nullptr otherwise.
   /// Should not be directly called.
-  virtual const State<T>* DoGetTargetSystemState(const System<T>* target_system,
+  virtual const State<T>* DoGetTargetSystemState(const System<T>& target_system,
                                                  const State<T>* state) const {
-    if (target_system == this) return state;
+    if (&target_system == this) return state;
     return nullptr;
   }
+
+  // Returns @p events if @p target_system equals `this`, nullptr otherwise.
+  // Should not be directly called.
+  virtual CompositeEventCollection<T>*
+  DoGetMutableTargetSystemCompositeEventCollection(
+      const System<T>& target_system,
+      CompositeEventCollection<T>* events) const {
+    if (&target_system == this) return events;
+    return nullptr;
+  }
+
+  // Returns @p events if @p target_system equals `this`, nullptr otherwise.
+  // Should not be directly called.
+  virtual const CompositeEventCollection<T>*
+  DoGetTargetSystemCompositeEventCollection(
+      const System<T>& target_system,
+      const CompositeEventCollection<T>* events) const {
+    if (&target_system == this) return events;
+    return nullptr;
+  }
+
+  // The derived class implementation should provide exactly one event of the
+  // appropriate type with a kForced trigger type.
+  // Consumers of this class should never need to call the three methods below.
+  // These three methods would ideally be designated as "protected", but
+  // Diagram::AllocateForcedXEventCollection() needs to call these methods and,
+  // perhaps surprisingly, is not able to access these methods when they are
+  // protected. See:
+  // https://stackoverflow.com/questions/16785069/why-cant-a-derived-class-call-protected-member-function-in-this-code.
+  // To address this problem, we keep the methods "public" and
+  // (1) Make the overriding methods in LeafSystem and Diagram "final" and
+  // (2) Use the doxygen cond/endcond tags so that these methods are hidden
+  //     from the user (in the doxygen documentation).
+  virtual std::unique_ptr<EventCollection<PublishEvent<T>>>
+  AllocateForcedPublishEventCollection() const = 0;
+
+  virtual std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>>
+  AllocateForcedDiscreteUpdateEventCollection() const = 0;
+
+  virtual std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
+  AllocateForcedUnrestrictedUpdateEventCollection() const = 0;
+  /// @endcond
 
   //----------------------------------------------------------------------------
   /// @name                      Utility methods
@@ -687,8 +870,10 @@ class System {
   void set_name(const std::string& name) { name_ = name; }
 
   /// Returns the name last supplied to set_name(), or empty if set_name() was
-  /// never called.  Systems created through transmogrification have by default
-  /// an identical name to the system they were created from.
+  /// never called.  Systems with an empty name that are added to a Diagram
+  /// will have a default name automatically assigned.  Systems created through
+  /// transmogrification have by default an identical name to the system they
+  /// were created from.
   std::string get_name() const { return name_; }
 
   /// Returns a name for this %System based on a stringification of its type
@@ -697,8 +882,8 @@ class System {
   /// of the type name may produce differing results across platforms and
   /// because the address can vary from run to run.
   std::string GetMemoryObjectName() const {
-    return SystemImpl::GetMemoryObjectName(
-        NiceTypeName::Get(*this), GetGraphvizId());
+    return SystemImpl::GetMemoryObjectName(NiceTypeName::Get(*this),
+                                           GetGraphvizId());
   }
 
   /// Writes the full path of this System in the tree of Systems to @p output.
@@ -749,6 +934,42 @@ class System {
           std::to_string(get_num_output_ports()) + " output ports.");
     }
     return *output_ports_[port_index];
+  }
+
+  /// Returns the number of constraints specified for the system.
+  int get_num_constraints() const {
+    return static_cast<int>(constraints_.size());
+  }
+
+  /// Returns the constraint at index @p constraint_index.
+  /// @throws std::out_of_range for an invalid constraint_index.
+  const SystemConstraint<T>& get_constraint(
+      SystemConstraintIndex constraint_index) const {
+    if (constraint_index < 0 || constraint_index >= get_num_constraints()) {
+      throw std::out_of_range("System " + get_name() + ": Constraint index " +
+                              std::to_string(constraint_index) +
+                              " is out of range. There are only " +
+                              std::to_string(get_num_constraints()) +
+                              " constraints.");
+    }
+    return *constraints_[constraint_index];
+  }
+
+  /// Returns true if @p context satisfies all of the registered
+  /// SystemConstraints with tolerance @p tol.  @see
+  /// SystemConstraint::CheckSatisfied.
+  bool CheckSystemConstraintsSatisfied(const Context<T> &context,
+                                       double tol) const {
+    DRAKE_DEMAND(tol >= 0.0);
+    for (const auto& constraint : constraints_) {
+      if (!constraint->CheckSatisfied(context, tol)) {
+        SPDLOG_DEBUG(drake::log(),
+                     "Context fails to satisfy SystemConstraint {}",
+                     constraint->description());
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Returns the total dimension of all of the input ports (as if they were
@@ -884,42 +1105,56 @@ class System {
   //@{
 
   /// Creates a deep copy of this System, transmogrified to use the autodiff
-  /// scalar type, with a dynamic-sized vector of partial derivatives.
-  /// Concrete Systems may shadow this with a more specific return type.
+  /// scalar type, with a dynamic-sized vector of partial derivatives.  The
+  /// result is never nullptr.
+  /// @throw exception if this System does not support autodiff
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   std::unique_ptr<System<AutoDiffXd>> ToAutoDiffXd() const {
-    System<AutoDiffXd>* sys = DoToAutoDiffXd();
-    if (sys != nullptr) {
-      sys->set_name(this->get_name());
-    }
-    return std::unique_ptr<System<AutoDiffXd>>(sys);
+    return System<T>::ToAutoDiffXd(*this);
   }
 
-  /// Creates a deep copy of `from`, transmogrified to use the autodiff
-  /// scalar type, with a dynamic-sized vector of partial derivatives. Returns
-  /// `nullptr` if the template parameter `S` is not the type of the concrete
-  /// system, or a superclass thereof.
+  /// Creates a deep copy of `from`, transmogrified to use the autodiff scalar
+  /// type, with a dynamic-sized vector of partial derivatives.  The result is
+  /// never nullptr.
+  /// @throw exception if `from` does not support autodiff
   ///
   /// Usage: @code
   ///   MySystem<double> plant;
   ///   std::unique_ptr<MySystem<AutoDiffXd>> ad_plant =
-  ///       systems::System<double>::ToAutoDiffXd<MySystem>(plant);
+  ///       systems::System<double>::ToAutoDiffXd(plant);
   /// @endcode
   ///
-  /// @tparam S The specific System pointer type to return.
+  /// @tparam S The specific System type to accept and return.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   template <template <typename> class S = ::drake::systems::System>
-  static std::unique_ptr<S<AutoDiffXd>> ToAutoDiffXd(
-      const System<double>& from) {
-    // Capture the copy as System<AutoDiffXd>.
-    std::unique_ptr<System<AutoDiffXd>> clone(from.DoToAutoDiffXd());
-    // Attempt to downcast to S<AutoDiffXd>.
-    S<AutoDiffXd>* downcast = dynamic_cast<S<AutoDiffXd>*>(clone.get());
-    // If the downcast fails, return nullptr, letting the copy be deleted.
-    if (downcast == nullptr) {
-      return nullptr;
+  static std::unique_ptr<S<AutoDiffXd>> ToAutoDiffXd(const S<T>& from) {
+    using U = AutoDiffXd;
+    std::unique_ptr<System<U>> base_result = from.ToAutoDiffXdMaybe();
+    if (!base_result) {
+      std::stringstream ss;
+      ss << "The object named [" << from.get_name() << "] of type "
+         << NiceTypeName::Get(from) << " does not support ToAutoDiffXd.";
+      throw std::logic_error(ss.str().c_str());
     }
-    // If the downcast succeeds, redo it, taking ownership this time.
-    return std::unique_ptr<S<AutoDiffXd>>(
-        dynamic_cast<S<AutoDiffXd>*>(clone.release()));
+
+    // Downcast to the derived type S (throwing on error), and then transfer
+    // ownership to a correctly-typed unique_ptr.
+    // NOLINTNEXTLINE(runtime/casting)
+    std::unique_ptr<S<U>> result{&dynamic_cast<S<U>&>(*base_result)};
+    base_result.release();
+
+    return result;
+  }
+
+  /// Creates a deep copy of this system exactly like ToAutoDiffXd(), but
+  /// returns nullptr if this System does not support autodiff, instead of
+  /// throwing an exception.
+  std::unique_ptr<System<AutoDiffXd>> ToAutoDiffXdMaybe() const {
+    return system_scalar_converter_.Convert<AutoDiffXd, T>(*this);
   }
   //@}
 
@@ -933,44 +1168,54 @@ class System {
   //@{
 
   /// Creates a deep copy of this System, transmogrified to use the symbolic
-  /// scalar type. Returns `nullptr` if DoToSymbolic has not been implemented.
+  /// scalar type. The result is never nullptr.
+  /// @throw exception if this System does not support symbolic
   ///
-  /// Concrete Systems may shadow this with a more specific return type.
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   std::unique_ptr<System<symbolic::Expression>> ToSymbolic() const {
-    System<symbolic::Expression>* sys = DoToSymbolic();
-    if (sys != nullptr) {
-      sys->set_name(this->get_name());
-    }
-    return std::unique_ptr<System<symbolic::Expression>>(sys);
+    return System<T>::ToSymbolic(*this);
   }
 
-  /// Creates a deep copy of `from`, transmogrified to use the symbolic
-  /// scalar type. Returns `nullptr` if the template parameter `S` is not the
-  /// type of the concrete system, or a superclass thereof. Returns `nullptr`
-  /// if DoToSymbolic has not been implemented.
+  /// Creates a deep copy of `from`, transmogrified to use the symbolic scalar
+  /// type. The result is never nullptr.
+  /// @throw exception if this System does not support symbolic
   ///
   /// Usage: @code
   ///   MySystem<double> plant;
-  ///   std::unique_ptr<MySystem<symbolic::Expression>> ad_plant =
-  ///       systems::System<double>::ToSymbolic<MySystem>(plant);
+  ///   std::unique_ptr<MySystem<symbolic::Expression>> sym_plant =
+  ///       systems::System<double>::ToSymbolic(plant);
   /// @endcode
   ///
   /// @tparam S The specific System pointer type to return.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
   template <template <typename> class S = ::drake::systems::System>
-  static std::unique_ptr<S<symbolic::Expression>> ToSymbolic(
-      const System<double>& from) {
-    // Capture the copy as System<symbolic::Expression>.
-    std::unique_ptr<System<symbolic::Expression>> clone(from.DoToSymbolic());
-    // Attempt to downcast to S<symbolic::Expression>.
-    S<symbolic::Expression>* downcast =
-        dynamic_cast<S<symbolic::Expression>*>(clone.get());
-    // If the downcast fails, return nullptr, letting the copy be deleted.
-    if (downcast == nullptr) {
-      return nullptr;
+  static std::unique_ptr<S<symbolic::Expression>> ToSymbolic(const S<T>& from) {
+    using U = symbolic::Expression;
+    std::unique_ptr<System<U>> base_result = from.ToSymbolicMaybe();
+    if (!base_result) {
+      std::stringstream ss;
+      ss << "The object named [" << from.get_name() << "] of type "
+         << NiceTypeName::Get(from) << " does not support ToSymbolic.";
+      throw std::logic_error(ss.str().c_str());
     }
-    // If the downcast succeeds, redo it, taking ownership this time.
-    return std::unique_ptr<S<symbolic::Expression>>(
-        dynamic_cast<S<symbolic::Expression>*>(clone.release()));
+
+    // Downcast to the derived type S (throwing on error), and then transfer
+    // ownership to a correctly-typed unique_ptr.
+    // NOLINTNEXTLINE(runtime/casting)
+    std::unique_ptr<S<U>> result{&dynamic_cast<S<U>&>(*base_result)};
+    base_result.release();
+
+    return result;
+  }
+
+  /// Creates a deep copy of this system exactly like ToSymbolic(), but returns
+  /// nullptr if this System does not support symbolic, instead of throwing an
+  /// exception.
+  std::unique_ptr<System<symbolic::Expression>> ToSymbolicMaybe() const {
+    return system_scalar_converter_.Convert<symbolic::Expression, T>(*this);
   }
   //@}
 
@@ -1016,6 +1261,13 @@ class System {
     }
   }
 
+  /// (Advanced) Returns the SystemScalarConverter for this object.  This is an
+  /// expert-level API intended for framework authors.  Most users should
+  /// prefer the convenience helpers such as System::ToAutoDiffXd.
+  const SystemScalarConverter& get_system_scalar_converter() const {
+    return system_scalar_converter_;
+  }
+
   //@}
 
   /// Gets the witness functions active at the beginning of a continuous time
@@ -1039,6 +1291,15 @@ class System {
     DRAKE_ASSERT_VOID(CheckValidContext(context));
     return DoEvaluateWitness(context, witness_func);
   }
+
+  /// Add @p witness_func to @p events. @p events cannot be nullptr. @p events
+  /// should be allocated with this system's AllocateCompositeEventCollection.
+  /// The system associated with @p witness_func has to be either `this` or a
+  /// subsystem of `this` depending on whether `this` is a LeafSystem or
+  /// a Diagram.
+  virtual void AddTriggeredWitnessFunctionToCompositeEventCollection(
+      const WitnessFunction<T>& witness_func,
+      CompositeEventCollection<T>* events) const = 0;
 
   /// Returns a string suitable for identifying this particular %System in
   /// error messages, when it is a subsystem of a larger Diagram. This method
@@ -1069,19 +1330,85 @@ class System {
   }
 
   //----------------------------------------------------------------------------
+  /// @name                 Event handler dispatch mechanism
+  /// For a LeafSystem (or user implemented equivalent classes), these functions
+  /// need to call the appropriate LeafSystem::DoX event handler. E.g.
+  /// LeafSystem::DispatchPublishHandler() calls LeafSystem::DoPublish(). User
+  /// supplied custom event callbacks embedded in each individual event need to
+  /// be further dispatched in the LeafSystem::DoX handlers if desired. For a
+  /// LeafSystem, the pseudo code of the complete default publish event handler
+  /// dispatching is roughly:
+  /// <pre>
+  ///   leaf_sys.Publish(context, event_collection)
+  ///   -> leaf_sys.DispatchPublishHandler(context, event_collection)
+  ///      -> leaf_sys.DoPublish(context, event_collection.get_events())
+  ///         -> for (event : event_collection_events):
+  ///              if (event.has_handler)
+  ///                event.handler(context)
+  /// </pre>
+  /// Discrete update events and unrestricted update events are dispatched
+  /// similarly for a LeafSystem.
+  ///
+  /// For a Diagram (or user implemented equivalent classes), these functions
+  /// must iterate through all subsystems, extract their corresponding
+  /// subcontext and subevent collections from @p context and @p events,
+  /// and pass those to the subsystems' public non-virtual event handlers if
+  /// the subevent collection is nonempty (e.g. System::Publish() for publish
+  /// events).
+  ///
+  /// All of these functions are only called from their corresponding public
+  /// non-virtual event dispatchers, where @p context is error checked. The
+  /// derived implementations can assume that @p context is valid. See, e.g.,
+  /// LeafSystem::DispatchPublishHandler() and Diagram::DispatchPublishHandler()
+  /// for more details.
+
+  //@{
+  /// This function dispatches all publish events to the appropriate handlers.
+  virtual void DispatchPublishHandler(
+      const Context<T>& context,
+      const EventCollection<PublishEvent<T>>& events) const = 0;
+
+  /// This function dispatches all discrete update events to the appropriate
+  /// handlers. @p discrete_state cannot be null.
+  virtual void DispatchDiscreteVariableUpdateHandler(
+      const Context<T>& context,
+      const EventCollection<DiscreteUpdateEvent<T>>& events,
+      DiscreteValues<T>* discrete_state) const = 0;
+
+  /// This function dispatches all unrestricted update events to the appropriate
+  /// handlers. @p state cannot be null.
+  virtual void DispatchUnrestrictedUpdateHandler(
+      const Context<T>& context,
+      const EventCollection<UnrestrictedUpdateEvent<T>>& events,
+      State<T>* state) const = 0;
+  //@}
+
+  //----------------------------------------------------------------------------
   /// @name                 System construction
   /// Authors of derived %Systems can use these methods in the constructor
   /// for those %Systems.
   //@{
-  /// Constructs an empty %System base class object.
-  System() {}
+  /// Constructs an empty %System base class object, possibly supporting
+  /// scalar-type conversion support (AutoDiff, etc.) using @p converter.
+  ///
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
+  explicit System(SystemScalarConverter converter)
+      : system_scalar_converter_(std::move(converter)) {}
 
   /// Adds a port with the specified @p type and @p size to the input topology.
+  /// If the port is intended to model a random noise or disturbance input,
+  /// @p random_type can (optionally) be used to label it as such; doing so
+  /// enables algorithms for design and analysis (e.g. state estimation) to
+  /// reason explicitly about randomness at the system level.  All random input
+  /// ports are assumed to be statistically independent.
   /// @return descriptor of declared port.
-  const InputPortDescriptor<T>& DeclareInputPort(PortDataType type, int size) {
+  const InputPortDescriptor<T>& DeclareInputPort(
+      PortDataType type, int size,
+      optional<RandomDistribution> random_type = nullopt) {
     int port_index = get_num_input_ports();
-    input_ports_.push_back(
-        std::make_unique<InputPortDescriptor<T>>(this, port_index, type, size));
+    input_ports_.push_back(std::make_unique<InputPortDescriptor<T>>(
+        this, port_index, type, size, random_type));
     return *input_ports_.back();
   }
 
@@ -1101,6 +1428,15 @@ class System {
     output_ports_.push_back(std::move(port));
   }
   //@}
+
+  /// Adds an already-created constraint to the list of constraints for this
+  /// System.  Ownership of the SystemConstraint is transferred to this system.
+  SystemConstraintIndex AddConstraint(
+      std::unique_ptr<SystemConstraint<T>> constraint) {
+    DRAKE_DEMAND(constraint != nullptr);
+    constraints_.push_back(std::move(constraint));
+    return SystemConstraintIndex(constraints_.size() - 1);
+  }
 
   //----------------------------------------------------------------------------
   /// @name               Virtual methods for input allocation
@@ -1159,57 +1495,6 @@ class System {
     DRAKE_DEMAND(derivatives->size() == 0);
   }
 
-  /// Implement this in your concrete System if you want it to take some action
-  /// when the Simulator calls the Publish() method. This can be used for
-  /// sending messages, producing console output, debugging, logging, saving the
-  /// trajectory to a file, etc.
-  ///
-  /// This method is called only from the public non-virtual Publish() which
-  /// will have already error-checked `context` so you may assume that it is
-  /// valid for this %System.
-  virtual void DoPublish(const Context<T>& context) const { unused(context); }
-
-  /// Updates the @p discrete_state on sample events.
-  /// Override it, along with DoCalcNextUpdateTime(), if your System has any
-  /// discrete variables.
-  ///
-  /// This method is called only from the public non-virtual
-  /// CalcDiscreteVariableUpdates() which will already have error-checked the
-  /// parameters so you don't have to. In particular, implementations may assume
-  /// that the given Context is valid for this %System; that the
-  /// `discrete_state` pointer is non-null, and that the referenced object
-  /// has the same constituent structure as was produced by
-  /// AllocateDiscreteVariables().
-  virtual void DoCalcDiscreteVariableUpdates(
-      const Context<T>& context, DiscreteValues<T>* discrete_state) const {
-    unused(context, discrete_state);
-  }
-
-  /// Updates the @p state *in an unrestricted fashion* on unrestricted update
-  /// events. Override this function if you need your System to update
-  /// abstract variables or generally make changes to state that cannot be
-  /// made using CalcDiscreteVariableUpdates() or via integration of continuous
-  /// variables.
-  ///
-  /// This method is called only from the public non-virtual
-  /// CalcUnrestrictedUpdate() which will already have error-checked the
-  /// parameters so you don't have to. In particular, implementations may assume
-  /// that the given Context is valid for this %System; that the `state` pointer
-  /// is non-null, and that the referenced object has the same constituent
-  /// structure as the state in `context`.
-  ///
-  /// @param[in]     context The "before" state that is to be used to calculate
-  ///                        the returned state update.
-  /// @param[in,out] state   The current state of the system on input; the
-  ///                        desired state of the system on return.
-  // TODO(sherm1) Shouldn't require preloading of the output state; better to
-  //              note just the changes since usually only a small subset will
-  //              be changed by this method.
-  virtual void DoCalcUnrestrictedUpdate(const Context<T>& context,
-                                        State<T>* state) const {
-    unused(context, state);
-  }
-
   /// Computes the next time at which this System must perform a discrete
   /// action.
   ///
@@ -1217,35 +1502,32 @@ class System {
   /// interrupt the continuous simulation. This method is called only from the
   /// public non-virtual CalcNextUpdateTime() which will already have
   /// error-checked the parameters so you don't have to. You may assume that
-  /// `context` has already been validated and the `actions` pointer is
-  /// not `nullptr`.
+  /// @p context has already been validated and @p events pointer is not
+  /// null.
   ///
-  /// The default implementation returns with `actions` having a next sample
-  /// time of Infinity and no actions to take.  If you declare actions, you may
-  /// specify custom do_publish and do_update handlers.  If you do not,
-  /// DoPublish and DoCalcDifferenceUpdates will be used by default.
+  /// The default implementation returns with the next sample time being
+  /// Infinity and no events added to @p events.
   virtual void DoCalcNextUpdateTime(const Context<T>& context,
-                                    UpdateActions<T>* actions) const {
-    unused(context);
-    actions->time = std::numeric_limits<T>::infinity();
+                                    CompositeEventCollection<T>* events,
+                                    T* time) const {
+    unused(context, events);
+    *time = std::numeric_limits<T>::infinity();
   }
 
-  /// This method is intended to get all the events that need to be handled
-  /// before the simulator can take a step. @p events is cleared in the
-  /// public non-virtual GetPerStepEvents() before calling this function.
-  /// Overriding implementation should not clear @p events, and only append
-  /// to it.
-  ///
-  /// Override this method if your System needs such events. This method is
-  /// called only from the public non-virtual GetPerStepEvents(), which will
-  /// already have error-checked the parameters so you don't have to. You
-  /// may assume that @p context has already been validated and @p events is
-  /// not null, and it can be changed freely by the overriding implementation.
+  /// Implement this method to return any events to be handled before the
+  /// simulator integrates the system's continuous state at each time step.
+  /// @p events is cleared in the public non-virtual GetPerStepEvents()
+  /// before that method calls this function. An overriding implementation
+  /// of this method should not clear @p events, and only append to it. You
+  /// may assume that @p context has already been validated and that
+  /// @p events is not null. @p events can be changed freely by the overriding
+  /// implementation.
   ///
   /// The default implementation returns without changing @p events.
+  /// @sa GetPerStepEvents()
   virtual void DoGetPerStepEvents(
       const Context<T>& context,
-      std::vector<DiscreteEvent<T>>* events) const {
+      CompositeEventCollection<T>* events) const {
     unused(context, events);
   }
 
@@ -1365,36 +1647,6 @@ class System {
     DRAKE_THROW_UNLESS(qdot->size() == n);
     qdot->SetFromVector(generalized_velocity);
   }
-
-  /// NVI implementation of ToAutoDiffXd. Caller takes ownership of the returned
-  /// pointer. Overrides should return a more specific covariant type.
-  /// Templated overrides may assume that they are subclasses of System<double>.
-  ///
-  /// No default implementation is provided in LeafSystem, since the member data
-  /// of a particular concrete leaf system is not knowable to the framework.
-  /// A default implementation is provided in Diagram, which Diagram subclasses
-  /// with member data should override.
-  virtual System<AutoDiffXd>* DoToAutoDiffXd() const {
-    std::stringstream ss;
-    ss << "Override DoToAutoDiffXd for object named [" << this->get_name()
-       << "] of type " << NiceTypeName::Get(*this)
-       << " before using ToAutoDiffXd.";
-    DRAKE_ABORT_MSG(ss.str().c_str());
-    return nullptr;
-  }
-
-  /// NVI implementation of ToSymbolic. Caller takes ownership of the returned
-  /// pointer. Overrides should return a more specific covariant type.
-  /// Templated overrides may assume that they are subclasses of System<double>.
-  ///
-  /// Returns `nullptr` by default.  Direct-feedthrough detection relies on
-  /// this behavior.
-  ///
-  /// No default implementation is provided in LeafSystem, since the member data
-  /// of a particular concrete leaf system is not knowable to the framework.
-  /// A default implementation is provided in Diagram, which Diagram subclasses
-  /// with member data should override.
-  virtual System<symbolic::Expression>* DoToSymbolic() const { return nullptr; }
   //@}
 
 //----------------------------------------------------------------------------
@@ -1502,13 +1754,62 @@ class System {
   }
   //@}
 
+  const EventCollection<PublishEvent<T>>&
+  get_forced_publish_events() const {
+    return *forced_publish_;
+  }
+
+  const EventCollection<DiscreteUpdateEvent<T>>&
+  get_forced_discrete_update_events() const {
+    return *forced_discrete_update_;
+  }
+
+  const EventCollection<UnrestrictedUpdateEvent<T>>&
+  get_forced_unrestricted_update_events() const {
+    return *forced_unrestricted_update_;
+  }
+
+  void set_forced_publish_events(
+  std::unique_ptr<EventCollection<PublishEvent<T>>> forced) {
+    forced_publish_ = std::move(forced);
+  }
+
+  void set_forced_discrete_update_events(
+  std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>> forced) {
+    forced_discrete_update_ = std::move(forced);
+  }
+
+  void set_forced_unrestricted_update_events(
+  std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>> forced) {
+    forced_unrestricted_update_ = std::move(forced);
+  }
+
  private:
+  // Attorney-Client idiom to expose a subset of private elements of System.
+  // Refer to SystemImpl comments for details.
+  friend class SystemImpl;
+
   std::string name_;
   // input_ports_ and output_ports_ are vectors of unique_ptr so that references
   // to the descriptors will remain valid even if the vector is resized.
   std::vector<std::unique_ptr<InputPortDescriptor<T>>> input_ports_;
   std::vector<std::unique_ptr<OutputPort<T>>> output_ports_;
   const detail::InputPortEvaluatorInterface<T>* parent_{nullptr};
+
+  std::vector<std::unique_ptr<SystemConstraint<T>>> constraints_;
+
+  // These are only used to dispatch forced event handling. For a LeafSystem,
+  // all of these have exactly one kForced triggered event. For a Diagram, they
+  // are DiagramEventCollection, whose leafs are LeafEventCollection with
+  // exactly one kForced triggered event.
+  std::unique_ptr<EventCollection<PublishEvent<T>>> forced_publish_{nullptr};
+  std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>>
+      forced_discrete_update_{nullptr};
+  std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
+      forced_unrestricted_update_{nullptr};
+
+  // Functions to convert this system to use alternative scalar types.
+  SystemScalarConverter system_scalar_converter_;
 
   // TODO(sherm1) Replace these fake cache entries with real cache asap.
   // These are temporaries and hence uninitialized.

@@ -6,7 +6,7 @@
 #include <numeric>
 #include <vector>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/basic_vector.h"
@@ -42,8 +42,10 @@ template <typename T>
 RotaryEncoders<T>::RotaryEncoders(int input_port_size,
                                   const std::vector<int>& input_vector_indices,
                                   const std::vector<int>& ticks_per_revolution)
-    : SisoVectorSystem<T>(input_port_size,
-                          input_vector_indices.size() /* output_port_size */),
+    : VectorSystem<T>(
+          SystemTypeTag<sensors::RotaryEncoders>{},
+          input_port_size,
+          input_vector_indices.size() /* output_port_size */),
       num_encoders_(input_vector_indices.size()),
       indices_(input_vector_indices),
       ticks_per_revolution_(ticks_per_revolution) {
@@ -56,7 +58,16 @@ RotaryEncoders<T>::RotaryEncoders(int input_port_size,
   DRAKE_ASSERT(ticks_per_revolution_.empty() ||
                *std::min_element(ticks_per_revolution_.begin(),
                                  ticks_per_revolution_.end()) >= 0);
+  this->DeclareNumericParameter(
+      BasicVector<T>(VectorX<T>::Zero(num_encoders_)));
 }
+
+template <typename T>
+template <typename U>
+RotaryEncoders<T>::RotaryEncoders(const RotaryEncoders<U>& other)
+    : RotaryEncoders(other.get_input_port().size(),
+                     other.indices_,
+                     other.ticks_per_revolution_) {}
 
 template <typename T>
 void RotaryEncoders<T>::DoCalcVectorOutput(
@@ -81,24 +92,10 @@ void RotaryEncoders<T>::DoCalcVectorOutput(
     // Quantization.
     if (!ticks_per_revolution_.empty()) {
       using std::floor;
-      y(i) = floor(y(i) * ticks_per_revolution_[i] / M_2_PI) * M_2_PI /
-             ticks_per_revolution_[i];
+      const T ticks_per_radian = ticks_per_revolution_[i] / (2.0 * M_PI);
+      y(i) = floor(y(i) * ticks_per_radian) / ticks_per_radian;
     }
   }
-}
-
-template <typename T>
-std::unique_ptr<Parameters<T>> RotaryEncoders<T>::AllocateParameters() const {
-  // Use parameters for the (unnamed) calibration offsets.
-  return std::make_unique<Parameters<T>>(
-      std::make_unique<BasicVector<T>>(num_encoders_));
-}
-
-template <typename T>
-void RotaryEncoders<T>::SetDefaultParameters(
-    const LeafContext<T>&,
-    Parameters<T>* params) const {
-  params->get_mutable_numeric_parameter(0)->SetZero();
 }
 
 template <typename T>
@@ -118,15 +115,9 @@ Eigen::VectorBlock<const VectorX<T>> RotaryEncoders<T>::get_calibration_offsets(
   return this->template GetNumericParameter(context, 0).get_value();
 }
 
-template <typename T>
-RotaryEncoders<AutoDiffXd>* RotaryEncoders<T>::DoToAutoDiffXd() const {
-  return new RotaryEncoders<AutoDiffXd>(this->get_input_port().size(),
-                                        indices_, ticks_per_revolution_);
-}
-
-template class RotaryEncoders<double>;
-template class RotaryEncoders<AutoDiffXd>;
-
 }  // namespace sensors
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::sensors::RotaryEncoders)

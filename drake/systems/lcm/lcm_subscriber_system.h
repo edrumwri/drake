@@ -10,7 +10,6 @@
 #include "drake/lcm/drake_lcm_interface.h"
 #include "drake/lcm/drake_lcm_message_handler_interface.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/leaf_context.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/lcm/lcm_and_vector_base_translator.h"
 #include "drake/systems/lcm/lcm_translator_dictionary.h"
@@ -35,6 +34,8 @@ namespace lcm {
  * output type. When this system is evaluated by the Simulator, all these
  * operations are taken care of by the Simulator. On the other hand, the user
  * needs to manually replicate this process without the Simulator.
+ *
+ * @ingroup message_passing
  */
 class LcmSubscriberSystem : public LeafSystem<double>,
                             public drake::lcm::DrakeLcmMessageHandlerInterface {
@@ -131,12 +132,20 @@ class LcmSubscriberSystem : public LeafSystem<double>,
    */
   int WaitForMessage(int old_message_count) const;
 
+  /**
+   * Returns the message counter stored in @p context.
+   */
+  int GetMessageCount(const Context<double>& context) const;
+
  protected:
   void DoCalcNextUpdateTime(const Context<double>& context,
-                            UpdateActions<double>* events) const override;
+                            systems::CompositeEventCollection<double>* events,
+                            double* time) const override;
 
-  void DoCalcUnrestrictedUpdate(const Context<double>&,
-                                State<double>* state) const override {
+  void DoCalcUnrestrictedUpdate(
+      const Context<double>&,
+      const std::vector<const systems::UnrestrictedUpdateEvent<double>*>&,
+      State<double>* state) const override {
     ProcessMessageAndStoreToAbstractState(state->get_mutable_abstract_state());
   }
 
@@ -144,6 +153,7 @@ class LcmSubscriberSystem : public LeafSystem<double>,
 
   void DoCalcDiscreteVariableUpdates(
       const Context<double>&,
+      const std::vector<const systems::DiscreteUpdateEvent<double>*>&,
       DiscreteValues<double>* discrete_state) const override {
     ProcessMessageAndStoreToDiscreteState(discrete_state);
   }
@@ -206,6 +216,8 @@ class LcmSubscriberSystem : public LeafSystem<double>,
 
   // A message counter that's incremented every time the handler is called.
   int received_message_count_{0};
+
+  drake::lcm::DrakeLcmInterface* lcm_interface_;
 };
 
 }  // namespace lcm

@@ -2,9 +2,8 @@
 
 #include <Eigen/Dense>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_autodiff_types.h"
 
 namespace drake {
 namespace systems {
@@ -73,30 +72,9 @@ void PoseBundle<T>::set_model_instance_id(int index, int id) {
   ids_[index] = id;
 }
 
-template <typename T>
-std::unique_ptr<PoseBundle<AutoDiffXd>> PoseBundle<T>::ToAutoDiffXd() const {
-  // TODO(sherm1): Consider changing this to overload a default implementation
-  // in AbstractValue, as discussed in
-  // https://github.com/RobotLocomotion/drake/issues/5454
-
-  auto bundle = std::make_unique<PoseBundle<AutoDiffXd>>(get_num_poses());
-  for (int pose_index = 0; pose_index < get_num_poses(); pose_index++) {
-    Isometry3<AutoDiffXd> pose(get_pose(pose_index));
-    bundle->set_pose(pose_index, pose);
-    FrameVelocity<AutoDiffXd> velocity;
-    velocity.set_velocity(multibody::SpatialVelocity<AutoDiffXd>(
-        get_velocity(pose_index).get_velocity().get_coeffs()));
-    bundle->set_velocity(pose_index, velocity);
-    bundle->set_name(pose_index, get_name(pose_index));
-    bundle->set_model_instance_id(pose_index,
-                                  get_model_instance_id(pose_index));
-  }
-  return bundle;
-}
-
-template class PoseBundle<double>;
-template class PoseBundle<AutoDiffXd>;
-
 }  // namespace rendering
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::rendering::PoseBundle)

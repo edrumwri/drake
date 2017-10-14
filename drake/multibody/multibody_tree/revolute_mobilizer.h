@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
@@ -8,9 +10,6 @@
 #include "drake/multibody/multibody_tree/multibody_tree_context.h"
 #include "drake/multibody/multibody_tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
-
-// Forward declarations.
-template <typename T> class MultibodyTree;
 
 namespace drake {
 namespace multibody {
@@ -39,7 +38,7 @@ namespace multibody {
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
 template <typename T>
-class RevoluteMobilizer : public MobilizerImpl<T, 1, 1> {
+class RevoluteMobilizer final : public MobilizerImpl<T, 1, 1> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(RevoluteMobilizer)
 
@@ -91,11 +90,77 @@ class RevoluteMobilizer : public MobilizerImpl<T, 1, 1> {
   const RevoluteMobilizer<T>& set_angle(
       systems::Context<T>* context, const T& angle) const;
 
+  /// Gets the rate of change, in radians per second, of `this` mobilizer's
+  /// angle (see get_angle()) from `context`. See class documentation for the
+  /// angle sign convention.
+  /// @param[in] context The context of the MultibodyTree this mobilizer
+  ///                    belongs to.
+  /// @returns The rate of change of `this` mobilizer's angle in the `context`.
+  const T& get_angular_rate(const systems::Context<T> &context) const;
+
+  /// Sets the rate of change, in radians per second, of this `this` mobilizer's
+  /// angle to `theta_dot`. The new rate of change `theta_dot` gets stored in
+  /// `context`.
+  /// See class documentation for the angle sign convention.
+  /// @param[in] context The context of the MultibodyTree this mobilizer
+  ///                    belongs to.
+  /// @param[in] theta_dot The desired rate of change of `this` mobilizer's
+  /// angle in radians per second.
+  /// @returns a constant reference to `this` mobilizer.
+  const RevoluteMobilizer<T>& set_angular_rate(
+      systems::Context<T> *context, const T& theta_dot) const;
+
   /// Computes the across-mobilizer transform `X_FM(q)` between the inboard
   /// frame F and the outboard frame M as a function of the rotation angle
   /// about this mobilizer's axis (@see get_revolute_axis().)
+  /// The generalized coordinate q for `this` mobilizer (the rotation angle) is
+  /// stored in `context`.
+  /// This method aborts in Debug builds if `v.size()` is not one.
   Isometry3<T> CalcAcrossMobilizerTransform(
-      const MultibodyTreeContext<T>& context) const final;
+      const MultibodyTreeContext<T>& context) const override;
+
+  /// Computes the across-mobilizer velocity `V_FM(q, v)` of the outboard frame
+  /// M measured and expressed in frame F as a function of the rotation angle
+  /// and input angular velocity `v` about this mobilizer's axis
+  /// (@see get_revolute_axis()).
+  /// The generalized coordinate q for `this` mobilizer (the rotation angle) is
+  /// stored in `context`.
+  /// This method aborts in Debug builds if `v.size()` is not one.
+  SpatialVelocity<T> CalcAcrossMobilizerSpatialVelocity(
+      const MultibodyTreeContext<T>& context,
+      const Eigen::Ref<const VectorX<T>>& v) const override;
+
+  /// Computes the across-mobilizer acceleration `A_FM(q, v, v̇)` of the
+  /// outboard frame M in the inboard frame F.
+  /// By definition `A_FM = d_F(V_FM)/dt = H_FM(q) * v̇ + Ḣ_FM * v`.
+  /// The acceleration `A_FM` will be a function of the rotation angle q, its
+  /// rate of change v for the current state in `context` and of the input
+  /// generalized acceleration `v̇ = dv/dt`, the rate of change of v.
+  /// See class documentation for the angle sign convention.
+  /// This method aborts in Debug builds if `vdot.size()` is not one.
+  SpatialAcceleration<T> CalcAcrossMobilizerSpatialAcceleration(
+      const MultibodyTreeContext<T>& context,
+      const Eigen::Ref<const VectorX<T>>& vdot) const override;
+
+  /// Projects the spatial force `F_Mo_F` on `this` mobilizer's outboard
+  /// frame M onto its rotation axis (@see get_revolute_axis().) Mathematically:
+  /// <pre>
+  ///    tau = F_Mo_F.rotational().dot(axis_F)
+  /// </pre>
+  /// Therefore, the result of this method is the scalar value of the torque at
+  /// the axis of `this` mobilizer.
+  /// This method aborts in Debug builds if `tau.size()` is not one.
+  void ProjectSpatialForce(
+      const MultibodyTreeContext<T>& context,
+      const SpatialForce<T>& F_Mo_F,
+      Eigen::Ref<VectorX<T>> tau) const override;
+
+ protected:
+  std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
+      const MultibodyTree<double>& tree_clone) const override;
+
+  std::unique_ptr<Mobilizer<AutoDiffXd>> DoCloneToScalar(
+      const MultibodyTree<AutoDiffXd>& tree_clone) const override;
 
  private:
   typedef MobilizerImpl<T, 1, 1> MobilizerBase;
@@ -105,8 +170,13 @@ class RevoluteMobilizer : public MobilizerImpl<T, 1, 1> {
   // Operations with fixed-sized quantities can be optimized at compile time
   // and therefore they are highly preferred compared to the very slow dynamic
   // sized quantities.
-  using MobilizerBase::nq;
-  using MobilizerBase::nv;
+  using MobilizerBase::kNq;
+  using MobilizerBase::kNv;
+
+  // Helper method to make a clone templated on ToScalar.
+  template <typename ToScalar>
+  std::unique_ptr<Mobilizer<ToScalar>> TemplatedDoCloneToScalar(
+      const MultibodyTree<ToScalar>& tree_clone) const;
 
   // Default joint axis expressed in the inboard frame F.
   Vector3<double> axis_F_;

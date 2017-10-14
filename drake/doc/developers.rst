@@ -71,54 +71,22 @@ officially supports. Supported configurations are tested in continuous
 integration. All other configurations are provided on a best-effort basis.
 
 For CMake builds, the "Unix Makefiles" and "Ninja" CMake generators are
-supported.
+supported. MATLAB is only supported for CMake builds on Ubuntu operating
+systems.
 
-For CMake builds, the supported version of MATLAB is R2015b.
+Drake requires a compiler running in C++14 mode or greater.
 
-For CMake builds,
-minimal configuration is defined as the minimal required externals
-from the superbuild. This is configured by turning off all externals using
-``ccmake`` or ``cmake-gui`` except for ``WITH_EIGEN``, ``WITH_GOOGLETEST``,
-and  ``WITH_GFLAGS``, which should be set to ``ON``.
-
-Almost all of Drake and Drake's externals are
-supported on Bazel. "Superbuild Deps" are not meaningful in the context
-of Bazel, since there is no configurable superbuild. MATLAB is not supported on
-Bazel, and there are no plans to add support.
-
-+------------------------------+------------------+--------------------+-------------------+---------+
-| Operating System             | Build Systems    | Compilers          | Superbuild Deps   | Build   |
-+==============================+==================+====================+===================+=========+
-| Ubuntu 14.04 LTS ("Trusty")  | | CMake 3.5      | | GCC 4.9          | Minimal           | Debug   |
-|                              | | Bazel 0.4.5    | | Java 1.8         |                   +---------+
-|                              |                  |                    |                   | Release |
-|                              |                  |                    +-------------------+---------+
-|                              |                  |                    | Default           | Debug   |
-|                              |                  |                    |                   +---------+
-|                              |                  |                    |                   | Release |
-|                              |                  |                    +-------------------+---------+
-|                              |                  |                    | Default + MATLAB  | Release |
-|                              |                  +--------------------+-------------------+---------+
-|                              |                  | | Clang 3.9        | Default           | Debug   |
-|                              |                  | | Java 1.7         |                   +---------+
-|                              |                  |                    |                   | Release |
-+------------------------------+------------------+--------------------+-------------------+---------+
-| Ubuntu 16.04 LTS ("Xenial")  | | CMake 3.5      | | GCC 5.4          | Default           | Debug   |
-|                              | | Bazel 0.4.5    | | Java 1.8         |                   +---------+
-|                              |                  |                    |                   | Release |
-|                              |                  +--------------------+-------------------+---------+
-|                              |                  | | Clang 3.9        | Default           | Debug   |
-|                              |                  | | Java 1.8         |                   +---------+
-|                              |                  |                    |                   | Release |
-+------------------------------+------------------+--------------------+-------------------+---------+
-| OS X 10.10                   | | CMake 3.5      | | Apple Clang 7.0  | Minimal           | Debug   |
-|                              | | Bazel 0.4.5    | | Java 1.8         |                   +---------+
-|                              |                  |                    |                   | Release |
-|                              |                  |                    +-------------------+---------+
-|                              |                  |                    | Default           | Debug   |
-|                              |                  |                    |                   +---------+
-|                              |                  |                    |                   | Release |
-+------------------------------+------------------+--------------------+-------------------+---------+
++-----------------------------+---------------+-----------------+------------+-------------------+--------+
+| Operating System            | Build System  | C/C++ Compiler  | Java       | MATLAB (Optional) | Python |
++=============================+===============+=================+============+===================+========+
++-----------------------------+---------------+-----------------+------------+-------------------+--------+
+| Ubuntu 16.04 LTS ("Xenial") | | Bazel 0.6.1 | | Clang 3.9     | OpenJDK 8  | R2017a            | 2.7.11 |
+|                             | | CMake 3.5.1 | | GCC 5.4       |            |                   |        |
++-----------------------------+---------------+-----------------+------------+-------------------+--------+
+| OS X 10.11 ("El Capitan")   | Bazel 0.6.1   | Apple Clang 8.0 | Oracle 1.8 | Not Supported     | 2.7.14 |
++-----------------------------+---------------+-----------------+------------+-------------------+--------+
+| macOS 10.12 ("Sierra")      | Bazel 0.6.1   | Apple Clang 9.0 | Oracle 1.8 | Not Supported     | 2.7.14 |
++-----------------------------+---------------+-----------------+------------+-------------------+--------+
 
 Code Review
 ===========
@@ -140,11 +108,23 @@ are responsible for finding reviewers, and for providing them the information
 they need to review your change effectively. If a reviewer asks you for more
 information, that is a sign you should add more documentation to your PR.
 
-A PR generally should not include more than 500 lines of new code. Larger PRs
-are sometimes allowed, for instance if the change is generated by an easily
-reviewed script. Before sending an oversize PR, check that your reviewers are
-willing to accept it.  Comments and deleted lines do not count toward the
-500-line limit.
+A PR generally *should not* include more than 750 added or changed lines (the
+green ``+###`` number as reported by github), and *must not* include more than
+1500 lines, with the following exemptions:
+
+  - Data files do not count towards the line limit.
+
+  - Machine-generated changes do not count towards the line limit.
+
+  - Files in
+    :ref:`Special Directories <directory_structure_special_directories>`
+    do not count towards the line limit.
+
+  - This rule may be overridden by agreement of at least two platform reviewers
+    (listed below).
+
+The utility ``drake/tools/prstat`` will report the total added or changed
+lines, excluding files that are easily identified to meet the exemptions above.
 
 We use https://reviewable.io for code reviews. You can sign in for free with
 your GitHub identity. Before your first code review, please take a look at
@@ -166,11 +146,12 @@ The following GitHub users are Drake owners. If possible, seek platform review
 from an owner who has previously reviewed related changes. Shared context will
 make the review faster.
 
-- @david-german-tri (Toyota Research Institute)
+- @EricCousineau-TRI (Toyota Research Institute)
 - @ggould-tri (Toyota Research Institute)
 - @jwnimmer-tri (Toyota Research Institute)
 - @psiorx (MIT)
 - @sammy-tri (Toyota Research Institute)
+- @SeanCurtis-TRI (Toyota Research Institute)
 - @sherm1 (Toyota Research Institute)
 - @soonho-tri (Toyota Research Institute)
 - @RussTedrake (MIT / Toyota Research Institute)
@@ -212,14 +193,6 @@ Documentation Instructions
     doxygen_instructions
     sphinx_instructions
 
-Dynamic and Static Analysis Tools
-=================================
-.. toctree::
-    :maxdepth: 1
-
-    dynamic_analysis_tools
-    lint_static_analysis_tools
-
 IDE and Text Editor Notes
 =========================
 
@@ -229,13 +202,14 @@ IDE and Text Editor Notes
     clion
     Eclipse <https://github.com/tkoolen/drake/wiki/Eclipse-setup-(experimental)>
     sublime_text
+    unicode_tips_tricks
 
 Operating System Notes
 ======================
 .. toctree::
     :maxdepth: 1
 
-    development_on_osx
+    development_on_mac
 
 Programming Style Notes
 =======================
@@ -253,4 +227,3 @@ Version Control
     :maxdepth: 1
 
     no_push_to_origin
-

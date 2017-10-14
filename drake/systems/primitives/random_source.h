@@ -1,12 +1,40 @@
 #pragma once
 
+#include <memory>
 #include <random>
+#include <vector>
 
 #include "drake/common/drake_copyable.h"
+#include "drake/common/unused.h"
+#include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
 namespace systems {
+
+namespace internal {
+
+template <typename Generator = std::mt19937>
+typename Generator::result_type generate_unique_seed();
+
+/// State for a given random distribution and generator. This owns both the
+/// distribution and the generator.
+template <typename Distribution, typename Generator = std::mt19937>
+class RandomState {
+ public:
+  typedef typename Generator::result_type Seed;
+  static constexpr Seed default_seed = Generator::default_seed;
+
+  explicit RandomState(Seed seed) : generator_(seed) {}
+
+  /// Generate the next random value with the given distribution.
+  double GetNextValue() { return distribution_(generator_); }
+
+ private:
+  // TODO(russt): Obtain consistent results across multiple platforms (#4361).
+  Generator generator_;
+  Distribution distribution_;
+};
 
 /// A source block which generates random numbers at a fixed sampling interval,
 /// with a zero-order hold between samples.  For continuous-time systems, this
@@ -26,34 +54,48 @@ namespace systems {
 /// necessary information for stochastic analysis).
 ///
 /// @ingroup primitive_systems
-template <typename Distribution>
+template <typename Distribution, typename Generator = std::mt19937>
 class RandomSource : public LeafSystem<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(RandomSource)
 
+  typedef internal::RandomState<Distribution, Generator> RandomState;
+  typedef typename RandomState::Seed Seed;
+
   /// Constructs the RandomSource system.
   /// @param num_outputs The dimension of the (single) vector output port.
   /// @param sampling_interval_sec The sampling interval in seconds.
-  RandomSource(int num_outputs, double sampling_interval_sec) {
-    this->DeclareDiscreteUpdatePeriodSec(sampling_interval_sec);
+  RandomSource(int num_outputs, double sampling_interval_sec)
+      : seed_(generate_unique_seed()) {
+    this->DeclarePeriodicUnrestrictedUpdate(sampling_interval_sec, 0.);
     this->DeclareVectorOutputPort(BasicVector<double>(num_outputs),
                                   &RandomSource::CopyStateToOutput);
     this->DeclareDiscreteState(num_outputs);
+    this->DeclareAbstractState(AbstractValue::Make(RandomState(seed_)));
   }
 
-  /// Initializes the random number generator.
-  void set_random_seed(double seed) { generator_.seed(seed); }
+  /// Initializes the random number generator.  This must be set before
+  /// the (abstract) state is allocated to take effect.
+  void set_random_seed(Seed seed) { seed_ = seed; }
 
  private:
   // Computes a random number and stores it in the discrete state.
-  void DoCalcDiscreteVariableUpdates(
-      const drake::systems::Context<double>& context,
-      drake::systems::DiscreteValues<double>* updates) const override {
+  void DoCalcUnrestrictedUpdate(
+      const Context<double>&,
+      const std::vector<const UnrestrictedUpdateEvent<double>*>&,
+      State<double>* state) const override {
+    auto& random_state =
+        state->template get_mutable_abstract_state<RandomState>(0);
+    auto* updates = state->get_mutable_discrete_state();
     const int N = updates->size();
     for (int i = 0; i < N; i++) {
-      double random_value = distribution_(generator_);
-      (*updates)[i] = random_value;
+      (*updates)[i] = random_state.GetNextValue();
     }
+  }
+
+  std::unique_ptr<AbstractValues> AllocateAbstractState() const override {
+    return std::make_unique<AbstractValues>(
+        AbstractValue::Make(RandomState(seed_)));
   }
 
   // Output is the zero-order hold of the discrete state.
@@ -62,38 +104,40 @@ class RandomSource : public LeafSystem<double> {
     output->SetFromVector(context.get_discrete_state(0)->CopyToVector());
   }
 
-  // Note: currently there is undeclared state in the variables below.
-  // TODO(russt): Use abstract state to save the parameters of the generator and
-  // distribution (waiting on event scheduling for abstract states).
-  // TODO(russt): Obtain consistent results across multiple platforms (#4361).
-  mutable std::mt19937 generator_;
-  mutable Distribution distribution_;
-};
-
-namespace internal {
-/// Defines a version of the std::uniform_real_distribution that uses the
-/// interval [-1,1] with the default parameters.  This is a more natural
-/// distribution for random signals.
-class mean_zero_uniform_real_distribution
-    : public std::uniform_real_distribution<double> {
- public:
-  mean_zero_uniform_real_distribution()
-      : std::uniform_real_distribution<double>(-1.0, 1.0) {}
+  Seed seed_{RandomState::default_seed};
 };
 
 }  // namespace internal
 
-/// Generates uniformly distributed random numbers in the interval [-1,1].
+/// Generates uniformly distributed random numbers in the interval [0,1].
 ///
 /// @ingroup primitive_systems
-typedef RandomSource<internal::mean_zero_uniform_real_distribution>
+typedef internal::RandomSource<std::uniform_real_distribution<double>>
     UniformRandomSource;
 
-/// Generates uniformly distributed random numbers with mean zero and unit
+/// Generates normally distributed random numbers with mean zero and unit
 /// covariance.
 ///
 /// @ingroup primitive_systems
-typedef RandomSource<std::normal_distribution<double>> GaussianRandomSource;
+typedef internal::RandomSource<std::normal_distribution<double>>
+    GaussianRandomSource;
+
+/// Generates exponentially distributed random numbers with mean, standard
+/// deviation, and scale parameter (aka 1/λ) set to one.
+///
+/// @ingroup primitive_systems
+typedef internal::RandomSource<std::exponential_distribution<double>>
+    ExponentialRandomSource;
+
+/// For each subsystem input port in @p builder that is (a) not yet connected
+/// and (b) labeled as random in the InputPortDescriptor, this method will add a
+/// new RandomSource system of the appropriate type and connect it to the
+/// subsystem input port.
+///
+/// @param sampling_interval_sec interval to be used for all new sources.
+/// @returns the total number of RandomSource systems added.
+int AddRandomInputs(double sampling_interval_sec,
+                    DiagramBuilder<double>* builder);
 
 }  // namespace systems
 }  // namespace drake

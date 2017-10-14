@@ -4,7 +4,7 @@
  **/
 
 #include <gflags/gflags.h>
-#include "spruce.hh"
+#include <spruce.hh>
 
 #include "drake/automotive/maliput/dragway/road_geometry.h"
 #include "drake/automotive/maliput/utility/generate_urdf.h"
@@ -42,7 +42,8 @@ int exec(int argc, char* argv[]) {
   logging::HandleSpdlogGflags();
 
   RoadGeometry road_geometry(
-      {"Dragway with " + std::to_string(FLAGS_num_lanes) + " lanes."},
+      api::RoadGeometryId{
+        "Dragway with " + std::to_string(FLAGS_num_lanes) + " lanes."},
       FLAGS_num_lanes,
       FLAGS_length,
       FLAGS_lane_width,

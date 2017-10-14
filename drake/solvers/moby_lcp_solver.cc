@@ -12,9 +12,10 @@
 #include <Eigen/LU>
 #include <Eigen/SparseCore>
 #include <Eigen/SparseLU>
-#include <unsupported/Eigen/AutoDiff>
 
+#include "drake/common/autodiff_overloads.h"
 #include "drake/common/drake_assert.h"
+#include "drake/common/never_destroyed.h"
 
 namespace drake {
 namespace solvers {
@@ -178,7 +179,7 @@ SolutionResult MobyLCPSolver<T>::Solve(MathematicalProgram& prog) const {
   // internally.
 
   // We don't actually indicate different results.
-  prog.SetSolverResult(solver_type(), 0);
+  prog.SetSolverId(MobyLcpSolverId::id());
 
   for (const auto& binding : bindings) {
     Eigen::VectorXd constraint_solution(binding.GetNumElements());
@@ -289,10 +290,17 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
     // compilation with AutoDiff currently generates template errors.
     zz = Msub.householderQr().solve(zz.eval());
 
-    // compute w and find minimum value
-    w = Mmix * zz;
-    w += qbas;
-    unsigned minw = (w.rows() > 0) ? minCoeffIdx(w) : UINF;
+    // Eigen doesn't handle empty matrices properly, which causes the code
+    // below to abort in the absence of the conditional.
+    unsigned minw;
+    if (Mmix.rows() == 0) {
+      w = VectorX<T>();
+      minw = UINF;
+    } else {
+      w = Mmix * zz;
+      w += qbas;
+      minw = minCoeffIdx(w);
+    }
 
     // TODO(sammy-tri) this log can't print when minw is UINF.
     // LOG() << "MobyLCPSolver::SolveLcpFast() - minimum w after pivot: "
@@ -360,6 +368,7 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
         << std::endl;
 
   // if we're here, then the maximum number of pivots has been exceeded
+  z->setZero(N);
   return false;
 }
 
@@ -777,7 +786,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
           << "MobyLCPSolver::SolveLcpLemke() - no new pivots (ray termination)"
           << std::endl;
       Log() << "MobyLCPSolver::SolveLcpLemke() exiting" << std::endl;
-      z->resize(n);
+      z->setZero(n);
       return false;
     }
 
@@ -832,6 +841,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     if (j_.empty()) {
       Log() << "zero tolerance too low?" << std::endl;
       Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+      z->setZero(n);
       return false;
     }
 
@@ -871,7 +881,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   Log() << " -- maximum number of iterations exceeded (n=" << n
         << ", max=" << max_iter << ")" << std::endl;
   Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
-  z->resize(n);
+  z->setZero(n);
   return false;
 }
 
@@ -1197,8 +1207,10 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const Eigen::SparseMatrix<double>& M,
     // We go ahead and return failure here as the basis matrix has become
     // singular due to too many pivoting operations; without this change,
     // failure would presumably occur (eventually).
-    if (solver->info() != Eigen::ComputationInfo::Success)
+    if (solver->info() != Eigen::ComputationInfo::Success) {
+      z->setZero(n);
       return false;
+    }
     dl = solver->solve(Be);
 
     // use a new pivot tolerance if necessary
@@ -1219,6 +1231,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const Eigen::SparseMatrix<double>& M,
           << "MobyLCPSolver::SolveLcpLemke() - no new pivots (ray termination)"
           << std::endl;
       Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+      z->setZero(n);
       return false;
     }
 
@@ -1253,6 +1266,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const Eigen::SparseMatrix<double>& M,
     if (j_.empty()) {
       Log() << "zero tolerance too low?" << std::endl;
       Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+      z->setZero(n);
       return false;
     }
 
@@ -1291,6 +1305,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const Eigen::SparseMatrix<double>& M,
 
   Log() << " -- maximum number of iterations exceeded" << std::endl;
   Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+  z->setZero(n);
   return false;
 }
 
@@ -1390,6 +1405,16 @@ bool MobyLCPSolver<T>::SolveLcpLemkeRegularized(
 
   // still here?  failure...
   return false;
+}
+
+template <typename T>
+SolverId MobyLCPSolver<T>::solver_id() const {
+  return MobyLcpSolverId::id();
+}
+
+SolverId MobyLcpSolverId::id() {
+  static const never_destroyed<SolverId> singleton{"Moby LCP"};
+  return singleton.access();
 }
 
 // Instantiate templates.

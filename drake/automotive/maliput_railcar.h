@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "drake/automotive/gen/maliput_railcar_params.h"
 #include "drake/automotive/gen/maliput_railcar_state.h"
@@ -8,7 +9,7 @@
 #include "drake/automotive/maliput/api/lane.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/sparsity_matrix.h"
+#include "drake/systems/framework/system_symbolic_inspector.h"
 #include "drake/systems/rendering/frame_velocity.h"
 #include "drake/systems/rendering/pose_vector.h"
 
@@ -124,12 +125,14 @@ class MaliputRailcar : public systems::LeafSystem<T> {
   // LeafSystem<T> overrides.
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
-  bool DoHasDirectFeedthrough(const systems::SparsityMatrix* sparsity,
-                              int input_port, int output_port) const override;
+  optional<bool> DoHasDirectFeedthrough(int, int) const override;
   void DoCalcNextUpdateTime(const systems::Context<T>& context,
-                            systems::UpdateActions<T>* actions) const override;
-  void DoCalcUnrestrictedUpdate(const systems::Context<T>& context,
-                                systems::State<T>* state) const override;
+                            systems::CompositeEventCollection<T>*,
+                            T* time) const override;
+  void DoCalcUnrestrictedUpdate(
+      const systems::Context<T>& context,
+      const std::vector<const systems::UnrestrictedUpdateEvent<T>*>&,
+      systems::State<T>* state) const override;
 
  private:
   void CalcStateOutput(

@@ -1,14 +1,11 @@
 #pragma once
 
-#include <memory>
-#include <string>
+#include <cmath>
+#include <stdexcept>
 
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/leaf_context.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/output_port_value.h"
-#include "drake/systems/framework/vector_base.h"
 
 namespace drake {
 namespace systems {
@@ -79,8 +76,8 @@ class SpringMassSystem : public LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SpringMassSystem)
 
-  /// Construct a spring-mass system with a fixed spring constant and given
-  /// mass.
+  /// Constructs a spring-mass system with a fixed spring constant and given
+  /// mass. Subclasses must use the protected constructor, not this one.
   /// @param[in] spring_constant_N_per_m The spring constant in N/m.
   /// @param[in] mass_Kg The actual value in Kg of the mass attached to the
   /// spring.
@@ -88,6 +85,10 @@ class SpringMassSystem : public LeafSystem<T> {
   /// external force. If `false`, the system has no inputs.
   SpringMassSystem(double spring_constant_N_per_m, double mass_kg,
                    bool system_is_forced = false);
+
+  /// Scalar-converting copy constructor. See @ref system_scalar_conversion.
+  template <typename U>
+  explicit SpringMassSystem(const SpringMassSystem<U>&);
 
   // Provide methods specific to this System.
 
@@ -102,6 +103,9 @@ class SpringMassSystem : public LeafSystem<T> {
 
   /// Returns the mass m that was provided at construction, in kg.
   double get_mass() const { return mass_kg_; }
+
+  /// Returns true iff the system is forced.
+  bool get_system_is_forced() const { return system_is_forced_; }
 
   /// Gets the current position of the mass in the given Context.
   T get_position(const Context<T>& context) const {
@@ -237,18 +241,14 @@ class SpringMassSystem : public LeafSystem<T> {
   }
 
  protected:
-  System<AutoDiffXd>* DoToAutoDiffXd() const override {
-    return new SpringMassSystem<AutoDiffXd>(this->get_spring_constant(),
-                                            this->get_mass(),
-                                            system_is_forced_);
-  }
+  /// Constructor that specifies @ref system_scalar_conversion support.
+  SpringMassSystem(
+      SystemScalarConverter converter,
+      double spring_constant_N_per_m,
+      double mass_kg,
+      bool system_is_forced);
 
  private:
-  /// This system is not direct feedthrough.
-  bool DoHasDirectFeedthrough(const SparsityMatrix*, int, int) const override {
-    return false;
-  }
-
   // This is the calculator method for the output port.
   void SetOutputValues(const Context<T>& context,
                        SpringMassStateVector<T>* output) const;

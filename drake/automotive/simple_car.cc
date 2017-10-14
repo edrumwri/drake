@@ -2,18 +2,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include <Eigen/Geometry>
 
 #include "drake/automotive/calc_smooth_acceleration.h"
-#include "drake/common/autodiff_overloads.h"
 #include "drake/common/cond.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/double_overloads.h"
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_autodiff_types.h"
-#include "drake/common/symbolic_expression.h"
-#include "drake/common/symbolic_formula.h"
 #include "drake/math/saturate.h"
 #include "drake/systems/framework/vector_base.h"
 
@@ -37,17 +35,49 @@ const SimpleCarState<T>& get_state(const systems::Context<T>& context) {
   return *state;
 }
 
+// Obtain our input from a context.
+template <typename T>
+const DrivingCommand<T>& get_input(const SimpleCar<T>* simple_car,
+                                   const systems::Context<T>& context) {
+  const DrivingCommand<T>* const input =
+      simple_car->template EvalVectorInput<DrivingCommand>(context, 0);
+  DRAKE_DEMAND(input);
+  return *input;
+}
+
+// Obtain our parameters from a context.
+template <typename T>
+const SimpleCarParams<T>& get_params(const systems::Context<T>& context) {
+  const SimpleCarParams<T>* const params =
+      dynamic_cast<const SimpleCarParams<T>*>(context.get_numeric_parameter(0));
+  DRAKE_DEMAND(params);
+  return *params;
+}
+
 }  // namespace
 
 template <typename T>
-SimpleCar<T>::SimpleCar() {
+SimpleCar<T>::SimpleCar()
+    : systems::LeafSystem<T>(systems::SystemTypeTag<automotive::SimpleCar>{}) {
   this->DeclareVectorInputPort(DrivingCommand<T>());
   this->DeclareVectorOutputPort(&SimpleCar::CalcStateOutput);
   this->DeclareVectorOutputPort(&SimpleCar::CalcPose);
   this->DeclareVectorOutputPort(&SimpleCar::CalcVelocity);
   this->DeclareContinuousState(SimpleCarState<T>());
   this->DeclareNumericParameter(SimpleCarParams<T>());
+
+  this->DeclareInequalityConstraint(
+      &SimpleCar::CalcSteeringAngleConstraint, 2, "steering angle limit");
+  this->DeclareInequalityConstraint(
+      &SimpleCar::CalcAccelerationConstraint, 2, "acceleration limit");
+  this->DeclareInequalityConstraint(
+      &SimpleCar::CalcVelocityConstraint, 2, "velocity limit");
 }
+
+template <typename T>
+template <typename U>
+SimpleCar<T>::SimpleCar(const SimpleCar<U>&)
+    : SimpleCar() {}
 
 template <typename T>
 const systems::OutputPort<T>& SimpleCar<T>::state_output() const {
@@ -173,20 +203,42 @@ void SimpleCar<T>::ImplCalcTimeDerivatives(const SimpleCarParams<T>& params,
   rates->set_velocity(smooth_acceleration);
 }
 
+// params.max_abs_steering_angle - input.steering_angle ≥ 0.
+// params.max_abs_steering_angle + input.steering_angle ≥ 0.
 template <typename T>
-systems::System<AutoDiffXd>* SimpleCar<T>::DoToAutoDiffXd() const {
-  return new SimpleCar<AutoDiffXd>;
+void SimpleCar<T>::CalcSteeringAngleConstraint(
+    const systems::Context<T>& context, VectorX<T>* value) const {
+  const DrivingCommand<T>& input = get_input(this, context);
+  const SimpleCarParams<T>& params = get_params(context);
+  *value = Vector2<T>(params.max_abs_steering_angle() - input.steering_angle(),
+                      params.max_abs_steering_angle() + input.steering_angle());
 }
 
+// params.max_acceleration - input.acceleration ≥ 0,
+// params.max_acceleration + input.acceleration ≥ 0.
 template <typename T>
-systems::System<symbolic::Expression>* SimpleCar<T>::DoToSymbolic() const {
-  return new SimpleCar<symbolic::Expression>;
+void SimpleCar<T>::CalcAccelerationConstraint(
+    const systems::Context<T>& context, VectorX<T>* value) const {
+  const DrivingCommand<T>& input = get_input(this, context);
+  const SimpleCarParams<T>& params = get_params(context);
+  *value = Vector2<T>(params.max_acceleration() - input.acceleration(),
+                      params.max_acceleration() + input.acceleration());
 }
 
-// These instantiations must match the API documentation in simple_car.h.
-template class SimpleCar<double>;
-template class SimpleCar<drake::AutoDiffXd>;
-template class SimpleCar<drake::symbolic::Expression>;
+// params.max_velocity - state.velocity ≥ 0,
+// state.velocity ≥ 0.
+template <typename T>
+void SimpleCar<T>::CalcVelocityConstraint(const systems::Context<T>& context,
+                                          VectorX<T>* value) const {
+  const SimpleCarState<T>& state = get_state(context);
+  const SimpleCarParams<T>& params = get_params(context);
+  *value =
+      Vector2<T>(params.max_velocity() - state.velocity(), state.velocity());
+}
 
 }  // namespace automotive
 }  // namespace drake
+
+// These instantiations must match the API documentation in simple_car.h.
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::automotive::SimpleCar)

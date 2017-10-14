@@ -1,7 +1,11 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
+#include "drake/common/symbolic.h"
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
@@ -55,8 +59,19 @@ class TimeVaryingAffineSystem : public LeafSystem<T> {
   int num_outputs() const { return num_outputs_; }
 
  protected:
-  TimeVaryingAffineSystem(int num_states, int num_inputs, int num_outputs,
-                          double time_period = 0.0);
+  /// Constructor.
+  ///
+  /// @param converter scalar-type conversion support helper (i.e., AutoDiff,
+  /// etc.); pass a default-constructed object if such support is not desired.
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
+  /// @param num_states size of the system's state vector
+  /// @param num_inputs size of the system's input vector
+  /// @param num_outputs size of the system's output vector
+  /// @param time_period discrete update period, or 0.0 to use continuous time
+  TimeVaryingAffineSystem(SystemScalarConverter converter,
+                          int num_states, int num_inputs, int num_outputs,
+                          double time_period);
 
   /// Computes @f[ y(t) = C(t) x(t) + D(t) u(t) + y_0(t), @f] with by calling
   /// `C(t)`, `D(t)`, and `y0(t)` with runtime size checks.  Derived classes
@@ -75,6 +90,7 @@ class TimeVaryingAffineSystem : public LeafSystem<T> {
   /// may override this for performance reasons.
   void DoCalcDiscreteVariableUpdates(
       const drake::systems::Context<T>& context,
+      const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
       drake::systems::DiscreteValues<T>* updates) const override;
 
  private:
@@ -105,6 +121,7 @@ class TimeVaryingAffineSystem : public LeafSystem<T> {
 /// Instantiated templates for the following kinds of T's are provided:
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -131,6 +148,8 @@ class AffineSystem : public TimeVaryingAffineSystem<T> {
   ///
   /// @param time_period Defines the period of the discrete time system; use
   ///  time_period=0.0 to denote a continuous time system.  @default 0.0
+  ///
+  /// Subclasses must use the protected constructor, not this one.
   AffineSystem(const Eigen::Ref<const Eigen::MatrixXd>& A,
                const Eigen::Ref<const Eigen::MatrixXd>& B,
                const Eigen::Ref<const Eigen::VectorXd>& f0,
@@ -138,6 +157,22 @@ class AffineSystem : public TimeVaryingAffineSystem<T> {
                const Eigen::Ref<const Eigen::MatrixXd>& D,
                const Eigen::Ref<const Eigen::VectorXd>& y0,
                double time_period = 0.0);
+
+  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit AffineSystem(const AffineSystem<U>&);
+
+  /// Creates a unique pointer to AffineSystem<T> by decomposing @p dynamics and
+  /// @p outputs using @p state_vars and @p input_vars.
+  ///
+  /// @throws runtime_error if either @p dynamics or @p outputs is not affine in
+  /// @p state_vars and @p input_vars.
+  static std::unique_ptr<AffineSystem<T>> MakeAffineSystem(
+      const Eigen::Ref<const VectorX<symbolic::Expression>>& dynamics,
+      const Eigen::Ref<const VectorX<symbolic::Expression>>& output,
+      const Eigen::Ref<const VectorX<symbolic::Variable>>& state_vars,
+      const Eigen::Ref<const VectorX<symbolic::Variable>>& input_vars,
+      double time_period = 0.0);
 
   /// @name Helper getter methods.
   /// @{
@@ -160,6 +195,21 @@ class AffineSystem : public TimeVaryingAffineSystem<T> {
   VectorX<T> y0(const T&) const final { return VectorX<T>(y0_); }
   /// @}
 
+ protected:
+  /// Constructor that specifies scalar-type conversion support.
+  /// @param converter scalar-type conversion support helper (i.e., AutoDiff,
+  /// etc.); pass a default-constructed object if such support is not desired.
+  /// See @ref system_scalar_conversion for detailed background and examples
+  /// related to scalar-type conversion support.
+  AffineSystem(SystemScalarConverter converter,
+               const Eigen::Ref<const Eigen::MatrixXd>& A,
+               const Eigen::Ref<const Eigen::MatrixXd>& B,
+               const Eigen::Ref<const Eigen::VectorXd>& f0,
+               const Eigen::Ref<const Eigen::MatrixXd>& C,
+               const Eigen::Ref<const Eigen::MatrixXd>& D,
+               const Eigen::Ref<const Eigen::VectorXd>& y0,
+               double time_period);
+
  private:
   void CalcOutputY(const Context<T>& context,
                    BasicVector<T>* output_vector) const final;
@@ -169,11 +219,8 @@ class AffineSystem : public TimeVaryingAffineSystem<T> {
 
   void DoCalcDiscreteVariableUpdates(
       const drake::systems::Context<T>& context,
+      const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
       drake::systems::DiscreteValues<T>* updates) const final;
-
-  // System<T> override.
-  AffineSystem<AutoDiffXd>* DoToAutoDiffXd() const final;
-  AffineSystem<symbolic::Expression>* DoToSymbolic() const final;
 
   const Eigen::MatrixXd A_;
   const Eigen::MatrixXd B_;

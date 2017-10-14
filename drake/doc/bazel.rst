@@ -5,7 +5,7 @@ Bazel build system
 ******************
 
 The Bazel build system is officially supported for a subset of Drake on
-Ubuntu Xenial, Ubuntu Trusty, and OS X.
+Ubuntu Xenial and OS X.
 For more information, see:
 
  * https://bazel.build/
@@ -14,9 +14,9 @@ For more information, see:
 Bazel Installation
 ==================
 
-The Ubuntu Xenial platform setup process installs Bazel for you. On other
-platforms, refer to the Bazel installation instructions. We use Bazel 0.4.5.
-https://bazel.build/versions/master/docs/install.html
+Follow Drake's
+:ref:`platform-specific setup instructions <platform_specific_setup>`
+to install Bazel.
 
 Drake clone and platform setup
 ==============================
@@ -29,8 +29,7 @@ The one-time platform setup is the same as for a CMake build:
  - Continue with the *"Mandatory platform specific instructions"* on the same
    page.
 
-When using Bazel, be sure that **ccache is not on your default $PATH**, e.g.,
-``env | grep ccache`` is empty.
+.. _using_bazel:
 
 Developing Drake using Bazel
 ============================
@@ -48,7 +47,6 @@ Cheat sheet for operating on the entire project::
   cd /path/to/drake-distro
   bazel build //...                     # Build the entire project.
   bazel test //...                      # Build and test the entire project.
-  bazel build --compiler=gcc-4.9 //...  # Build using gcc 4.9 on Trusty.
   bazel build --compiler=gcc-5 //...    # Build using gcc 5.x on Xenial.
 
 - The "``//``" means "starting from the root of the project".
@@ -95,6 +93,8 @@ Cheat sheet for operating on specific portions of the project::
   bazel build -c dbg common:polynomial_test && \
     gdb ../bazel-bin/drake/common/polynomial_test      # Run one test under gdb.
 
+  bazel test --config lint //...                       # Only run style checks; don't build or test anything else.
+
 - The "``:``" syntax separates target names from the directory path of the
   ``BUILD`` file they appear in.  In this case, for example,
   ``drake/commmon/BUILD`` specifies ``cc_test(name = "polynomial_test")``.
@@ -117,6 +117,8 @@ This config turns off sandboxing, which allows a ``genrule`` to access the
 
 For more information, see https://github.com/bazelbuild/bazel/issues/2537.
 
+.. _buildifier:
+
 Updating BUILD files
 ====================
 
@@ -124,9 +126,14 @@ Please use the "``buildifier``" tool to format edits to ``BUILD`` files (in the
 same spirit as ``clang-format`` formatting C++ code)::
 
   cd /path/to/drake-distro
-  tools/buildifier.sh                     # By default, reformats all BUILD files.
-  tools/buildifier.sh drake/common/BUILD  # Only reformat one file.
+  bazel-bin/tools/lint/buildifier --all               # Reformat all Bazel files.
+  bazel-bin/tools/lint/buildifier drake/common/BUILD  # Only reformat one file.
 
+In most cases the ``bazel-bin/tools/lint/buildifier`` will already be compiled
+by the time you need it.  In case it's absent, you can compile it via::
+
+  cd /path/to/drake-distro
+  bazel build //tools/lint:buildifier
 
 Proprietary Solvers
 ===================
@@ -134,6 +141,7 @@ Proprietary Solvers
 The Drake Bazel build currently supports the following proprietary solvers:
 
  * Gurobi
+ * MOSEK
  * SNOPT
 
 Gurobi
@@ -143,23 +151,39 @@ Install on Ubuntu
 ~~~~~~~~~~~~~~~~~
 1. Register for an account on http://www.gurobi.com.
 2. Set up your Gurobi license file in accordance with Gurobi documentation.
-3. Download ``gurobi6.0.5_linux64.tar.gz``.
+3. Download ``gurobi7.0.2_linux64.tar.gz``.
 4. Unzip it in a local directory, e.g. ``/home/myuser/bin/gurobi``
-5. ``export GUROBI_PATH=/home/myuser/bin/gurobi/gurobi605/linux64``
+5. ``export GUROBI_PATH=/home/myuser/bin/gurobi/gurobi702/linux64``
 
 Install on OSX
 ~~~~~~~~~~~~~~
 1. Register for an account on http://www.gurobi.com.
 2. Set up your Gurobi license file in accordance with Gurobi documentation.
-3. Download and install ``gurobi6.05_mac64.pkg``.
+3. Download and install ``gurobi7.0.2_mac64.pkg``.
 
 
 To confirm that your setup was successful, run the tests that require Gurobi.
 
-  ``bazel test --config gurobi --test_tag_filters=gurobi ...``
+  ``bazel test --config gurobi --test_tag_filters=gurobi //...``
 
 The default value of ``--test_tag_filters`` in Drake's ``bazel.rc`` excludes
 these tests. If you will be developing with Gurobi regularly, you may wish
+to specify a more convenient ``--test_tag_filters`` in a local ``.bazelrc``.
+See https://bazel.build/versions/master/docs/bazel-user-manual.html#bazelrc.
+
+MOSEK
+------
+
+The Drake Bazel build system downloads MOSEK 7.1 automatically. No manual
+installation is required. Please obtain and save a license file at
+``~/mosek/mosek.lic``.
+
+To confirm that your setup was successful, run the tests that require MOSEK.
+
+  ``bazel test --config mosek --test_tag_filters=mosek //...``
+
+The default value of ``--test_tag_filters`` in Drake's ``bazel.rc`` excludes
+these tests. If you will be developing with MOSEK regularly, you may wish
 to specify a more convenient ``--test_tag_filters`` in a local ``.bazelrc``.
 See https://bazel.build/versions/master/docs/bazel-user-manual.html#bazelrc.
 
@@ -171,7 +195,7 @@ SNOPT
 
 To confirm that your setup was successful, run the tests that require SNOPT.
 
-  ``bazel test --config snopt --test_tag_filters=snopt ...``
+  ``bazel test --config snopt --test_tag_filters=snopt //...``
 
 The default value of ``--test_tag_filters`` in Drake's ``bazel.rc`` excludes
 these tests. If you will be developing with SNOPT regularly, you may wish
@@ -209,12 +233,3 @@ view it, browse to ``drake-distro/bazel-kcov/index.html``.
    :hidden:
 
    building_kcov
-
-FAQ
-===
-
-Q: What does ``ccache: error: Could not find compiler "gcc" in PATH`` mean?
-
-   A: Your ``$PATH`` still has the magic ``ccache`` directory on it somewhere.
-      Update your dotfiles so that something like ``/usr/lib/ccache`` is not on
-      your ``$PATH``.

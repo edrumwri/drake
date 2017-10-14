@@ -25,10 +25,12 @@ struct %(indices)s {
 INDICES_FIELD = """static const int %(kname)s = %(kvalue)d;"""
 INDICES_FIELD_STORAGE = """const int %(indices)s::%(kname)s;"""
 
+
 def to_kname(field):
     return 'k' + ''.join([
         word.capitalize()
         for word in field.split('_')])
+
 
 def generate_indices(hh, caller_context, fields):
     """
@@ -49,6 +51,7 @@ def generate_indices(hh, caller_context, fields):
         context.update(kvalue=kvalue)
         put(hh, INDICES_FIELD % context, 1)
 
+
 def generate_indices_storage(cc, caller_context, fields):
     """
     Args:
@@ -65,6 +68,7 @@ def generate_indices_storage(cc, caller_context, fields):
         context.update(kname=to_kname(field['name']))
         context.update(kvalue=kvalue)
         put(cc, INDICES_FIELD_STORAGE % context, 1)
+
 
 INDICES_NAMES_ACCESSOR_DECL = """
   /// Returns a vector containing the names of each coordinate within this
@@ -87,10 +91,12 @@ INDICES_NAMES_ACCESSOR_IMPL_END = """  });
   return coordinates.access();
 }"""
 
+
 def generate_indices_names_accessor_decl(hh, caller_context):
     context = dict(caller_context)
     put(hh, INDICES_NAMES_ACCESSOR_DECL % context, 1)
     put(hh, INDICES_END, 2)
+
 
 def generate_indices_names_accessor_impl(cc, caller_context, fields):
     """
@@ -103,6 +109,7 @@ def generate_indices_names_accessor_impl(cc, caller_context, fields):
         context.update(name=field['name'])
         put(cc, INDICES_NAMES_ACCESSOR_IMPL_MID % context, 1)
     put(cc, INDICES_NAMES_ACCESSOR_IMPL_END % context, 2)
+
 
 # One variant of a default constructor (all zeros).  (Depending on the
 # named_vector details, we will either use this variant or the subsequent one.)
@@ -117,7 +124,7 @@ DEFAULT_CTOR_CUSTOM_BEGIN_API = """
   /// Default constructor.  Sets all rows to their default value:
 """
 DEFAULT_CTOR_CUSTOM_FIELD_API = """
-  /// @arg @c %(field)s defaults to %(default_value)s in units of %(doc_units)s.
+  /// @arg @c %(field)s defaults to %(default_value)s %(units_suffix)s.
 """
 DEFAULT_CTOR_CUSTOM_BEGIN_BODY = """
   %(camel)s() : systems::BasicVector<T>(K::kNumCoordinates) {
@@ -145,7 +152,11 @@ def generate_default_ctor(hh, caller_context, fields):
         context = dict(caller_context)
         context.update(field=field['name'])
         context.update(default_value=field['default_value'])
-        context.update(doc_units=field['doc_units'])
+        if field['doc_units'] == DEFAULT_CTOR_FIELD_UNKNOWN_DOC_UNITS:
+            units_suffix = "with unknown units"
+        else:
+            units_suffix = field['doc_units']
+        context.update(units_suffix=units_suffix)
         put(hh, DEFAULT_CTOR_CUSTOM_FIELD_API % context, 1)
     put(hh, DEFAULT_CTOR_CUSTOM_BEGIN_BODY % caller_context, 1)
     for field in fields:
@@ -206,8 +217,9 @@ def generate_accessors(hh, caller_context, fields):
             context.update(min_doc=(field['min_value'] or '-Inf'))
             context.update(max_doc=(field['max_value'] or '+Inf'))
             put(hh, ACCESSOR_FIELD_DOC_RANGE % context, 1)
-        put(hh, ACCESSOR_FIELD_METHODS  % context, 1)
+        put(hh, ACCESSOR_FIELD_METHODS % context, 1)
     put(hh, ACCESSOR_END % caller_context, 2)
+
 
 GET_COORDINATE_NAMES = """
     /// See %(camel)sIndices::GetCoordinateNames().
@@ -251,6 +263,52 @@ def generate_is_valid(hh, caller_context, fields):
             context.update(max_value=field['max_value'])
             put(hh, IS_VALID_MAX_VALUE % context, 1)
     put(hh, IS_VALID_END % caller_context, 2)
+
+
+CALC_INEQUALITY_CONSTRAINT_BEGIN = """
+  // VectorBase override.
+  void CalcInequalityConstraint(VectorX<T>* value) const override {
+    value->resize(%(num_constraints)d);
+"""
+CALC_INEQUALITY_CONSTRAINT_MIN_VALUE = """
+    (*value)[%(constraint_index)d] = %(field)s() - T(%(min_value)s);
+"""
+CALC_INEQUALITY_CONSTRAINT_MAX_VALUE = """
+    (*value)[%(constraint_index)d] = T(%(max_value)s) - %(field)s();
+"""
+CALC_INEQUALITY_CONSTRAINT_END = """
+  }
+"""
+
+
+def generate_calc_inequality_constraint(hh, caller_context, fields):
+    num_constraints = 0
+    for field in fields:
+        if field['min_value']:
+            num_constraints += 1
+        if field['max_value']:
+            num_constraints += 1
+    if num_constraints == 0:
+        return
+    context = dict(caller_context)
+    context.update(num_constraints=num_constraints)
+    put(hh, CALC_INEQUALITY_CONSTRAINT_BEGIN % context, 1)
+    constraint_index = 0
+    for field in fields:
+        field_context = dict(caller_context)
+        field_context.update(field=field['name'])
+        if field['min_value']:
+            field_context.update(constraint_index=constraint_index)
+            field_context.update(min_value=field['min_value'])
+            put(hh, CALC_INEQUALITY_CONSTRAINT_MIN_VALUE % field_context, 1)
+            constraint_index += 1
+        if field['max_value']:
+            field_context.update(constraint_index=constraint_index)
+            field_context.update(max_value=field['max_value'])
+            put(hh, CALC_INEQUALITY_CONSTRAINT_MAX_VALUE % field_context, 1)
+            constraint_index += 1
+    assert constraint_index == num_constraints
+    put(hh, CALC_INEQUALITY_CONSTRAINT_END % context, 2)
 
 
 VECTOR_HH_PREAMBLE = """
@@ -367,6 +425,7 @@ def generate_allocate_output_vector(cc, caller_context, fields):
     context = dict(caller_context)
     put(cc, ALLOCATE_OUTPUT_VECTOR % context, 2)
 
+
 DESERIALIZE_BEGIN = """
 void %(camel)sTranslator::Serialize(
     double time, const systems::VectorBase<double>& vector_base,
@@ -396,6 +455,7 @@ def generate_deserialize(cc, caller_context, fields):
         put(cc, DESERIALIZE_FIELD % context, 1)
     put(cc, DESERIALIZE_END % context, 2)
 
+
 SERIALIZE_BEGIN = """
 void %(camel)sTranslator::Deserialize(
     const void* lcm_message_bytes, int lcm_message_length,
@@ -423,6 +483,7 @@ def generate_serialize(cc, caller_context, fields):
         context.update(field=field['name'])
         put(cc, SERIALIZE_FIELD % context, 1)
     put(cc, SERIALIZE_END % context, 2)
+
 
 LCMTYPE_PREAMBLE = """
 %(generated_code_warning)s
@@ -516,6 +577,7 @@ def generate_code(args):
         generate_accessors(hh, context, fields)
         put(hh, GET_COORDINATE_NAMES % context, 2)
         generate_is_valid(hh, context, fields)
+        generate_calc_inequality_constraint(hh, context, fields)
         put(hh, VECTOR_CLASS_END % context, 2)
         put(hh, VECTOR_HH_POSTAMBLE % context, 1)
 
@@ -576,6 +638,7 @@ def main():
         'fields', metavar='FIELD', nargs='*', help="field names for vector")
     args = parser.parse_args()
     generate_code(args)
+
 
 if __name__ == "__main__":
     main()

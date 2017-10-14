@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+
+#include "drake/common/autodiff.h"
 #include "drake/multibody/multibody_tree/frame_base.h"
 #include "drake/multibody/multibody_tree/multibody_tree_context.h"
 #include "drake/multibody/multibody_tree/multibody_tree_indexes.h"
@@ -44,18 +47,16 @@ class Frame : public FrameBase<T> {
     return body_;
   }
 
-  /// Computes the pose `X_FB` of the body B associated with `this` frame F,
-  /// measured in `this` frame F.
-  /// In particular, if `this` **is**` the body frame B, i.e. `X_BF` is the
-  /// identity transformation, this method directly returns the identity
-  /// transformation.
-  /// @sa CalcBodyPoseInOtherFrame()
-  virtual Isometry3<T> CalcBodyPoseInThisFrame(
+  /// Returns the pose `X_BF` of `this` frame F in the body frame B associated
+  /// with this frame.
+  /// In particular, if `this` **is** the body frame B, this method directly
+  /// returns the identity transformation.
+  virtual Isometry3<T> CalcPoseInBodyFrame(
       const systems::Context<T>& context) const = 0;
 
-  /// Given the offset pose `X_FQ` of a frame Q measured in this frame F,
-  /// this method computes the pose `X_BQ` of frame Q measured and expressed in
-  /// the frame B of the body to which this frame is attached.
+  /// Given the offset pose `X_FQ` of a frame Q in `this` frame F, this method
+  /// computes the pose `X_BQ` of frame Q in the body frame B to which this
+  /// frame is attached.
   /// In other words, if the pose of `this` frame F in the body frame B is
   /// `X_BF`, this method computes the pose `X_BQ` of frame Q in the body frame
   /// B as `X_BQ = X_BF * X_FQ`.
@@ -66,30 +67,46 @@ class Frame : public FrameBase<T> {
   virtual Isometry3<T> CalcOffsetPoseInBody(
       const systems::Context<T>& context,
       const Isometry3<T>& X_FQ) const {
-    return CalcBodyPoseInThisFrame(context).inverse() * X_FQ;
+    return CalcPoseInBodyFrame(context) * X_FQ;
   }
 
-  /// Computes the pose `X_QB` of the body B associated with this frame F
-  /// measured in a frame Q, given the pose `X_QF` of this frame F measured
-  /// in Q.
-  /// In other words, if `X_FB` is the pose of body frame B in `this` frame F,
-  /// this method computes the pose `X_QB` of body frame B in frame Q as
-  /// `X_QB = X_QF * X_FB`.
-  /// In particular, if `this` **is**` the body frame B, i.e. `X_FB` is the
-  /// identity transformation, this method directly returns `X_QF`.
-  /// @sa CalcBodyPoseInThisFrame() to compute the pose of the body associated
-  /// with this frame as measured in this frame.
-  /// Specific frame subclasses can override this method to provide faster
-  /// implementations if needed.
-  virtual Isometry3<T> CalcBodyPoseInOtherFrame(
-      const systems::Context<T>& context,
-      const Isometry3<T>& X_QF) const {
-    return X_QF * CalcBodyPoseInThisFrame(context);
+  /// NVI to DoCloneToScalar() templated on the scalar type of the new clone to
+  /// be created. This method is mostly intended to be called by
+  /// MultibodyTree::CloneToScalar(). Most users should not call this clone
+  /// method directly but rather clone the entire parent MultibodyTree if
+  /// needed.
+  /// @sa MultibodyTree::CloneToScalar()
+  template <typename ToScalar>
+  std::unique_ptr<Frame<ToScalar>> CloneToScalar(
+      const MultibodyTree<ToScalar>& tree_clone) const {
+    return DoCloneToScalar(tree_clone);
   }
 
  protected:
-  // Only derived classes can use this constructor.
+  /// Only derived classes can use this constructor. It creates a %Frame
+  /// object attached to `body`.
   explicit Frame(const Body<T>& body) : body_(body) {}
+
+  /// @name Methods to make a clone templated on different scalar types.
+  ///
+  /// These methods are meant to be called by MultibodyTree::CloneToScalar()
+  /// when making a clone of the entire tree or a new instance templated on a
+  /// different scalar type. The only const argument to these methods is the
+  /// new MultibodyTree clone under construction. Specific %Frame subclasses
+  /// might specify a number of prerequisites on the cloned tree and therefore
+  /// require it to be at a given state of cloning. See
+  /// MultibodyTree::CloneToScalar() for a list of prerequisites that are
+  /// guaranteed to be satisfied during the cloning process.
+  /// @{
+
+  /// Clones this %Frame (templated on T) to a frame templated on `double`.
+  virtual std::unique_ptr<Frame<double>> DoCloneToScalar(
+      const MultibodyTree<double>& tree_clone) const = 0;
+
+  /// Clones this %Frame (templated on T) to a frame templated on AutoDiffXd.
+  virtual std::unique_ptr<Frame<AutoDiffXd>> DoCloneToScalar(
+      const MultibodyTree<AutoDiffXd>& tree_clone) const = 0;
+  /// @}
 
  private:
   // Implementation for MultibodyTreeElement::DoSetTopology().

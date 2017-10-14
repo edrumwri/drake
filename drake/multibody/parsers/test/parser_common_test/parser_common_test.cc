@@ -3,9 +3,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
-#include "spruce.hh"
-
-#include "drake/common/drake_path.h"
+#include <spruce.hh>
 
 using std::string;
 

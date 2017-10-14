@@ -3,13 +3,14 @@ set(sources
   autodiff.cc
   autodiff_gradient.cc
   axis_angle.cc
-  continuous_algebraic_ricatti_equation.cc
+  continuous_algebraic_riccati_equation.cc
   cross_product.cc
   discrete_algebraic_riccati_equation.cc
   eigen_sparse_triplet.cc
   evenly_distributed_pts_on_sphere.cc
   expmap.cc
   gradient.cc
+  gray_code.cc
   jacobian.cc
   matrix_util.cc
   normalize_vector.cc
@@ -24,7 +25,7 @@ set(installed_headers
   autodiff.h
   autodiff_gradient.h
   axis_angle.h
-  continuous_algebraic_ricatti_equation.h
+  continuous_algebraic_riccati_equation.h
   cross_product.h
   discrete_algebraic_riccati_equation.h
   eigen_sparse_triplet.h
@@ -32,6 +33,7 @@ set(installed_headers
   expmap.h
   gradient.h
   gradient_util.h
+  gray_code.h
   jacobian.h
   matrix_util.h
   normalize_vector.h
@@ -44,12 +46,7 @@ set(installed_headers
   rotation_matrix.h
   saturate.h)
 
-# Headers that are needed by code here but should not
-# be exposed anywhere else.
-set(private_headers)
-
-add_library_with_exports(LIB_NAME drakeMath
-  SOURCE_FILES ${sources} ${installed_headers} ${private_headers})
+add_library(drakeMath ${sources} ${installed_headers})
 target_link_libraries(drakeMath
   drakeCommon
   Eigen3::Eigen)
@@ -57,13 +54,3 @@ target_link_libraries(drakeMath
 drake_install_headers(${installed_headers})
 
 drake_install_libraries(drakeMath)
-drake_install_pkg_config_file(drake-math
-  TARGET drakeMath
-  LIBS -ldrakeMath
-  REQUIRES
-    drake-common
-    eigen3)
-
-if(BUILD_TESTING)
-  add_subdirectory(test)
-endif()

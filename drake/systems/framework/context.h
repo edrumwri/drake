@@ -85,6 +85,17 @@ class Context {
     return nxd > 0 && nxc == 0 && nxa == 0;
   }
 
+  /// Returns the total dimension of all of the basic vector states (as if they
+  /// were muxed).
+  /// @throws std::runtime_error if the system contains any abstract state.
+  int get_num_total_states() const {
+    DRAKE_THROW_UNLESS(get_num_abstract_state_groups() == 0);
+    int count = get_continuous_state()->size();
+    for (int i = 0; i < get_num_discrete_state_groups(); i++)
+      count += get_discrete_state(i)->size();
+    return count;
+  }
+
   /// Sets the continuous state to @p xc, deleting whatever was there before.
   void set_continuous_state(std::unique_ptr<ContinuousState<T>> xc) {
     get_mutable_state()->set_continuous_state(std::move(xc));
@@ -117,6 +128,16 @@ class Context {
   /// Returns the number of elements in the discrete state.
   int get_num_discrete_state_groups() const {
     return get_state().get_discrete_state()->num_groups();
+  }
+
+  const DiscreteValues<T>* get_discrete_state() const {
+    return get_state().get_discrete_state();
+  }
+
+  /// Returns a reference to the discrete state vector. The vector may be of
+  /// size zero.
+  const VectorBase<T>& get_discrete_state_vector() const {
+    return *get_discrete_state()->get_vector();
   }
 
   /// Returns a mutable pointer to the discrete component of the state,
@@ -260,7 +281,8 @@ class Context {
   /// Throws std::bad_cast if the port is not vector-valued.
   /// Aborts if the port does not exist.
   ///
-  /// This is a framework implementation detail.  User code should not call it.
+  /// This is a framework implementation detail.  User code should not call it;
+  /// consider calling System::EvalVectorInput instead.
   const BasicVector<T>* EvalVectorInput(
       const detail::InputPortEvaluatorInterface<T>* evaluator,
       const InputPortDescriptor<T>& descriptor) const {
@@ -277,7 +299,8 @@ class Context {
   /// Returns nullptr if the port is not connected.
   /// Aborts if the port does not exist.
   ///
-  /// This is a framework implementation detail.  User code should not call it.
+  /// This is a framework implementation detail.  User code should not call it;
+  /// consider calling System::EvalAbstractInput instead.
   const AbstractValue* EvalAbstractInput(
       const detail::InputPortEvaluatorInterface<T>* evaluator,
       const InputPortDescriptor<T>& descriptor) const {
@@ -294,7 +317,8 @@ class Context {
   /// Throws std::bad_cast if the port does not have type V.
   /// Aborts if the port does not exist.
   ///
-  /// This is a framework implementation detail.  User code should not call it.
+  /// This is a framework implementation detail.  User code should not call it;
+  /// consider calling System::EvalInputValue instead.
   ///
   /// @tparam V The type of data expected.
   template <typename V>

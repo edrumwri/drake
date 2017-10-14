@@ -26,18 +26,23 @@ namespace internal {
 template <typename T, int  num_positions, int num_velocities>
 class BodyNodeImpl : public BodyNode<T> {
  public:
-  // static constexpr int i = 42; discouraged.
-  // See answer in: http://stackoverflow.com/questions/37259807/static-constexpr-int-vs-old-fashioned-enum-when-and-why
+  // static constexpr int i = 42; discouraged.  See answer in:
+  // http://stackoverflow.com/questions/37259807/static-constexpr-int-vs-old-fashioned-enum-when-and-why
   enum : int {nq = num_positions, nv = num_velocities};
 
   /// Given a body and its inboard mobilizer in a MultibodyTree this constructor
   /// creates the corresponding %BodyNode. See the BodyNode class documentation
   /// for details on how a BodyNode is defined.
+  /// @param[in] parent_node
+  ///   A const pointer to the parent BodyNode object in the tree structure of
+  ///   the owning MultibodyTree. It can be a `nullptr` only when `body` **is**
+  ///   the **world** body, otherwise the parent class constructor will abort.
   /// @param[in] body The body B associated with `this` node.
   /// @param[in] mobilizer The mobilizer associated with this `node`. It can
   ///                      only be a `nullptr` for the **world** body.
-  BodyNodeImpl(const Body<T>& body, const Mobilizer<T>* mobilizer) :
-      BodyNode<T>(body, mobilizer) {}
+  BodyNodeImpl(const internal::BodyNode<T>* parent_node,
+               const Body<T>* body, const Mobilizer<T>* mobilizer) :
+      BodyNode<T>(parent_node, body, mobilizer) {}
 
   // TODO(amcastro-tri): Implement methods for computing velocity kinematics
   // using fixed-size Eigen matrices.

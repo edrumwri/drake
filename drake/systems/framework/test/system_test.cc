@@ -8,6 +8,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "drake/common/unused.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/leaf_context.h"
@@ -21,16 +22,22 @@ namespace systems {
 namespace {
 
 const int kSize = 3;
-const int kNumberToPublish = 1776;
-const int kNumberToUpdate = 2001;
 
 // A shell System to test the default implementations.
 class TestSystem : public System<double> {
  public:
-  TestSystem() {
+  TestSystem() : System<double>(SystemScalarConverter{}) {
+    this->set_forced_publish_events(
+        this->AllocateForcedPublishEventCollection());
+    this->set_forced_discrete_update_events(
+        this->AllocateForcedDiscreteUpdateEventCollection());
+    this->set_forced_unrestricted_update_events(
+        this->AllocateForcedUnrestrictedUpdateEventCollection());
     this->set_name("TestSystem");
   }
   ~TestSystem() override {}
+
+  using System::AddConstraint;  // allow access to protected method.
 
   std::unique_ptr<ContinuousState<double>> AllocateTimeDerivatives()
       const override {
@@ -41,10 +48,16 @@ class TestSystem : public System<double> {
     return nullptr;
   }
 
+  std::unique_ptr<CompositeEventCollection<double>>
+  AllocateCompositeEventCollection() const override {
+    return std::make_unique<LeafCompositeEventCollection<double>>();
+  }
+
   void SetDefaultState(const Context<double>& context,
                        State<double>* state) const override {}
 
-  void SetDefaults(Context<double>* context) const override {}
+  void SetDefaultParameters(const Context<double>& context,
+                            Parameters<double>* params) const override {}
 
   std::unique_ptr<SystemOutput<double>> AllocateOutput(
       const Context<double>& context) const override {
@@ -65,16 +78,15 @@ class TestSystem : public System<double> {
     return *port_ptr;
   }
 
-  bool HasAnyDirectFeedthrough() const override {
-    return true;
-  }
-
-  bool HasDirectFeedthrough(int output_port) const override {
-    return true;
-  }
-
-  bool HasDirectFeedthrough(int input_port, int output_port) const override {
-    return true;
+  std::multimap<int, int> GetDirectFeedthroughs() const override {
+    std::multimap<int, int> pairs;
+    // Report *everything* as having direct feedthrough.
+    for (int i = 0; i < get_num_input_ports(); ++i) {
+      for (int o = 0; o < get_num_output_ports(); ++o) {
+        pairs.emplace(i, o);
+      }
+    }
+    return pairs;
   }
 
   int get_publish_count() const { return publish_count_; }
@@ -92,6 +104,19 @@ class TestSystem : public System<double> {
     DRAKE_ABORT();
   }
 
+  void AddTriggeredWitnessFunctionToCompositeEventCollection(
+      const WitnessFunction<double>&,
+      CompositeEventCollection<double>*) const override {
+    // This system uses no witness functions.
+    DRAKE_ABORT();
+  }
+
+  // The default publish function.
+  void MyPublish(const Context<double>& context,
+                 const std::vector<const PublishEvent<double>*>& events) const {
+    ++publish_count_;
+  }
+
  protected:
   BasicVector<double>* DoAllocateInputVector(
       const InputPortDescriptor<double>& descriptor) const override {
@@ -107,59 +132,76 @@ class TestSystem : public System<double> {
       const Context<double>& context,
       ContinuousState<double>* derivatives) const override {}
 
-  // Sets up an arbitrary mapping from the current time to the next discrete
-  // action, to exercise several different forms of discrete action.
-  void DoCalcNextUpdateTime(const Context<double>& context,
-                            UpdateActions<double>* actions) const override {
-    actions->time = context.get_time() + 1;
-    actions->events.emplace_back();
-    DiscreteEvent<double>& event = actions->events.back();
-    if (context.get_time() < 10.0) {
-      // Use the default publish action.
-      event.action = DiscreteEvent<double>::kPublishAction;
-    } else if (context.get_time() < 20.0) {
-      // Use the default update action.
-      event.action = DiscreteEvent<double>::kDiscreteUpdateAction;
-    } else if (context.get_time() < 30.0) {
-      // Use a custom publish action.
-      event.action = DiscreteEvent<double>::kPublishAction;
-      event.do_publish = std::bind(&TestSystem::DoPublishNumber, this,
-                                   std::placeholders::_1 /* context */);
-    } else {
-      // Use a custom update action.
-      event.action = DiscreteEvent<double>::kDiscreteUpdateAction;
-      event.do_calc_discrete_variable_update = std::bind(
-                                  &TestSystem::DoCalcDiscreteUpdatesNumber,
-                                  this, std::placeholders::_1 /* context */,
-                                  std::placeholders::_2 /* discrete state */,
-                                  kNumberToUpdate);
+  void DispatchPublishHandler(
+      const Context<double>& context,
+      const EventCollection<PublishEvent<double>>& events) const final {
+    const LeafEventCollection<PublishEvent<double>>& leaf_events =
+       dynamic_cast<const LeafEventCollection<PublishEvent<double>>&>(events);
+    if (leaf_events.HasEvents()) {
+      this->MyPublish(context, leaf_events.get_events());
     }
   }
 
-  // The default publish function.
-  void DoPublish(const Context<double>& context) const override {
-    ++publish_count_;
+  void DispatchDiscreteVariableUpdateHandler(
+      const Context<double>& context,
+      const EventCollection<DiscreteUpdateEvent<double>>& events,
+      DiscreteValues<double>* discrete_state) const final {
+    const LeafEventCollection<DiscreteUpdateEvent<double>>& leaf_events =
+        dynamic_cast<const LeafEventCollection<DiscreteUpdateEvent<double>>&>(
+            events);
+    if (leaf_events.HasEvents()) {
+      this->MyCalcDiscreteVariableUpdates(context, leaf_events.get_events(),
+          discrete_state);
+    }
+  }
+
+  void DispatchUnrestrictedUpdateHandler(
+      const Context<double>&,
+      const EventCollection<UnrestrictedUpdateEvent<double>>&,
+      State<double>*) const final {
+    DRAKE_ABORT_MSG("test should not get here");
+  }
+
+  // Sets up an arbitrary mapping from the current time to the next discrete
+  // action, to exercise several different forms of discrete action.
+  void DoCalcNextUpdateTime(const Context<double>& context,
+                            CompositeEventCollection<double>* event_info,
+                            double* time) const override {
+    *time = context.get_time() + 1;
+
+    if (context.get_time() < 10.0) {
+      PublishEvent<double> event(Event<double>::TriggerType::kPeriodic);
+      event.add_to_composite(event_info);
+    } else {
+      DiscreteUpdateEvent<double> event(Event<double>::TriggerType::kPeriodic);
+      event.add_to_composite(event_info);
+    }
   }
 
   // The default update function.
-  void DoCalcDiscreteVariableUpdates(
+  void MyCalcDiscreteVariableUpdates(
       const Context<double>& context,
-      DiscreteValues<double>* discrete_state) const override {
+      const std::vector<const DiscreteUpdateEvent<double>*>& events,
+      DiscreteValues<double>* discrete_state) const {
     ++update_count_;
   }
 
- private:
-  // A custom publish function with no additional arguments.
-  void DoPublishNumber(const Context<double>& context) const {
-    published_numbers_.push_back(kNumberToPublish);
+  std::unique_ptr<EventCollection<PublishEvent<double>>>
+  AllocateForcedPublishEventCollection() const override {
+    return LeafEventCollection<
+        PublishEvent<double>>::MakeForcedEventCollection();
   }
 
-  // A custom update function with additional argument @p num, which may be
-  // bound in DoCalcNextUpdateTime.
-  void DoCalcDiscreteUpdatesNumber(const Context<double>& context,
-                                   DiscreteValues<double>* discrete_state,
-                                   int num) const {
-    updated_numbers_.push_back(num);
+  std::unique_ptr<EventCollection<DiscreteUpdateEvent<double>>>
+  AllocateForcedDiscreteUpdateEventCollection() const override {
+    return LeafEventCollection<
+        DiscreteUpdateEvent<double>>::MakeForcedEventCollection();
+  }
+
+  std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<double>>>
+  AllocateForcedUnrestrictedUpdateEventCollection() const override {
+    return LeafEventCollection<
+        UnrestrictedUpdateEvent<double>>::MakeForcedEventCollection();
   }
 
  private:
@@ -227,12 +269,16 @@ TEST_F(SystemTest, VelocityConfigurationDerivativeSizeMismatch) {
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscretePublish) {
   context_.set_time(5.0);
-  UpdateActions<double> actions;
+  auto event_info = system_.AllocateCompositeEventCollection();
+  system_.CalcNextUpdateTime(context_, event_info.get());
+  const auto& events =
+      dynamic_cast<const LeafCompositeEventCollection<double>*>(
+          event_info.get())->get_publish_events().get_events();
+  EXPECT_EQ(events.size(), 1);
+  EXPECT_EQ(events.front()->get_trigger_type(),
+            Event<double>::TriggerType::kPeriodic);
 
-  system_.CalcNextUpdateTime(context_, &actions);
-  ASSERT_EQ(1u, actions.events.size());
-
-  system_.Publish(context_, actions.events[0]);
+  system_.Publish(context_, event_info->get_publish_events());
   EXPECT_EQ(1, system_.get_publish_count());
 }
 
@@ -241,47 +287,15 @@ TEST_F(SystemTest, DiscretePublish) {
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscreteUpdate) {
   context_.set_time(15.0);
-  UpdateActions<double> actions;
 
-  system_.CalcNextUpdateTime(context_, &actions);
-  ASSERT_EQ(1u, actions.events.size());
+  auto event_info = system_.AllocateCompositeEventCollection();
+  system_.CalcNextUpdateTime(context_, event_info.get());
 
   std::unique_ptr<DiscreteValues<double>> update =
       system_.AllocateDiscreteVariables();
-  system_.CalcDiscreteVariableUpdates(context_, actions.events[0],
-                                      update.get());
+  system_.CalcDiscreteVariableUpdates(
+      context_, event_info->get_discrete_update_events(), update.get());
   EXPECT_EQ(1, system_.get_update_count());
-}
-
-// Tests that custom do_publish handlers registered in DoCalcNextUpdateTime
-// are invoked.
-TEST_F(SystemTest, CustomDiscretePublish) {
-  context_.set_time(25.0);
-  UpdateActions<double> actions;
-
-  system_.CalcNextUpdateTime(context_, &actions);
-  ASSERT_EQ(1u, actions.events.size());
-
-  system_.Publish(context_, actions.events[0]);
-  ASSERT_EQ(1u, system_.get_published_numbers().size());
-  EXPECT_EQ(kNumberToPublish, system_.get_published_numbers()[0]);
-}
-
-// Tests that custom do_update handlers registered in DoCalcNextUpdateTime
-// are invoked.
-TEST_F(SystemTest, CustomDiscreteUpdate) {
-  context_.set_time(35.0);
-  UpdateActions<double> actions;
-
-  system_.CalcNextUpdateTime(context_, &actions);
-  ASSERT_EQ(1u, actions.events.size());
-
-  std::unique_ptr<DiscreteValues<double>> update =
-      system_.AllocateDiscreteVariables();
-  system_.CalcDiscreteVariableUpdates(context_, actions.events[0],
-                                      update.get());
-  ASSERT_EQ(1u, system_.get_updated_numbers().size());
-  EXPECT_EQ(kNumberToUpdate, system_.get_updated_numbers()[0]);
 }
 
 // Tests that descriptor references remain valid even if lots of other
@@ -305,6 +319,37 @@ TEST_F(SystemTest, PortDescriptorsAreStable) {
   EXPECT_EQ(kAbstractValued, first_output.get_data_type());
 }
 
+// Tests the constraint list logic.
+TEST_F(SystemTest, SystemConstraintTest) {
+  EXPECT_EQ(system_.get_num_constraints(), 0);
+  EXPECT_THROW(system_.get_constraint(SystemConstraintIndex(0)),
+               std::out_of_range);
+
+  SystemConstraint<double>::CalcCallback calc = [](
+      const Context<double>& context, Eigen::VectorXd* value) {
+    unused(context);
+    (*value)[0] = 1.0;
+  };
+  SystemConstraintIndex test_constraint =
+      system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
+          calc, 1, SystemConstraintType::kInequality, "test"));
+  EXPECT_EQ(test_constraint, 0);
+
+  EXPECT_NO_THROW(system_.get_constraint(test_constraint));
+  EXPECT_EQ(system_.get_constraint(test_constraint).description(), "test");
+
+  const double tol = 1e-6;
+  EXPECT_TRUE(system_.CheckSystemConstraintsSatisfied(context_, tol));
+  SystemConstraint<double>::CalcCallback calc_false = [](
+      const Context<double>& context, Eigen::VectorXd* value) {
+    unused(context);
+    (*value)[0] = -1.0;
+  };
+  system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
+      calc_false, 1, SystemConstraintType::kInequality, "bad constraint"));
+  EXPECT_FALSE(system_.CheckSystemConstraintsSatisfied(context_, tol));
+}
+
 // Tests GetMemoryObjectName.
 TEST_F(SystemTest, GetMemoryObjectName) {
   const std::string name = system_.GetMemoryObjectName();
@@ -314,6 +359,26 @@ TEST_F(SystemTest, GetMemoryObjectName) {
   // We check only some platform-agnostic portions of that.
   EXPECT_THAT(name, ::testing::HasSubstr("drake/systems/"));
   EXPECT_THAT(name, ::testing::ContainsRegex("/TestSystem@[0-9a-fA-F]{16}$"));
+}
+
+// Tests that by default, transmogrification fails appropriately.
+// (For testing transmogrification success, we rely on leaf_system_test.)
+TEST_F(SystemTest, TransmogrifyNotSupported) {
+  // Use the static method.
+  EXPECT_THROW(System<double>::ToAutoDiffXd<System>(system_), std::exception);
+  EXPECT_THROW(System<double>::ToSymbolic<System>(system_), std::exception);
+
+  // Use the instance method that throws.
+  EXPECT_THROW(system_.ToAutoDiffXd(), std::exception);
+  EXPECT_THROW(system_.ToSymbolic(), std::exception);
+
+  // Use the instance method that returns nullptr.
+  EXPECT_EQ(system_.ToAutoDiffXdMaybe(), nullptr);
+  EXPECT_EQ(system_.ToSymbolicMaybe(), nullptr);
+
+  // Spot check the specific converter object.
+  EXPECT_FALSE((
+      system_.get_system_scalar_converter().IsConvertible<double, double>()));
 }
 
 template <typename T>
@@ -327,7 +392,14 @@ class ValueIOTestSystem : public System<T> {
   // The first input / output pair are abstract type, but assumed to be
   // std::string.
   // The second input / output pair are vector type with length 1.
-  ValueIOTestSystem() {
+  ValueIOTestSystem() : System<T>(SystemScalarConverter{}) {
+    this->set_forced_publish_events(
+        this->AllocateForcedPublishEventCollection());
+    this->set_forced_discrete_update_events(
+        this->AllocateForcedDiscreteUpdateEventCollection());
+    this->set_forced_unrestricted_update_events(
+        this->AllocateForcedUnrestrictedUpdateEventCollection());
+
     this->DeclareAbstractInputPort();
     this->CreateOutputPort(std::make_unique<LeafOutputPort<T>>(*this,
         [](const Context<T>&) { return AbstractValue::Make(std::string()); },
@@ -336,7 +408,12 @@ class ValueIOTestSystem : public System<T> {
         }));
 
     this->DeclareInputPort(kVectorValued, 1);
-    this->CreateOutputPort(std::make_unique<LeafOutputPort<T>>(*this,
+    this->DeclareInputPort(kVectorValued, 1,
+                           RandomDistribution::kUniform);
+    this->DeclareInputPort(kVectorValued, 1,
+                           RandomDistribution::kGaussian);
+    this->CreateOutputPort(std::make_unique<LeafOutputPort<T>>(
+        *this,
         1,  // Vector size.
         [](const Context<T>&) {
           return std::make_unique<Value<BasicVector<T>>>(1);
@@ -356,6 +433,13 @@ class ValueIOTestSystem : public System<T> {
     DRAKE_ABORT();
   }
 
+  void AddTriggeredWitnessFunctionToCompositeEventCollection(
+      const WitnessFunction<T>&,
+      CompositeEventCollection<T>*) const override {
+    // This system uses no witness functions.
+    DRAKE_ABORT();
+  }
+
   AbstractValue* DoAllocateInputAbstract(
       const InputPortDescriptor<T>& descriptor) const override {
     // Should only get called for the first input.
@@ -365,13 +449,12 @@ class ValueIOTestSystem : public System<T> {
 
   BasicVector<T>* DoAllocateInputVector(
       const InputPortDescriptor<T>& descriptor) const override {
-    // Should only get called for the second input.
-    EXPECT_EQ(descriptor.get_index(), 1);
+    // Should not get called for the first (abstract) input.
+    EXPECT_GE(descriptor.get_index(), 1);
     return new TestTypedVector<T>();
   }
 
-  std::unique_ptr<ContinuousState<T>> AllocateTimeDerivatives()
-      const override {
+  std::unique_ptr<ContinuousState<T>> AllocateTimeDerivatives() const override {
     return nullptr;
   }
 
@@ -381,21 +464,26 @@ class ValueIOTestSystem : public System<T> {
     return std::move(context);
   }
 
+  std::unique_ptr<CompositeEventCollection<T>>
+  AllocateCompositeEventCollection() const override {
+    return std::make_unique<LeafCompositeEventCollection<T>>();
+  }
+
   void SetDefaultState(const Context<T>& context,
                        State<T>* state) const override {}
 
-  void SetDefaults(Context<T>* context) const override {}
+  void SetDefaultParameters(const Context<T>& context,
+                            Parameters<T>* params) const override {}
 
-  bool HasAnyDirectFeedthrough() const override {
-    return true;
-  }
-
-  bool HasDirectFeedthrough(int output_port) const override {
-    return true;
-  }
-
-  bool HasDirectFeedthrough(int input_port, int output_port) const override {
-    return true;
+  std::multimap<int, int> GetDirectFeedthroughs() const override {
+    std::multimap<int, int> pairs;
+    // Report *everything* as having direct feedthrough.
+    for (int i = 0; i < this->get_num_input_ports(); ++i) {
+      for (int o = 0; o < this->get_num_output_ports(); ++o) {
+        pairs.emplace(i, o);
+      }
+    }
+    return pairs;
   }
 
   // Appends "output" to input(0) for output(0).
@@ -422,6 +510,43 @@ class ValueIOTestSystem : public System<T> {
     output->add_port(this->get_output_port(0).Allocate(context));
     output->add_port(this->get_output_port(1).Allocate(context));
     return std::move(output);
+  }
+
+  void DispatchPublishHandler(
+      const Context<T>& context,
+      const EventCollection<PublishEvent<T>>& event_info) const final {
+    DRAKE_ABORT_MSG("test should not get here");
+  }
+
+  void DispatchDiscreteVariableUpdateHandler(
+      const Context<T>& context,
+      const EventCollection<DiscreteUpdateEvent<T>>& event_info,
+      DiscreteValues<T>* discrete_state) const final {
+    DRAKE_ABORT_MSG("test should not get here");
+  }
+
+  void DispatchUnrestrictedUpdateHandler(
+      const Context<T>& context,
+      const EventCollection<UnrestrictedUpdateEvent<T>>& event_info,
+      State<T>* state) const final {
+    DRAKE_ABORT_MSG("test should not get here");
+  }
+
+  std::unique_ptr<EventCollection<PublishEvent<T>>>
+  AllocateForcedPublishEventCollection() const override {
+    return LeafEventCollection<PublishEvent<T>>::MakeForcedEventCollection();
+  }
+
+  std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>>
+  AllocateForcedDiscreteUpdateEventCollection() const override {
+    return LeafEventCollection<
+        DiscreteUpdateEvent<T>>::MakeForcedEventCollection();
+  }
+
+  std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
+  AllocateForcedUnrestrictedUpdateEventCollection() const override {
+    return LeafEventCollection<
+        UnrestrictedUpdateEvent<T>>::MakeForcedEventCollection();
   }
 };
 
@@ -453,7 +578,7 @@ class SystemIOTest : public ::testing::Test {
 TEST_F(SystemIOTest, SystemValueIOTest) {
   test_sys_.CalcOutput(*context_, output_.get());
 
-  EXPECT_EQ(context_->get_num_input_ports(), 2);
+  EXPECT_EQ(context_->get_num_input_ports(), 4);
   EXPECT_EQ(output_->get_num_ports(), 2);
 
   EXPECT_EQ(output_->get_data(0)->GetValue<std::string>(),
@@ -463,7 +588,7 @@ TEST_F(SystemIOTest, SystemValueIOTest) {
   // Test AllocateInput*
   // Second input is not (yet) a TestTypedVector, since I haven't called the
   // Allocate methods directly yet.
-  EXPECT_EQ(dynamic_cast<const TestTypedVector<double>*>(
+  EXPECT_EQ(dynamic_cast<const TestTypedVector<double> *>(
                 test_sys_.EvalVectorInput(*context_, 1)),
             nullptr);
   // Now allocate.
@@ -472,9 +597,24 @@ TEST_F(SystemIOTest, SystemValueIOTest) {
   EXPECT_EQ(test_sys_.EvalAbstractInput(*context_, 0)->GetValue<std::string>(),
             "");
   // Second input should now be of type TestTypedVector.
-  EXPECT_NE(dynamic_cast<const TestTypedVector<double>*>(
+  EXPECT_NE(dynamic_cast<const TestTypedVector<double> *>(
                 test_sys_.EvalVectorInput(*context_, 1)),
             nullptr);
+}
+
+// Checks that the input ports randomness labels were set as expected.
+TEST_F(SystemIOTest, RandomInputPortTest) {
+  EXPECT_FALSE(test_sys_.get_input_port(0).is_random());
+  EXPECT_FALSE(test_sys_.get_input_port(1).is_random());
+  EXPECT_TRUE(test_sys_.get_input_port(2).is_random());
+  EXPECT_TRUE(test_sys_.get_input_port(3).is_random());
+
+  EXPECT_FALSE(test_sys_.get_input_port(0).get_random_type());
+  EXPECT_FALSE(test_sys_.get_input_port(1).get_random_type());
+  EXPECT_EQ(test_sys_.get_input_port(2).get_random_type(),
+            RandomDistribution::kUniform);
+  EXPECT_EQ(test_sys_.get_input_port(3).get_random_type(),
+            RandomDistribution::kGaussian);
 }
 
 // Tests that FixInputPortsFrom allocates ports of the same dimension as the

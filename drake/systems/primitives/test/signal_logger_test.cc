@@ -4,8 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include "drake/common/eigen_matrix_compare.h"
 #include "drake/common/eigen_types.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/primitives/linear_system.h"
@@ -29,12 +29,18 @@ GTEST_TEST(TestSignalLogger, LinearSystemTest) {
   logger->set_name("logger");
   builder.Cascade(*plant, *logger);
 
+  // Test the AddSignalLogger helper method, too.
+  auto logger2 = LogOutput(plant->get_output_port(), &builder);
+
   auto diagram = builder.Build();
 
   // Simulate the simple system from x(0) = 1.0.
   systems::Simulator<double> simulator(*diagram);
   systems::Context<double>* context = simulator.get_mutable_context();
   context->get_mutable_continuous_state_vector()->SetAtIndex(0, 1.0);
+
+  // Make the integrator tolerance sufficiently tight for the test to pass.
+  simulator.get_mutable_integrator()->set_target_accuracy(1e-4);
 
   simulator.Initialize();
   // The Simulator internally calls Publish(), which triggers data logging.
@@ -53,6 +59,10 @@ GTEST_TEST(TestSignalLogger, LinearSystemTest) {
 
   double tol = 1e-6;  // Not bad for numerical integration!
   EXPECT_TRUE(CompareMatrices(expected_x, x, tol));
+
+  // Confirm that both loggers acquired the same data.
+  EXPECT_TRUE(CompareMatrices(logger->sample_times(), logger2->sample_times()));
+  EXPECT_TRUE(CompareMatrices(logger->data(), logger2->data()));
 }
 
 }  // namespace

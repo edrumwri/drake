@@ -1,22 +1,22 @@
 #include "drake/systems/primitives/integrator.h"
 
-#include <stdexcept>
-#include <string>
-
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_autodiff_types.h"
 #include "drake/common/unused.h"
-#include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/leaf_context.h"
 
 namespace drake {
 namespace systems {
 
 template <typename T>
-Integrator<T>::Integrator(int size) : SisoVectorSystem<T>(size, size) {
+Integrator<T>::Integrator(int size)
+    : VectorSystem<T>(SystemTypeTag<systems::Integrator>{}, size, size) {
   this->DeclareContinuousState(size);
 }
+
+template <typename T>
+template <typename U>
+Integrator<T>::Integrator(const Integrator<U>& other)
+    : Integrator<T>(other.get_input_port().size()) {}
 
 template <typename T>
 Integrator<T>::~Integrator() {}
@@ -52,20 +52,8 @@ void Integrator<T>::DoCalcVectorOutput(
   *output = state;
 }
 
-template <typename T>
-Integrator<AutoDiffXd>* Integrator<T>::DoToAutoDiffXd() const {
-  return new Integrator<AutoDiffXd>(this->get_input_port().size());
-}
-
-template <typename T>
-Integrator<symbolic::Expression>* Integrator<T>::DoToSymbolic() const {
-  return new Integrator<symbolic::Expression>(this->get_input_port().size());
-}
-
-// Explicitly instantiates on the most common scalar types.
-template class Integrator<double>;
-template class Integrator<AutoDiffXd>;
-template class Integrator<symbolic::Expression>;
-
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::Integrator)

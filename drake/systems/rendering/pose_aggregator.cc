@@ -2,9 +2,8 @@
 
 #include <string>
 
-#include "drake/common/autodiff_overloads.h"
-#include "drake/common/eigen_autodiff_types.h"
-#include "drake/systems/rendering/pose_bundle.h"
+#include "drake/common/default_scalars.h"
+#include "drake/common/drake_assert.h"
 #include "drake/systems/rendering/pose_vector.h"
 
 using std::to_string;
@@ -14,12 +13,22 @@ namespace systems {
 namespace rendering {
 
 template <typename T>
-PoseAggregator<T>::PoseAggregator() {
+PoseAggregator<T>::PoseAggregator()
+    : LeafSystem<T>(SystemTypeTag<rendering::PoseAggregator>{}) {
   // Declare the output port and provide an allocator for a PoseBundle of length
   // equal to the concatenation of all inputs. This can't be done with a model
   // value because we don't know at construction how big the output will be.
   this->DeclareAbstractOutputPort(&PoseAggregator::MakePoseBundle,
                                   &PoseAggregator::CalcPoseBundle);
+}
+
+template <typename T>
+template <typename U>
+PoseAggregator<T>::PoseAggregator(const PoseAggregator<U>& other)
+    : PoseAggregator() {
+  for (const auto& record : other.input_records_) {
+    this->DeclareInput(record);
+  }
 }
 
 template <typename T>
@@ -134,15 +143,6 @@ int PoseAggregator<T>::CountNumPoses() const {
 }
 
 template <typename T>
-PoseAggregator<AutoDiffXd>* PoseAggregator<T>::DoToAutoDiffXd() const {
-  auto result = new PoseAggregator<AutoDiffXd>;
-  for (const auto& record : input_records_) {
-    result->DeclareInput(record);
-  }
-  return result;
-}
-
-template <typename T>
 typename PoseAggregator<T>::InputRecord
 PoseAggregator<T>::MakeSinglePoseInputRecord(const std::string& name,
                                              int model_instance_id) {
@@ -194,9 +194,9 @@ PoseAggregator<T>::DeclareInput(const InputRecord& record) {
   DRAKE_ABORT_MSG("Invariant failure");
 }
 
-template class PoseAggregator<double>;
-template class PoseAggregator<AutoDiffXd>;
-
 }  // namespace rendering
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::rendering::PoseAggregator)

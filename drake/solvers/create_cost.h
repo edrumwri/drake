@@ -4,8 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "drake/common/monomial.h"
-#include "drake/common/symbolic_expression.h"
+#include "drake/common/symbolic.h"
 #include "drake/solvers/binding.h"
 #include "drake/solvers/cost.h"
 #include "drake/solvers/function.h"
@@ -79,24 +78,6 @@ struct is_cost_functor_candidate
     : std::integral_constant<bool, (!is_binding_compatible<F, Cost>::value) &&
                                        (!is_convertible_workaround<
                                            F, symbolic::Expression>::value)> {};
-
-/**
- * Template condition to only catch when Constraints are inadvertently passed
- * as an argument. If the class is binding-compatible with a Constraint, then
- * this will provide a static assertion to enable easier debugging of which
- * type failed.
- * @tparam F The type to be tested.
- * @see http://stackoverflow.com/a/13366183/7829525
- */
-template <typename F>
-struct assert_if_is_constraint {
-  static constexpr bool value = is_binding_compatible<F, Constraint>::value;
-  // Use deferred evaluation
-  static_assert(
-      !value,
-      "You cannot pass a Constraint to "
-      "create a FunctionCost object. Please ensure you are passing a Cost.");
-};
 
 }  // namespace detail
 

@@ -1,6 +1,8 @@
+/* clang-format off to disable clang-format-includes */
 #include "drake/systems/framework/output_port.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/leaf_output_port.h"
+/* clang-format on */
 
 #include <memory>
 #include <stdexcept>
@@ -12,7 +14,6 @@
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
-#include "drake/systems/framework/leaf_context.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/output_port_value.h"
 #include "drake/systems/framework/system.h"

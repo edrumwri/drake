@@ -1,8 +1,8 @@
 #include "drake/examples/kuka_iiwa_arm/iiwa_common.h"
-#include "drake/examples/kuka_iiwa_arm/iiwa_world/world_sim_tree_builder.h"
-#include "drake/examples/kuka_iiwa_arm/sim_diagram_builder.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/manipulation/schunk_wsg/schunk_wsg_constants.h"
+#include "drake/manipulation/util/sim_diagram_builder.h"
+#include "drake/manipulation/util/world_sim_tree_builder.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/systems/analysis/simulator.h"
@@ -13,6 +13,9 @@ namespace drake {
 namespace examples {
 namespace kuka_iiwa_arm {
 namespace {
+using manipulation::util::ModelInstanceInfo;
+using manipulation::util::WorldSimTreeBuilder;
+using manipulation::util::SimDiagramBuilder;
 
 std::unique_ptr<RigidBodyTree<double>> build_tree(
     int num_pairs, std::vector<ModelInstanceInfo<double>>* iiwa,
@@ -21,27 +24,25 @@ std::unique_ptr<RigidBodyTree<double>> build_tree(
 
   // Adds models to the simulation builder. Instances of these models can be
   // subsequently added to the world.
-  tree_builder->StoreModel(
-      "iiwa",
-      "/manipulation/models/iiwa_description/urdf/"
-          "iiwa14_polytope_collision.urdf");
+  tree_builder->StoreModel("iiwa",
+                           "drake/manipulation/models/iiwa_description/urdf/"
+                           "iiwa14_polytope_collision.urdf");
   tree_builder->StoreModel(
       "wsg",
-      "/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf");
+      "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf");
 
   iiwa->clear();
   wsg->clear();
 
   for (int i = 0; i < num_pairs; ++i) {
     // Adds an iiwa arm
-    int id = tree_builder->AddFixedModelInstance(
-        "iiwa", Vector3<double>(i, 0, 0));
+    int id =
+        tree_builder->AddFixedModelInstance("iiwa", Vector3<double>(i, 0, 0));
     iiwa->push_back(tree_builder->get_model_info_for_instance(id));
 
     // Adds a wsg gripper
     id = tree_builder->AddModelInstanceToFrame(
-        "wsg", Vector3<double>::Zero(), Vector3<double>::Zero(),
-        tree_builder->tree().findFrame("iiwa_frame_ee", id),
+        "wsg", tree_builder->tree().findFrame("iiwa_frame_ee", id),
         drake::multibody::joints::kFixed);
     wsg->push_back(tree_builder->get_model_info_for_instance(id));
   }
@@ -99,10 +100,16 @@ void main() {
   SetPositionControlledIiwaGains(&iiwa_kp, &iiwa_ki, &iiwa_kd);
   int ctr = 0;
   for (const auto& info : iiwa_info) {
-    auto controller =
-        builder.AddController<systems::InverseDynamicsController<double>>(
-            info.instance_id, info.model_path, info.world_offset, iiwa_kp,
-            iiwa_ki, iiwa_kd, false /* no feedforward acceleration */);
+    auto single_arm = std::make_unique<RigidBodyTree<double>>();
+    parsers::urdf::AddModelInstanceFromUrdfFile(
+        info.model_path, multibody::joints::kFixed, info.world_offset,
+        single_arm.get());
+
+    auto controller = builder.AddController<
+        systems::controllers::InverseDynamicsController<double>>(
+        info.instance_id, std::move(single_arm), iiwa_kp, iiwa_ki, iiwa_kd,
+        false /* no feedforward acceleration */);
+    controller->set_name("controller" + std::to_string(info.instance_id));
 
     // Updates the controller's model's end effector's inertia to include
     // the added gripper.
@@ -126,11 +133,11 @@ void main() {
   const VectorX<double> wsg_ki = VectorX<double>::Constant(kWsgActDim, 0.0);
   const VectorX<double> wsg_kd = VectorX<double>::Constant(kWsgActDim, 5.0);
   for (const auto& info : wsg_info) {
-    auto controller =
-        builder.template AddController<systems::PidController<double>>(
-            info.instance_id,
-            manipulation::schunk_wsg::GetSchunkWsgFeedbackSelector<double>(),
-            wsg_kp, wsg_ki, wsg_kd);
+    auto controller = builder.template AddController<
+        systems::controllers::PidController<double>>(
+        info.instance_id,
+        manipulation::schunk_wsg::GetSchunkWsgFeedbackSelector<double>(),
+        wsg_kp, wsg_ki, wsg_kd);
     diagram_builder->Connect(wsg_traj_src->get_output_port(),
                              controller->get_input_port_desired_state());
   }

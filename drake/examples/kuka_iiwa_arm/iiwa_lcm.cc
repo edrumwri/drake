@@ -1,5 +1,7 @@
 #include "drake/examples/kuka_iiwa_arm/iiwa_lcm.h"
 
+#include <vector>
+
 #include "drake/common/drake_assert.h"
 #include "drake/lcmt_iiwa_command.hpp"
 #include "drake/lcmt_iiwa_status.hpp"
@@ -13,6 +15,7 @@ using systems::Context;
 using systems::DiscreteValues;
 using systems::State;
 using systems::SystemOutput;
+using systems::DiscreteUpdateEvent;
 
 // This value is chosen to match the value in getSendPeriodMilliSec()
 // when initializing the FRI configuration on the iiwa's control
@@ -24,7 +27,7 @@ IiwaCommandReceiver::IiwaCommandReceiver(int num_joints)
   this->DeclareAbstractInputPort();
   this->DeclareVectorOutputPort(systems::BasicVector<double>(num_joints_ * 2),
                                 &IiwaCommandReceiver::OutputCommand);
-  this->DeclareDiscreteUpdatePeriodSec(kIiwaLcmStatusPeriod);
+  this->DeclarePeriodicDiscreteUpdate(kIiwaLcmStatusPeriod);
   this->DeclareDiscreteState(num_joints_ * 2);
 }
 
@@ -40,6 +43,7 @@ void IiwaCommandReceiver::set_initial_position(
 
 void IiwaCommandReceiver::DoCalcDiscreteVariableUpdates(
     const Context<double>& context,
+    const std::vector<const DiscreteUpdateEvent<double>*>&,
     DiscreteValues<double>* discrete_state) const {
   const systems::AbstractValue* input = this->EvalAbstractInput(context, 0);
   DRAKE_ASSERT(input != nullptr);
@@ -125,11 +129,12 @@ IiwaStatusReceiver::IiwaStatusReceiver(int num_joints)
               .get_index()) {
   this->DeclareAbstractInputPort();
   this->DeclareDiscreteState(num_joints_ * 3);
-  this->DeclareDiscreteUpdatePeriodSec(kIiwaLcmStatusPeriod);
+  this->DeclarePeriodicDiscreteUpdate(kIiwaLcmStatusPeriod);
 }
 
 void IiwaStatusReceiver::DoCalcDiscreteVariableUpdates(
     const Context<double>& context,
+    const std::vector<const DiscreteUpdateEvent<double>*>&,
     DiscreteValues<double>* discrete_state) const {
   const systems::AbstractValue* input = this->EvalAbstractInput(context, 0);
   DRAKE_ASSERT(input != nullptr);
@@ -141,18 +146,18 @@ void IiwaStatusReceiver::DoCalcDiscreteVariableUpdates(
     DRAKE_DEMAND(status.num_joints == num_joints_);
 
     VectorX<double> measured_position(num_joints_);
+    VectorX<double> estimated_velocity(num_joints_);
     VectorX<double> commanded_position(num_joints_);
     for (int i = 0; i < status.num_joints; ++i) {
       measured_position(i) = status.joint_position_measured[i];
+      estimated_velocity(i) = status.joint_velocity_estimated[i];
       commanded_position(i) = status.joint_position_commanded[i];
     }
 
     BasicVector<double>* state = discrete_state->get_mutable_vector(0);
     auto state_value = state->get_mutable_value();
-    state_value.segment(num_joints_, num_joints_) =
-        (measured_position - state_value.head(num_joints_)) /
-        kIiwaLcmStatusPeriod;
     state_value.head(num_joints_) = measured_position;
+    state_value.segment(num_joints_, num_joints_) = estimated_velocity;
     state_value.tail(num_joints_) = commanded_position;
   }
 }
@@ -187,6 +192,7 @@ lcmt_iiwa_status IiwaStatusSender::MakeOutputStatus() const {
   lcmt_iiwa_status msg{};
   msg.num_joints = num_joints_;
   msg.joint_position_measured.resize(msg.num_joints, 0);
+  msg.joint_velocity_estimated.resize(msg.num_joints, 0);
   msg.joint_position_commanded.resize(msg.num_joints, 0);
   msg.joint_position_ipo.resize(msg.num_joints, 0);
   msg.joint_torque_measured.resize(msg.num_joints, 0);
@@ -206,6 +212,7 @@ void IiwaStatusSender::OutputStatus(
       this->EvalVectorInput(context, 1);
   for (int i = 0; i < num_joints_; ++i) {
     status.joint_position_measured[i] = state->GetAtIndex(i);
+    status.joint_velocity_estimated[i] = state->GetAtIndex(i + num_joints_);
     status.joint_position_commanded[i] = command->GetAtIndex(i);
   }
 }

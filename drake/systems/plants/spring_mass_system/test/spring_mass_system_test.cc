@@ -5,13 +5,13 @@
 #include <Eigen/Dense>
 #include <gtest/gtest.h>
 
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/systems/framework/input_port_value.h"
-#include "drake/systems/framework/leaf_context.h"
 #include "drake/systems/framework/output_port_value.h"
 #include "drake/systems/framework/state.h"
 #include "drake/systems/framework/subvector.h"
 #include "drake/systems/framework/system.h"
+#include "drake/systems/framework/test_utilities/scalar_conversion.h"
 #include "drake/systems/framework/vector_base.h"
 
 using std::make_unique;
@@ -75,6 +75,7 @@ TEST_F(SpringMassSystemTest, Construction) {
   EXPECT_EQ("test_system", system_->get_name());
   EXPECT_EQ(kSpring, system_->get_spring_constant());
   EXPECT_EQ(kMass, system_->get_mass());
+  EXPECT_FALSE(system_->get_system_is_forced());
 }
 
 TEST_F(SpringMassSystemTest, DirectFeedthrough) {
@@ -180,6 +181,9 @@ TEST_F(SpringMassSystemTest, ForcesNegativeDisplacement) {
 TEST_F(SpringMassSystemTest, DynamicsWithExternalForce) {
   // Initializes a spring mass system with an input port for an external force.
   Initialize(true);
+  EXPECT_TRUE(system_->get_system_is_forced());
+  EXPECT_FALSE(system_->HasAnyDirectFeedthrough());
+
   // Asserts exactly one input for this case expecting an external force.
   ASSERT_EQ(1, context_->get_num_input_ports());
 
@@ -492,6 +496,14 @@ TEST_F(SpringMassSystemTest, IntegrateConservativePower) {
     // Take a step of size h.
     StepSemiExplicitEuler(h, *system_, *derivs, *context);
   }
+}
+
+TEST_F(SpringMassSystemTest, ToAutoDiff) {
+  EXPECT_TRUE(is_autodiffxd_convertible(*system_));
+}
+
+TEST_F(SpringMassSystemTest, ToSymbolic) {
+  EXPECT_TRUE(is_symbolic_convertible(*system_));
 }
 
 }  // namespace

@@ -1,4 +1,6 @@
+/* clang-format off to disable clang-format-includes */
 #include "drake/common/trajectories/piecewise_polynomial.h"
+/* clang-format on */
 
 #include <iostream>
 #include <random>
@@ -7,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/drake_assert.h"
-#include "drake/common/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 
 using std::default_random_engine;
 

@@ -4,10 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include "drake/common/autodiff_overloads.h"
-#include "drake/common/eigen_autodiff_types.h"
-#include "drake/common/symbolic_expression.h"
-#include "drake/common/symbolic_formula.h"
+#include "drake/common/autodiff.h"
+#include "drake/common/symbolic.h"
 
 namespace drake {
 namespace tools {

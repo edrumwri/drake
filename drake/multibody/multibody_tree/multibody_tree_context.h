@@ -5,11 +5,12 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff_overloads.h"
+#include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/multibody_tree/multibody_tree_topology.h"
 #include "drake/multibody/multibody_tree/position_kinematics_cache.h"
+#include "drake/multibody/multibody_tree/velocity_kinematics_cache.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/continuous_state.h"
@@ -138,9 +139,9 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
     return xc.nestedExpression().template segment<count>(start);
   }
 
- private:
-  // Helper to return a const Eigen::VectorBlock referencing a segment in the
-  // state vector with its first element at `start` and of size `count`.
+  /// Returns a const fixed-size Eigen::VectorBlock of `count` elements
+  /// referencing a segment in the state vector with its first element
+  /// at `start`.
   Eigen::VectorBlock<const VectorX<T>> get_state_segment(
       int start, int count) const {
     // We know that MultibodyTreeContext is a LeafContext and therefore the
@@ -157,8 +158,9 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
     return xc.nestedExpression().segment(start, count);
   }
 
-  // Helper to return a mutable Eigen::VectorBlock referencing a segment in the
-  // state vector with its first element at `start` and of size `count`.
+  /// Returns a mutable fixed-size Eigen::VectorBlock of `count` elements
+  /// referencing a segment in the state vector with its first element
+  /// at `start`.
   Eigen::VectorBlock<VectorX<T>> get_mutable_state_segment(
       int start, int count) {
     // We know that MultibodyTreeContext is a LeafContext and therefore the
@@ -176,6 +178,7 @@ class MultibodyTreeContext: public systems::LeafContext<T> {
     return xc.nestedExpression().segment(start, count);
   }
 
+ private:
   const MultibodyTreeTopology topology_;
 };
 

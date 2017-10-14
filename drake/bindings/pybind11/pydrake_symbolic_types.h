@@ -1,9 +1,9 @@
-#include <pybind11/pybind11.h>
-#include <pybind11/eigen.h>
+#pragma once
 
-#include "drake/common/symbolic_expression.h"
-#include "drake/common/symbolic_formula.h"
-#include "drake/common/symbolic_variable.h"
+#include <pybind11/eigen.h>
+#include <pybind11/pybind11.h>
+
+#include "drake/common/symbolic.h"
 
 PYBIND11_NUMPY_OBJECT_DTYPE(drake::symbolic::Variable);
 PYBIND11_NUMPY_OBJECT_DTYPE(drake::symbolic::Expression);
