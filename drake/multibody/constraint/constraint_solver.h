@@ -310,6 +310,202 @@ class ConstraintSolver {
   drake::solvers::MobyLCPSolver<T> lcp_;
 };
 
+// Models any impacts for the piecewise-DAE based system and determines
+// the active set at the velocity-level (meaning that a point of contact
+// will be de-activated when contacting bodies are separating at that point
+// and that sliding and non-sliding are determined "freshly", i.e., without
+// any consideration of existing contact mode).
+// @param Nvplus the contact velocity projected along the normal contact
+//               directions.
+// @param Nvplus the contact velocity projected along the tangent contact
+//               directions.
+// @param zero_tol the tolerance with which the linear complementarity problem/
+//                 linear algebra problem was solved.
+template <class T>
+void ConstraintSolver<T>::DetermineVelLevelActiveSet(
+    const std::vector<PointContact>& contacts,
+    const VectorX<T>& Nvplus,
+    const VectorX<T>& Fvplus,
+    const T& zero_tol) const {
+  using std::abs;
+
+  // Examine contacts.
+  for (size_t i = 0, contact_index = 0; i < contacts.size(); ++i) {
+    if (contacts[i].state == PointContact::ContactState::kNotContacting)
+      continue;
+
+    // Contact will only be made inactive if it the bodies are separating at
+    // that point.
+    if (abs(Nvplus[contact_index]) > zero_tol) {
+      contacts[i].state = PointContact::ContactState::kNotContacting;
+    } else {
+      // It's conceivable that no impulsive force was applied but the contact
+      // is still active. Either way, check to see whether the contact is
+      // sliding or not-sliding.
+      if (IsTangentVelocityZero(*state, contacts[contact_index])) {
+        contacts[i].state =
+            PointContact::ContactState::kContactingWithoutSliding;
+      }
+      else {
+        contacts[i].state = PointContact::ContactState::kContactingAndSliding;
+      }
+    }
+
+    ++contact_index;
+  }
+}
+
+// Forms the system of linear equations used to compute the accelerations during
+// ODE evaluations. Specifically, this method forms the matrix @p MM and vector
+// @p qq used to describe the linear complementarity problem MM*z + qq = w,
+// where:
+// (1) z ≥ 0
+// (2) w ≥ 0
+// (3) z ⋅ w = 0
+// If the active set is correctly determined, the contact mode variables will
+// provide the solution w = 0, implying that z = MM⁻¹⋅qq. This function only
+// forms MM and qq. It does not attempt to solve the linear system (or, by
+// extension, determine whether said solution for z results in a solution to
+// the linear complementarity problem).
+template <class T>
+void ConstraintSolver<T>::FormLinearSystem(
+    const systems::Context<T>& context,
+    const ConstraintAccelProblemData<T>& problem_data,
+    MatrixX<T>* MM, VectorX<T>* qq) const {
+  using std::abs;
+  using std::abs;
+
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
+
+  // Alias problem data.
+  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
+  const std::vector<int>& non_sliding_contacts =
+      problem_data.non_sliding_contacts;
+
+  // Get numbers of friction directions and types of contacts.
+  const int num_generalized_velocities = problem_data.tau.size();
+  const int num_sliding = sliding_contacts.size();
+  const int num_non_sliding = non_sliding_contacts.size();
+  const int num_contacts = num_sliding + num_non_sliding;
+  const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
+                                                   problem_data.r.end(), 0);
+  const int num_limits = problem_data.kL.size();
+  const int num_eq_constraints = problem_data.kG.size();
+
+  DRAKE_DEMAND(!(num_contacts == 0 && num_limits == 0 &&
+                 num_eq_constraints == 0));
+
+  // MM ≡ | NC(Nᵀ-μQᵀ)  NCDᵀ   NCLᵀ |
+  //      | DC(Nᵀ-μQᵀ)  DCDᵀ   DCLᵀ |
+  //      | LC(Nᵀ-μQᵀ)  LCDᵀ   LCLᵀ |
+  //
+  // qq ≡ | kᴺ + |N 0|A⁻¹a |
+  //      | kᴰ + |D 0|A⁻¹a |
+  //      | kᴸ + |L 0|A⁻¹a |
+
+  // Alias operators and vectors to make accessing them less clunky.
+  auto N = problem_data.N_mult;
+  auto F = problem_data.F_mult;
+  auto FT = problem_data.F_transpose_mult;
+  auto L = problem_data.L_mult;
+  auto LT = problem_data.L_transpose_mult;
+  auto iM = problem_data.solve_inertia;
+  const VectorX<T>& kN = problem_data.kN;
+  const VectorX<T>& kF = problem_data.kF;
+  const VectorX<T>& kL = problem_data.kL;
+  const VectorX<T>& mu_non_sliding = problem_data.mu_non_sliding;
+  const VectorX<T>& gammaN = problem_data.gammaN;
+  const VectorX<T>& gammaF = problem_data.gammaF;
+  const VectorX<T>& gammaE = problem_data.gammaE;
+  const VectorX<T>& gammaL = problem_data.gammaL;
+
+  // Alias these variables for more readable construction of MM and qq.
+  const int ngv = problem_data.tau.size();  // generalized velocity dimension.
+  const int nc = num_contacts;
+  const int nr = num_spanning_vectors;
+  const int nk = nr * 2;
+  const int nl = num_limits;
+  const int num_vars = nc + nk + nl;
+
+  // Precompute some matrices that will be reused repeatedly.
+  MatrixX<T> iM_NT_minus_muQT(ngv, nc), iM_FT(ngv, nr), iM_LT(ngv, nl);
+  ComputeInverseInertiaTimesGT(
+      iM, problem_data.N_minus_muQ_transpose_mult, nc, &iM_NT_minus_muQT);
+  ComputeInverseInertiaTimesGT(iM, FT, nr, &iM_FT);
+  ComputeInverseInertiaTimesGT(iM, LT, nl, &iM_LT);
+
+  // Prepare blocks of the matrix.
+  MM->resize(num_vars, num_vars);
+  Eigen::Ref<MatrixX<T>> N_iM_NT_minus_muQT = MM->block(0, 0, nc, nc);
+  Eigen::Ref<MatrixX<T>> N_iM_FT = MM->block(0, nc, nc, nr);
+  Eigen::Ref<MatrixX<T>> N_iM_LT = MM->block(
+      0, nc + nk + num_non_sliding, nc, nl);
+  Eigen::Ref<MatrixX<T>> F_iM_NT_minus_muQT = MM->block(nc, 0, nr, nc);
+  Eigen::Ref<MatrixX<T>> F_iM_FT = MM->block(nc, nc, nr, nr);
+  Eigen::Ref<MatrixX<T>> F_iM_LT = MM->block(nc, nc + nk, nr, nl);
+  Eigen::Ref<MatrixX<T>> L_iM_NT_minus_muQT = MM->block(
+      nc + nk + num_non_sliding, 0, nl, nc);
+  Eigen::Ref<MatrixX<T>> L_iM_LT = MM->block(
+      nc + nk + num_non_sliding, nc + nk + num_non_sliding, nl, nl);
+  ComputeConstraintSpaceComplianceMatrix(
+      N, nc, iM_NT_minus_muQT, N_iM_NT_minus_muQT);
+  ComputeConstraintSpaceComplianceMatrix(N, nc, iM_FT, N_iM_FT);
+  ComputeConstraintSpaceComplianceMatrix(N, nc, iM_LT, N_iM_LT);
+  ComputeConstraintSpaceComplianceMatrix(
+      F, nr, iM_NT_minus_muQT, F_iM_NT_minus_muQT);
+  ComputeConstraintSpaceComplianceMatrix(F, nr, iM_FT, F_iM_FT);
+  ComputeConstraintSpaceComplianceMatrix(F, nr, iM_LT, F_iM_LT);
+  ComputeConstraintSpaceComplianceMatrix(
+      L, nl, iM_NT_minus_muQT, L_iM_NT_minus_muQT);
+  ComputeConstraintSpaceComplianceMatrix(L, nl, iM_LT, L_iM_LT);
+
+  // Construct the LCP matrix. First do the "normal contact direction" rows.
+  MM->block(0, nc + nr, nc, nr) = -MM->block(0, nc, nc, nr);
+  MM->block(0, nc + nk, nc, num_non_sliding).setZero();
+
+  // Now construct the un-negated tangent contact direction rows.
+  MM->block(nc, nc + nr, num_spanning_vectors, nr) =
+      -MM->block(nc, nc, nr, num_spanning_vectors);
+  MM->block(nc, nc + nk, num_spanning_vectors, num_non_sliding) = E;
+
+  // Now construct the negated tangent contact direction rows. These negated
+  // tangent contact directions allow the LCP to compute forces applied along
+  // the negative x-axis. E will have to be reset to un-negate it.
+  MM->block(nc + nr, 0, nr, nc + nk + nl) = -MM->block(nc, 0, nr, nc + nk + nl);
+  MM->block(nc + nr, nc + nk, num_spanning_vectors, num_non_sliding) = E;
+
+  // Construct the last row block, which provides the configuration limit
+  // constraint.
+  MM->block(nc + nk, 0, nl, nc + nk) =
+      MM->block(0, nc + nk, nc + nk, nl).transpose().eval();
+
+  // Verify that all gamma vectors are either empty or non-negative.
+  DRAKE_DEMAND(gammaN.size() == 0 || gammaN.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaF.size() == 0 || gammaF.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaE.size() == 0 || gammaE.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaL.size() == 0 || gammaL.minCoeff() >= 0);
+
+  // Regularize the LCP matrix.
+  MM->topLeftCorner(nc, nc) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaN);
+  MM->block(nc, nc, nr, nr) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
+  MM->block(nc + nr, nc + nr, nr, nr) +=
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
+  MM->block(nc + nk, nc + nk, nl, nl) +=
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaL);
+
+  // Construct the vector:
+  // N⋅A⁻¹⋅a + kN
+  // D⋅A⁻¹⋅a + kD
+  // L⋅A⁻¹⋅a + kL
+  // where, as above, D is defined as [F -F] (and kD is defined as [kF -kF].
+  qq->resize(num_vars, 1);
+  qq->segment(0, nc) = N(trunc_neg_invA_a) + kN;
+  qq->segment(nc, nr) = F(trunc_neg_invA_a) + kF;
+  qq->segment(nc + nr, nr) = -qq->segment(nc, nr);
+  qq->segment(nc + nk, num_limits) = L(trunc_neg_invA_a) + kL;
+}
+
 // Determines the set of linearly independent constraints and new versions of
 // G_mult and G_transpose_mult that use only these linearly independent
 // constraints.
