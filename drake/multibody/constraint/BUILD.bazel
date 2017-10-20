@@ -26,6 +26,7 @@ drake_cc_library(
     srcs = ["constraint_solver.cc"],
     hdrs = [
         "constraint_solver.h",
+        "point_contact.h",
     ],
     deps = [
         ":constraint",

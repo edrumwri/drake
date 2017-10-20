@@ -37,6 +37,10 @@ struct ConstraintAccelProblemData {
     G_transpose_mult = zero_gv_dim_fn;
   }
 
+  /// Indicates whether any contacts are transitioning from not-sliding to
+  /// sliding.
+  bool transitioning_contacts{false};
+
   /// The indices of the sliding contacts (those contacts at which there is
   /// non-zero relative velocity between bodies in the plane tangent to the
   /// point of contact), out of the set of all contact indices (0...n-1).

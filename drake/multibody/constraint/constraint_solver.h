@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "drake/multibody/constraint/constraint_problem_data.h"
+#include "drake/multibody/constraint/point_contact.h"
 #include "drake/solvers/moby_lcp_solver.h"
 
 namespace drake {
@@ -262,6 +263,14 @@ class ConstraintSolver {
       int m,
       MatrixX<T>* iM_GT);
 
+  void DetermineVelLevelActiveSet(
+    const VectorX<T>& Nvplus,
+    const VectorX<T>& Fvplus,
+    const T& zero_tol,
+    std::vector<PointContact>* contacts) const;
+  void FormLinearSystem(
+    const ConstraintAccelProblemData<T>& problem_data,
+    MatrixX<T>* MM, VectorX<T>* qq) const;
   void FormImpactingConstraintLCP(
       const ConstraintVelProblemData<T>& problem_data,
       const VectorX<T>& invA_a,
@@ -323,31 +332,32 @@ class ConstraintSolver {
 //                 linear algebra problem was solved.
 template <class T>
 void ConstraintSolver<T>::DetermineVelLevelActiveSet(
-    const std::vector<PointContact>& contacts,
     const VectorX<T>& Nvplus,
     const VectorX<T>& Fvplus,
-    const T& zero_tol) const {
+    const T& zero_tol,
+    std::vector<PointContact>* contacts) const {
   using std::abs;
 
   // Examine contacts.
-  for (size_t i = 0, contact_index = 0; i < contacts.size(); ++i) {
-    if (contacts[i].state == PointContact::ContactState::kNotContacting)
+  for (size_t i = 0, contact_index = 0; i < contacts->size(); ++i) {
+    if ((*contacts)[i].state == PointContact::ContactState::kNotContacting)
       continue;
 
     // Contact will only be made inactive if it the bodies are separating at
     // that point.
     if (abs(Nvplus[contact_index]) > zero_tol) {
-      contacts[i].state = PointContact::ContactState::kNotContacting;
+      (*contacts)[i].state = PointContact::ContactState::kNotContacting;
     } else {
       // It's conceivable that no impulsive force was applied but the contact
       // is still active. Either way, check to see whether the contact is
       // sliding or not-sliding.
-      if (IsTangentVelocityZero(*state, contacts[contact_index])) {
-        contacts[i].state =
+      if (IsTangentVelocityZero(*state, (*contacts)[contact_index])) {
+        (*contacts)[i].state =
             PointContact::ContactState::kContactingWithoutSliding;
       }
       else {
-        contacts[i].state = PointContact::ContactState::kContactingAndSliding;
+        (*contacts)[i].state = 
+            PointContact::ContactState::kContactingAndSliding;
       }
     }
 
@@ -369,10 +379,8 @@ void ConstraintSolver<T>::DetermineVelLevelActiveSet(
 // the linear complementarity problem).
 template <class T>
 void ConstraintSolver<T>::FormLinearSystem(
-    const systems::Context<T>& context,
     const ConstraintAccelProblemData<T>& problem_data,
     MatrixX<T>* MM, VectorX<T>* qq) const {
-  using std::abs;
   using std::abs;
 
   DRAKE_DEMAND(MM);
@@ -414,10 +422,8 @@ void ConstraintSolver<T>::FormLinearSystem(
   const VectorX<T>& kN = problem_data.kN;
   const VectorX<T>& kF = problem_data.kF;
   const VectorX<T>& kL = problem_data.kL;
-  const VectorX<T>& mu_non_sliding = problem_data.mu_non_sliding;
   const VectorX<T>& gammaN = problem_data.gammaN;
   const VectorX<T>& gammaF = problem_data.gammaF;
-  const VectorX<T>& gammaE = problem_data.gammaE;
   const VectorX<T>& gammaL = problem_data.gammaL;
 
   // Alias these variables for more readable construction of MM and qq.
@@ -444,10 +450,8 @@ void ConstraintSolver<T>::FormLinearSystem(
   Eigen::Ref<MatrixX<T>> F_iM_NT_minus_muQT = MM->block(nc, 0, nr, nc);
   Eigen::Ref<MatrixX<T>> F_iM_FT = MM->block(nc, nc, nr, nr);
   Eigen::Ref<MatrixX<T>> F_iM_LT = MM->block(nc, nc + nk, nr, nl);
-  Eigen::Ref<MatrixX<T>> L_iM_NT_minus_muQT = MM->block(
-      nc + nk + num_non_sliding, 0, nl, nc);
-  Eigen::Ref<MatrixX<T>> L_iM_LT = MM->block(
-      nc + nk + num_non_sliding, nc + nk + num_non_sliding, nl, nl);
+  Eigen::Ref<MatrixX<T>> L_iM_NT_minus_muQT = MM->block(nc + nk, 0, nl, nc);
+  Eigen::Ref<MatrixX<T>> L_iM_LT = MM->block(nc + nk, nc + nk, nl, nl);
   ComputeConstraintSpaceComplianceMatrix(
       N, nc, iM_NT_minus_muQT, N_iM_NT_minus_muQT);
   ComputeConstraintSpaceComplianceMatrix(N, nc, iM_FT, N_iM_FT);
@@ -467,13 +471,11 @@ void ConstraintSolver<T>::FormLinearSystem(
   // Now construct the un-negated tangent contact direction rows.
   MM->block(nc, nc + nr, num_spanning_vectors, nr) =
       -MM->block(nc, nc, nr, num_spanning_vectors);
-  MM->block(nc, nc + nk, num_spanning_vectors, num_non_sliding) = E;
 
   // Now construct the negated tangent contact direction rows. These negated
   // tangent contact directions allow the LCP to compute forces applied along
-  // the negative x-axis. E will have to be reset to un-negate it.
+  // the negative x-axis.
   MM->block(nc + nr, 0, nr, nc + nk + nl) = -MM->block(nc, 0, nr, nc + nk + nl);
-  MM->block(nc + nr, nc + nk, num_spanning_vectors, num_non_sliding) = E;
 
   // Construct the last row block, which provides the configuration limit
   // constraint.
@@ -483,10 +485,9 @@ void ConstraintSolver<T>::FormLinearSystem(
   // Verify that all gamma vectors are either empty or non-negative.
   DRAKE_DEMAND(gammaN.size() == 0 || gammaN.minCoeff() >= 0);
   DRAKE_DEMAND(gammaF.size() == 0 || gammaF.minCoeff() >= 0);
-  DRAKE_DEMAND(gammaE.size() == 0 || gammaE.minCoeff() >= 0);
   DRAKE_DEMAND(gammaL.size() == 0 || gammaL.minCoeff() >= 0);
 
-  // Regularize the LCP matrix.
+  // Regularize the matrix.
   MM->topLeftCorner(nc, nc) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaN);
   MM->block(nc, nc, nr, nr) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
   MM->block(nc + nr, nc + nr, nr, nr) +=
