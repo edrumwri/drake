@@ -605,39 +605,16 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   VectorX<T> SolveContactProblem(const systems::Context<T>& context,
                                  RigidContactAccelProblemData<T>* problem_data)
                                  const;
-  void InitRigidContactAccelProblemData(const systems::State<T>& state,
-      RigidContactAccelProblemData<T>* problem_data) const;
-  void FormRigidContactVelJacobians(const systems::State<T>& state,
-      RigidContactVelProblemData<T>* problem_data) const;
-  void FormRigidContactAccelJacobians(const systems::State<T>& state,
-      RigidContactAccelProblemData<T>* problem_data) const;
   void ComputeSustainedContactProblemData(const systems::Context<T>& context,
                                           MatrixX<T>* N, MatrixX<T>* F,
                                           MatrixX<T>* N_minus_mu_Q,
                                           MatrixX<T>* iM_x_FT) const;
   Vector2<T> CalcContactVelocity(const systems::State<T>& state,
                                  const RigidContact& c) const;
-  void FormSustainedContactLinearSystem(const systems::Context<T>& context,
-      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
-      VectorX<T>* qq) const;
-  void FormSustainedContactLCP(const systems::Context<T>& context,
-      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
-      Eigen::Matrix<T, Eigen::Dynamic, 1>* qq) const;
-  void DetermineAccelLevelActiveSet(const systems::Context<T>& context,
-                                    systems::State<T>* state) const;
-  MatrixX<T> AddScaledRightTerm(const MatrixX<T>& A, const VectorX<T>& scale,
-                                const MatrixX<T>& X,
-                                const std::vector<int>& indices) const;
-  MatrixX<T> MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
-                           const std::vector<int>& indices) const;
   Matrix2<T> get_rotation_matrix_derivative(
       const systems::State<T>& state) const;
   void ModelImpact(systems::State<T>* state, VectorX<T>* Nvplus = nullptr,
                    VectorX<T>* Fvplus = nullptr, T* zero_tol = nullptr) const;
-  void DetermineVelLevelActiveSet(systems::State<T>* state,
-                                  const VectorX<T>& Nv,
-                                  const VectorX<T>& Fv,
-                                  const T& zero_tol) const;
   bool IsTangentVelocityZero(const systems::State<T>& state,
                              const RigidContact& c) const;
   static void ConvertStateToPose(const VectorX<T>& state,
