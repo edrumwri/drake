@@ -468,35 +468,91 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     const systems::Context<T>& context,
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
     systems::State<T>* state) const {
+  // TODO: Get the current configuration of the system.
+
   // Copy the state in the context into the state.
   state->CopyFrom(context.get_state());
 
-  // Get the potential contacts.
-  std::vector<multibody::constraint::PointContact>& contacts = get_contacts(state);
+  // Get the vector of contacts.
+  std::vector<multibody::constraint::PointContact>& contacts =
+      get_contacts(state);
 
-  // Check whether a new point of contact is becoming active.
+  // A vector of indices from contact_candidates_ that are tracked.
+  std::vector<int> tracked_contact_indices;
+
+  // Check whether a tracked point of contact should no longer be tracked. 
   bool impact_occurring = false;
-  for (size_t i = 0; i < contacts.size(); ++i) {
-    // If the contact is already active, ignore it.
-    if (contacts[i].state != multibody::constraint::PointContact::ContactState::kNotContacting)
-      continue;
+  for (int i = 0; static_cast<int>(i) < contacts.size(); ++i) {
+    // Get the contact candidate identifier.
+    const int contact_id = static_cast<int>(contacts[i].id);
+ 
+    // Mark the index.
+    tracked_contact_indices.push_back(contact_id);
 
-    // Contact is not active; see whether the signed distance witness function
-    // is triggered. If so, change the contact state to sliding (arbitrarily);
-    // the impact handler should be triggered.
-    const double zero_tol = 1e6 * std::numeric_limits<double>::epsilon();
-    if (signed_distance_witnesses_[i]->Evaluate(context) <=
-        zero_tol) {
-      contacts[i].state = multibody::constraint::PointContact::ContactState::kContactingAndSliding;
+    // Get the contact candidate- it's a vector expressed in the rod body
+    // frame.
+    const Vector2<T>& contact_candidate = contact_candidates_[contact_id]; 
+
+    // Determine the location of the point (in the world frame).
+    const Vector2<T> p0 = GetPointInWorldFrame(q, contact_candidate);
+
+    // Determine the signed distance along the +y-axis.
+    const double sdist = p0[1];
+
+    // If the signed distance is positive, the contact no longer should be
+    // tracked- remove it from the tracked contacts.
+    if (sdist > 0) {
+      contacts[i] = contacts.back();
+      contacts.pop_back();
+      --i;
+    }  
+  }
+
+  // Compute the non-tracked indices. Note that this code that uses candidate
+  // contacts is specific to the rod. Approaches for other systems will need to
+  // discern means to prevent contacts from being removed from then immediately
+  // added back to to the tracked set. 
+  std::vector<int> non_tracked_indices;
+  std::vector<int> all_indices(candidate_contacts_.size());
+  for (int i = 0; i < static_cast<int>(candidate_contacts_.size()); ++i)
+    all_indices[i] = i; 
+  std::set_difference(all_indices.begin(), all_indices.end(),
+                      tracked_indices.begin(), tracked_indices.end(),
+                      std::back_inserter(non_tracked_indices));
+
+  // Note: this cannot work for general problems, since we are using the
+  // contact point candidates.
+  for (const auto& i : non_tracked_indices) {
+    // Get the contact candidate- it's a vector expressed in the rod body
+    // frame.
+    const Vector2<T>& contact_candidate = contact_candidates[i]; 
+
+    // Determine the location of the point (in the world frame).
+
+    // Determine the signed distance along the +y-axis.
+    const double sdist = p0[1];
+
+    // If it is non-positive, add it to the set of tracked contacts,
+    // (arbitrarily) change the contact state to sliding, and trigger the
+    // impact handler.
+    if (sdist <= 0) {
+      contacts.push_back({});
+      contacts.back().id = static_cast<void>(i);
+      contacts.back().state = multibody::constraint::PointContact::
+          ContactState::kContactingAndSliding;
       impact_occurring = true;
     }
   }
 
-  // Handle any impacts.
+  // Note that if the rod were contacting, for example, a box rather than a
+  // halfspace, we would need to deactivate contact points as they slid off of
+  // the edge of the box.
+
+  // Handle any impacts, then redetermine which contacts are sliding and which
+  // are not sliding.
   T zero_tol;
-  VectorX<T> Nvplus, Fvplus;
-  ModelImpact(state, &Nvplus, &Fvplus, &zero_tol);
-  DetermineVelLevelActiveSet(state, Nvplus, Fvplus, zero_tol);
+  ModelImpact(state, &zero_tol);
+  DetermineVelLevelActiveSet(vel_problem_data, vplus, zero_tol);
 
   // The active set must now be redetermined using the derivative at the current
   // time. Only active contacts are processed, and whether the contact is

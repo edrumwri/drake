@@ -323,67 +323,50 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
   const std::vector<int>& non_sliding_contacts =
       problem_data.non_sliding_contacts;
 
-  // Form the linear  
+  // Formulate and solve the constraint problem.
 
-  // Solve the LCP and compute the values of the slack variables.
-  VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
-  VectorX<T> ww = MM * zz + qq;
+  // Determine vdot.
 
-  // Get the normal accelerations.
+  // Determine the projections of the accelerations along the r-spanning
+  // vectors.
 
+  // Get the frictional slack.
 
-  // Obtain the normal and frictional contact forces and the value of λ, which
-  // will yield the residual tangential accelerations unable to be eliminated
-  // for the non-sliding contacts. If λ = 0, then all contacts will remain
-  // non-sliding.
-  const auto fN = zz.segment(0, nc);
-  const auto fF = zz.segment(nc, half_nk) - zz.segment(nc + half_nk, half_nk);
-  const auto lambda = zz.segment(nc + nk, num_non_sliding);
-
-  // Now determine what constraints should be active during the interval.
-  // Two possibilities exist for checking whether the contact should become
-  // inactive over the interval. The normal force may be zero, though this check
-  // must account for the rounding error that accumulates during the pivoting
-  // process. A safer check will examine the magnitudes of both the slack
-  // variable (which should be non-negative if the constraint is inactive) and
-  // the normal force; however, we must consider the case where both the
-  // normal force and the slack variable are zero. As an example, assume that
-  // 1e-8 is the magnitude of the normal force and 1e-12 is the value of the
-  // slack variable. Should this contact be considered to be active or inactive?
-  // What about 2e-12 and 1e-12, respectively? These examples will lead us to
-  // consider a contact to be active if the signed normal force is greater than
-  // one order of magnitude larger than the slack variable magnitude.
-  for (size_t i = 0, contact_index = 0, non_sliding_index = 0;
-       i < contacts->size(); ++i) {
-    if (contacts[i].state == PointContact::ContactState::kNotContacting)
+  // Determine whether any contacts are transitioning from non-sliding to
+  // sliding.
+  for (int i = 0, non_sliding_index = 0; i < static_cast<int>(contacts->size());
+      ++i) {
+    // Skip sliding contacts.
+    if (contacts[i].state == PointContact::ContactState::kContactingAndSliding)
       continue;
 
-    // Contact is currently active; see whether to make it inactive.
-    if (fN[contact_index] < abs(ww[contact_index])) {
-      // If the contact is currently not sliding, must update the lambda index.
-      if (contacts[i].state ==
-          PointContact::ContactState::kContactingWithoutSliding)
-        ++non_sliding_index;
+    // TODO: Determine whether the contact is moving from non-sliding to
+    // sliding by checking whether the tangential acceleration is of greater
+    // magnitude than the frictional force at the contact. Tangential
+    // acceleration is defined as ||F⋅v̇ + F⋅dot|| with units of meters/sq.
+    // sec. Frictional forces (ff) can be transformed to such units using:
+    // FM⁻¹Fᵀ.
 
-      contacts[i].state = PointContact::ContactState::kNotContacting;
-    } else {
-      // Contact cannot transition from sliding to not-sliding here. That must
-      // happen in the DetermineVelLevelActiveSet() method. However, contact
-      // can transition from not-sliding to sliding if the appropriate
-      // slack variable is strictly positive or no frictional forces are
-      // applied.
-      if (contacts[i].state ==
-          PointContact::ContactState::kContactingWithoutSliding) {
-        if (lambda[non_sliding_index] > zero_tol ||
-            abs(fF[non_sliding_index]) < zero_tol)
-          contacts[i].state = PointContact::ContactState::kContactingAndSliding;
-        ++non_sliding_index;
-      }
+    // Get the accelerations in the tangent directions at this contact. If
+    // the accelerations are clearly zero, then the contact needs no further
+    // examination. Otherwise, however, a more sophisticated zero checking
+    // mechanism is necessary. We know that either the tangential accelerations
+    // or the tangential "slack" (the difference between how much force could
+    // have been applied and how much force was applied) must be zero (by the
+    // contact conditions). If the tangential slack is smaller, the contact will
+    // be treated as transitioning to sliding; otherwise, it will be treated as
+    // remaining in stiction.
+    // TODO: Test this approach using large magnitude accelerations. 
+
+    // Scale the units of frictional slack to m/s².
+
+    if (tan_accel_norm > problem_data.stiction_zero_tolerance &&
+        tan_accel_norm > scaled_ff_slack) {
+      contacts[i].state = PointContact::ContactState::kContactingAndSliding;
+      // TODO: Indicate that a contact is transitioning.
     }
-
-    // Update contact index.
-    ++contact_index;
+ 
+    ++non_sliding_index;
   }
 }
 
@@ -392,34 +375,20 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
 // will be de-activated when contacting bodies are separating at that point
 // and that sliding and non-sliding are determined "freshly", i.e., without
 // any consideration of existing contact mode).
-// @param Nvplus the contact velocity projected along the normal contact
-//               directions.
-// @param Nvplus the contact velocity projected along the tangent contact
-//               directions.
 // @param zero_tol the tolerance with which the linear complementarity problem/
 //                 linear algebra problem was solved.
 template <class T>
 void ConstraintSolver<T>::DetermineVelLevelActiveSet(
-    const VectorX<T>& Nvplus,
-    const VectorX<T>& Fvplus,
     const T& zero_tol,
     std::vector<PointContact>* contacts) const {
   using std::abs;
 
+  // TODO: Replace IsTangentVelocityZero with a proper test for tangent
+  // velocity. Perhaps using a function in the problem data?
   // Examine contacts.
-  for (size_t i = 0, contact_index = 0; i < contacts->size(); ++i) {
-    if ((*contacts)[i].state == PointContact::ContactState::kNotContacting)
-      continue;
-
-    // Contact will only be made inactive if it the bodies are separating at
-    // that point.
-    if (abs(Nvplus[contact_index]) > zero_tol) {
-      (*contacts)[i].state = PointContact::ContactState::kNotContacting;
-    } else {
-      // It's conceivable that no impulsive force was applied but the contact
-      // is still active. Either way, check to see whether the contact is
-      // sliding or not-sliding.
-      if (IsTangentVelocityZero(*state, (*contacts)[contact_index])) {
+  for (int i = 0; i < static_cast<int>(contacts->size()); ++i) {
+      // Check to see whether the contact is sliding or not-sliding.
+      if (IsTangentVelocityZero(*state, (*contacts)[i])) {
         (*contacts)[i].state =
             PointContact::ContactState::kContactingWithoutSliding;
       }
@@ -428,8 +397,6 @@ void ConstraintSolver<T>::DetermineVelLevelActiveSet(
             PointContact::ContactState::kContactingAndSliding;
       }
     }
-
-    ++contact_index;
   }
 }
 
