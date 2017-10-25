@@ -771,6 +771,9 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
     const systems::Context<T>& context,
     const std::vector<const systems::DiscreteUpdateEvent<T>*>&,
     systems::DiscreteValues<T>* discrete_state) const {
+  using std::sin;
+  using std::cos;
+
   // Set ERP (error reduction parameter) and CFM (constraint force mixing)
   // to make this problem "mostly rigid" and with rapid stabilization. These
   // parameters are described in the Open Dynamics Engine user manual (see
@@ -781,6 +784,9 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // http://box2d.org/files/GDC2011/GDC2011_Catto_Erin_Soft_Constraints.pdf).
   const double erp = get_erp();
   const double cfm = get_cfm();
+
+  // Construct the problem data.
+  ConstraintVelProblemData<T> problem_data(ngc);
 
   // Get the necessary state variables.
   const systems::BasicVector<T>& state = *context.get_discrete_state(0);
@@ -809,26 +815,6 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   const Vector2<T> right =
       CalcRodEndpoint(x, y,  1, ctheta, stheta, half_length_);
 
-  // Total number of friction directions = number of friction directions
-  // per contact * number of contacts. Because this problem is two dimensional,
-  // no polygonalization of a friction cone is necessary. However, the LCP
-  // variables can only assume positive values, so the negation of the tangent
-  // direction permits obtaining the same effect.
-  const int nk = 2 * nc;
-
-  // Problem matrices and vectors are mildly adapted from:
-  // M. Anitescu and F. Potra. Formulating Dynamic Multi-Rigid Body Contact
-  // Problems as Solvable Linear Complementarity Problems. Nonlinear Dynamics,
-  // 14, 1997.
-
-  // Get the inverse of the generalized inertia matrix.
-  Matrix3<T> M_inv = get_inverse_inertia_matrix();
-
-  // Update the generalized velocity vector with discretized external forces
-  // (expressed in the world frame).
-  const Vector3<T> fext = ComputeExternalForces(context);
-  v += dt_ * M_inv * fext;
-
   // Set up the contact normal and tangent (friction) direction Jacobian
   // matrices. These take the form:
   //     | 0 1 n1 |        | 1 0 f1 |
@@ -845,78 +831,56 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   F(0, 2) = -(left[1]  - y);
   F(1, 2) = -(right[1] - y);
 
-  // Construct a matrix similar to E in Anitscu and Potra 1997. This matrix
-  // will yield mu*fN - E*fF = 0, or, equivalently:
-  // mu*fN₁ - fF₁⁺ - fF₁⁻ ≥ 0
-  // mu*fN₂ - fF₂⁺ - fF₂⁻ ≥ 0
-  Eigen::Matrix<T, nk, nc> E;
-  E.col(0) << 1, 0, 1, 0;
-  E.col(1) << 0, 1, 0, 1;
+  // Set the number of tangent directions.
+  problem_data.r = { 1, 1 };
 
-  // Construct the LCP matrix. First do the "normal contact direction" rows.
-  Eigen::Matrix<T, 8, 8> MM;
-  MM.template block<2, 2>(0, 0) = N * M_inv * N.transpose();
-  MM.template block<2, 2>(0, 2) = N * M_inv * F.transpose();
-  MM.template block<2, 2>(0, 4) = -MM.template block<2, 2>(0, 2);
-  MM.template block<2, 2>(0, 6).setZero();
+  // Set the coefficients of friction.
+  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
 
-  // Now construct the un-negated tangent contact direction rows (everything
-  // but last block column).
-  MM.template block<2, 2>(2, 0) = F * M_inv * N.transpose();
-  MM.template block<2, 2>(2, 2) = F * M_inv * F.transpose();
-  MM.template block<2, 2>(2, 4) = -MM.template block<2, 2>(2, 2);
+  // Set up the operators.
+  problem_data.N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+    return N * vv;
+  }
+  problem_data.N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+    return N.transpose() * vv;
+  }
+  problem_data.F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+    return F.transpose() * vv;
+  }
+  problem_data.F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+    return F * vv;
+  }
+  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+    return get_inverse_inertia_matrix() * mm; 
+  }
 
-  // Now construct the negated tangent contact direction rows (everything but
-  // last block column). These negated tangent contact directions allow the
-  // LCP to compute forces applied along the negative x-axis.
-  MM.template block<2, 6>(4, 0) = -MM.template block<2, 6>(2, 0);
+  // Update the generalized velocity vector with discretized external forces
+  // (expressed in the world frame).
+  const Vector3<T> fext = ComputeExternalForces(context);
+  v += dt_ * problem_data.solve_inertia(fext);
+  problem_data.Mv = get_inertia_matrix() * v;
 
-  // Construct the last block column for the last set of rows (see Anitescu and
-  // Potra, 1997).
-  MM.template block<4, 2>(2, 6) = E;
+  // TODO: set kN.
 
-  // Construct the last two rows, which provide the friction "cone" constraint.
-  MM.template block<2, 2>(6, 0) = Matrix2<T>::Identity() * get_mu_coulomb();
-  MM.template block<2, 4>(6, 2) = -E.transpose();
-  MM.template block<2, 2>(6, 6).setZero();
+  // Set regularization parameters.
+  gammaN.setOnes(nc) *= cfm;
+  gammaF.setOnes(nk) *= cfm;
+  gammaE.setOnes(nc) *= cfm;
 
-  // Construct the LCP vector.
-  Eigen::Matrix<T, 8, 1> qq(8);
-  qq.segment(0, 2) = N * v;
-  qq(0) += erp * left[1]/dt_;
-  qq(1) += erp * right[1]/dt_;
-  qq.segment(2, 2) = F * v;
-  qq.segment(4, 2) = -qq.segment(2, 2);
-  qq.template segment(6, 2).setZero();
+  // Solve the constraint problem.
+  VectorX<T> cf;
+  solver_.SolveImpactProblem(problem_data, &cf);
 
-  // Regularize the LCP matrix: this is essentially Tikhonov Regularization.
-  // Cottle et al. show that any linear complementarity problem is solvable
-  // for sufficiently large cfm.
-  // R. Cottle, J.-S. Pang, and R. Stone. The Linear Complementarity Problem.
-  // Academic Press, 1992.
-  MM += Eigen::Matrix<T, 8, 8>::Identity() * cfm;
-
-  // Solve the LCP.
-  VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz);
-  VectorX<T> ww = MM * zz + qq;
-  const T zero_tol = 100 * cfm;
-  DRAKE_DEMAND(zz.minCoeff() > -zero_tol && ww.minCoeff() > -zero_tol &&
-               fabs(zz.dot(ww)) < 8 * zero_tol);
-  DRAKE_DEMAND(success);
-
-  // Obtain the normal and frictional contact forces.
-  VectorX<T> fN = zz.segment(0, 2);
-  VectorX<T> fF_pos = zz.segment(2, 2);
-  VectorX<T> fF_neg = zz.segment(4, 2);
+  // Compute the updated velocity.
+  VectorX<T> delta_v;
+  solver_.ComputeGeneralizedVelocityChange(problem_data, cf, &delta_v);
 
   // Compute the new velocity. Note that external forces have already been
   // incorporated into v.
-  VectorX<T> vplus = v + M_inv * (N.transpose()*fN + F.transpose()*fF_pos -
-                                  F.transpose()*fF_neg);
+  VectorX<T> vplus = v + delta_v;
 
   // Compute the new position using explicit Euler integration.
-  VectorX<T> qplus = q + vplus*dt_;
+  VectorX<T> qplus = q + vplus * dt_;
 
   // Set the new discrete state.
   systems::BasicVector<T>* new_state = discrete_state->get_mutable_vector(0);
