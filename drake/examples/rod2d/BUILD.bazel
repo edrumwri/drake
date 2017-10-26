@@ -33,8 +33,8 @@ drake_cc_binary(
 
 drake_cc_library(
     name = "rod2d_state_vector",
-    srcs = ["gen/rod2d_state_vector.cc"],
-    hdrs = ["gen/rod2d_state_vector.h"],
+    srcs = ["gen/rod2d_state.cc"],
+    hdrs = ["gen/rod2d_state.h"],
     deps = [
       "//drake/systems/framework:vector",
     ]
@@ -55,7 +55,7 @@ drake_cc_library(
     deps = [
 	":rod2d_state_vector",
         "//drake/common:essential",
-        "//drake/multibody/constraint",
+        "//drake/multibody/constraint:constraint_solver",
         "//drake/solvers:mathematical_program",
         "//drake/systems/framework:leaf_system",
         "//drake/systems/rendering:pose_vector",

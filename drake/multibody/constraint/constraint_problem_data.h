@@ -5,6 +5,16 @@
 #include <Eigen/Core>
 
 #include "drake/common/eigen_types.h"
+#include "drake/multibody/constraint/point_contact.h"
+
+namespace drake {
+namespace systems {
+
+template <class T>
+class Context;
+
+}  // end systems
+}  // end drake
 
 namespace drake {
 namespace multibody {
@@ -298,6 +308,32 @@ struct ConstraintVelProblemData {
     F_transpose_mult = zero_gv_dim_fn;
     L_transpose_mult = zero_gv_dim_fn;
     G_transpose_mult = zero_gv_dim_fn;
+
+    // Set the default stiction tolerance function, which simply examines
+    // whether the tangent velocity is larger than some constant.
+    auto default_stiction_tolerance_fn = [](
+        const systems::Context<T>& context,
+        const ConstraintVelProblemData<T>& problem_data,
+        const PointContact& contact,
+        int contact_index) {
+      // TODO: Adjust the stiction tolerance using the accuracy parameter?
+      const double stiction_tolerance = 1e3 * std::numeric_limits<double>::epsilon();
+
+      // This implementation computes the velocities at all tangent contacts,
+      // so a bespoke method could be much more efficient.
+      const int tangent_velocity_index_start = (contact_index > 0) ?
+          std::accumulate(problem_data.r.begin(), problem_data.r.end(), 0) : 0;
+      
+      // Get the velocities at these points. Note that this calculation
+      // incorporates feedback velocities from stabilization.
+      const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv);
+      const VectorX<T> Fv = problem_data.F_mult(v) + problem_data.kF;
+      return (Fv.segment(tangent_velocity_index_start, contact_index).norm() < 
+              stiction_tolerance);
+    };
+
+    // Set the function pointer.
+    is_tangent_velocity_zero = default_stiction_tolerance_fn;
   }
 
   /// The number of spanning vectors in the contact tangents (used to linearize
@@ -487,14 +523,21 @@ struct ConstraintVelProblemData {
   VectorX<T> gammaL;
   /// @}
 
-  /// The ℝᵐ vector v, the generalized velocity immediately before any impulsive
+  /// The ℝᵐ generalized momentum immediately before any impulsive
   /// forces (from impact) are applied.
-  VectorX<T> v;
+  VectorX<T> Mv;
 
   /// A function for solving the equation MX = B for matrix X, given input
   /// matrix B, where M is the generalized inertia matrix for the rigid body
   /// system.
   std::function<MatrixX<T>(const MatrixX<T>&)> solve_inertia;
+
+  /// A function for determining whether the velocity at a point of contact is
+  /// zero.
+  std::function<bool(const systems::Context<T>&,
+      const ConstraintVelProblemData<T>&,
+      const PointContact&,
+      int)> is_tangent_velocity_zero;
 };
 
 }  // namespace constraint
