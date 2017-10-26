@@ -1,0 +1,25 @@
+namespace: "drake::examples"
+
+element {
+     name: "x"
+}
+element {
+     name: "y"
+     doc: "y"
+}
+element {
+     name: "theta"
+     doc: "theta"
+}
+element {
+     name: "xdot"
+     doc: "xdot"
+}
+element {
+     name: "ydot"
+     doc: "ydot"
+}
+element {
+     name: "thetadot"
+     doc: "thetadot"
+}

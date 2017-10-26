@@ -1260,7 +1260,6 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
   return M_inv;
 }
 
-// TODO: Remove this
 // Computes the contact forces for the case of nonzero sliding velocity at
 // two points of contact. Equations governing the dynamics in this mode are:
 //
@@ -1292,7 +1291,6 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
 //   N⋅M⁻¹⋅(Nᵀ - μFᵀ)
 // and the LCP vector is:
 //   N⋅M⁻¹⋅fext + dN/dt⋅v
-/*
 template <class T>
 void Rod2D<T>::CalcTwoContactSlidingForces(
     const systems::Context<T>& context, Vector2<T>* fN, Vector2<T>* fF) const {
@@ -1574,7 +1572,6 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
   *fN = zz.template segment<2>(0);
   *fF = zz.template segment<2>(2) - zz.template segment<2>(4);
 }
-*/
 
 // This is a smooth approximation to a step function. Input x goes from 0 to 1;
 // output goes 0 to 1 but smoothed with an S-shaped quintic with first and

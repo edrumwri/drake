@@ -537,10 +537,11 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   /// @param tangent_vels a vector of tangent velocities at the contact points,
   ///        measured along the positive x-axis.
   /// @param[out] data the rigid contact problem data.
-  void CalcConstraintProblemData(const systems::Context<T>& context,
-                                   const std::vector<Vector2<T>>& points,
-                                   const std::vector<T>& tangent_vels,
-    multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      const std::vector<Vector2<T>>& points,
+      const std::vector<T>& tangent_vels,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
 
   /// Initializes the impacting contact data for the rod, given a set of contact
   /// points. Aborts if data is null.
@@ -690,6 +691,9 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
 
   // The constraint solver. 
   multibody::constraint::ConstraintSolver<T> solver_; 
+
+  // The LCP solver.
+  solvers::MobyLCPSolver<T> lcp_;
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;
