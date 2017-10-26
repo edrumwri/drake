@@ -3,6 +3,7 @@
 #include "drake/examples/rod2d/rod2d.h"
 #include "drake/examples/rod2d/rigid_contact.h"
 
+#include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
@@ -43,17 +44,15 @@ class SignedDistanceWitness : public systems::WitnessFunction<T> {
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
-    const RigidContact& contact =
+    const auto& contact =
         rod_->get_contacts(context.get_state())[contact_index_];
 
     // Get the relevant parts of the state.
     const Vector3<T> q = context.get_continuous_state()->
         get_generalized_position().CopyToVector();
 
-    // Get the relevant point on the rod in the world frame.
-    const Eigen::Rotation2D<T> R(q(2));
-    const Vector2<T> x(q(0), q(1));
-    const Vector2<T> p = x + R * contact.u.segment(0,2);
+    // Get the contact candidate in the world frame.
+    const Vector2<T> p = rod_->GetPointInWorldFrame(q, contact);
 
     // Return the vertical location.
     return p[1];

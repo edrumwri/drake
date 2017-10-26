@@ -1,5 +1,4 @@
 # -*- python -*-
-# This file contains rules for Bazel; see drake/doc/bazel.rst.
 
 load(
     "//tools:drake.bzl",
@@ -15,6 +14,7 @@ drake_cc_library(
     name = "constraint",
     hdrs = [
         "constraint_problem_data.h",
+        "point_contact.h",
     ],
     deps = [
         "//drake/common:essential",
@@ -26,7 +26,6 @@ drake_cc_library(
     srcs = ["constraint_solver.cc"],
     hdrs = [
         "constraint_solver.h",
-        "point_contact.h",
     ],
     deps = [
         ":constraint",

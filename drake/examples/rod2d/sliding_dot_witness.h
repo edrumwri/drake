@@ -3,6 +3,7 @@
 #include "drake/examples/rod2d/rod2d.h"
 #include "drake/examples/rod2d/rigid_contact.h"
 
+#include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
@@ -40,12 +41,11 @@ class SlidingDotWitness : public systems::WitnessFunction<T> {
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
-    const RigidContact& contact =
+    const auto& contact =
         rod_->get_contacts(context.get_state())[contact_index_];
 
     // Verify rod is undergoing sliding contact at the specified index.
-    DRAKE_DEMAND(contact.state ==
-        RigidContact::ContactState::kContactingAndSliding);
+    DRAKE_DEMAND(contact.sliding);
 
     // Compute the translational velocity at the point of contact.
     const Vector2<T> pdot = rod_->CalcContactVelocity(context.get_state(),

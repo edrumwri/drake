@@ -4,18 +4,15 @@
 #include "drake/examples/rod2d/signed_distance_witness.h"
 #include "drake/examples/rod2d/sliding_dot_witness.h"
 #include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
-#include "drake/examples/rod2d/gen/rod2d_state_vector.h"
-
-#include "drake/examples/rod2d/rigid_contact.h"
+#include "drake/examples/rod2d/gen/rod2d_state.h"
 
 
-#include "gtest/gtest_prod.h"
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "drake/multibody/constraint/constraint_problem_data.h"
-#include "drake/solvers/moby_lcp_solver.h"
+#include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/rendering/pose_vector.h"
 
@@ -202,24 +199,24 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
 
-  static const Rod2dStateVector<T>& get_state(
+  static const Rod2dState<T>& get_state(
       const systems::ContinuousState<T>& cstate) {
-    return dynamic_cast<const Rod2dStateVector<T>&>(cstate);
+    return dynamic_cast<const Rod2dState<T>&>(cstate);
   }
 
-  static Rod2dStateVector<T>* get_mutable_state(
+  static Rod2dState<T>* get_mutable_state(
       systems::ContinuousState<T>* cstate) {
-    return dynamic_cast<Rod2dStateVector<T>*>(cstate); }
+    return dynamic_cast<Rod2dState<T>*>(cstate); }
 
-  static const Rod2dStateVector<T>& get_state(
+  static const Rod2dState<T>& get_state(
       const systems::Context<T>& context) {
-    return dynamic_cast<const Rod2dStateVector<T>&>(
+    return dynamic_cast<const Rod2dState<T>&>(
         *context.get_continuous_state());
   }
 
-  static Rod2dStateVector<T>* get_mutable_state(
+  static Rod2dState<T>* get_mutable_state(
       systems::Context<T>* context) {
-    return dynamic_cast<Rod2dStateVector<T>*>(
+    return dynamic_cast<Rod2dState<T>*>(
         context->get_mutable_continuous_state());
   }
 
@@ -404,11 +401,11 @@ class Rod2D : public systems::LeafSystem<T> {
       const systems::Context<T>& context) const;
 
   /// Gets the vector of contact state variables from the given state.
-  const std::vector<RigidContact>& get_contacts(
+  const std::vector<multibody::constraint::PointContact>& get_contacts(
       const systems::State<T>& state) const;
 
   /// Mutable version of get_contacts(). 
-  std::vector<RigidContact>& get_contacts(systems::State<T>* state) const;
+  std::vector<multibody::constraint::PointContact>& get_contacts(systems::State<T>* state) const;
 
   /// The witness function for the signed distance between one endpoint of the
   /// rod (not already touching the half-space) and the half-space for the case
@@ -456,6 +453,24 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   /// Returns the 3D pose of this rod.
   const systems::OutputPort<T>& pose_output() const {
     return *pose_output_port_;
+  }
+
+  // Utility method for determining the location, in the world frame, of a
+  // vector expressed in the rod body frame.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, const Vector2<T>& u) const {
+    const T& theta = q[2];
+    Eigen::Rotation2D<T> R(theta); 
+    const Vector2<T> x = q.segment(0, 2);
+    return x + R * u;
+  }
+
+  // Utility method for determining the location, in the world frame, of a
+  // specified contact.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, const multibody::constraint::PointContact& c) const {
+    const long id = reinterpret_cast<long>(c.id);
+    return GetPointInWorldFrame(q, contact_candidates_[id]);
   }
 
   /// Utility method for determining the World frame location of one of three
@@ -537,7 +552,12 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
  private:
-
+  void FormConstraintProblemData(
+      const systems::Context<T>& context,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void FormConstraintProblemData(
+      const systems::Context<T>& context,
+      multibody::constraint::ConstraintVelProblemData<T>* data) const;
   bool IsImpacting(const systems::State<T>& state) const;
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
@@ -547,6 +567,7 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                                const Vector2<T>& dir) const;
   static Matrix2<T> GetRotationMatrixDerivative(T theta, T thetadot);
   T GetSlidingVelocityTolerance() const;
+  Matrix3<T> GetInertiaMatrix() const;
   MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
   int get_k(const systems::Context<T>& context) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
@@ -573,28 +594,29 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
-  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
   friend class Rod2DDAETest;
+  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
+  friend class Rod2DDAETest_ImpactWorksTest_Test;
+  friend class Rod2DDAETest_ImpactNoChange_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_ImpactNoChange2_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_BallisticNoImpact_Test;
+  friend class Rod2DDAETest_ConsistentDerivativesContacting_Test;
+  friend class Rod2DDAETest_DerivativesContactingAndSticking_Test;
+  friend class Rod2DDAETest_Inconsistent_Test;
+  friend class Rod2DDAETest_Inconsistent2_Test;
+  friend class Rod2DDAETest_MultiPoint_Test;
+  friend class Rod2DDAETest_SignedDistWitness_Test;
+  friend class Rod2DDAETest_SeparationWitness_Test;
+  friend class Rod2DDAETest_VelocityChangesWitness_Test;
+  friend class Rod2DDAETest_StickingSlidingWitness_Test;
+
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;
-  FRIEND_TEST(Rod2DDAETest, ImpactWorks);
-  FRIEND_TEST(Rod2DDAETest, ImpactNoChange);
-  FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact);
-  FRIEND_TEST(Rod2DDAETest, NoFrictionImpactThenNoImpact);
-  FRIEND_TEST(Rod2DDAETest, ImpactNoChange2);
-  FRIEND_TEST(Rod2DDAETest, InfFrictionImpactThenNoImpact2);
-  FRIEND_TEST(Rod2DDAETest, NoFrictionImpactThenNoImpact2);
-  FRIEND_TEST(Rod2DDAETest, BallisticNoImpact);
-  FRIEND_TEST(Rod2DDAETest, ConsistentDerivativesContacting);
-  FRIEND_TEST(Rod2DDAETest, DerivativesContactingAndSticking);
-  FRIEND_TEST(Rod2DDAETest, Inconsistent);
-  FRIEND_TEST(Rod2DDAETest, Inconsistent2);
-  FRIEND_TEST(Rod2DDAETest, MultiPoint);
-  FRIEND_TEST(Rod2DDAETest, SignedDistWitness);
-  FRIEND_TEST(Rod2DDAETest, SeparationWitness);
-  FRIEND_TEST(Rod2DDAETest, VelocityChangesWitness);
-  FRIEND_TEST(Rod2DDAETest, StickingSlidingWitness);
-  FRIEND_TEST(Rod2DCrossValidationSlidingTest, Interval);
+  friend class Rod2DCrossValidationTest_Interval_Test;
 
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of
@@ -602,44 +624,15 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
-  VectorX<T> SolveContactProblem(const systems::Context<T>& context,
-                                 RigidContactAccelProblemData<T>* problem_data)
-                                 const;
-  void InitRigidContactAccelProblemData(const systems::State<T>& state,
-      RigidContactAccelProblemData<T>* problem_data) const;
-  void FormRigidContactVelJacobians(const systems::State<T>& state,
-      RigidContactVelProblemData<T>* problem_data) const;
-  void FormRigidContactAccelJacobians(const systems::State<T>& state,
-      RigidContactAccelProblemData<T>* problem_data) const;
-  void ComputeSustainedContactProblemData(const systems::Context<T>& context,
-                                          MatrixX<T>* N, MatrixX<T>* F,
-                                          MatrixX<T>* N_minus_mu_Q,
-                                          MatrixX<T>* iM_x_FT) const;
-  Vector2<T> CalcContactVelocity(const systems::State<T>& state,
-                                 const RigidContact& c) const;
-  void FormSustainedContactLinearSystem(const systems::Context<T>& context,
-      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
-      VectorX<T>* qq) const;
-  void FormSustainedContactLCP(const systems::Context<T>& context,
-      const RigidContactAccelProblemData<T>& problem_data, MatrixX<T>* MM,
-      Eigen::Matrix<T, Eigen::Dynamic, 1>* qq) const;
-  void DetermineAccelLevelActiveSet(const systems::Context<T>& context,
-                                    systems::State<T>* state) const;
-  MatrixX<T> AddScaledRightTerm(const MatrixX<T>& A, const VectorX<T>& scale,
-                                const MatrixX<T>& X,
-                                const std::vector<int>& indices) const;
-  MatrixX<T> MultTranspose(const MatrixX<T>& A, const MatrixX<T>& X,
-                           const std::vector<int>& indices) const;
+  Vector2<T> CalcContactVelocity(
+      const systems::State<T>& state,
+      const multibody::constraint::PointContact& c) const;
   Matrix2<T> get_rotation_matrix_derivative(
       const systems::State<T>& state) const;
-  void ModelImpact(systems::State<T>* state, VectorX<T>* Nvplus = nullptr,
-                   VectorX<T>* Fvplus = nullptr, T* zero_tol = nullptr) const;
-  void DetermineVelLevelActiveSet(systems::State<T>* state,
-                                  const VectorX<T>& Nv,
-                                  const VectorX<T>& Fv,
-                                  const T& zero_tol) const;
-  bool IsTangentVelocityZero(const systems::State<T>& state,
-                             const RigidContact& c) const;
+  void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
+  bool IsTangentVelocityZero(
+      const systems::State<T>& state,
+      const multibody::constraint::PointContact& c) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
   Matrix3<T> get_inverse_inertia_matrix() const;
@@ -695,11 +688,8 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   // Friction model used in compliant contact.
   static T CalcMuStribeck(const T& us, const T& ud, const T& v);
 
-  // Solves linear complementarity problems for rigid contact problems.
-  solvers::MobyLCPSolver<T> lcp_;
-
-  // Computes contact forces for active set approach.
-  mutable Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> QR_;
+  // The constraint solver. 
+  multibody::constraint::ConstraintSolver<T> solver_; 
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;
@@ -712,6 +702,9 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
       sticking_friction_forces_slack_witnesses_;
   std::vector<std::unique_ptr<SeparatingAccelWitness<T>>>
       separating_accel_witnesses_;
+
+  // Vectors of candidates for contact.
+  std::vector<Vector2<T>> contact_candidates_;
 
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
