@@ -331,7 +331,6 @@ class ConstraintSolver {
 // Determines the active set at the acceleration level. Namely, this method
 // determines when bodies may be accelerating away at a point of contact
 // or when a contact is transitioning from sticking to sliding.
-/*
 template <class T>
 void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
     ConstraintAccelProblemData<T>* problem_data, 
@@ -373,15 +372,22 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
   // Reset the transitioning contacts flag.
   problem_data->transitioning_contacts = false;
 
+  // Compute the scaling factors for the non-sliding frictional forces.
+   
+  // We determine whether the contact is moving from non-sliding to
+  // sliding by checking whether the tangential acceleration is of greater
+  // magnitude than the *slack* frictional force (i.e., the difference between
+  // Coulomb stiction and the frictional force) at the contact. That force is
+  // defined as μfNᵢ - ||fFᵢ|| for contact i. 
+
+Tangential
+  // acceleration is defined as ||F⋅v̇ + F⋅dot|| with units of meters/sq.
+  // sec. Frictional forces (ff) can be transformed to such units using:
+  // FM⁻¹Fᵀ.
+
   // Determine whether any contacts are transitioning from non-sliding to
   // sliding.
   for (int i = 0; i < static_cast<int>(non_sliding_contacts.size()); ++i) {
-    // TODO: Determine whether the contact is moving from non-sliding to
-    // sliding by checking whether the tangential acceleration is of greater
-    // magnitude than the frictional force at the contact. Tangential
-    // acceleration is defined as ||F⋅v̇ + F⋅dot|| with units of meters/sq.
-    // sec. Frictional forces (ff) can be transformed to such units using:
-    // FM⁻¹Fᵀ.
 
     // Get the accelerations in the tangent directions at this contact. If
     // the accelerations are clearly zero, then the contact needs no further
@@ -404,7 +410,7 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
     }
   }
 }
-*/
+
 // Models any impacts for the piecewise-DAE based system and determines
 // the active set at the velocity-level (meaning that a point of contact
 // will be de-activated when contacting bodies are separating at that point
