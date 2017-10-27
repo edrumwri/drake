@@ -48,8 +48,14 @@ struct ConstraintAccelProblemData {
   }
 
   /// Indicates whether any contacts are transitioning from not-sliding to
-  /// sliding.
-  bool transitioning_contacts{false};
+  /// sliding. Note that setting this to `true` will cause a complementarity
+  /// problem, rather than a linear or nonlinear system problem, to be solved.
+  /// The latter are *far* faster to solve, but solving the complementarity
+  /// problem (by setting this variable to `true`) as the former does it
+  /// always correct, just slow. In contrast, the linear/nonlinear system
+  /// solve is only correct when the active set of constraints has been
+  /// identified (using a complementarity problem solver). 
+  bool transitioning_contacts{true};
 
   /// The indices of the sliding contacts (those contacts at which there is
   /// non-zero relative velocity between bodies in the plane tangent to the

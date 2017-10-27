@@ -27,6 +27,9 @@ namespace rod2d {
 template <typename T>
 Rod2D<T>::Rod2D(SimulationType simulation_type, double dt) :
     simulation_type_(simulation_type), dt_(dt) {
+  // Set the vector of contact candidates.
+  SetContactCandidates();
+
   // Verify that the simulation approach is either piecewise DAE or
   // compliant ODE.
   if (simulation_type == SimulationType::kTimeStepping) {
@@ -512,7 +515,6 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   DetermineAccelLevelActiveSet(context, state);
 */
 }
-
 
 // Calculates the velocity at a point of contact.
 template <class T>
@@ -1260,7 +1262,6 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
   return M_inv;
 }
 
-// TODO: Remove this
 // Computes the contact forces for the case of nonzero sliding velocity at
 // two points of contact. Equations governing the dynamics in this mode are:
 //
@@ -1292,7 +1293,6 @@ Matrix3<T> Rod2D<T>::get_inverse_inertia_matrix() const {
 //   N⋅M⁻¹⋅(Nᵀ - μFᵀ)
 // and the LCP vector is:
 //   N⋅M⁻¹⋅fext + dN/dt⋅v
-/*
 template <class T>
 void Rod2D<T>::CalcTwoContactSlidingForces(
     const systems::Context<T>& context, Vector2<T>* fN, Vector2<T>* fF) const {
@@ -1574,7 +1574,6 @@ void Rod2D<T>::CalcTwoContactNoSlidingForces(
   *fN = zz.template segment<2>(0);
   *fF = zz.template segment<2>(2) - zz.template segment<2>(4);
 }
-*/
 
 // This is a smooth approximation to a step function. Input x goes from 0 to 1;
 // output goes 0 to 1 but smoothed with an S-shaped quintic with first and
@@ -2266,6 +2265,35 @@ Matrix2<T> Rod2D<T>::GetNonSlidingContactFrameToWorldTransform() const {
 template <class T>
 void Rod2D<T>::CalcConstraintProblemData(
     const systems::Context<T>& context,
+    multibody::constraint::ConstraintAccelProblemData<T>* data)
+    const {
+  // Get the current configuration of the system.
+  const VectorX<T> q = context.get_state().get_continuous_state()->
+      get_generalized_position().CopyToVector();
+
+  // Get the contacts.
+  const auto& contacts = get_contacts(context.get_state());
+
+  // Create the vector of contact points.
+  std::vector<Vector2<T>> points;
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    // Get the point in the world frame.
+    const long index = reinterpret_cast<long>(contacts[i].id);
+    const Vector2<T> p0 = GetPointInWorldFrame(q, contact_candidates_[index]);
+    points.push_back(p0);
+  }
+
+  // Determine the tangent velocities at the contact points.
+  std::vector<T> tangent_vels;
+  GetContactPointsTangentVelocities(context, points, &tangent_vels);
+
+  // Call the primary method.
+  CalcConstraintProblemData(context, points, tangent_vels, data);
+}
+
+template <class T>
+void Rod2D<T>::CalcConstraintProblemData(
+    const systems::Context<T>& context,
     const std::vector<Vector2<T>>& points,
     const std::vector<T>& tangent_vels,
     multibody::constraint::ConstraintAccelProblemData<T>* data)
@@ -2376,6 +2404,32 @@ void Rod2D<T>::CalcConstraintProblemData(
   // Set external force vector.
   data->tau = ComputeExternalForces(context);
 }
+
+template <class T>
+void Rod2D<T>::CalcImpactProblemData(
+    const systems::Context<T>& context,
+    multibody::constraint::ConstraintVelProblemData<T>* data)
+    const {
+  // Get the current configuration of the system.
+  const VectorX<T> q = context.get_state().get_continuous_state()->
+      get_generalized_position().CopyToVector();
+
+  // Get the contacts.
+  const auto& contacts = get_contacts(context.get_state());
+
+  // Create the vector of contact points.
+  std::vector<Vector2<T>> points;
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    // Get the point in the world frame.
+    const long index = reinterpret_cast<long>(contacts[i].id);
+    const Vector2<T> p0 = GetPointInWorldFrame(q, contact_candidates_[index]);
+    points.push_back(p0);
+  }
+
+  // Call the primary method.
+  CalcImpactProblemData(context, points, data);
+}
+
 
 template <class T>
 void Rod2D<T>::CalcImpactProblemData(
@@ -2747,7 +2801,7 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
 /// such that it and the halfspace are touching at exactly one point of contact.
 template <typename T>
 void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
-                                  systems::State<T>* state) const {
+                               systems::State<T>* state) const {
   using std::sqrt;
   using std::sin;
 
@@ -2770,24 +2824,27 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       auto& contacts = get_contacts(state);
 
       // Indicate that the rod is in the single contact sliding mode.
-      contacts.resize(2);
+      contacts.resize(1);
 
-// TODO: Fix this
-/*
-      // First point is Rl in Rod Frame (see class documentation); in the
-      // default configuration, it contacts the half-space and is sliding.
-      contacts[0].state = multibody::constraint::PointContact::ContactState::kContactingAndSliding;
-      contacts[0].mu = get_mu_coulomb();
-      contacts[0].u = Eigen::Vector3d(-get_rod_half_length(), 0, 0);
-
-      // Second point is Rr in Rod Frame. It is not initially contacting
-      // the half-space.
-      contacts[1].state = multibody::constraint::PointContact::ContactState::kNotContacting;
-      contacts[1].mu = get_mu_coulomb();
-      contacts[1].u = Eigen::Vector3d(get_rod_half_length(), 0, 0);
-*/
+      // First contact candidate is Rl in Rod Frame (see class documentation);
+      // in the default rod configuration, Rl contacts the half-space and is
+      // sliding.
+      contacts.front().sliding = true;
+      contacts.front().id = 0;
     }
   }
+}
+
+// Sets the contact candidates.
+template <class T>
+void Rod2D<T>::SetContactCandidates() {
+  contact_candidates_.resize(2);
+
+  // First point is Rl in Rod Frame (see class documentation).
+  contact_candidates_.front() = Vector2<T>(-get_rod_half_length(), 0);
+
+  // Second point is Rr in Rod Frame.
+  contact_candidates_.back() = Vector2<T>(get_rod_half_length(), 0);   
 }
 
 // Converts a state vector to a rendering PoseVector.

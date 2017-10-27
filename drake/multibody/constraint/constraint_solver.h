@@ -678,7 +678,7 @@ void ConstraintSolver<T>::FormAndSolveConstraintLinearSystem(
 
   // Solve the linear system.
   Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> MM_QTZ(MM);
-  *cf = MM_QTZ.solve(-qq);
+  cf->head(qq.size()) = MM_QTZ.solve(-qq);
 }
 
 template <typename T>

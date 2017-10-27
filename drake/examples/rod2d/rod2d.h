@@ -305,7 +305,10 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_rod_half_length() const { return half_length_; }
 
   /// Sets the half-length h of the rod.
-  void set_rod_half_length(double half_length) { half_length_ = half_length; }
+  void set_rod_half_length(double half_length) { 
+    half_length_ = half_length;
+    SetContactCandidates();
+  }
 
   /// Gets the rod moment of inertia.
   double get_rod_moment_of_inertia() const { return J_; }
@@ -537,10 +540,11 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   /// @param tangent_vels a vector of tangent velocities at the contact points,
   ///        measured along the positive x-axis.
   /// @param[out] data the rigid contact problem data.
-  void CalcConstraintProblemData(const systems::Context<T>& context,
-                                   const std::vector<Vector2<T>>& points,
-                                   const std::vector<T>& tangent_vels,
-    multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      const std::vector<Vector2<T>>& points,
+      const std::vector<T>& tangent_vels,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
 
   /// Initializes the impacting contact data for the rod, given a set of contact
   /// points. Aborts if data is null.
@@ -551,13 +555,15 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
- private:
-  void FormConstraintProblemData(
+  void CalcConstraintProblemData(
       const systems::Context<T>& context,
       multibody::constraint::ConstraintAccelProblemData<T>* data) const;
-  void FormConstraintProblemData(
+  void CalcImpactProblemData(
       const systems::Context<T>& context,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
+
+ private:
+  void SetContactCandidates();
   bool IsImpacting(const systems::State<T>& state) const;
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
@@ -690,6 +696,9 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
 
   // The constraint solver. 
   multibody::constraint::ConstraintSolver<T> solver_; 
+
+  // The LCP solver.
+  solvers::MobyLCPSolver<T> lcp_;
 
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;

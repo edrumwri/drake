@@ -48,7 +48,7 @@ class SeparatingAccelWitness : public systems::WitnessFunction<T> {
     const int ngv = 3;  // Number of rod generalized velocities.
     VectorX<T> cf;
     multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
-    rod_->FormConstraintProblemData(context, &problem_data);
+    rod_->CalcConstraintProblemData(context, &problem_data);
     solver_->SolveConstraintProblem(problem_data, &cf);
 
     // Return the normal force. A negative value means that the force has
