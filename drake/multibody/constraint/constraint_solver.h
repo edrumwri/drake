@@ -328,6 +328,7 @@ class ConstraintSolver {
   drake::solvers::MobyLCPSolver<T> lcp_;
 };
 
+/*
 // Determines the active set at the acceleration level. Namely, this method
 // determines when bodies may be accelerating away at a point of contact
 // or when a contact is transitioning from sticking to sliding.
@@ -443,6 +444,7 @@ void ConstraintSolver<T>::DetermineVelLevelActiveSet(
     }
   }
 }
+*/
 
 // Given a matrix A of blocks consisting of generalized inertia (M) and the
 // Jacobian of bilaterals constraints (G):
