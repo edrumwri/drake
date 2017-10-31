@@ -286,8 +286,14 @@ struct ConstraintAccelProblemData {
 
   /// A function for solving the equation MX = B for matrix X, given input
   /// matrix B, where M is the generalized inertia matrix for the rigid body
-  /// system.
+  /// system.  
   std::function<MatrixX<T>(const MatrixX<T>&)> solve_inertia;
+
+  /// The acceleration tolerance for considering a contact to be non-sliding.
+  /// This tolerance should be modified to account for effects of nonzero
+  /// gammaF.
+  double stiction_zero_tolerance = 1e3 *
+      std::numeric_limits<double>::epsilon();
 };
 
 /// Structure for holding constraint data for computing constraint forces
