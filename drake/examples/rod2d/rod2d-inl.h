@@ -2736,7 +2736,7 @@ template <typename T>
 void Rod2D<T>::DoCalcTimeDerivatives(
     const systems::Context<T>& context,
     systems::ContinuousState<T>* derivatives) const {
-/*
+
   // Don't compute any derivatives if this is the time stepping system.
   if (simulation_type_ == SimulationType::kTimeStepping) {
     DRAKE_ASSERT(derivatives->size() == 0);
@@ -2761,22 +2761,32 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   if (simulation_type_ == SimulationType::kCompliant) {
     return CalcAccelerationsCompliantContactAndBallistic(context, derivatives);
   } else {
-    // (Piecewise DAE approach follows).
+    // Piecewise DAE approach: it is assumed that the set of active constraints
+    // is valid. The witness functions are responsible for detecting when the
+    // set of active constraints is no longer valid, and the unrestricted
+    // update function is responsible for changing the set of active
+    // constraints.
 
-    // TODO: construct the problem data
     // Construct the problem data.
+    const int ngc = 3;   // Number of generalized coordinates / velocities.
+    multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngc);
+    CalcConstraintProblemData(context, &problem_data);
 
-    // TODO: figure out how to call the linear system solver. 
+    // TODO: We need to determine when to use the LCP solver.
+
     // Solve the constraint problem.
     VectorX<T> cf;
     solver_.SolveConstraintProblem(problem_data, &cf);
 
+    // Get the generalized velocity.
+    const Vector3<T> gv = GetRodVelocity(context);
+
     // Compute and save the acceleration at the center-of-mass.
     VectorX<T> ga;
     solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+    derivatives->get_mutable_generalized_position()->SetFromVector(gv);
     derivatives->get_mutable_generalized_velocity()->SetFromVector(ga);
   }
-*/
 }
 
 /// Allocates the abstract state (for piecewise DAE systems).
