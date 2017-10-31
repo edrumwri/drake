@@ -540,10 +540,10 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
       const systems::Context<T>& context,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
   void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
+  bool IsImpacting(const systems::State<T>& state) const;
 
  private:
   void SetContactCandidates();
-  bool IsImpacting(const systems::State<T>& state) const;
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
                             const Vector2<T>& dir) const;
@@ -579,7 +579,6 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
                        systems::State<T>* state) const override;
 
  private:
-  friend class Rod2DDAETest;
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
   friend class Rod2DDAETest_ImpactWorksTest_Test;
   friend class Rod2DDAETest_ImpactNoChange_Test;
