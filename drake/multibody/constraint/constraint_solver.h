@@ -341,10 +341,21 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
   DRAKE_DEMAND(problem_data);
   DRAKE_DEMAND(contacts);
 
+  // Get the number of contacts.
+  const int num_contacts = static_cast<int>(contacts->size());
+
+  // Get the set of non-sliding contacts and their coefficients of friction.
+  const auto& non_sliding_contacts = problem_data->non_sliding_contacts;
+  const VectorX<T>& mu_non_sliding = problem_data->mu_non_sliding;
+
   // Formulate and solve the constraint problem.
 
   VectorX<T> cf;
   SolveConstraintProblem(*problem_data, &cf);
+  const int total_spanning_vectors = std::accumulate(
+      problem_data->r.begin(), problem_data->r.end(), 0);
+  const auto& fN = cf.segment(0, num_contacts);
+  const auto& fF = cf.segment(num_contacts, total_spanning_vectors);
 
   // Determine vdot.
   VectorX<T> vdot;
@@ -355,18 +366,11 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
   // vectors for the non-sliding contacts.
   VectorX<T> tan_accels = problem_data->F_mult(vdot) + problem_data->kF;
 
-  // Get the normal forces and the non-sliding frictional forces.
-  const auto& fN = cf.segment(0, num_contacts);
-  const auto& fF_non_sliding = cf.segment(num_contacts, tan_accels.size());
-
   // Get the frictional slack and norm of the tangential accelerations.
   VectorX<T> tan_accel_norms(non_sliding_contacts.size());
-  VectorX<T> frictional_slack(non_sliding_contacts.size());
-  for (int i = 0, j = 0; i < non_sliding_indices.size(); ++i)
-  {
-    frictional_slack[i] = mu_non_sliding[i] * fN[non_sliding_indices[i]] -
-      fF_non_sliding.segment(j, problem_data->r[i]).template lpNorm<1>();
-    tan_accels[i] = tan_accels.segment(j, problem_data->r[i]).norm();
+  for (int i = 0, j = 0; i < static_cast<int>(non_sliding_contacts.size());
+      ++i) {
+    tan_accel_norms[i] = tan_accels.segment(j, problem_data->r[i]).norm();
     j += problem_data->r[i];
   }
 
@@ -379,17 +383,23 @@ void ConstraintSolver<T>::DetermineAccelLevelActiveSet(
   // sliding by checking whether the tangential acceleration is of greater
   // magnitude than the *slack* frictional force (i.e., the difference between
   // Coulomb stiction and the frictional force) at the contact. That force is
-  // defined as μfNᵢ - ||fFᵢ|| for contact i. 
+  // defined as μfNᵢ - ||fFᵢ|| for contact i. The slack can be transformed
+  // to slack accelerations along directions Fᵢ by ||μFM⁻¹NᵀfNᵢ - FM⁻¹FᵀfFᵢ||.
+  VectorX<T> n_force = problem_data->N_minus_muQ_transpose_mult(fN);
+  for (int i = 0; i < static_cast<int>(mu_non_sliding.size()); ++i)
+      n_force[non_sliding_contacts[i]] *= mu_non_sliding[i];
+  const VectorX<T> f_force = problem_data->F_transpose_mult(fF);
+  const VectorX<T> gen_accel = problem_data->solve_inertia(n_force - f_force);
+  const VectorX<T> f_accel = problem_data->F_mult(gen_accel); 
 
-Tangential
   // acceleration is defined as ||F⋅v̇ + F⋅dot|| with units of meters/sq.
   // sec. Frictional forces (ff) can be transformed to such units using:
   // FM⁻¹Fᵀ.
 
   // Determine whether any contacts are transitioning from non-sliding to
   // sliding.
-  for (int i = 0; i < static_cast<int>(non_sliding_contacts.size()); ++i) {
-
+  for (int i = 0, j = 0; i < static_cast<int>(non_sliding_contacts.size());
+      ++i) {
     // Get the accelerations in the tangent directions at this contact. If
     // the accelerations are clearly zero, then the contact needs no further
     // examination. Otherwise, however, a more sophisticated zero checking
@@ -399,13 +409,16 @@ Tangential
     // contact conditions). If the tangential slack is smaller, the contact will
     // be treated as transitioning to sliding; otherwise, it will be treated as
     // remaining in stiction.
+    const T scaled_ff_slack = f_accel.segment(j, problem_data->r[i]).norm();
+    j += problem_data->r[i];
+
     // TODO: Test this approach using large magnitude accelerations. 
 
     // Scale the units of frictional slack to m/s².
 
-    if (tan_accel_norms[i] > problem_data.stiction_zero_tolerance &&
+    if (tan_accel_norms[i] > problem_data->stiction_zero_tolerance &&
         tan_accel_norms[i] > scaled_ff_slack) {
-      contacts[i].sliding = true;
+      (*contacts)[i].sliding = true;
       // Indicate that a contact is transitioning.
       problem_data->transitioning_contacts = true;
     }
