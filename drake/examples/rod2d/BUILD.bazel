@@ -32,15 +32,6 @@ drake_cc_binary(
 )
 
 drake_cc_library(
-    name = "rod2d_state_vector",
-    srcs = ["gen/rod2d_state.cc"],
-    hdrs = ["gen/rod2d_state.h"],
-    deps = [
-      "//drake/systems/framework:vector",
-    ]
-)
-
-drake_cc_library(
     name = "rod2d",
     srcs = ["rod2d.cc"],
     hdrs = [
@@ -53,7 +44,6 @@ drake_cc_library(
 	"sticking_friction_forces_slack_witness.h",
     ],
     deps = [
-	":rod2d_state_vector",
         "//drake/common:essential",
         "//drake/multibody/constraint:constraint_solver",
         "//drake/solvers:mathematical_program",

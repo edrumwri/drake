@@ -4,7 +4,6 @@
 #include "drake/examples/rod2d/signed_distance_witness.h"
 #include "drake/examples/rod2d/sliding_dot_witness.h"
 #include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
-#include "drake/examples/rod2d/gen/rod2d_state.h"
 
 
 #include <memory>
@@ -198,27 +197,6 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kTimeStepping or @p dt is not zero and simulation_type is
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
-
-  static const Rod2dState<T>& get_state(
-      const systems::ContinuousState<T>& cstate) {
-    return dynamic_cast<const Rod2dState<T>&>(cstate);
-  }
-
-  static Rod2dState<T>* get_mutable_state(
-      systems::ContinuousState<T>* cstate) {
-    return dynamic_cast<Rod2dState<T>*>(cstate); }
-
-  static const Rod2dState<T>& get_state(
-      const systems::Context<T>& context) {
-    return dynamic_cast<const Rod2dState<T>&>(
-        *context.get_continuous_state());
-  }
-
-  static Rod2dState<T>* get_mutable_state(
-      systems::Context<T>* context) {
-    return dynamic_cast<Rod2dState<T>*>(
-        context->get_mutable_continuous_state());
-  }
 
   /// Gets the constraint force mixing parameter (CFM, used for time stepping
   /// systems only).
@@ -561,6 +539,7 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   void CalcImpactProblemData(
       const systems::Context<T>& context,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
+  void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
 
  private:
   void SetContactCandidates();
@@ -635,7 +614,6 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
       const multibody::constraint::PointContact& c) const;
   Matrix2<T> get_rotation_matrix_derivative(
       const systems::State<T>& state) const;
-  void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
   bool IsTangentVelocityZero(
       const systems::State<T>& state,
       const multibody::constraint::PointContact& c) const;
