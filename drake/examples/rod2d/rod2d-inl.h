@@ -1988,29 +1988,38 @@ bool Rod2D<T>::IsImpacting(const systems::Context<T>& context) const {
   using std::sin;
   using std::cos;
 
-  // Note: we do not consider modes here.
-  // TODO(edrumwri): Handle two-point contacts.
+  // Get the contact points tracked by the state.
+  const std::vector<multibody::constraint::PointContact>& contacts =
+      get_contacts(context.get_state());
 
-  // Get state data necessary to compute the point of contact.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-  const T& ydot = state.GetAtIndex(4);
-  const T& thetadot = state.GetAtIndex(5);
+  // Get the rod configuration and velocity.
+  const Vector3<T> q = GetRodConfig(context);
+  const Vector3<T> v = GetRodVelocity(context);
 
-  // Get the height of the lower rod endpoint.
-  const T ctheta = cos(theta), stheta = sin(theta);
-  const int k = (stheta > 0) ? -1 : (stheta < 0) ? 1 : 0;
-  const T cy = y + k * stheta * half_length_;
+  // Create the vector of contact points.
+  std::vector<Vector2<T>> points;
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    // Get the point in the world frame.
+    const long index = reinterpret_cast<long>(contacts[i].id);
+    const Vector2<T> p0 = GetPointInWorldFrame(q, contact_candidates_[index]);
+    points.push_back(p0);
+  }
 
-  // If rod endpoint is not touching, there is no impact.
-  if (cy >= 10 * std::numeric_limits<double>::epsilon()) return false;
+  // Get necessary quantities for CalcCoincidentRodPointVelocity().
+  const Vector2<T> p_WRo = q.segment(0, 2);
+  const Vector2<T> v_WRo = v.segment(0, 2);
+  const T& w_WR = v[2];
 
-  // Compute the velocity at the point of contact.
-  const T cydot = ydot + k * ctheta * half_length_ * thetadot;
+  // Check the normal velocities.
+  for (size_t i = 0; i < points.size(); ++i) {
+    const double vy = CalcCoincidentRodPointVelocity(p_WRo, v_WRo, w_WR,
+                                                    points[i])[1];
+    if (vy < -10 * std::numeric_limits<double>::epsilon())
+      return true;
+  }
 
-  // Verify that the rod is not impacting.
-  return (cydot < -10 * std::numeric_limits<double>::epsilon());
+  // No impacting points encountered. 
+  return false; 
 }
 
 // Returns the time derivative of the 2x2 rotation matrix Rᶻ(θ) that transforms

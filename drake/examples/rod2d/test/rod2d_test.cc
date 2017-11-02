@@ -900,7 +900,7 @@ TEST_F(Rod2DDAETest, BallisticNoImpact) {
   xc[1] += 10.0;
   std::vector<multibody::constraint::PointContact>& contacts =
       dut_->get_contacts(context_->get_mutable_state());
-  EXPECT_TRUE(contacts.empty());
+  contacts.clear(); 
 
   // Verify that no impact occurs.
   EXPECT_FALSE(dut_->IsImpacting(context_->get_state()));
