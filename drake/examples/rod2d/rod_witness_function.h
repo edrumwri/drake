@@ -35,20 +35,29 @@ class RodWitnessFunction : public systems::WitnessFunction<T> {
   /// Gets the index of the contact candidate for this witness function.
   int get_contact_index() const { return contact_index_; }
 
-  /// Gets whether this is a signed distance witness. Defaults to false.
-  virtual bool is_signed_distance_witness() const { return false; }
+  /// The types of witness function.
+  enum class WitnessType {
+      /// The signed distance for a contact from the half-space.
+      kSignedDistance,
 
-  /// Gets whether this is a separating acceleration witness. Defaults to false.
-  virtual bool is_separating_accel_witness() const { return false; }
+      /// The acceleration along the contact normal at a point of contact. 
+      kNormalAcceleration,
 
-  /// Gets whether this is a sticking friction force witness. Defaults to false.
-  virtual bool is_sticking_friction_force_witness() const { return false; }
+      /// The velocity along the contact normal at a point of contact. 
+      kNormalVelocity,
 
-  /// Gets whether this is a sliding direction dot witness. Defaults to false.
-  virtual bool is_sliding_dot_witness() const { return false; }
+      /// The slack in the stiction forces. If the slack is non-zero, stiction
+      /// will be maintained. When it is less than zero, too much stiction
+      /// force is being generated. 
+      kStickingFrictionForceSlack,
 
-  /// Gets whether this is a normal velocity witness. Defaults to false.
-  virtual bool is_normal_velocity_witness() const { return false; }
+      kSlidingDot,
+
+      kNormalForce
+  };
+
+  /// Gets the type of witness function. 
+  virtual WitnessType get_witness_function_type() const = 0; 
 
  private:
   void DoAddEvent(systems::CompositeEventCollection<T>* events) const override {

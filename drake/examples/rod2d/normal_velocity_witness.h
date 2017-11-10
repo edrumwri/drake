@@ -11,23 +11,25 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
-/// Witness function for determining whether a point of contact is accelerating
+/// Witness function for determining whether a point of contact is moving. 
 /// away from the half-space.
 template <class T>
-class SeparatingAccelWitness : public RodWitnessFunction<T> {
+class NormalVelocityWitness : public RodWitnessFunction<T> {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SeparatingAccelWitness)
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(NormalVelocityWitness)
 
-  SeparatingAccelWitness(const Rod2D<T>* rod, int contact_index) :
+  NormalVelocityWitness(const Rod2D<T>* rod, int contact_index) :
       RodWitnessFunction<T>(
           rod,
           systems::WitnessFunctionDirection::kPositiveThenNonPositive,
           contact_index) {
-    this->name_ = "SeparatingAccel";
+    this->name_ = "NormalVelocity";
     solver_ = &rod->solver_;
   }
 
-  bool is_separating_accel_witness() const override { return true; }
+  WitnessType get_witness_function_type() const override {  
+    return WitnessType::kNormalVelocity;
+  }
 
  private:
   /// The witness function itself.
@@ -41,18 +43,9 @@ class SeparatingAccelWitness : public RodWitnessFunction<T> {
     DRAKE_DEMAND(rod.get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
-    // TODO(edrumwri): Speed this up (presumably) using caching. 
-
-    // Populate problem data and solve the contact problem.
-    const int ngv = 3;  // Number of rod generalized velocities.
-    VectorX<T> cf;
-    multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
-    rod.CalcConstraintProblemData(context, &problem_data);
-    solver_->SolveConstraintProblem(problem_data, &cf);
-
-    // Return the normal force. A negative value means that the force has
-    // become tensile, which violates the compressivity constraint.
-    return cf[get_contact_index()];
+    // TODO: Get the velocity at the tracked point.
+    
+    DRAEK_DEMAND(false);
   }
 
   /// Pointer to the rod's constraint solver.

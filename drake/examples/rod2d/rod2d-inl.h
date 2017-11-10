@@ -415,6 +415,22 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
 }
 
 template <class T>
+int Rod2D<T>::GetContactArrayIndex(
+    systems::State<T>& state,
+    int contact_candidate_index) const {
+  // Get the vector of contacts.
+  const std::vector<multibody::constraint::PointContact>& contacts =
+      get_contacts(state);
+
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    if (reinterpret_cast<long>(contacts[i].id) == contact_candidate_index)
+      return i;
+  }
+
+  return -1; 
+}
+
+template <class T>
 void Rod2D<T>::DoCalcUnrestrictedUpdate(
     const systems::Context<T>& context,
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
@@ -429,6 +445,88 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // Get the vector of contacts.
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts(state);
+
+  // Process all events.
+  for (int i = 0; i < static_cast<int>(events.size()); ++i) {
+    DRAKE_DEMAND(events[i]->has_attribute());
+
+    // Get the attribute as a RodWitnessFunction type.
+    auto witness = static_cast<const RodWitnessFunction<T>*>(
+        events[i]->get_attribute());
+
+    // Get the contact (candidate) index.
+    const int contact_index = witness->get_contact_index();
+
+    // Get the index of the contact in the contacts array.
+    const int contact_array_index = GetContactArrayIndex(*state, contact_index);
+
+    switch (witness->get_witness_function_type()) {
+      case RodWitnessFunction<T>::WitnessType::kSignedDistance:{
+        // If the witness is a signed distance witness, the point should either
+        // no longer be tracked or it should newly be tracked.
+        // See whether the point is tracked.
+        if (contact_array_index < 0) {
+          // Add the contact.
+          contacts.push_back(multibody::constraint::PointContact);
+
+          // Set the contact index.
+          contacts.back().id = reinterpret_cast<void*>(contact_index);
+
+          // See whether the contact is sliding or not.
+          contacts.back().sliding = !IsTangentVelocityZero(
+              *state, contacts.back()); 
+        } else {
+          // The point is tracked. Stop tracking it.
+          contacts[contact_array_index] = contacts.back();
+          contacts.pop_back();
+        }
+      }
+        break;
+
+      case RodWitnessFunction<T>::WitnessType::kNormalVelocity:{
+        // Once the normal velocity of a tracked contact (but one that force
+        // is not being applied to) has decreased to zero, the contact needs to
+        // re-enter the force calculations.
+      }
+        break;
+
+      case RodWitnessFunction<T>::WitnessType::kNormalAccel:{
+        // Once the normal acceleration of a tracked contact (but one that force
+        // is not being applied to) has decreased to 
+        // zero, the contact either needs to be tracked again- if the velocity
+        // at that contact is non-positive- or the NormalVelocity witness for
+        // that contact needs to be activated (implying that the velocity at
+        // the contact is currently strictly positive).
+      }
+        break;
+
+      case RodWitnessFunction<T>::WitnessType::NormalForce:{
+        // Once the normal force crosses zero (it must be positive to enter
+        // into the force calculations), it is time to remove the contact from
+        // those used in force calculations.
+
+        // TODO: Verify that the assumption above does not cause problems.
+        // Could there be a problem with witness functions or infinite looping
+        // Can a point get entered into the force calculations with a zero
+        // normal force?
+      }
+        break;
+
+      case RodWitnessFunction<T>::WitnessType::kStickingFrictionForceSlack:
+        // Change the contact from non-sliding to sliding.
+        contacts[contact_array_index].sliding = true;
+        break;
+   
+      case RodWitnessFunction<T>::WitnessType::kSlidingDot:
+        // Change the contact from sliding to non-sliding.
+        contacts[contact_array_index].sliding = false;
+        break;
+
+      case RodWitnessFunction<T>::WitnessType::kNormalVelocity:{
+      }
+      break;
+    } 
+  } 
 
   // A vector of indices from contact_candidates_ that are tracked.
   std::vector<int> tracked_indices;
@@ -539,7 +637,7 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(
 template <class T>
 bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
                                      const multibody::constraint::PointContact& c) const {
-  using std::fabs;
+  using std::abs;
 
   // TODO(edrumwri): Do a proper test that uses integrator tolerances and
   // distance of the c.o.m. from the contact point to determine a coherent
@@ -548,7 +646,7 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
 
   // Test tangent velocity.
   const Vector2<T> pdot = CalcContactVelocity(state, c);
-  return (fabs(pdot[0]) < tol);
+  return (abs(pdot[0]) < tol);
 }
 
 template <class T>
