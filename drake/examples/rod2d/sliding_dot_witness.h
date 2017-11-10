@@ -24,7 +24,9 @@ class SlidingDotWitness : public RodWitnessFunction<T> {
     this->name_ = "SlidingDot";
   }
 
-  bool is_sliding_dot_witness() const override { return true; }
+  WitnessType get_witness_function_type() const override {  
+    return WitnessType::kSlidingDot;
+  }
 
  private:
   /// The witness function itself.

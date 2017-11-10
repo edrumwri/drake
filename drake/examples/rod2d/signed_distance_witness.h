@@ -24,7 +24,9 @@ class SignedDistanceWitness : public RodWitnessFunction<T> {
     this->name_ = "SignedDistance";
   }
 
-  bool is_signed_distance_witness() const override { return true; }
+  WitnessType get_witness_function_type() const override {  
+    return WitnessType::kSignedDistance;
+  }
 
  private:
   /// The witness function itself.

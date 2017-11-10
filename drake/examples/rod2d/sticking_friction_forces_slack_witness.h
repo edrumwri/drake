@@ -24,7 +24,9 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
     solver_ = &rod->solver_;
   }
 
-  bool is_sticking_friction_force_witness() const override { return true; }
+  WitnessType get_witness_function_type() const override {  
+    return WitnessType::kStickingFrictionForceSlack;
+  }
 
  private:
   /// The witness function itself.
