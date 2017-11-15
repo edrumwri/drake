@@ -29,6 +29,13 @@ class RodWitnessFunction : public systems::WitnessFunction<T> {
       systems::Event<T>::TriggerType::kWitness);
   }
 
+  /// Gets whether the witness function is active (default). If it is not
+  /// active, it will not be used to track state changes.
+  bool is_enabled() const { return enabled_; }
+
+  /// Sets whether the witness function is active.
+  void set_enabled(bool flag) { enabled_ = flag; }
+
   /// Gets the rod.
   const Rod2D<T>& get_rod() const { return *rod_; } 
 
@@ -72,6 +79,9 @@ class RodWitnessFunction : public systems::WitnessFunction<T> {
 
   /// Index of the contact point that this witness function applies to.
   int contact_index_{-1};
+
+  /// Whether the witness function is used to track state changes.
+  bool enabled_{true};
 };
 
 }  // namespace rod2d
