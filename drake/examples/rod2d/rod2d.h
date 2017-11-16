@@ -713,6 +713,27 @@ T CalcNormalAccelWithoutContactForces(const systems::Context<T>& context) const;
   // Output ports.
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
+
+  // Abstract state variable constants.
+  enum AbstractIndices {
+    kContactAbstractIndex = 0,
+
+    kSignedDistanceWitnessAbstractIndex = 1,
+
+    kNormalAccelerationWitnessAbstractIndex = 2,
+
+    kNormalVelocityWitnessAbstractIndex = 3,
+
+    kStickingFrictionForceSlackWitnessAbstractIndex = 4,
+
+    kSlidingDotWitnessAbstractIndex = 5,
+
+    kNormalForceWitnessAbstractIndex = 6,
+
+    kNegSlidingWitnessAbstractIndex = 7,
+
+    kPosSlidingWitnessAbstractIndex = 8
+  }
 };
 
 }  // namespace rod2d
