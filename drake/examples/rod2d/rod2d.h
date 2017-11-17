@@ -1,5 +1,14 @@
 #pragma once
 
+#include "drake/examples/rod2d/normal_accel_witness.h"
+#include "drake/examples/rod2d/normal_force_witness.h"
+#include "drake/examples/rod2d/normal_vel_witness.h"
+#include "drake/examples/rod2d/signed_distance_witness.h"
+#include "drake/examples/rod2d/sliding_dot_witness.h"
+#include "drake/examples/rod2d/sliding_witness.h"
+#include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
+
+
 #include <memory>
 #include <utility>
 #include <vector>
@@ -161,6 +170,14 @@ Outputs: Output Port 0 corresponds to the state vector; Output Port 1
 // TODO(edrumwri): Track energy and add a test to check it.
 template <typename T>
 class Rod2D : public systems::LeafSystem<T> {
+  friend class SlidingDotWitness<T>;
+  friend class SlidingWitness<T>;
+  friend class StickingFrictionForcesSlackWitness<T>;
+  friend class NormalAccelWitness<T>;
+  friend class NormalVelWitness<T>;
+  friend class NormalForceWitness<T>;
+  friend class SignedDistanceWitness<T>;
+
  public:
   ~Rod2D() override {}
 
@@ -286,6 +303,8 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_mu_coulomb() const { return mu_; }
 
   /// Sets the coefficient of dynamic (sliding) Coulomb friction.
+  // TODO(edrumwri): This function is now dangerous, b/c it allows the rod
+  // friction to get mismatched with the rigid contact friction. Fix this.
   void set_mu_coulomb(double mu) { mu_ = mu; }
 
   /// Gets the mass of the rod.
@@ -298,7 +317,10 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_rod_half_length() const { return half_length_; }
 
   /// Sets the half-length h of the rod.
-  void set_rod_half_length(double half_length) { half_length_ = half_length; }
+  void set_rod_half_length(double half_length) { 
+    half_length_ = half_length;
+    SetContactCandidates();
+  }
 
   /// Gets the rod moment of inertia.
   double get_rod_moment_of_inertia() const { return J_; }
@@ -406,12 +428,12 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
-  /// The witness function for signed distance between the rod and the
-  /// half-space. The witness function will return positive values when the
-  /// rod is separated from the halfspace, negative values when the rod is
-  /// interpenetrating the halfspace, and zero values when the rod is "kissing"
-  /// the halfspace.
-  T CalcSignedDistance(const systems::Context<T>& context) const;
+  /// Gets the vector of contact state variables from the given state.
+  const std::vector<multibody::constraint::PointContact>& get_contacts(
+      const systems::State<T>& state) const;
+
+  /// Mutable version of get_contacts(). 
+  std::vector<multibody::constraint::PointContact>& get_contacts(systems::State<T>* state) const;
 
   /// Returns the 3D pose of this rod.
   const systems::OutputPort<T>& pose_output() const {
@@ -482,10 +504,11 @@ class Rod2D : public systems::LeafSystem<T> {
   /// @param tangent_vels a vector of tangent velocities at the contact points,
   ///        measured along the positive x-axis.
   /// @param[out] data the rigid contact problem data.
-  void CalcConstraintProblemData(const systems::Context<T>& context,
-                                   const std::vector<Vector2<T>>& points,
-                                   const std::vector<T>& tangent_vels,
-    multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      const std::vector<Vector2<T>>& points,
+      const std::vector<T>& tangent_vels,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
 
   /// Initializes the impacting contact data for the rod, given a set of contact
   /// points. Aborts if data is null.
@@ -496,10 +519,19 @@ class Rod2D : public systems::LeafSystem<T> {
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
- private:
-  friend class Rod2DDAETest;
-  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void CalcImpactProblemData(
+      const systems::Context<T>& context,
+      multibody::constraint::ConstraintVelProblemData<T>* data) const;
+  void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
+  bool IsImpacting(const systems::State<T>& state) const;
 
+ private:
+  int GetContactArrayIndex(const systems::State<T>& state,
+      int contact_candidate_index) const;
+  void SetContactCandidates();
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
                             const Vector2<T>& dir) const;
@@ -507,8 +539,8 @@ class Rod2D : public systems::LeafSystem<T> {
                                const Vector2<T>& p,
                                const Vector2<T>& dir) const;
   static Matrix2<T> GetRotationMatrixDerivative(T theta, T thetadot);
-  Matrix3<T> GetInertiaMatrix() const;
   T GetSlidingVelocityTolerance() const;
+  Matrix3<T> GetInertiaMatrix() const;
   MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
@@ -518,14 +550,77 @@ class Rod2D : public systems::LeafSystem<T> {
                    systems::rendering::PoseVector<T>* output) const;
   void DoCalcTimeDerivatives(const systems::Context<T>& context,
                              systems::ContinuousState<T>* derivatives)
-                               const override;
+                             const override;
+  void DoCalcUnrestrictedUpdate(
+      const systems::Context<T>& context,
+      const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
+      systems::State<T>* state) const override;
   void DoCalcDiscreteVariableUpdates(
       const systems::Context<T>& context,
       const std::vector<const systems::DiscreteUpdateEvent<T>*>& events,
       systems::DiscreteValues<T>* discrete_state) const override;
+  void DoGetWitnessFunctions(const systems::Context<T>& context,
+      std::vector<const systems::WitnessFunction<T>*>* witness_functions)
+      const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
+  RodWitnessFunction<T>* GetSignedDistanceWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetNormalVelWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetNormalAccelWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetPosSlidingWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetNegSlidingWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetSlidingDotWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetNormalForceWitness(
+      int contact_index, systems::State<T>* state) const;
+  RodWitnessFunction<T>* GetStickingFrictionForceSlackWitness(
+      int contact_index, systems::State<T>* state) const;
+  void AddContactToForceCalculationSet(
+      int contact_index, systems::State<T>* state) const;
 
+ private:
+  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
+  friend class Rod2DDAETest_ImpactWorksTest_Test;
+  friend class Rod2DDAETest_ImpactNoChange_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_ImpactNoChange2_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_BallisticNoImpact_Test;
+  friend class Rod2DDAETest_ConsistentDerivativesContacting_Test;
+  friend class Rod2DDAETest_DerivativesContactingAndSticking_Test;
+  friend class Rod2DDAETest_Inconsistent_Test;
+  friend class Rod2DDAETest_Inconsistent2_Test;
+  friend class Rod2DDAETest_MultiPoint_Test;
+  friend class Rod2DDAETest_SignedDistWitness_Test;
+  friend class Rod2DDAETest_SeparationWitness_Test;
+  friend class Rod2DDAETest_VelocityChangesWitness_Test;
+  friend class Rod2DDAETest_StickingSlidingWitness_Test;
+
+  friend class Rod2DCrossValidationTest;
+  friend class Rod2DCrossValidationSlidingTest;
+  friend class Rod2DCrossValidationTest_Interval_Test;
+
+  // Gets the number of tangent directions used by the LCP formulation. If this
+  // problem were 3D, the number of tangent directions would be the number of
+  // edges in the polygonalization of the friction cone. In 2D, both tangent
+  // directions (+/-x) must be covered.
+  int get_num_tangent_directions_per_contact() const { return 2; }
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  Vector2<T> CalcContactVelocity(
+      const systems::State<T>& state,
+      const multibody::constraint::PointContact& c) const;
+  Matrix2<T> get_rotation_matrix_derivative(
+      const systems::State<T>& state) const;
+  bool IsTangentVelocityZero(
+      const systems::State<T>& state,
+      const multibody::constraint::PointContact& c) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
@@ -564,6 +659,9 @@ class Rod2D : public systems::LeafSystem<T> {
   // The simulation type, unable to be changed after object construction.
   const SimulationType simulation_type_;
 
+  // Vectors of candidates for contact.
+  std::vector<Vector2<T>> contact_candidates_;
+
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
   double dt_{0.};           // Integration step-size for time stepping approach.
@@ -586,6 +684,29 @@ class Rod2D : public systems::LeafSystem<T> {
   // Output ports.
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
+
+  // Abstract state variable constants.
+  enum AbstractIndices {
+    kContactAbstractIndex = 0,
+
+    kSignedDistanceWitnessAbstractIndex = 1,
+
+    kNormalAccelWitnessAbstractIndex = 2,
+
+    kNormalVelWitnessAbstractIndex = 3,
+
+    kStickingFrictionForceSlackWitnessAbstractIndex = 4,
+
+    kSlidingDotWitnessAbstractIndex = 5,
+
+    kNormalForceWitnessAbstractIndex = 6,
+
+    kNegSlidingWitnessAbstractIndex = 7,
+
+    kPosSlidingWitnessAbstractIndex = 8,
+
+    kNumAbstractIndices = 9,
+  };
 };
 
 }  // namespace rod2d
