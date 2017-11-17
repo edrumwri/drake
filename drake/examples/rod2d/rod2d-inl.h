@@ -79,7 +79,7 @@ template <class T>
 std::vector<multibody::constraint::PointContact>& Rod2D<T>::get_contacts(
     systems::State<T>* state) const {
   return state->get_mutable_abstract_state()
-      ->get_mutable_value(kContactAbstractIndex)
+      .get_mutable_value(kContactAbstractIndex)
       .template GetMutableValue<std::vector<multibody::constraint::PointContact>>();
 }
 
@@ -87,7 +87,7 @@ template <class T>
 const std::vector<multibody::constraint::PointContact>& Rod2D<T>::get_contacts(
     const systems::State<T>& state) const {
   return state.get_abstract_state()
-      ->get_value(kContactAbstractIndex).
+      .get_value(kContactAbstractIndex).
       template GetValue<std::vector<multibody::constraint::PointContact>>();
 }
 
@@ -120,6 +120,7 @@ T Rod2D<T>::CalcSignedDistance(const systems::Context<T>& context) const {
 
   return min(ep1[1], ep2[1]);
 }
+*/
 
 template <class T>
 Vector2<T> Rod2D<T>::CalcRodEndpoint(const T& x, const T& y, int k,
@@ -212,6 +213,7 @@ void Rod2D<T>::ModelImpact(systems::State<T>* state,
     points->push_back(pa);
   if (pb[1] <= 0)
     points->push_back(pb);
+*/
 }
 
 template <class T>
@@ -237,7 +239,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetSignedDistanceWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kSignedDistanceWitnessAbstractIndex)
+      .get_mutable_value(kSignedDistanceWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -251,7 +253,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetNormalAccelWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kNormalAccelWitnessAbstractIndex)
+      .get_mutable_value(kNormalAccelWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -265,7 +267,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetNormalVelWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kNormalVelWitnessAbstractIndex)
+      .get_mutable_value(kNormalVelWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -280,7 +282,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetStickingFrictionForceSlackWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kStickingFrictionForceSlackWitnessAbstractIndex)
+      .get_mutable_value(kStickingFrictionForceSlackWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -295,7 +297,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetSlidingDotWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kSlidingDotWitnessAbstractIndex)
+      .get_mutable_value(kSlidingDotWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -309,7 +311,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetNormalForceWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kNormalForceWitnessAbstractIndex)
+      .get_mutable_value(kNormalForceWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -323,7 +325,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetPosSlidingWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kPosSlidingWitnessAbstractIndex)
+      .get_mutable_value(kPosSlidingWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -337,7 +339,7 @@ template <class T>
 RodWitnessFunction<T>* Rod2D<T>::GetNegSlidingWitness(
     int contact_index, systems::State<T>* state) const {
   auto witnesses = state->get_mutable_abstract_state()
-      ->get_mutable_value(kNegSlidingWitnessAbstractIndex)
+      .get_mutable_value(kNegSlidingWitnessAbstractIndex)
       .template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
   for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
     if (witnesses[i]->get_contact_index() == contact_index)
@@ -353,7 +355,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
     systems::State<T>* state) const {
   // Get the current configuration of the system.
-  const VectorX<T> q = state->get_continuous_state()->
+  const VectorX<T> q = state->get_continuous_state().
       get_generalized_position().CopyToVector();
 
   // Copy the state in the context into the state.
@@ -557,7 +559,7 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(
   // The point of contact is x + R * u, so it's velocity is
   // dx/dt + Rdot * u * thetadot.
   const long id = reinterpret_cast<long>(c.id);
-  const auto v = state.get_continuous_state()->get_generalized_velocity().
+  const auto v = state.get_continuous_state().get_generalized_velocity().
       CopyToVector();
   const Vector2<T> dxdt = v.segment(0, 2);
   const T& thetadot = v[2];
@@ -589,41 +591,12 @@ void Rod2D<T>::DoGetWitnessFunctions(const systems::Context<T>& context,
     return;
 
   for (int i = kContactAbstractIndex + 1; i < kNumAbstractIndices; ++i) {
-    auto witnesses = context.get_abstract_state()->
+    auto witnesses = context.get_abstract_state().
         get_value(i).template GetValue<std::vector<RodWitnessFunction<T>*>>();
     for (int j = 0; j < static_cast<int>(witnesses.size()); ++j)
       if (witnesses[j]->is_enabled())
         witness_functions->push_back(static_cast<systems::WitnessFunction<T>*>(witnesses[j]));
   }
-}
-
-  // Form the normal contact Jacobian (N).
-  const int num_generalized_coordinates = 3;
-  MatrixX<T> N(num_contacts, num_generalized_coordinates);
-  for (int i = 0; i < num_contacts; ++i)
-    N.row(i) = GetJacobianRow(context, points[i], contact_normal);
-  data->N_mult = [N](const VectorX<T>& w) -> VectorX<T> { return N * w; };
-  data->N_transpose_mult = [N](const VectorX<T>& w) -> VectorX<T> {
-    return N.transpose() * w; };
-  data->kN.setZero(num_contacts);
-  data->gammaN.setZero(num_contacts);
-
-  // Form the tangent directions contact Jacobian (F).
-  const int nr = std::accumulate(data->r.begin(), data->r.end(), 0);
-  MatrixX<T> F(nr, num_generalized_coordinates);
-  for (int i = 0; i < num_contacts; ++i) {
-    F.row(i) = GetJacobianRow(context, points[i], contact_tan);
-  }
-  data->F_mult = [F](const VectorX<T>& w) -> VectorX<T> { return F * w; };
-  data->F_transpose_mult = [F](const VectorX<T>& w) -> VectorX<T> {
-    return F.transpose() * w;
-  };
-  data->kF.setZero(nr);
-  data->gammaF.setZero(nr);
-  data->gammaE.setZero(num_contacts);
-
-  data->kL.resize(0);
-  data->gammaL.resize(0);
 }
 
 template <typename T>
@@ -1037,8 +1010,8 @@ void Rod2D<T>::DoCalcTimeDerivatives(
     // Compute and save the acceleration at the center-of-mass.
     VectorX<T> ga;
     solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
-    derivatives->get_mutable_generalized_position()->SetFromVector(gv);
-    derivatives->get_mutable_generalized_velocity()->SetFromVector(ga);
+    derivatives->get_mutable_generalized_position().SetFromVector(gv);
+    derivatives->get_mutable_generalized_velocity().SetFromVector(ga);
   }
 }
 
@@ -1108,7 +1081,7 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
           break;
       }
     }
-
+*/
     return std::make_unique<systems::AbstractValues>(std::move(abstract_data));
   } else {
     // Time stepping and compliant approaches need no abstract variables.
