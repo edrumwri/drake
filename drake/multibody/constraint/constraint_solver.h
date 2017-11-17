@@ -763,6 +763,10 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   if ((num_contacts == 0 || N_eval.minCoeff() >= 0) &&
       (num_limits == 0 || L_eval.minCoeff() >= 0) &&
       (num_eq_constraints == 0)) {
+    // Set cf to the correct size.
+    const int num_vars = num_contacts + num_spanning_vectors + num_limits +
+        num_eq_constraints;
+    cf->resize(num_vars);
     cf->setZero();
     return;
   }
@@ -1731,14 +1735,14 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
                                  problem_data.r.end(), 0);
   const int num_limits = problem_data.kL.size();
-  const int num_bilat_constraints = problem_data.kG.size();
+  const int num_eq_constraints = problem_data.kG.size();
 
   // Verify cf is the correct size.
   const int num_vars = num_contacts + num_spanning_vectors + num_limits +
-      num_bilat_constraints;
+      num_eq_constraints;
   if (cf.size() != num_vars) {
     throw std::logic_error("cf (constraint force) parameter incorrectly"
-                               "sized.");
+                           " sized.");
   }
 
   /// Get the normal and non-sliding contact forces.
@@ -1752,7 +1756,7 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
 
   // Get the bilateral constraint forces.
   const Eigen::Ref<const VectorX<T>> f_bilat = cf.segment(
-      num_contacts + num_spanning_vectors + num_limits, num_bilat_constraints);
+      num_contacts + num_spanning_vectors + num_limits, num_eq_constraints);
 
   /// Compute the generalized force.
   *generalized_force = problem_data.N_minus_muQ_transpose_mult(f_normal) +
@@ -1774,11 +1778,11 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
                                                    problem_data.r.end(), 0);
   const int num_limits = problem_data.kL.size();
-  const int num_bilat_constraints = problem_data.kG.size();
+  const int num_eq_constraints = problem_data.kG.size();
 
   // Verify cf is the correct size.
   const int num_vars = num_contacts + num_spanning_vectors + num_limits +
-      num_bilat_constraints;
+      num_eq_constraints;
   if (num_vars != cf.size()) {
     throw std::logic_error("Unexpected packed constraint force vector"
                                " dimension.");
@@ -1795,7 +1799,7 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
 
   // Get the bilateral constraint forces.
   const Eigen::Ref<const VectorX<T>> f_bilat = cf.segment(
-      num_contacts + num_spanning_vectors + num_limits, num_bilat_constraints);
+      num_contacts + num_spanning_vectors + num_limits, num_eq_constraints);
 
   /// Compute the generalized impules.
   *generalized_impulse = problem_data.N_transpose_mult(f_normal)  +
@@ -1858,9 +1862,9 @@ void ConstraintSolver<T>::CalcContactForcesInContactFrames(
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
                                                    problem_data.r.end(), 0);
   const int num_limits = problem_data.kL.size();
-  const int num_bilat_constraints = problem_data.kG.size();
+  const int num_eq_constraints = problem_data.kG.size();
   const int num_vars = num_contacts + num_spanning_vectors + num_limits +
-      num_bilat_constraints;
+      num_eq_constraints;
   if (num_vars != cf.size()) {
     throw std::logic_error("Unexpected packed constraint force vector "
                                "dimension.");
@@ -1955,9 +1959,9 @@ void ConstraintSolver<T>::CalcImpactForcesInContactFrames(
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
                                                    problem_data.r.end(), 0);
   const int num_limits = problem_data.kL.size();
-  const int num_bilat_constraints = problem_data.kG.size();
+  const int num_eq_constraints = problem_data.kG.size();
   const int num_vars = num_contacts + num_spanning_vectors + num_limits +
-      num_bilat_constraints;
+      num_eq_constraints;
   if (num_vars != cf.size()) {
     throw std::logic_error("Unexpected packed constraint force vector "
                                "dimension.");

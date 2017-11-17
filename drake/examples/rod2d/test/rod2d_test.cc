@@ -103,7 +103,8 @@ class Rod2DDAETest : public ::testing::Test {
     xc[4] = 2.0;
     xc[5] = 3.0;
 
-    // TODO: Set the abstract variables appropriately. 
+    // Put the rod into ballistic mode. 
+    dut_->SetBallisticMode(&context_->get_mutable_state());
   }
 
   // Sets the rod to an interpenetrating configuration without modifying the
@@ -397,8 +398,7 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-
-  // TODO: Set the abstract variables correctly.
+  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
 
   // Calculate the derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -407,7 +407,7 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   // contacting configuration. In this case, there is no initial sliding,
   // velocity and the rod is oriented vertically, so we expect no sliding
   // to begin to occur.
-  const double tol = std::numeric_limits<double>::epsilon() * 10;
+  const double tol = std::numeric_limits<double>::epsilon() * 100;
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
   EXPECT_NEAR((*derivatives_)[2], xc[5], tol);
@@ -419,8 +419,7 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   // and try again. Derivatives should be exactly the same because no frictional
   // force can be applied.
   xc[3] = -1.0;
-
-  // TODO: Update the abstract variables.
+  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), true);
 
   dut_->set_mu_coulomb(0.0);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -460,8 +459,10 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
+  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
 
-  // TODO: Set the abstract variables correctly.
+  // Coulomb friction will not be used.
+  dut_->set_mu_coulomb(0.0);
 
   // Set a constant horizontal input force, as if applied at the bottom of
   // the rod.
@@ -481,13 +482,13 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   const double mu_stick = f_x / (dut_->get_rod_mass() *
                                  -dut_->get_gravitational_acceleration() -
                                  f_y);
-  dut_->set_mu_coulomb(mu_stick);
+  dut_->set_mu_static(mu_stick);
 
   // Calculate the derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
 
   // Verify that derivatives match what we expect: sticking should continue.
-  const double tol = 10 * std::numeric_limits<double>::epsilon();
+  const double tol = 100 * std::numeric_limits<double>::epsilon();
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
   EXPECT_NEAR((*derivatives_)[2], xc[5], tol);
@@ -499,14 +500,14 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   // verify that the contact state transitions from a sticking one to a
   // non-sticking one.
   const double mu_slide = 0.999 * mu_stick;
-  dut_->set_mu_coulomb(mu_slide);
+  dut_->set_mu_static(mu_slide);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_GT((*derivatives_)[3], tol);  // horizontal accel. should be nonzero.
 
   // TODO: Set the abstract variables correctly.
 
   // Set the coefficient of friction to zero and try again.
-  dut_->set_mu_coulomb(0.0);
+  dut_->set_mu_static(0.0);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[0], xc[3], tol);
   EXPECT_NEAR((*derivatives_)[1], xc[4], tol);
@@ -638,6 +639,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   // Set the coefficient of friction to zero (triggering the case on the
   // edge of the friction cone).
   dut_->set_mu_coulomb(0.0);
+  dut_->set_mu_static(0.0);
 
   // This configuration has no sliding velocity.
   xc[0] = -half_len * r22;
@@ -646,8 +648,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-
-  // TODO: Set the abstract variables correctly.
+  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
 
   // Verify no impact.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
@@ -657,6 +658,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
 
   // Set the coefficient of friction to effective no-slip (triggering the
   // case strictly inside the friction cone).
+  dut_->set_mu_static(std::numeric_limits<double>::infinity());
   dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
 
   // No exceptions should be thrown.
@@ -672,18 +674,18 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   xc[1] = 0;
   xc[2] = 0;
 
-  // TODO: Set the abstract variables correctly.
-
   // Set the velocity on the rod such that it is moving horizontally.
   xc[3] = 1.0;
+  dut_->SetBothEndpointsContacting(&context_->get_mutable_state(), true);
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set the coefficient of friction to zero.
   dut_->set_mu_coulomb(0.0);
 
+  // TODO(edrumwri): Investigate how to reduce these tolerances.
   // Compute the derivatives and verify that the linear and angular acceleration
   // are approximately zero.
-  const double tol = 250 * std::numeric_limits<double>::epsilon();
+  const double tol = 600 * std::numeric_limits<double>::epsilon();
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], 0, tol);
   EXPECT_NEAR((*derivatives_)[4], 0, tol);
@@ -705,6 +707,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set a constant force pushing the rod.
+  dut_->set_mu_static(large);
   const double fX = 1.0;
   std::unique_ptr<BasicVector<double>> ext_input =
       std::make_unique<BasicVector<double>>(3);
@@ -712,6 +715,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   ext_input->SetAtIndex(1, 0.0);
   ext_input->SetAtIndex(2, 0.0);
   context_->FixInputPort(0, std::move(ext_input));
+  dut_->SetBothEndpointsContacting(&context_->get_mutable_state(), false);
 
   // Verify that the linear and angular acceleration are still zero.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -722,6 +726,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   // Set the coefficient of friction to zero. Now the force should result
   // in the rod being pushed to the right.
   dut_->set_mu_coulomb(0.0);
+  dut_->set_mu_static(0.0);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], fX/dut_->get_rod_mass(), tol);
   EXPECT_NEAR((*derivatives_)[4], 0, tol);
@@ -1225,7 +1230,7 @@ GTEST_TEST(Rod2DCrossValidationTest, OneStepSolutionSticking) {
   xc[2] += + dt * xc[5];
 
   // Check that the solution is nearly identical.
-  const double tol = 10 * std::numeric_limits<double>::epsilon();
+  const double tol = 100 * std::numeric_limits<double>::epsilon();
   EXPECT_NEAR(xc[0], xd[0], tol);
   EXPECT_NEAR(xc[1], xd[1], tol);
   EXPECT_NEAR(xc[2], xd[2], tol);

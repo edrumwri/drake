@@ -502,7 +502,8 @@ class Rod2D : public systems::LeafSystem<T> {
   /// Aborts if data is null or if `points.size() != tangent_vels.size()`.
   /// @param points a vector of contact points, expressed in the world frame.
   /// @param tangent_vels a vector of tangent velocities at the contact points,
-  ///        measured along the positive x-axis.
+  ///        measured along the positive x-axis. This data is only used to
+  ///        determine whether each contact should be treated as sliding. 
   /// @param[out] data the rigid contact problem data.
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -521,6 +522,14 @@ class Rod2D : public systems::LeafSystem<T> {
 
   /// Puts the rod's state into a ballistic mode.
   void SetBallisticMode(systems::State<T>* state) const;
+
+  /// Puts the rod's state into a mode with the left endpoint contacting.
+  /// @pre the state is such that the right endpoint is not contacting the
+  ///      halfspace.
+  void SetLeftEndpointContacting(systems::State<T>* state, bool sliding) const;
+
+  /// Puts the rod's state into a mode with both endpoints contacting.
+  void SetBothEndpointsContacting(systems::State<T>* state, bool sliding) const;
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -637,8 +646,6 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector2<T> CalcContactVelocity(
       const systems::State<T>& state,
       const multibody::constraint::PointContact& c) const;
-  Matrix2<T> get_rotation_matrix_derivative(
-      const systems::State<T>& state) const;
   bool IsTangentVelocityZero(
       const systems::State<T>& state,
       const multibody::constraint::PointContact& c) const;
