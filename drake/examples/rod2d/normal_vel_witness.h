@@ -47,6 +47,7 @@ class NormalVelWitness : public RodWitnessFunction<T> {
     // TODO: Get the velocity at the tracked point.
     
     DRAKE_DEMAND(false);
+    return false;
   }
 
   /// Pointer to the rod's constraint solver.

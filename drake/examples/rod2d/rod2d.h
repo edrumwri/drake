@@ -519,6 +519,9 @@ class Rod2D : public systems::LeafSystem<T> {
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
+  /// Puts the rod's state into a ballistic mode.
+  void SetBallisticMode(systems::State<T>* state) const;
+
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
       multibody::constraint::ConstraintAccelProblemData<T>* data) const;
@@ -529,6 +532,24 @@ class Rod2D : public systems::LeafSystem<T> {
   bool IsImpacting(const systems::State<T>& state) const;
 
  private:
+  // Utility method for determining the location, in the world frame, of a
+  // vector expressed in the rod body frame.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, const Vector2<T>& u) const {
+    const T& theta = q[2];
+    Eigen::Rotation2D<T> R(theta); 
+    const Vector2<T> x = q.segment(0, 2);
+    return x + R * u;
+  }
+
+  // Utility method for determining the location, in the world frame, of a
+  // specified contact.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, const multibody::constraint::PointContact& c) const {
+    const long id = reinterpret_cast<long>(c.id);
+    return GetPointInWorldFrame(q, contact_candidates_[id]);
+  }
+
   int GetContactArrayIndex(const systems::State<T>& state,
       int contact_candidate_index) const;
   void SetContactCandidates();

@@ -58,6 +58,17 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
   pose_output_port_ = &this->DeclareVectorOutputPort(&Rod2D::CopyPoseOut);
 }
 
+// Sets the rod's state to ballistic.
+template <class T>
+void Rod2D<T>::SetBallisticMode(systems::State<T>* state) const {
+  // Remove all contacts from force calculations.
+  std::vector<multibody::constraint::PointContact>& contacts =
+      get_contacts(state);
+  contacts.clear();
+
+  // Disable all witness functions except the signed distance one.
+}
+
 // Computes the external forces on the rod.
 // @returns a three dimensional vector corresponding to the forces acting at
 //          the center-of-mass of the rod (first two components) and the
@@ -439,6 +450,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // want to identify when that will no longer be the case.
         witness->set_enabled(false);
 
+// TODO: fix this.
+const double normal_velocity_positive = 0;
         if (normal_velocity_positive <= 0) {
           // Add the contact.
           AddContactToForceCalculationSet(contact_index, state);
@@ -1027,7 +1040,7 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
     // of contact indices used in force calculations and one vector for each
     // type of witness function. 
     std::vector<std::unique_ptr<systems::AbstractValue>> abstract_data;
-/*
+
     abstract_data.push_back(
         std::make_unique<systems::Value<std::vector<
         multibody::constraint::PointContact>>>());
@@ -1081,7 +1094,7 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
           break;
       }
     }
-*/
+
     return std::make_unique<systems::AbstractValues>(std::move(abstract_data));
   } else {
     // Time stepping and compliant approaches need no abstract variables.

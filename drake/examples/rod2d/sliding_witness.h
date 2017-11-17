@@ -30,8 +30,7 @@ class SlidingWitness : public RodWitnessFunction<T> {
 
   typename RodWitnessFunction<T>::WitnessType
       get_witness_function_type() const override {  
-    return (positive_) ? RodWitnessFunction<T>::WitnessType::kSlidingPositive :
-        RodWitnessFunction<T>::WitnessType::kSlidingNegative;
+    return RodWitnessFunction<T>::WitnessType::kSlidingWitness;
   }
 
  private:

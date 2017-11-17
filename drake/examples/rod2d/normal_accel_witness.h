@@ -56,6 +56,7 @@ class NormalAccelWitness : public RodWitnessFunction<T> {
 
     // TODO(edrumwri): Determine the acceleration at the tracked point.
     DRAKE_DEMAND(false);
+    return 0.0;
   }
 
   /// Pointer to the rod's constraint solver.

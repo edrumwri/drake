@@ -46,7 +46,7 @@ class SignedDistanceWitness : public RodWitnessFunction<T> {
         rod.get_contacts(context.get_state())[this->get_contact_index()];
 
     // Get the relevant parts of the state.
-    const Vector3<T> q = context.get_continuous_state()->
+    const Vector3<T> q = context.get_continuous_state().
         get_generalized_position().CopyToVector();
 
     // Get the contact candidate in the world frame.

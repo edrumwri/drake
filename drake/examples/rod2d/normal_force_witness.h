@@ -29,7 +29,7 @@ class NormalForceWitness : public RodWitnessFunction<T> {
 
   typename RodWitnessFunction<T>::WitnessType
       get_witness_function_type() const override {  
-    return RodWitnessFunction<T>::kNormalForce;
+    return RodWitnessFunction<T>::WitnessType::kNormalForce;
   }
 
  private:
