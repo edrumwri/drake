@@ -71,6 +71,8 @@ class RodWitnessFunction : public systems::AbstractValues, public systems::Witne
 
  private:
   void DoAddEvent(systems::CompositeEventCollection<T>* events) const override {
+    event_->set_attribute(
+        std::make_unique<systems::Value<const RodWitnessFunction<T>*>>(this));
     event_->add_to_composite(events);
   }
 

@@ -44,10 +44,13 @@ class NormalVelWitness : public RodWitnessFunction<T> {
     DRAKE_DEMAND(rod.get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
-    // TODO: Get the velocity at the tracked point.
-    
-    DRAKE_DEMAND(false);
-    return false;
+    // Get the contact.
+    const int contact_index = this->get_contact_index();
+    const auto& contact = rod.get_contacts(context.get_state())[contact_index];
+
+    // Return the vertical velocity at the tracked point.
+    const Vector2<T> v = rod.CalcContactVelocity(context.get_state(), contact); 
+    return v[1];
   }
 
   /// Pointer to the rod's constraint solver.

@@ -595,21 +595,21 @@ class Rod2D : public systems::LeafSystem<T> {
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
   RodWitnessFunction<T>* GetSignedDistanceWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalVelWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalAccelWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetPosSlidingWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNegSlidingWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetSlidingDotWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalForceWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetStickingFrictionForceSlackWitness(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index, const systems::State<T>& state) const;
   void AddContactToForceCalculationSet(
       int contact_index, systems::State<T>* state) const;
 
@@ -632,6 +632,7 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_SeparationWitness_Test;
   friend class Rod2DDAETest_VelocityChangesWitness_Test;
   friend class Rod2DDAETest_StickingSlidingWitness_Test;
+  friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
 
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;
