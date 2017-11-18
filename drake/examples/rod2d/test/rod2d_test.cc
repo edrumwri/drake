@@ -1069,19 +1069,6 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   const double zero_tol = 1e-6;
   EXPECT_GT(normal_vel_witness->Evaluate(sim.get_context()), -zero_tol);
 
-/*
-  // Call the unrestricted update, using the normal velocity witness as the
-  // trigger.
-  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
-  auto event = std::make_unique<systems::UnrestrictedUpdateEvent<double>>(
-      systems::Event<double>::TriggerType::kWitness);
-  event->set_attribute(
-      std::make_unique<systems::Value<RodWitnessFunction<double>*>>(
-          normal_vel_witness));
-  event->get_attribute()->template GetValue<RodWitnessFunction<double>*>();
-  events.push_back(event.get());
-  dut_->DoCalcUnrestrictedUpdate(*context_, events, state);
-*/
   // The left contact point should now be back in the set of force calculations.
   EXPECT_EQ(dut_->get_contacts(state).size(), 1);
 
