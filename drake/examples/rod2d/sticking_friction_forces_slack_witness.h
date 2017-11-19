@@ -43,8 +43,10 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
+    const int contact_index = this->get_contact_index();
     const auto& contact =
-        rod.get_contacts(context.get_state())[this->get_contact_index()];
+        rod.get_contacts_used_in_force_calculations(
+        context.get_state())[contact_index];
 
     // Verify rod is not undergoing sliding contact at the specified index.
     DRAKE_DEMAND(!contact.sliding);
@@ -58,6 +60,10 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
     rod.CalcConstraintProblemData(context, &problem_data);
     solver_->SolveConstraintProblem(problem_data, &cf);
 
+    // Get the index of this contact in the force calculation set.
+    const int force_index = rod.GetContactArrayIndex(
+        context.get_state(), contact_index);
+
     // Determine the index of this contact in the non-sliding constraint set.
     const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
     const std::vector<int>& non_sliding_contacts =
@@ -68,7 +74,7 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
         non_sliding_contacts.begin(),
         std::lower_bound(non_sliding_contacts.begin(),
                          non_sliding_contacts.end(),
-                         this->get_contact_index()));
+                         force_index));
     const int num_sliding = sliding_contacts.size();
     const int num_non_sliding = non_sliding_contacts.size();
     const int nc = num_sliding + num_non_sliding;
@@ -76,7 +82,7 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
     const int r = k / 2;
 
     // Get the normal force and the l1-norm of the frictional force.
-    const auto fN = cf[this->get_contact_index()];
+    const auto fN = cf[force_index];
     const auto fF = cf.segment(nc + non_sliding_index * r, r).template
         lpNorm<1>();
 

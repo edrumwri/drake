@@ -46,6 +46,11 @@ class NormalForceWitness : public RodWitnessFunction<T> {
 
     // TODO(edrumwri): Speed this up (presumably) using caching. 
 
+    // Get the force index of the contact.
+    const int contact_index = this->get_contact_index();
+    const int force_index = rod.GetContactArrayIndex(
+        context.get_state(), contact_index);
+
     // Populate problem data and solve the contact problem.
     const int ngv = 3;  // Number of rod generalized velocities.
     VectorX<T> cf;
@@ -56,7 +61,7 @@ class NormalForceWitness : public RodWitnessFunction<T> {
 
     // Return the normal force. A negative value means that the force has
     // become tensile, which violates the compressivity constraint.
-    return cf[this->get_contact_index()];
+    return cf[force_index];
   }
 
   /// Pointer to the rod's constraint solver.

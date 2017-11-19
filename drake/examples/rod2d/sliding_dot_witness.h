@@ -42,15 +42,16 @@ class SlidingDotWitness : public RodWitnessFunction<T> {
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
-    const auto& contact =
-        rod.get_contacts(context.get_state())[this->get_contact_index()];
+    const int contact_index = this->get_contact_index();
+    const auto& contact = rod.get_contacts_used_in_force_calculations(
+        context.get_state())[contact_index];
 
     // Verify rod is undergoing sliding contact at the specified index.
     DRAKE_DEMAND(contact.sliding);
 
     // Compute the translational velocity at the point of contact.
     const Vector2<T> pdot = rod.CalcContactVelocity(context.get_state(),
-                                                    contact);
+                                                    contact_index);
 
     // Return the tangent velocity.
     return pdot[0];

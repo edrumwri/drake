@@ -65,7 +65,7 @@ template <class T>
 void Rod2D<T>::SetBallisticMode(systems::State<T>* state) const {
   // Remove all contacts from force calculations.
   std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
   contacts.clear();
 
   // Set constants for contact indices.
@@ -105,7 +105,7 @@ void Rod2D<T>::SetLeftEndpointContacting(
 
   // Set the left contact to sliding property appropriately. 
   std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
   contacts.resize(1);
   contacts.front().sliding = sliding;
   contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
@@ -163,7 +163,7 @@ void Rod2D<T>::SetBothEndpointsContacting(
 
   // Set the contacts to sliding property appropriately. 
   std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
   contacts.resize(2);
   contacts.front().sliding = sliding;
   contacts.back().sliding = sliding;
@@ -232,7 +232,8 @@ Vector3<T> Rod2D<T>::ComputeExternalForces(
 }
 
 template <class T>
-std::vector<multibody::constraint::PointContact>& Rod2D<T>::get_contacts(
+std::vector<multibody::constraint::PointContact>&
+    Rod2D<T>::get_contacts_used_in_force_calculations(
     systems::State<T>* state) const {
   return state->get_mutable_abstract_state()
       .get_mutable_value(kContactAbstractIndex)
@@ -240,7 +241,8 @@ std::vector<multibody::constraint::PointContact>& Rod2D<T>::get_contacts(
 }
 
 template <class T>
-const std::vector<multibody::constraint::PointContact>& Rod2D<T>::get_contacts(
+const std::vector<multibody::constraint::PointContact>&
+    Rod2D<T>::get_contacts_used_in_force_calculations(
     const systems::State<T>& state) const {
   return state.get_abstract_state()
       .get_value(kContactAbstractIndex).
@@ -489,7 +491,7 @@ void Rod2D<T>::CalcConstraintProblemData(
       get_generalized_position().CopyToVector();
 
   // Get the contacts.
-  const auto& contacts = get_contacts(context.get_state());
+  const auto& contacts = get_contacts_used_in_force_calculations(context.get_state());
 
   // Create the vector of contact points.
   std::vector<Vector2<T>> points;
@@ -764,7 +766,7 @@ int Rod2D<T>::GetContactArrayIndex(
     int contact_candidate_index) const {
   // Get the vector of contacts.
   const std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
 
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
     if (reinterpret_cast<long>(contacts[i].id) == contact_candidate_index)
@@ -905,7 +907,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 
   // Get the vector of contacts.
   std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
 
   // Indicate there are no impacts.
   bool impacting = false;
@@ -930,17 +932,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // If the witness is a signed distance witness, the point should either
         // no longer be tracked or it should newly be tracked.
         // See whether the point is tracked.
-        if (contact_array_index < 0) {
-          // Indicate that an impact is occurring.
-          impacting = true;
-
-          // Add the contact.
-          AddContactToForceCalculationSet(contact_index, state);
-        } else {
-          // The point is part of the force calculation set. Remove it.
-          contacts[contact_array_index] = contacts.back();
-          contacts.pop_back();
-
+        if (GetNormalVelWitness(contact_index, *state)->is_enabled()) {
           // Deactivate all but signed distance function witness.
           GetNormalForceWitness(contact_index, *state)->set_enabled(false);
           GetNormalAccelWitness(contact_index, *state)->set_enabled(false);
@@ -948,6 +940,12 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
           GetSlidingDotWitness(contact_index, *state)->set_enabled(false);
           GetStickingFrictionForceSlackWitness(contact_index, *state)->
               set_enabled(false);
+        } else {
+          // Indicate that an impact is occurring.
+          impacting = true;
+
+          // Add the contact.
+          AddContactToForceCalculationSet(contact_index, state);
         }
         break;
       }
@@ -981,9 +979,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // want to identify when that will no longer be the case.
         witness->set_enabled(false);
 
-// TODO: fix this.
-const double normal_velocity_positive = 0;
-        if (normal_velocity_positive <= 0) {
+        // Examine the normal velocity.
+        const Vector2<T> v = CalcContactVelocity(*state, contact_index);
+        if (v[1] <= 0) {
           // Add the contact.
           AddContactToForceCalculationSet(contact_index, state);
         } else {
@@ -1062,7 +1060,7 @@ void Rod2D<T>::AddContactToForceCalculationSet(
 
   // Get the vector of contacts.
   std::vector<multibody::constraint::PointContact>& contacts =
-      get_contacts(state);
+      get_contacts_used_in_force_calculations(state);
 
   // Add the contact.
   contacts.push_back(multibody::constraint::PointContact());
@@ -1071,7 +1069,7 @@ void Rod2D<T>::AddContactToForceCalculationSet(
   contacts.back().id = reinterpret_cast<void*>(contact_index);
 
   // See whether the contact is sliding or not.
-  contacts.back().sliding = !IsTangentVelocityZero(*state, contacts.back());
+  contacts.back().sliding = !IsTangentVelocityZero(*state, contact_index);
 
   // Activate the normal force witness.
   GetNormalForceWitness(contact_index, *state)->set_enabled(true);
@@ -1096,13 +1094,12 @@ void Rod2D<T>::AddContactToForceCalculationSet(
 template <class T>
 Vector2<T> Rod2D<T>::CalcContactVelocity(
     const systems::State<T>& state,
-    const multibody::constraint::PointContact& c) const {
+    int index) const {
 
   // TODO: Store rod parameters in the Context.
 
   // The point of contact is x + R * u, so it's velocity is
   // dx/dt + Rdot * u * thetadot.
-  const long id = reinterpret_cast<long>(c.id);
   const auto q = state.get_continuous_state().get_generalized_position().
       CopyToVector();
   const auto v = state.get_continuous_state().get_generalized_velocity().
@@ -1111,13 +1108,13 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(
   const T& theta = q[2];
   const T& thetadot = v[2];
   const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
-  return dxdt + Rdot * contact_candidates_[id] * thetadot;
+  return dxdt + Rdot * contact_candidates_[index] * thetadot;
 }
 
 // Gets the zero tolerance for tangent velocity for a point of contact.
 template <class T>
 bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
-                                     const multibody::constraint::PointContact& c) const {
+                                     int contact_index) const {
   using std::abs;
 
   // TODO(edrumwri): Do a proper test that uses integrator tolerances and
@@ -1126,7 +1123,7 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
   const T tol = 1e-10;
 
   // Test tangent velocity.
-  const Vector2<T> pdot = CalcContactVelocity(state, c);
+  const Vector2<T> pdot = CalcContactVelocity(state, contact_index);
   return (abs(pdot[0]) < tol);
 }
 
@@ -1658,7 +1655,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
     // Set abstract variables for piecewise DAE approach.
     if (simulation_type_ == SimulationType::kPiecewiseDAE) {
       // Initialize the vector of contact points.
-      auto& contacts = get_contacts(state);
+      auto& contacts = get_contacts_used_in_force_calculations(state);
 
       // Indicate that the rod is in the single contact sliding mode.
       contacts.resize(1);

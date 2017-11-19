@@ -428,12 +428,15 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
-  /// Gets the vector of contact state variables from the given state.
-  const std::vector<multibody::constraint::PointContact>& get_contacts(
+  /// Gets the vector of contact state variables used in force calculations
+  /// from the given state.
+  const std::vector<multibody::constraint::PointContact>&
+      get_contacts_used_in_force_calculations(
       const systems::State<T>& state) const;
 
-  /// Mutable version of get_contacts(). 
-  std::vector<multibody::constraint::PointContact>& get_contacts(systems::State<T>* state) const;
+  /// Mutable version of get_contacts_used_in_force_calculations(). 
+  std::vector<multibody::constraint::PointContact>&
+      get_contacts_used_in_force_calculations(systems::State<T>* state) const;
 
   /// Returns the 3D pose of this rod.
   const systems::OutputPort<T>& pose_output() const {
@@ -554,9 +557,8 @@ class Rod2D : public systems::LeafSystem<T> {
   // Utility method for determining the location, in the world frame, of a
   // specified contact.
   Vector2<T> GetPointInWorldFrame(
-      const Vector3<T>& q, const multibody::constraint::PointContact& c) const {
-    const long id = reinterpret_cast<long>(c.id);
-    return GetPointInWorldFrame(q, contact_candidates_[id]);
+      const Vector3<T>& q, int contact_index) const {
+    return GetPointInWorldFrame(q, contact_candidates_[contact_index]);
   }
 
   int GetContactArrayIndex(const systems::State<T>& state,
@@ -612,6 +614,8 @@ class Rod2D : public systems::LeafSystem<T> {
       int contact_index, const systems::State<T>& state) const;
   void AddContactToForceCalculationSet(
       int contact_index, systems::State<T>* state) const;
+  const Vector2<T>& get_contact_candidate(int index) const {
+      return contact_candidates_[index]; }
 
  private:
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
@@ -633,6 +637,7 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_VelocityChangesWitness_Test;
   friend class Rod2DDAETest_StickingSlidingWitness_Test;
   friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
+  friend class Rod2DDAETest_ContactingMovingUpwardAndSeparating_Test;
 
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;
@@ -646,10 +651,10 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Vector2<T> CalcContactVelocity(
       const systems::State<T>& state,
-      const multibody::constraint::PointContact& c) const;
+      int index) const;
   bool IsTangentVelocityZero(
       const systems::State<T>& state,
-      const multibody::constraint::PointContact& c) const;
+      int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
   Matrix3<T> GetInverseInertiaMatrix() const;

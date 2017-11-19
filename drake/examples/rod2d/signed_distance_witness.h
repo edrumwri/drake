@@ -19,7 +19,7 @@ class SignedDistanceWitness : public RodWitnessFunction<T> {
   SignedDistanceWitness(const Rod2D<T>* rod, int contact_index) :
       RodWitnessFunction<T>(
           rod,
-          systems::WitnessFunctionDirection::kPositiveThenNonPositive,
+          systems::WitnessFunctionDirection::kCrossesZero,
           contact_index) {
     this->name_ = "SignedDistance";
   }
@@ -41,16 +41,16 @@ class SignedDistanceWitness : public RodWitnessFunction<T> {
     DRAKE_DEMAND(rod.get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
-    // Get the contact information.
-    const auto& contact =
-        rod.get_contacts(context.get_state())[this->get_contact_index()];
+    // Get the contact index. 
+    const int contact_index = this->get_contact_index();
 
     // Get the relevant parts of the state.
     const Vector3<T> q = context.get_continuous_state().
         get_generalized_position().CopyToVector();
 
     // Get the contact candidate in the world frame.
-    const Vector2<T> p = rod.GetPointInWorldFrame(q, contact);
+    const Vector2<T>& u = rod.get_contact_candidate(contact_index);
+    const Vector2<T> p = rod.GetPointInWorldFrame(q, u);
 
     // Return the vertical location.
     return p[1];

@@ -46,10 +46,10 @@ class NormalVelWitness : public RodWitnessFunction<T> {
 
     // Get the contact.
     const int contact_index = this->get_contact_index();
-    const auto& contact = rod.get_contacts(context.get_state())[contact_index];
 
     // Return the vertical velocity at the tracked point.
-    const Vector2<T> v = rod.CalcContactVelocity(context.get_state(), contact); 
+    const Vector2<T> v = rod.CalcContactVelocity(
+        context.get_state(), contact_index); 
     return v[1];
   }
 
