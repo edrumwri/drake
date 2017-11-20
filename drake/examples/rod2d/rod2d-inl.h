@@ -125,15 +125,16 @@ void Rod2D<T>::SetLeftEndpointContacting(
     GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
         set_enabled(false);
   } else {
-    // Enable these witnesses. TODO: Are these two activated only when the
-    // contacts are transitioning?
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+    // Enable these witnesses.
     GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
         set_enabled(true);
 
-    // Disable these witnesses.
+    // Disable these witnesses. Note that the sliding witnesses are disabled
+    // at this time- they have to be enabled when the sticking friction
+    // witness is triggered.
     GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(false);
+    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
   }
 
   // Disable all witness functions (except the signed distance one) for the
@@ -150,7 +151,9 @@ void Rod2D<T>::SetLeftEndpointContacting(
   // The following witnesses will be disabled by default. 
   GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
   GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
+
+  // We need to enable the normal force witness.
+  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(true);
 }
 
 template <class T>
@@ -337,6 +340,17 @@ Matrix2<T> Rod2D<T>::GetRotationMatrixDerivative(T theta, T thetadot) {
   return Rdot * thetadot;
 }
 
+// Gets the second time derivative of a 2D rotation matrix.
+template <class T>
+Matrix2<T> Rod2D<T>::GetRotationMatrix2ndDerivative(T theta, T thetaddot) {
+  using std::cos;
+  using std::sin;
+  const T cth = cos(theta), sth = sin(theta);
+  Matrix2<T> Rddot;
+  Rddot << -cth, sth, -sth, -cth;
+  return Rddot * thetaddot;
+}
+
 template <class T>
 void Rod2D<T>::GetContactPoints(const systems::Context<T>& context,
                                 std::vector<Vector2<T>>* points) const {
@@ -491,7 +505,8 @@ void Rod2D<T>::CalcConstraintProblemData(
       get_generalized_position().CopyToVector();
 
   // Get the contacts.
-  const auto& contacts = get_contacts_used_in_force_calculations(context.get_state());
+  const auto& contacts = get_contacts_used_in_force_calculations(
+      context.get_state());
 
   // Create the vector of contact points.
   std::vector<Vector2<T>> points;
@@ -506,19 +521,26 @@ void Rod2D<T>::CalcConstraintProblemData(
   std::vector<T> tangent_vels;
   GetContactPointsTangentVelocities(context, points, &tangent_vels);
 
-  // TODO: Ensure that all of the constraints are active.
-
   // Get the state.
   const systems::State<T>& state = context.get_state();
 
   // Do not use the complementarity problem solver by default.
   bool use_complementarity_problem_solver = false;
 
+  // If any contacts are transitioning from sticking to sliding- denoted by
+  // one of the sliding velocity witness being active- the complementarity
+  // problem solver is activated.
+  const int num_contacts = 2;
+  for (int i = 0; i < num_contacts; ++i) {
+    if (GetPosSlidingWitness(i, state)->is_enabled())
+      use_complementarity_problem_solver = true;
+  }
+
+  // Set tangent velocities appropriately.
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
     // Check for a transitioning contact.
     const int contact_index = reinterpret_cast<long>(contacts[i].id);
     if (GetPosSlidingWitness(contact_index, state)->is_enabled()) {
-      use_complementarity_problem_solver = true;
       tangent_vels[i] = 0.0;
     } else {
       if (GetStickingFrictionForceSlackWitness(
@@ -533,9 +555,6 @@ void Rod2D<T>::CalcConstraintProblemData(
 
   // Set the complementarity problem solver.
   data->use_complementarity_problem_solver = use_complementarity_problem_solver;
-
-  // TODO: Remove this line when the active set approach is fully implemented.
-  data->use_complementarity_problem_solver = true;
 }
 
 template <class T>
@@ -945,7 +964,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
           impacting = true;
 
           // Add the contact.
-          AddContactToForceCalculationSet(contact_index, state);
+          AddContactToForceCalculationSet(contact_index, context, state);
         }
         break;
       }
@@ -959,7 +978,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         witness->set_enabled(false);
 
         // Add the contact.
-        AddContactToForceCalculationSet(contact_index, state);
+        AddContactToForceCalculationSet(contact_index, context, state);
 
         break;
       }
@@ -980,10 +999,10 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         witness->set_enabled(false);
 
         // Examine the normal velocity.
-        const Vector2<T> v = CalcContactVelocity(*state, contact_index);
+        const Vector2<T> v = CalcContactVelocity(context, contact_index);
         if (v[1] <= 0) {
           // Add the contact.
-          AddContactToForceCalculationSet(contact_index, state);
+          AddContactToForceCalculationSet(contact_index, context, state);
         } else {
           GetNormalVelWitness(contact_index, *state)->set_enabled(true);
         }
@@ -1003,11 +1022,17 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         contacts[contact_array_index] = contacts.back();
         contacts.pop_back();
 
-        // Activate the normal acceleration witness function. Deactivate the
-        // normal force witness.
+        // Activate the normal acceleration witness function. Aactivate the
+        // normal force witness and deactivate any other witnesses dependent
+        // upon the contact being in the force set.
         witness->set_enabled(false);
         GetNormalAccelWitness(contact_index, *state)->set_enabled(true);
-
+          GetSlidingDotWitness(contact_index, *state)->set_enabled(false);
+          GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
+          GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+          GetStickingFrictionForceSlackWitness(contact_index, *state)->
+              set_enabled(false);
+        
         break;
       }
 
@@ -1056,6 +1081,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 template <class T>
 void Rod2D<T>::AddContactToForceCalculationSet(
     int contact_index,
+    const systems::Context<T>& context,
     systems::State<T>* state) const {
 
   // Get the vector of contacts.
@@ -1069,7 +1095,7 @@ void Rod2D<T>::AddContactToForceCalculationSet(
   contacts.back().id = reinterpret_cast<void*>(contact_index);
 
   // See whether the contact is sliding or not.
-  contacts.back().sliding = !IsTangentVelocityZero(*state, contact_index);
+  contacts.back().sliding = !IsTangentVelocityZero(context, contact_index);
 
   // Activate the normal force witness.
   GetNormalForceWitness(contact_index, *state)->set_enabled(true);
@@ -1093,27 +1119,65 @@ void Rod2D<T>::AddContactToForceCalculationSet(
 // Calculates the velocity at a point of contact.
 template <class T>
 Vector2<T> Rod2D<T>::CalcContactVelocity(
-    const systems::State<T>& state,
+    const systems::Context<T>& context,
     int index) const {
 
   // TODO: Store rod parameters in the Context.
 
-  // The point of contact is x + R * u, so it's velocity is
-  // dx/dt + Rdot * u * thetadot.
-  const auto q = state.get_continuous_state().get_generalized_position().
+  // The point of contact is x + R * u, so its velocity is
+  // xdot + Rdot * u * thetadot.
+  const auto q = context.get_continuous_state().get_generalized_position().
       CopyToVector();
-  const auto v = state.get_continuous_state().get_generalized_velocity().
+  const auto v = context.get_continuous_state().get_generalized_velocity().
       CopyToVector();
-  const Vector2<T> dxdt = v.segment(0, 2);
+  const Vector2<T> xdot = v.segment(0, 2);
   const T& theta = q[2];
   const T& thetadot = v[2];
   const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
-  return dxdt + Rdot * contact_candidates_[index] * thetadot;
+  return xdot + Rdot * contact_candidates_[index] * thetadot;
+}
+
+// Calculates the acceleratino at a point of contact.
+template <class T>
+Vector2<T> Rod2D<T>::CalcContactAccel(
+    const systems::Context<T>& context,
+    int index) const {
+
+  // TODO: Store rod parameters in the Context.
+
+    // TODO(edrumwri): Speed this up (presumably) using caching. 
+
+  // Populate problem data and solve the contact problem.
+  const int ngv = 3;  // Number of rod generalized velocities.
+  VectorX<T> cf;
+  multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
+
+  // Determine the new generalized acceleration. 
+  VectorX<T> ga;
+  CalcConstraintProblemData(context, &problem_data);
+  solver_.SolveConstraintProblem(problem_data, &cf);
+  solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+
+  // The point of contact is x + R * u, so its velocity is
+  // xdot + Rdot * u * thetadot, and its acceleration is
+  // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
+  const auto q = context.get_continuous_state().get_generalized_position().
+      CopyToVector();
+  const auto v = context.get_continuous_state().get_generalized_velocity().
+      CopyToVector();
+  const Vector2<T> xddot = ga.segment(0, 2);
+  const T& theta = q[2];
+  const T& thetadot = v[2];
+  const T& thetaddot = ga[2];
+  const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
+  const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
+  return xddot + Rdot * contact_candidates_[index] * thetaddot +
+      Rddot * contact_candidates_[index] * thetadot;
 }
 
 // Gets the zero tolerance for tangent velocity for a point of contact.
 template <class T>
-bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
+bool Rod2D<T>::IsTangentVelocityZero(const systems::Context<T>& context,
                                      int contact_index) const {
   using std::abs;
 
@@ -1123,7 +1187,7 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::State<T>& state,
   const T tol = 1e-10;
 
   // Test tangent velocity.
-  const Vector2<T> pdot = CalcContactVelocity(state, contact_index);
+  const Vector2<T> pdot = CalcContactVelocity(context, contact_index);
   return (abs(pdot[0]) < tol);
 }
 

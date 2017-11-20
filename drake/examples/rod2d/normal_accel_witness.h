@@ -43,20 +43,12 @@ class NormalAccelWitness : public RodWitnessFunction<T> {
     DRAKE_DEMAND(rod.get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
-    // TODO(edrumwri): Speed this up (presumably) using caching. 
+    // Get the contact.
+    const int contact_index = this->get_contact_index();
 
-    // Populate problem data and solve the contact problem.
-    const int ngv = 3;  // Number of rod generalized velocities.
-    VectorX<T> cf;
-    multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
-
-    // Determine the new generalized acceleration. 
-    rod.CalcConstraintProblemData(context, &problem_data);
-    solver_->SolveConstraintProblem(problem_data, &cf);
-
-    // TODO(edrumwri): Determine the acceleration at the tracked point.
-    DRAKE_DEMAND(false);
-    return 0.0;
+    // Return the vertical acceleration at the tracked point.
+    const Vector2<T> vdot = rod.CalcContactAccel(context, contact_index); 
+    return vdot[1];
   }
 
   /// Pointer to the rod's constraint solver.

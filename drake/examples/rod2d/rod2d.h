@@ -571,6 +571,7 @@ class Rod2D : public systems::LeafSystem<T> {
                                const Vector2<T>& p,
                                const Vector2<T>& dir) const;
   static Matrix2<T> GetRotationMatrixDerivative(T theta, T thetadot);
+  static Matrix2<T> GetRotationMatrix2ndDerivative(T theta, T thetaddot);
   T GetSlidingVelocityTolerance() const;
   Matrix3<T> GetInertiaMatrix() const;
   MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
@@ -613,7 +614,9 @@ class Rod2D : public systems::LeafSystem<T> {
   RodWitnessFunction<T>* GetStickingFrictionForceSlackWitness(
       int contact_index, const systems::State<T>& state) const;
   void AddContactToForceCalculationSet(
-      int contact_index, systems::State<T>* state) const;
+      int contact_index,
+      const systems::Context<T>& context,
+      systems::State<T>* state) const;
   const Vector2<T>& get_contact_candidate(int index) const {
       return contact_candidates_[index]; }
 
@@ -638,6 +641,8 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_StickingSlidingWitness_Test;
   friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
   friend class Rod2DDAETest_ContactingMovingUpwardAndSeparating_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpward_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpwardMomentarily_Test;
 
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;
@@ -650,10 +655,13 @@ class Rod2D : public systems::LeafSystem<T> {
   int get_num_tangent_directions_per_contact() const { return 2; }
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Vector2<T> CalcContactVelocity(
-      const systems::State<T>& state,
+      const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactAccel(
+      const systems::Context<T>& context,
       int index) const;
   bool IsTangentVelocityZero(
-      const systems::State<T>& state,
+      const systems::Context<T>& state,
       int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);

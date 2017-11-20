@@ -54,7 +54,7 @@ class SlidingWitness : public RodWitnessFunction<T> {
     DRAKE_DEMAND(contact.sliding);
 
     // Compute the translational velocity at the point of contact.
-    const Vector2<T> pdot = rod.CalcContactVelocity(context.get_state(),
+    const Vector2<T> pdot = rod.CalcContactVelocity(context,
                                                     contact_index);
 
     // Return the tangent velocity.

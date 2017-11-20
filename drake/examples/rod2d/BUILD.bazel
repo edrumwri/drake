@@ -76,6 +76,7 @@ drake_cc_googletest(
         "//drake/common/test_utilities:eigen_matrix_compare",
         "//drake/multibody/constraint:constraint_solver",
         "//drake/systems/analysis",
+        "//drake/systems/framework",
     ],
 )
 
