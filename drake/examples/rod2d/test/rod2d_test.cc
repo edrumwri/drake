@@ -1023,8 +1023,8 @@ TEST_F(Rod2DDAETest, RigidContactProblemDataVerticalSliding) {
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
-// moving upward (and remains in contact).
-TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
+// moving slightly upward (and remains in contact).
+TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
   // Get a pointer to the mutable state- it will be used repeatedly.
   systems::State<double>* state = &context_->get_mutable_state();
 
@@ -1110,7 +1110,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
 
 // Verifies that the mode changes as expected when the rod is in contact but
 // moving upward (and remains in contact).
-TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating) {
+TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   // Get a pointer to the mutable state- it will be used repeatedly.
   systems::State<double>* state = &context_->get_mutable_state();
 
@@ -1162,6 +1162,85 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating) {
   // Verify that only the signed distance witness function is active for the
   // left endpoint (i.e., the normal velocity witness should no longer be
   // active). 
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+
+  // Only one witness function for the right endpoint should be enabled.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+}
+
+// Verifies that the mode changes as expected when the rod is in contact but
+// is moving upward and the contact then breaks.
+TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating) 
+{
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the state such that the velocity is zero (not separating, not sliding)
+  // (and the contact mode is set appropriately.
+  const bool sliding = false;
+  SetRestingVerticalConfig();
+  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  xc[1] = -0.1;
+  xc[4] = 10000;
+  dut_->SetLeftEndpointContacting(state, sliding);
+
+  // Since the velocity is positive, the point should be removed from the
+  // force calculations.
+  dut_->get_contacts_used_in_force_calculations(state).clear();
+
+  // Set contact candidate ids.
+  const int left_endpoint_id = 0;
+  const int right_endpoint_id = 1;
+
+  // This also means that we need to disable relevant witnesses. 
+  dut_->GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+      set_enabled(false);
+  dut_->GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
+
+  // Get the normal velocity witness.
+  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
+      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+
+  // Activate the normal velocity witness for the left endpoint. 
+  normal_vel_witness->set_enabled(true);
+
+  // Simulate forward.
+  const double t_final = 0.1;
+  Simulator<double> sim(*dut_, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that exactly one unrestricted update was handled: the signed
+  // distance witness.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
+
+  // The set of contact points in force calculations should still be empty. 
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 0);
+
+  // Verify that only the signed distance witness function is active for the
+  // left endpoint. 
   EXPECT_TRUE(dut_->GetSignedDistanceWitness(
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetNormalForceWitness(
@@ -1381,6 +1460,77 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
       right_endpoint_id, *state)->is_enabled()); 
 }
 
+// Verifies that the mode changes as expected when the rod is in contact but
+// begins accelerating upward. 
+TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
+  // Create a diagram with an input that causes the rod to start accelerating
+  // upward at t = 0.1s.
+  const double t_switch = 0.1;
+  const double inf = std::numeric_limits<double>::infinity();
+  auto diagram = CreateRodDiagramWithTimedInput(t_switch, inf);
+
+  // Create a new context.
+  context_ = diagram->CreateDefaultContext();
+
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the state such that the velocity is not sliding
+  // (and the contact mode is set appropriately).
+  const bool sliding = false;
+  SetRestingVerticalConfig();
+  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  xc[1] = -0.1;
+  dut_->SetLeftEndpointContacting(state, sliding);
+
+  // The set of contact points in force calculations should have one element. 
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
+
+  // Set contact candidate ids.
+  const int left_endpoint_id = 0;
+  const int right_endpoint_id = 1;
+
+  // Simulate forward.
+  const double t_final = t_switch * 100.0;
+  Simulator<double> sim(*diagram, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that exactly two unrestricted updates were handled: one as the
+  // contact is removed from the force calculations and another as the
+  // rod breaks contact.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 2);
+
+  // The set of contact points in force calculations should now be empty. 
+  EXPECT_TRUE(dut_->get_contacts_used_in_force_calculations(state).empty());
+
+  // Verify that only the signed distance witness functions is active for the
+  // left endpoint.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalAccelWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+
+  // Only one witness function for the right endpoint should be enabled.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+}
 
 /// Class for testing the Rod 2D example using a first order time
 /// stepping approach.

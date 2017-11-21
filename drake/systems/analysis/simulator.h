@@ -786,6 +786,11 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
   for (size_t i =0; i < witness_functions.size(); ++i)
     wf_[i] = system.EvaluateWitness(context, *witness_functions[i]);
 
+  for (int i = 0; i < w0_.size(); ++i) {
+    SPDLOG_DEBUG(drake::log(), "Witness {} values: {} {}",
+        witness_functions[i]->get_name(), w0_[i], wf_[i]);
+  }
+
   // See whether a witness function triggered.
   triggered_witnesses_.clear();
   bool witness_triggered = false;

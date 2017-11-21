@@ -639,9 +639,11 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_SeparationWitness_Test;
   friend class Rod2DDAETest_VelocityChangesWitness_Test;
   friend class Rod2DDAETest_StickingSlidingWitness_Test;
+  friend class Rod2DDAETest_ContactingAndMovingSlightlyUpward_Test;
   friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
   friend class Rod2DDAETest_ContactingMovingUpwardAndSeparating_Test;
   friend class Rod2DDAETest_ContactingAndAcceleratingUpward_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpwardThenBreaks_Test;
   friend class Rod2DDAETest_ContactingAndAcceleratingUpwardMomentarily_Test;
 
   friend class Rod2DCrossValidationTest;

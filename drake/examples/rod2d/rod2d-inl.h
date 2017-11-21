@@ -951,7 +951,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // If the witness is a signed distance witness, the point should either
         // no longer be tracked or it should newly be tracked.
         // See whether the point is tracked.
-        if (GetNormalVelWitness(contact_index, *state)->is_enabled()) {
+        if (GetNormalVelWitness(contact_index, *state)->is_enabled() ||
+            GetNormalAccelWitness(contact_index, *state)->is_enabled()) {
           // Deactivate all but signed distance function witness.
           GetNormalForceWitness(contact_index, *state)->set_enabled(false);
           GetNormalAccelWitness(contact_index, *state)->set_enabled(false);
