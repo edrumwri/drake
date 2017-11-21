@@ -1313,9 +1313,9 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
 TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   // Create a diagram with an input that causes the rod to start accelerating
   // upward at t = 0.1s.
-  const double t_switch = 0.1;
+  const double t_switch_on = 0.1, t_switch_off = 0.2;
   auto diagram = CreateRodDiagramWithTimedInput(
-      t_switch, t_switch + t_switch * 0.1);
+      t_switch_on, t_switch_off);
 
   // Create a new context.
   context_ = diagram->CreateDefaultContext();
@@ -1339,7 +1339,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   const int right_endpoint_id = 1;
 
   // Simulate forward.
-  const double t_final = 2 * t_switch;
+  const double t_final = 2 * t_switch_off;
   Simulator<double> sim(*diagram, std::move(context_));
   sim.get_mutable_context().set_accuracy(1e-8);
   sim.StepTo(t_final);

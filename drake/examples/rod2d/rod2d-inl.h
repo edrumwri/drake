@@ -1027,11 +1027,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // upon the contact being in the force set.
         witness->set_enabled(false);
         GetNormalAccelWitness(contact_index, *state)->set_enabled(true);
-          GetSlidingDotWitness(contact_index, *state)->set_enabled(false);
-          GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-          GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
-          GetStickingFrictionForceSlackWitness(contact_index, *state)->
-              set_enabled(false);
+        GetSlidingDotWitness(contact_index, *state)->set_enabled(false);
+        GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
+        GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+        GetStickingFrictionForceSlackWitness(contact_index, *state)->
+            set_enabled(false);
         
         break;
       }
