@@ -1019,10 +1019,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Could there be a problem with witness functions or infinite looping
         // Can a point get entered into the force calculations with a zero
         // normal force?
+        DRAKE_DEMAND(contact_array_index >= 0 && !contacts.empty());
         contacts[contact_array_index] = contacts.back();
         contacts.pop_back();
 
-        // Activate the normal acceleration witness function. Aactivate the
+        // Activate the normal acceleration witness function. Deactivate the
         // normal force witness and deactivate any other witnesses dependent
         // upon the contact being in the force set.
         witness->set_enabled(false);
@@ -1057,8 +1058,10 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         GetPosSlidingWitness(contact_index, *state)->set_enabled(true);
         GetNegSlidingWitness(contact_index, *state)->set_enabled(true);
 
-        // Mark the contact as sliding.
-        contacts[contact_array_index].sliding = true;
+        // Mark the contact as sliding, unless the contact has already been
+        // disabled (by another witness triggering).
+        if (contact_array_index >= 0)
+          contacts[contact_array_index].sliding = true;
 
         break;
       }
@@ -1194,6 +1197,9 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::Context<T>& context,
 template <class T>
 void Rod2D<T>::DoGetWitnessFunctions(const systems::Context<T>& context,
     std::vector<const systems::WitnessFunction<T>*>* witness_functions) const {
+  DRAKE_DEMAND(witness_functions);
+  witness_functions->clear();
+
   // If this is not a piecewise DAE system, return early.
   if (simulation_type_ != SimulationType::kPiecewiseDAE)
     return;

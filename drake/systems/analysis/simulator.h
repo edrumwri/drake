@@ -754,6 +754,10 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
                                           const T& next_sample_time,
                                           const T& boundary_dt,
                                           CompositeEventCollection<T>* events) {
+  // Clear the composite event collection.
+  DRAKE_ASSERT(events);
+  events->Clear();
+
   // Save the time and current state.
   const Context<T>& context = get_context();
   const T t0 = context.get_time();

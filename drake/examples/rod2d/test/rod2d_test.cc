@@ -1344,9 +1344,10 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   sim.get_mutable_context().set_accuracy(1e-8);
   sim.StepTo(t_final);
 
-  // Verify that exactly two unrestricted updates: one to remove the point
-  // from the force set and another to add it back.
-  EXPECT_EQ(sim.get_num_unrestricted_updates(), 2);
+  // Verify that exactly three unrestricted updates: one to remove the point
+  // from the force set, one as the acceleration goes back to zero, and another
+  // as the velocity goes back to zero (adding the point back to the force set).
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 3);
 
   // The set of contact points in force calculations should still be of size
   // one.
