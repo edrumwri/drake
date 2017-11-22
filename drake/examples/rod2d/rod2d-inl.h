@@ -745,38 +745,40 @@ void Rod2D<T>::CalcImpactProblemData(
 // Models any impacts for the piecewise-DAE based system.
 // @param[in,out] state the pre-impact state on entry, the post-impact state
 //                on return.
-// @param[out] zero_tol if non-null, contains the determined zero tolerance
-//             on return.
 template <class T>
-void Rod2D<T>::ModelImpact(systems::State<T>* state,
-                           T* zero_tol) const {
+void Rod2D<T>::ModelImpact(
+    const systems::Context<T>& context, systems::State<T>* state) const {
   DRAKE_DEMAND(state);
-/*
-  // Get state variables.
-  const VectorX<T> q = state->get_continuous_state()->
+
+  // Get the current configuration and velocity of the system.
+  const VectorX<T> q = state->get_continuous_state().
       get_generalized_position().CopyToVector();
-  systems::VectorBase<T>* qdot = state->get_mutable_continuous_state()->
+  systems::VectorBase<T>& qdot = state->get_mutable_continuous_state().
       get_mutable_generalized_velocity();
 
-  DRAKE_DEMAND(points);
-  DRAKE_DEMAND(points->empty());
+  // Determine the vector of contact points using the active witness functions.
+  std::vector<Vector2<T>> points;
+  for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
+    if (GetNormalForceWitness(i, *state)->is_enabled() ||
+        GetNormalVelWitness(i, *state)->is_enabled() ||
+        GetNormalAccelWitness(i, *state)->is_enabled()) {
+      points.push_back(GetPointInWorldFrame(q, i));
+    }
+  }
 
-  const Vector3<T> q = GetRodConfig(context);
-  const T& x = q[0];
-  const T& y = q[1];
-  T cth = cos(q[2]), sth = sin(q[2]);
+  // Call the primary method.
+  const int ngv = 3;
+  multibody::constraint::ConstraintVelProblemData<T> problem_data(ngv);
+  CalcImpactProblemData(context, points, &problem_data);
 
-  // Get the two rod endpoint locations.
-  const T half_len = get_rod_half_length();
-  const Vector2<T> pa = CalcRodEndpoint(x, y, -1, cth, sth, half_len);
-  const Vector2<T> pb = CalcRodEndpoint(x, y, +1, cth, sth, half_len);
+  // Solve the impact problem and update the state.
+  VectorX<T> cf, vplus;
+  solver_.SolveImpactProblem(problem_data, &cf);
+  solver_.ComputeGeneralizedVelocityChange(problem_data, cf, &vplus);
+  vplus += qdot.CopyToVector();
 
-  // If an endpoint touches the ground, add it as a contact point.
-  if (pa[1] <= 0)
-    points->push_back(pa);
-  if (pb[1] <= 0)
-    points->push_back(pb);
-*/
+  // Update qdot.
+  qdot.SetFromVector(vplus);
 }
 
 template <class T>
@@ -963,9 +965,6 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         } else {
           // Indicate that an impact is occurring.
           impacting = true;
-
-          // Add the contact.
-          AddContactToForceCalculationSet(contact_index, context, state);
         }
         break;
       }
@@ -1073,11 +1072,58 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // halfspace, we would need to deactivate contact points as they slid off of
   // the edge of the box.
 
-  // Handle any impacts, then redetermine which contacts are sliding and which
-  // are not sliding.
+  // Handle any impacts, then redetermine the mode for all contacts.
   if (impacting) {
-    T zero_tol;
-    ModelImpact(state, &zero_tol);
+    ModelImpact(context, state);
+
+    // Get all points currently considered to be in contact.
+    for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
+      // Get the vertical velocity at the rod endpoint.
+      const T& v = CalcContactVelocity(context, i)[1];
+
+      // The point is considered to be in contact if one of the following is
+      // activated: the normal force witness, the normal velocity witness,
+      // the normal acceleration witness.
+      if (GetNormalForceWitness(i, *state)->is_enabled() ||
+          GetNormalVelWitness(i, *state)->is_enabled() ||
+          GetNormalAccelWitness(i, *state)->is_enabled()) {
+        // The point was considered to both be in contact and be part of the
+        // force calculations. Remove it from force calculations and activate
+        // the normal velocity witness (and deactivate other witnesses) if the
+        // velocity is strictly positive.
+        if (v > 0) {
+          GetNormalVelWitness(i, *state)->set_enabled(true);
+          GetNormalAccelWitness(i, *state)->set_enabled(false);
+          GetNormalForceWitness(i, *state)->set_enabled(false);
+          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+          GetSlidingDotWitness(i, *state)->set_enabled(false);
+          GetPosSlidingWitness(i, *state)->set_enabled(false);
+          GetNegSlidingWitness(i, *state)->set_enabled(false);
+
+          // Remove the point if it is tracked.
+          if (GetNormalForceWitness(i, *state)->is_enabled()) {
+            contacts[i] = contacts.back();
+            contacts.pop_back();
+
+            // Need to process the newly designated element i.
+            --i;
+          }
+        } else {
+          // The contact point should potentially be accounted for in the force
+          // calculations. Add it to the set if necessary.
+          int contact_array_index = GetContactArrayIndex(*state, i);
+          if (contact_array_index < 0) {
+            AddContactToForceCalculationSet(i, context, state);
+            contact_array_index = contacts.size() - 1;
+            DRAKE_ASSERT(contact_array_index ==
+                GetContactArrayIndex(*state, i));
+          }
+        }
+      } 
+    }
+
+    // Now redetermine the acceleration level active set. This is done by
+    // solving the complementarity problem.
   }
 }
 

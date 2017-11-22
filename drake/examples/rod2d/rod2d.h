@@ -286,11 +286,6 @@ class Rod2D : public systems::LeafSystem<T> {
         get_continuous_state().get_generalized_velocity().CopyToVector();
   }
 
-  /// Models impact using an inelastic impact model with friction.
-  /// @p new_state is set to the output of the impact model on return.
-  void HandleImpact(const systems::Context<T>& context,
-                    systems::State<T>* new_state) const;
-
   /// Gets the acceleration (with respect to the positive y-axis) due to
   /// gravity (i.e., this number should generally be negative).
   double get_gravitational_acceleration() const { return g_; }
@@ -537,10 +532,8 @@ class Rod2D : public systems::LeafSystem<T> {
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
       multibody::constraint::ConstraintAccelProblemData<T>* data) const;
-  void CalcImpactProblemData(
-      const systems::Context<T>& context,
-      multibody::constraint::ConstraintVelProblemData<T>* data) const;
-  void ModelImpact(systems::State<T>* state, T* zero_tol = nullptr) const;
+  void ModelImpact(
+      const systems::Context<T>& context, systems::State<T>* state) const;
   bool IsImpacting(const systems::State<T>& state) const;
 
  private:
@@ -645,6 +638,8 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_ContactingAndAcceleratingUpward_Test;
   friend class Rod2DDAETest_ContactingAndAcceleratingUpwardThenBreaks_Test;
   friend class Rod2DDAETest_ContactingAndAcceleratingUpwardMomentarily_Test;
+  friend class Rod2DDAETest_ImpactThenSustainedContact_Test;
+  friend class Rod2DDAETest_AcceleratingUpwardImpactImmediateSeparation_Test;
 
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;

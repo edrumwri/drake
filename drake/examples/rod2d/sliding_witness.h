@@ -10,7 +10,8 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
-/// Determines whether the tangent velocity is above a particular threshold. 
+/// Determines whether the tangent velocity is above the sliding velocity
+/// threshold.
 template <class T>
 class SlidingWitness : public RodWitnessFunction<T> {
  public:

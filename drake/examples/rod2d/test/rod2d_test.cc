@@ -1532,6 +1532,16 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
       right_endpoint_id, *state)->is_enabled()); 
 }
 
+/// Verifies the correct behavior as the rod impacts the ground. The rod should
+/// impact and then remain in sustained contact.
+TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
+}
+
+/// Verifies the correct behavior as the rod impacts the ground while
+/// accelerating upward. The rod should impact and then immediately separate.
+TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
+}
+
 /// Class for testing the Rod 2D example using a first order time
 /// stepping approach.
 class Rod2DTimeSteppingTest : public ::testing::Test {
