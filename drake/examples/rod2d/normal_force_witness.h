@@ -55,7 +55,7 @@ class NormalForceWitness : public RodWitnessFunction<T> {
     const int ngv = 3;  // Number of rod generalized velocities.
     VectorX<T> cf;
     multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
-    rod.CalcConstraintProblemData(context, &problem_data);
+    rod.CalcConstraintProblemData(context, context.get_state(), &problem_data);
     problem_data.use_complementarity_problem_solver = false; 
     solver_->SolveConstraintProblem(problem_data, &cf);
 

@@ -380,10 +380,11 @@ void Rod2D<T>::GetContactPoints(const systems::Context<T>& context,
 template <class T>
 void Rod2D<T>::GetContactPointsTangentVelocities(
     const systems::Context<T>& context,
+    const systems::State<T>& state,
     const std::vector<Vector2<T>>& points, std::vector<T>* vels) const {
   DRAKE_DEMAND(vels);
-  const Vector3<T> q = GetRodConfig(context);
-  const Vector3<T> v = GetRodVelocity(context);
+  const Vector3<T> q = GetRodConfig(state);
+  const Vector3<T> v = GetRodVelocity(state);
 
   // Get necessary quantities.
   const Vector2<T> p_WRo = q.segment(0, 2);
@@ -496,17 +497,17 @@ Matrix2<T> Rod2D<T>::GetNonSlidingContactFrameToWorldTransform() const {
 template <class T>
 void Rod2D<T>::CalcConstraintProblemData(
     const systems::Context<T>& context,
+    const systems::State<T>& state,
     multibody::constraint::ConstraintAccelProblemData<T>* data)
     const {
   using std::abs;
 
   // Get the current configuration of the system.
-  const VectorX<T> q = context.get_state().get_continuous_state().
+  const VectorX<T> q = state.get_continuous_state().
       get_generalized_position().CopyToVector();
 
   // Get the contacts.
-  const auto& contacts = get_contacts_used_in_force_calculations(
-      context.get_state());
+  const auto& contacts = get_contacts_used_in_force_calculations(state);
 
   // Create the vector of contact points.
   std::vector<Vector2<T>> points;
@@ -519,10 +520,7 @@ void Rod2D<T>::CalcConstraintProblemData(
 
   // Determine the tangent velocities at the contact points.
   std::vector<T> tangent_vels;
-  GetContactPointsTangentVelocities(context, points, &tangent_vels);
-
-  // Get the state.
-  const systems::State<T>& state = context.get_state();
+  GetContactPointsTangentVelocities(context, state, points, &tangent_vels);
 
   // Do not use the complementarity problem solver by default.
   bool use_complementarity_problem_solver = false;
@@ -963,7 +961,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
           GetStickingFrictionForceSlackWitness(contact_index, *state)->
               set_enabled(false);
         } else {
-          // Indicate that an impact is occurring.
+          // Indicate that an impact is occurring. Activate one of
+          // { NormalAccelWitness, NormalVelWitness } arbitrarily (lets the
+          // impact approach know that this point of contact is being tracked,
+          // but that contact is not part of force calculations).
+          GetNormalVelWitness(contact_index, *state)->set_enabled(true);
           impacting = true;
         }
         break;
@@ -1079,7 +1081,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     // Get all points currently considered to be in contact.
     for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
       // Get the vertical velocity at the rod endpoint.
-      const T& v = CalcContactVelocity(context, i)[1];
+      const T& v = CalcContactVelocity(*state, i)[1];
 
       // The point is considered to be in contact if one of the following is
       // activated: the normal force witness, the normal velocity witness,
@@ -1123,7 +1125,60 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     }
 
     // Now redetermine the acceleration level active set. This is done by
-    // solving the complementarity problem.
+    // solving the complementarity problem and then examining each contact.
+    // If the acceleration at the contact is truly positive, then the contact
+    // can be disabled.
+    // 1. Populate problem data and solve the contact problem.
+    const int ngv = 3;  // Number of rod generalized velocities.
+    VectorX<T> cf;
+    multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
+
+    // Determine the new generalized acceleration. Complementarity solver
+    // *must* be used.
+    VectorX<T> ga;
+    CalcConstraintProblemData(context, *state, &problem_data);
+    problem_data.use_complementarity_problem_solver = true;
+    solver_.SolveConstraintProblem(problem_data, &cf);
+    solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+
+    // The point of contact is x + R * u, so its velocity is
+    // xdot + Rdot * u * thetadot, and its acceleration is
+    // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
+    const auto q = context.get_continuous_state().get_generalized_position().
+        CopyToVector();
+    const auto v = context.get_continuous_state().get_generalized_velocity().
+        CopyToVector();
+    const Vector2<T> xddot = ga.segment(0, 2);
+    const T& theta = q[2];
+    const T& thetadot = v[2];
+    const T& thetaddot = ga[2];
+    const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
+    const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
+    for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
+      // Get the index in the contact array.
+      int contact_array_index = GetContactArrayIndex(*state, i);
+      if (contact_array_index < 0)
+        continue;
+
+      // Get the vertical acceleration.
+      const Vector2<T> a = xddot + Rdot * contact_candidates_[i] * thetaddot +
+          Rddot * contact_candidates_[i] * thetadot;
+      if (a[1] > 0.0) {
+          // Remove the contact from the set used to compute forces.
+          contacts[contact_array_index] = contacts.back();
+          contacts.pop_back();
+
+          // Enable the normal acceleration witness.
+          GetNormalAccelWitness(i, *state)->set_enabled(true);
+
+          // Disable all other witnesses.
+          GetNormalForceWitness(i, *state)->set_enabled(false);
+          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+          GetPosSlidingWitness(i, *state)->set_enabled(false);
+          GetNegSlidingWitness(i, *state)->set_enabled(false);
+          GetSlidingDotWitness(i, *state)->set_enabled(false);
+      }
+    }
   }
 }
 
@@ -1171,14 +1226,20 @@ template <class T>
 Vector2<T> Rod2D<T>::CalcContactVelocity(
     const systems::Context<T>& context,
     int index) const {
+  return CalcContactVelocity(context.get_state(), index);
+}
 
-  // TODO: Store rod parameters in the Context.
+// Calculates the velocity at a point of contact.
+template <class T>
+Vector2<T> Rod2D<T>::CalcContactVelocity(
+    const systems::State<T>& state,
+    int index) const {
 
   // The point of contact is x + R * u, so its velocity is
   // xdot + Rdot * u * thetadot.
-  const auto q = context.get_continuous_state().get_generalized_position().
+  const auto q = state.get_continuous_state().get_generalized_position().
       CopyToVector();
-  const auto v = context.get_continuous_state().get_generalized_velocity().
+  const auto v = state.get_continuous_state().get_generalized_velocity().
       CopyToVector();
   const Vector2<T> xdot = v.segment(0, 2);
   const T& theta = q[2];
@@ -1187,7 +1248,7 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(
   return xdot + Rdot * contact_candidates_[index] * thetadot;
 }
 
-// Calculates the acceleratino at a point of contact.
+// Calculates the acceleration at a point of contact.
 template <class T>
 Vector2<T> Rod2D<T>::CalcContactAccel(
     const systems::Context<T>& context,
@@ -1204,7 +1265,7 @@ Vector2<T> Rod2D<T>::CalcContactAccel(
 
   // Determine the new generalized acceleration. 
   VectorX<T> ga;
-  CalcConstraintProblemData(context, &problem_data);
+  CalcConstraintProblemData(context, context.get_state(), &problem_data);
   solver_.SolveConstraintProblem(problem_data, &cf);
   solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
 
@@ -1657,7 +1718,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
     // Construct the problem data.
     const int ngc = 3;   // Number of generalized coordinates / velocities.
     multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngc);
-    CalcConstraintProblemData(context, &problem_data);
+    CalcConstraintProblemData(context, context.get_state(), &problem_data);
 
     // Solve the constraint problem.
     VectorX<T> cf;
@@ -1761,7 +1822,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
   const double half_len = get_rod_half_length();
   VectorX<T> x0(6);
   const double r22 = sqrt(2) / 2;
-  x0 << half_len * r22, half_len * r22, M_PI / 4.0, -1, 0, 0;  // Initial state.
+  x0 << 0, half_len * r22, M_PI / 4.0, -1, 0, 0;  // Initial state.
   if (simulation_type_ == SimulationType::kTimeStepping) {
     state->get_mutable_discrete_state().get_mutable_vector(0)
         .SetFromVector(x0);

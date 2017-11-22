@@ -273,7 +273,12 @@ class Rod2D : public systems::LeafSystem<T> {
   /// in the global frame. The third component represents the orientation of
   /// the rod, measured counter-clockwise with respect to the x-axis.
   Vector3<T> GetRodConfig(const systems::Context<T>& context) const {
-    return context.get_state().
+    return GetRodConfig(context.get_state());
+  }
+
+  /// Gets the generalized position of the rod, given a State.
+  Vector3<T> GetRodConfig(const systems::State<T>& state) const {
+    return state.
         get_continuous_state().get_generalized_position().CopyToVector();
   }
 
@@ -283,6 +288,12 @@ class Rod2D : public systems::LeafSystem<T> {
   /// the rod.
   Vector3<T> GetRodVelocity(const systems::Context<T>& context) const {
     return context.get_state().
+        get_continuous_state().get_generalized_velocity().CopyToVector();
+  }
+
+  /// Gets the generalized velocity of the rod, given a State.
+  Vector3<T> GetRodVelocity(const systems::State<T>& state) const {
+    return state.
         get_continuous_state().get_generalized_velocity().CopyToVector();
   }
 
@@ -485,8 +496,9 @@ class Rod2D : public systems::LeafSystem<T> {
                         std::vector<Vector2<T>>* points) const;
 
   /// Gets the tangent velocities for all contact points.
-  /// @p context The context storing the current configuration and velocity of
-  ///            the rod.
+  /// @p context The current context.
+  /// @p state The state storing the current configuration and velocity of
+  ///          the rod.
   /// @p points The set of context points.
   /// @p vels Contains the velocities (measured along the x-axis) on return.
   ///         This function aborts if @p vels is null. @p vels will be resized
@@ -494,6 +506,7 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         return.
   void GetContactPointsTangentVelocities(
       const systems::Context<T>& context,
+      const systems::State<T>& state,
       const std::vector<Vector2<T>>& points, std::vector<T>* vels) const;
 
   /// Initializes the contact data for the rod, given a set of contact points.
@@ -531,6 +544,7 @@ class Rod2D : public systems::LeafSystem<T> {
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
+      const systems::State<T>& state,
       multibody::constraint::ConstraintAccelProblemData<T>* data) const;
   void ModelImpact(
       const systems::Context<T>& context, systems::State<T>* state) const;
@@ -614,6 +628,7 @@ class Rod2D : public systems::LeafSystem<T> {
       return contact_candidates_[index]; }
 
  private:
+  friend class Rod2DDAETest;
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
   friend class Rod2DDAETest_ImpactWorksTest_Test;
   friend class Rod2DDAETest_ImpactNoChange_Test;
@@ -639,7 +654,8 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_ContactingAndAcceleratingUpwardThenBreaks_Test;
   friend class Rod2DDAETest_ContactingAndAcceleratingUpwardMomentarily_Test;
   friend class Rod2DDAETest_ImpactThenSustainedContact_Test;
-  friend class Rod2DDAETest_AcceleratingUpwardImpactImmediateSeparation_Test;
+  friend class
+      Rod2DDAETest_AcceleratingUpwardImpactThenImmediateSeparation_Test;
 
   friend class Rod2DCrossValidationTest;
   friend class Rod2DCrossValidationSlidingTest;
@@ -653,6 +669,9 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Vector2<T> CalcContactVelocity(
       const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactVelocity(
+      const systems::State<T>& state,
       int index) const;
   Vector2<T> CalcContactAccel(
       const systems::Context<T>& context,

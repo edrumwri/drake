@@ -83,9 +83,9 @@ class Rod2DDAETest : public ::testing::Test {
     const double r22 = std::sqrt(2) / 2;
     ContinuousState<double>& xc =
         context_->get_mutable_continuous_state();
-    xc[0] = -half_len * r22;
+    xc[0] = 0;
     xc[1] = half_len * r22;
-    xc[2] = 3 * M_PI / 4.0;
+    xc[2] = -M_PI / 4.0;
     xc[3] = 1.0;
     xc[4] = 0.0;
     xc[5] = 0.0;
@@ -149,7 +149,14 @@ class Rod2DDAETest : public ::testing::Test {
     ContinuousState<double>& xc = context_->get_mutable_continuous_state();
     xc[4] = -1.0;    // com horizontal velocity
 
-    // TODO: Set the abstract variables appropriately. 
+    // Set the abstract variables appropriately by putting the rod into
+    // ballistic mode (i.e., this will be the point right before an impact),
+    // and then enabling the normal velocity witness. This is the mechanism
+    // that Rod2D::ModelImpact() uses to determine its contact points.
+    dut_->SetBallisticMode(&context_->get_mutable_state());
+    const int right_endpoint_id = 1;
+    dut_->GetNormalVelWitness(
+        right_endpoint_id, context_->get_state())->set_enabled(true);
   }
 
   // Computes rigid impact data.
@@ -170,7 +177,8 @@ class Rod2DDAETest : public ::testing::Test {
     std::vector<Vector2d> contacts;
     std::vector<double> tangent_vels;
     dut_->GetContactPoints(*context_, &contacts);
-    dut_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    dut_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Compute the problem data.
     dut_->CalcConstraintProblemData(
@@ -343,8 +351,6 @@ TEST_F(Rod2DDAETest, ImpactWorks) {
   xc[3] = 0.0;
   xc[4] = -1.0;
   xc[5] = 0.0;
-
-  // TODO: Set the abstract variables appropriately. 
 
   // Rod should not be impacting.
   EXPECT_TRUE(dut_->IsImpacting(*context_));
@@ -529,20 +535,6 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
               fext(2)/dut_->get_rod_moment_of_inertia(), tol);
 }
 
-// Verify the inconsistent (Painlevé Paradox) configuration occurs.
-TEST_F(Rod2DDAETest, Inconsistent) {
-  EXPECT_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()),
-               std::runtime_error);
-}
-
-// Verify the second inconsistent (Painlevé Paradox) configuration occurs.
-TEST_F(Rod2DDAETest, Inconsistent2) {
-  SetSecondInitialConfig();
-
-  EXPECT_THROW(dut_->CalcTimeDerivatives(*context_, derivatives_.get()),
-               std::runtime_error);
-}
-
 // Verify that the (non-impacting) Painlevé configuration does not result in a
 // state change.
 TEST_F(Rod2DDAETest, ImpactNoChange) {
@@ -562,12 +554,8 @@ TEST_F(Rod2DDAETest, ImpactNoChange) {
   EXPECT_TRUE(CompareMatrices(xc_old, xc,
                               std::numeric_limits<double>::epsilon(),
                               MatrixCompareType::absolute));
-
-  // TODO: Verify that the abstract variables are still set correctly.
 }
 
-// TODO: Re-enable this.
-/*
 // Verify that applying the impact model to an impacting configuration results
 // in a non-impacting configuration. This test exercises the model for the case
 // where impulses that yield tangential sticking lie within the friction cone.
@@ -575,24 +563,17 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact) {
   // Cause the initial state to be impacting.
   SetImpactingState();
 
-  // TODO: Verify that the abstract variables are set correctly.
+  // Set the coefficient of friction to "large".
+  dut_->set_mu_coulomb(100.0);
 
-  // Set the coefficient of friction to infinite. This forces the rod code
-  // to go through the first impact path (impulse within the friction cone).
-  dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
-
-  // TODO(edrumwri): Move from HandleImpact() to ModelImpact() once
-  // ModelImpact() changes abstract state.
-  // Handle the impact and copy the result to the context.
+  // Model the impact and copy the result to the context.
   std::unique_ptr<State<double>> new_state = CloneState();
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   context_->get_mutable_state().SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
-  // TODO: Verify that the abstract variables are still set correctly.
-
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state().get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state().get_vector().
@@ -608,8 +589,6 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
   // Set the initial state to be impacting.
   SetImpactingState();
 
-  // TODO: Verify that the abstract variables are set correctly.
-
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path (impulse corresponding to sticking
   // friction post-impact lies outside of the friction cone).
@@ -617,25 +596,20 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact) {
 
   // Handle the impact and copy the result to the context.
   std::unique_ptr<State<double>> new_state = CloneState();
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   context_->get_mutable_state().SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
-  // TODO: Verify that the abstract variables are still set correctly.
-
   // Do one more impact- there should now be no change.
   // Verify that there is no further change from this second impact.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state().get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state().get_vector().
                                   CopyToVector(),
                               std::numeric_limits<double>::epsilon(),
                               MatrixCompareType::absolute));
-
-  // TODO: Verify that the abstract variables are still set correctly.
 }
-*/
 
 // Verify that no exceptions thrown for a non-sliding configuration.
 TEST_F(Rod2DDAETest, NoSliding) {
@@ -760,8 +734,6 @@ TEST_F(Rod2DDAETest, ImpactNoChange2) {
                               MatrixCompareType::absolute));
 }
 
-// TODO: Re-enable this.
-/*
 // Verify that applying the impact model to an impacting state results
 // in a non-impacting state.
 TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
@@ -775,17 +747,15 @@ TEST_F(Rod2DDAETest, InfFrictionImpactThenNoImpact2) {
   // to go through the first impact path.
   dut_->set_mu_coulomb(std::numeric_limits<double>::infinity());
 
-  // Handle the impact and copy the result to the context.
-  dut_->HandleImpact(*context_, new_state.get());
+  // Model the impact and copy the result to the context.
+  dut_->ModelImpact(*context_, new_state.get());
   context_->get_mutable_state().SetFrom(*new_state);
 
   // Verify the state no longer corresponds to an impact.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
-  // Verify that the abstract variables are set correctly. 
-
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state().get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state().get_vector().
@@ -803,32 +773,24 @@ TEST_F(Rod2DDAETest, NoFrictionImpactThenNoImpact2) {
   // Cause the initial state to be impacting.
   SetImpactingState();
 
-  // TODO: Verify that the abstract variables are still set correctly. 
-
   // Set the coefficient of friction to zero. This forces the rod code
   // to go through the second impact path.
   dut_->set_mu_coulomb(0.0);
 
-  // TODO: Verify that the abstract variables are still set correctly. 
-
-  // Handle the impact and copy the result to the context.
-  dut_->HandleImpact(*context_, new_state.get());
+  // Model the impact and copy the result to the context.
+  dut_->ModelImpact(*context_, new_state.get());
   context_->get_mutable_state().SetFrom(*new_state);
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 
   // Do one more impact- there should now be no change.
-  dut_->HandleImpact(*context_, new_state.get());
+  dut_->ModelImpact(*context_, new_state.get());
   EXPECT_TRUE(CompareMatrices(new_state->get_continuous_state().get_vector().
                                   CopyToVector(),
                               context_->get_continuous_state().get_vector().
                                   CopyToVector(),
                               std::numeric_limits<double>::epsilon(),
                               MatrixCompareType::absolute));
-
-  // TODO: Verify that the abstract variables are still set correctly. 
-
 }
-*/
 
 // Verifies that rod in a ballistic state does not correspond to an impact.
 TEST_F(Rod2DDAETest, BallisticNoImpact) {
@@ -838,8 +800,6 @@ TEST_F(Rod2DDAETest, BallisticNoImpact) {
   // Move the rod upward vertically so that it is no longer impacting.
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] += 10.0;
-
-  // TODO: Set the abstract variables correctly. 
 
   // Verify that no impact occurs.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
@@ -1535,11 +1495,151 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
 /// Verifies the correct behavior as the rod impacts the ground. The rod should
 /// impact and then remain in sustained contact.
 TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the state such that the vertical velocity is downward and the rod
+  // is not contacting.
+  SetRestingVerticalConfig();
+  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  xc[1] = 1.5;
+  xc[4] = -1;
+  dut_->SetBallisticMode(state);
+
+  // Set contact candidate ids.
+  const int left_endpoint_id = 0;
+  const int right_endpoint_id = 1;
+
+  // Get the normal velocity witness.
+  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
+      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+
+  // Verify that the normal velocity witness returns a negative value.
+  EXPECT_LT(normal_vel_witness->Evaluate(*context_), 0);
+
+  // Simulate forward.
+  const double t_final = 1;
+  Simulator<double> sim(*dut_, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that exactly one unrestricted update (impact with an immediate
+  // transition to sustained contact).
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
+
+  // Verify that the normal velocity witness returns a non-negative value.
+  const double zero_tol = 1e-6;
+  EXPECT_GT(normal_vel_witness->Evaluate(sim.get_context()), -zero_tol);
+
+  // The left contact point should now be in the set of force calculations.
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
+
+  // Verify that three witness functions are active for the left endpoint- one
+  // for signed distance, one for normal force, and one for sticking friction
+  // slack.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+
+  // Only one witness function for the right endpoint should be enabled.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
 }
 
 /// Verifies the correct behavior as the rod impacts the ground while
 /// accelerating upward. The rod should impact and then immediately separate.
 TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
+  // Set an input force that overwhelms gravity. 
+  std::unique_ptr<BasicVector<double>> ext_input =
+      std::make_unique<BasicVector<double>>(3);
+  ext_input->SetAtIndex(0, 0.0);
+  ext_input->SetAtIndex(1, -1.5 * dut_->get_rod_mass() *
+      dut_->get_gravitational_acceleration());
+  ext_input->SetAtIndex(2, 0.0);
+  context_->FixInputPort(0, std::move(ext_input));
+
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the state such that the vertical velocity is downward and the rod
+  // is not contacting.
+  SetRestingVerticalConfig();
+  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  xc[1] = 1.5;
+  xc[4] = -10;
+  dut_->SetBallisticMode(state);
+
+  // Set contact candidate ids.
+  const int left_endpoint_id = 0;
+  const int right_endpoint_id = 1;
+
+  // Get the normal velocity witness.
+  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
+      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+
+  // Verify that the normal velocity witness returns a negative value.
+  EXPECT_LT(normal_vel_witness->Evaluate(*context_), 0);
+
+  // Simulate forward.
+  const double t_final = 1;
+  Simulator<double> sim(*dut_, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that exactly two unrestricted updates occurred (impact with an
+  // immediate transition to separating contact), followed by separation.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 2);
+
+  // The set of force calculations should be empty.
+  EXPECT_TRUE(dut_->get_contacts_used_in_force_calculations(state).empty());
+
+  // Verify that one witness function is active for the left endpoint
+  // (for signed distance).
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+
+  // Only one witness function for the right endpoint should be enabled.
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled());
 }
 
 /// Class for testing the Rod 2D example using a first order time
@@ -1581,9 +1681,9 @@ class Rod2DTimeSteppingTest : public ::testing::Test {
     const double r22 = std::sqrt(2) / 2;
     auto xd = mutable_discrete_state().get_mutable_value();
 
-    xd[0] = -half_len * r22;
+    xd[0] = 0;
     xd[1] = half_len * r22;
-    xd[2] = 3 * M_PI / 4.0;
+    xd[2] = -M_PI / 4.0;
     xd[3] = 1.0;
     xd[4] = 0.0;
     xd[5] = 0.0;
