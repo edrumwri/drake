@@ -47,7 +47,11 @@ class SlidingDotWitness : public RodWitnessFunction<T> {
         context.get_state())[contact_index];
 
     // Verify rod is undergoing sliding contact at the specified index.
-    DRAKE_DEMAND(contact.sliding);
+    DRAKE_DEMAND(contact.sliding_type ==
+        multibody::constraint::SlidingModeType::kSliding || 
+        contact.sliding_type ==
+        multibody::constraint::SlidingModeType::kTransitioning);
+
 
     // Compute the translational velocity at the point of contact.
     const Vector2<T> pdot = rod.CalcContactVelocity(context,

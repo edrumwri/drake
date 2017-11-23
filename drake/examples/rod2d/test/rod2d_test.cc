@@ -13,6 +13,7 @@
 
 using drake::multibody::constraint::ConstraintAccelProblemData;
 using drake::multibody::constraint::ConstraintVelProblemData;
+using drake::multibody::constraint::SlidingModeType;
 using drake::systems::VectorBase;
 using drake::systems::BasicVector;
 using drake::systems::ContinuousState;
@@ -706,7 +707,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   // Set the velocity on the rod such that it is moving horizontally.
   xc[3] = 1.0;
   dut_->SetBothEndpointsContacting(
-      &context_->get_mutable_state(), Rod2D<double>::SlidingModeType::kSliding);
+      &context_->get_mutable_state(), SlidingModeType::kSliding);
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set the coefficient of friction to zero.
@@ -746,8 +747,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   ext_input->SetAtIndex(2, 0.0);
   context_->FixInputPort(0, std::move(ext_input));
   dut_->SetBothEndpointsContacting(
-      &context_->get_mutable_state(),
-      Rod2D<double>::SlidingModeType::kNotSliding);
+      &context_->get_mutable_state(), SlidingModeType::kNotSliding);
 
   // Verify that the linear and angular acceleration are still zero.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -1034,7 +1034,6 @@ TEST_F(Rod2DDAETest, RigidContactProblemDataVerticalSliding) {
   EXPECT_EQ(data.sliding_contacts.size(), num_contacts);
 }
 
-/*
 // Verifies that the mode changes as expected when the rod is in sustained
 // contact in a horizontal configuration and goes from sliding to not sliding.
 TEST_F(Rod2DDAETest, SlidingToNotSliding) {
@@ -1043,11 +1042,10 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
 
   // Set the state such that the velocity is horizontal
   // (and the contact mode is set appropriately).
-  const bool sliding = true;
   SetRestingHorizontalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[3] = 0.1;
-  dut_->SetBothEndpointsContacting(state, sliding);
+  dut_->SetBothEndpointsContacting(state, SlidingModeType::kSliding);
 
   // Simulate forward.
   const double t_final = 1.0;
@@ -1093,7 +1091,6 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
 }
-*/
 
 // Verifies that the mode changes as expected when the rod is in sustained
 // contact in a horizontal configuration and goes from not sliding to sliding.
@@ -1116,8 +1113,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   // Set the state such that the velocity is zero 
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
-  dut_->SetBothEndpointsContacting(
-      state, Rod2D<double>::SlidingModeType::kNotSliding);
+  dut_->SetBothEndpointsContacting(state, SlidingModeType::kNotSliding);
   dut_->DetermineContactModes(*context_, state);
 
   // Verify that the both contacts are still in the set of force calculations. 
@@ -1143,9 +1139,9 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   // Both contact points should be in the set of force calculations.
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 2);
 
-  // Verify that three witness functions are active for the each endpoint- one
-  // for signed distance, one for normal force, and one for sliding friction
-  // direction change. 
+  // Verify that five witness functions are active for the each endpoint- one
+  // for signed distance, one for normal force, one for sliding friction
+  // direction change, and two for sliding velocity.
   EXPECT_TRUE(dut_->GetSignedDistanceWitness(
       left_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(dut_->GetNormalForceWitness(
@@ -1157,21 +1153,21 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   EXPECT_TRUE(dut_->GetSlidingDotWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetNegSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
 
-  // All other witnesses should be disabled.
+  // The sticking friction slack witnesses should be disabled. 
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
 }
 
 // Verifies that the mode changes as expected when the rod is in sustained
@@ -1200,8 +1196,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   // Set the state such that the velocity is zero 
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
-  rod.SetBothEndpointsContacting(
-      state, Rod2D<double>::SlidingModeType::kNotSliding);
+  rod.SetBothEndpointsContacting(state, SlidingModeType::kNotSliding);
 
   // TODO: Re-enable and debug this.
   /*
@@ -1247,20 +1242,20 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(rod.GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
 
-  // All other witnesses should be disabled.
+  // The stiction friction slack witnesses should be disabled. 
   EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
       right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(rod.GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(rod.GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(rod.GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(rod.GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but

@@ -196,18 +196,6 @@ class Rod2D : public systems::LeafSystem<T> {
     kCompliant
   };
 
-  /// The mode for sliding contact.
-  enum class SlidingModeType {
-    // The rod is sliding at the contact.
-    kSliding,
-
-    // The rod is not sliding at the contact. 
-    kNotSliding,
-
-    // The rod is transitioning from not sliding to sliding at the contact.
-    kTransitioning,
-  };
-
   /// Constructor for the 2D rod system using the piecewise DAE (differential
   /// algebraic equation) based approach, the time stepping approach, or the
   /// compliant ordinary differential equation based approach.
@@ -559,7 +547,8 @@ class Rod2D : public systems::LeafSystem<T> {
 
   /// Puts the rod's state into a mode with both endpoints contacting.
   void SetBothEndpointsContacting(
-      systems::State<T>* state, SlidingModeType sliding_type) const;
+      systems::State<T>* state,
+      multibody::constraint::SlidingModeType sliding_type) const;
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -625,6 +614,8 @@ class Rod2D : public systems::LeafSystem<T> {
       const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
+  bool IsContactTransitioning(
+      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetSignedDistanceWitness(
       int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalVelWitness(

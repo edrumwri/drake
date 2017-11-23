@@ -107,7 +107,9 @@ void Rod2D<T>::SetLeftEndpointContacting(
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.resize(1);
-  contacts.front().sliding = sliding;
+  contacts.front().sliding_type = (sliding) ?
+  multibody::constraint::SlidingModeType::kSliding :
+  multibody::constraint::SlidingModeType::kNotSliding;
   contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
 
   // The signed distance witnesses should always be enabled.
@@ -118,10 +120,10 @@ void Rod2D<T>::SetLeftEndpointContacting(
   if (sliding) {
     // Enable these witnesses.
     GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(true);
+    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
 
     // Disable these witnesses.
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
     GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
         set_enabled(false);
   } else {
@@ -159,7 +161,7 @@ void Rod2D<T>::SetLeftEndpointContacting(
 template <class T>
 void Rod2D<T>::SetBothEndpointsContacting(
     systems::State<T>* state,
-    Rod2D<T>::SlidingModeType sliding_type) const {
+    multibody::constraint::SlidingModeType sliding_type) const {
   // Set constants for contact indices.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
@@ -168,10 +170,8 @@ void Rod2D<T>::SetBothEndpointsContacting(
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.resize(2);
-  const bool sliding = (sliding_type == SlidingModeType::kSliding ||
-                        sliding_type == SlidingModeType::kTransitioning);
-  contacts.front().sliding = sliding;
-  contacts.back().sliding = sliding;
+  contacts.front().sliding_type = sliding_type;
+  contacts.back().sliding_type = sliding_type;
   contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
   contacts.back().id = reinterpret_cast<void*>(right_endpoint_id);
 
@@ -181,23 +181,23 @@ void Rod2D<T>::SetBothEndpointsContacting(
 
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
   switch (sliding_type) {
-    case SlidingModeType::kSliding:
+    case multibody::constraint::SlidingModeType::kSliding:
       // Enable these witnesses.
       GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(true);
       GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
 
       // Disable these witnesses.
-      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
       GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
           set_enabled(false);
       GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
           set_enabled(false);
       break;
 
-    case SlidingModeType::kNotSliding:
+    case multibody::constraint::SlidingModeType::kNotSliding:
       // Enable these witnesses.
       GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
           set_enabled(true);
@@ -213,7 +213,7 @@ void Rod2D<T>::SetBothEndpointsContacting(
       GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(false);
       break;
 
-    case SlidingModeType::kTransitioning:
+    case multibody::constraint::SlidingModeType::kTransitioning:
       // Enable these witnesses.
       GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
       GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
@@ -228,6 +228,9 @@ void Rod2D<T>::SetBothEndpointsContacting(
       GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(false);
       GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(false);
       break;
+
+    case multibody::constraint::SlidingModeType::kNotSet:
+      DRAKE_ABORT();
   }
 
   // Enable the normal force witnesses. 
@@ -549,12 +552,11 @@ void Rod2D<T>::CalcConstraintProblemData(
   // Do not use the complementarity problem solver by default.
   bool use_complementarity_problem_solver = false;
 
-  // If any contacts are transitioning from sticking to sliding- denoted by
-  // one of the sliding velocity witness being active- the complementarity
-  // problem solver is activated.
+  // If any contacts are transitioning from sticking to sliding- the
+  // complementarity problem solver is activated.
   const int num_contacts = 2;
   for (int i = 0; i < num_contacts; ++i) {
-    if (GetPosSlidingWitness(i, state)->is_enabled())
+    if (IsContactTransitioning(i, state))
       use_complementarity_problem_solver = true;
   }
 
@@ -562,7 +564,7 @@ void Rod2D<T>::CalcConstraintProblemData(
   for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
     // Check for a transitioning contact.
     const int contact_index = reinterpret_cast<long>(contacts[i].id);
-    if (GetPosSlidingWitness(contact_index, state)->is_enabled()) {
+    if (IsContactTransitioning(contact_index, state)) {
       tangent_vels[i] = 0.0;
     } else {
       if (GetStickingFrictionForceSlackWitness(
@@ -819,6 +821,14 @@ int Rod2D<T>::GetContactArrayIndex(
   return -1; 
 }
 
+// Determines whether the contact is transitioning.
+template <class T>
+bool Rod2D<T>::IsContactTransitioning(
+    int contact_index, const systems::State<T>& state) const {
+  return (GetPosSlidingWitness(contact_index, state)->is_enabled() &&
+          !GetSlidingDotWitness(contact_index, state)->is_enabled());
+}
+
 // Gets the row of a contact Jacobian matrix, given a point of contact, @p p,
 // and projection direction (unit vector), @p dir. Aborts if @p dir is not a
 // unit vector.
@@ -1064,13 +1074,31 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
       }
 
       case RodWitnessFunction<T>::WitnessType::kSlidingWitness:  {
-        // Disable the sliding velocity witnesses. 
-        GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-        GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+        // NOTE: The sliding witnesses are purposefully not disabled here.
+        // If the contact has been transitioning to proper sliding, they will
+        // be used again to determine when the contact should transition to
+        // non-sliding.
 
-        // Enable the sliding-dot witness.
-        GetSlidingDotWitness(contact_index, *state)->set_enabled(true);
+        // See whether the contact is transitioning or not.
+        if (IsContactTransitioning(contact_index, *state)) {
+          // Enable the sliding-dot witness.
+          GetSlidingDotWitness(contact_index, *state)->set_enabled(true);
+        } else {
+          // The contact is going to a non-sliding state.
+          // Mark the contact as such, unless it has already been
+          // disabled (by another witness triggering).
+          if (contact_array_index >= 0) {
+            contacts[contact_array_index].sliding_type =
+                multibody::constraint::SlidingModeType::kNotSliding;
+          }
 
+          // Enable the sticking friction slack and disable the sliding dot
+          // and sliding witnesses.
+          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
+          GetSlidingDotWitness(contact_index, *state)->set_enabled(false);
+          GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
+          GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+        }
         break;
       }
 
@@ -1084,10 +1112,12 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         GetPosSlidingWitness(contact_index, *state)->set_enabled(true);
         GetNegSlidingWitness(contact_index, *state)->set_enabled(true);
 
-        // Mark the contact as sliding, unless the contact has already been
-        // disabled (by another witness triggering).
-        if (contact_array_index >= 0)
-          contacts[contact_array_index].sliding = true;
+        // Mark the contact as transitioning, unless the contact has already
+        // been disabled (by another witness triggering).
+        if (contact_array_index >= 0) {
+          contacts[contact_array_index].sliding_type =
+              multibody::constraint::SlidingModeType::kTransitioning;
+        }
 
         break;
       }
@@ -1225,7 +1255,8 @@ void Rod2D<T>::DetermineContactModes(
     } else {
       // The contact is active. If the contact is not sliding, see whether
       // it needs to transition to sliding.
-      if (!contacts[contact_array_index].sliding) {
+      if (contacts[contact_array_index].sliding_type ==
+          multibody::constraint::SlidingModeType::kNotSliding) {
         // Determine the amount of frictional force slack.
         const int non_sliding_index = std::distance(
           non_sliding_contacts.begin(),
@@ -1239,7 +1270,8 @@ void Rod2D<T>::DetermineContactModes(
         // TODO: Need a more numerically robust scheme.
         if (problem_data.mu_non_sliding[non_sliding_index] * fN - fF <
             10 * std::numeric_limits<double>::epsilon()) {
-          contacts[contact_array_index].sliding = true;
+          contacts[contact_array_index].sliding_type =
+              multibody::constraint::SlidingModeType::kTransitioning;
           GetPosSlidingWitness(i, *state)->set_enabled(true);
           GetNegSlidingWitness(i, *state)->set_enabled(true);
           GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
@@ -1273,7 +1305,9 @@ void Rod2D<T>::AddContactToForceCalculationSet(
   contacts.back().id = reinterpret_cast<void*>(contact_index);
 
   // See whether the contact is sliding or not.
-  contacts.back().sliding = !IsTangentVelocityZero(context, contact_index);
+  contacts.back().sliding_type = IsTangentVelocityZero(context, contact_index) ?
+      multibody::constraint::SlidingModeType::kNotSliding :
+      multibody::constraint::SlidingModeType::kSliding;
 
   // Activate the normal force witness.
   GetNormalForceWitness(contact_index, *state)->set_enabled(true);
@@ -1283,7 +1317,8 @@ void Rod2D<T>::AddContactToForceCalculationSet(
   GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
 
   // If the contact is sliding, activate the sliding dot witness.
-  if (contacts.back().sliding) {
+  if (contacts.back().sliding_type ==
+      multibody::constraint::SlidingModeType::kSliding) {
     GetSlidingDotWitness(contact_index, *state)->set_enabled(true);
     GetStickingFrictionForceSlackWitness(
         contact_index, *state)->set_enabled(false);
@@ -1914,7 +1949,8 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       // First contact candidate is Rl in Rod Frame (see class documentation);
       // in the default rod configuration, Rl contacts the half-space and is
       // sliding.
-      contacts.front().sliding = true;
+      contacts.front().sliding_type =
+          multibody::constraint::SlidingModeType::kSliding;
       contacts.front().id = reinterpret_cast<void*>(0);
 
       // Enable both signed distance witnesses.

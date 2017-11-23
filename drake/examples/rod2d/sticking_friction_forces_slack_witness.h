@@ -49,7 +49,8 @@ class StickingFrictionForcesSlackWitness : public RodWitnessFunction<T> {
         context.get_state())[contact_index];
 
     // Verify rod is not undergoing sliding contact at the specified index.
-    DRAKE_DEMAND(!contact.sliding);
+    DRAKE_DEMAND(contact.sliding_type ==
+        multibody::constraint::SlidingModeType::kNotSliding);
 
     // TODO(edrumwri): Speed this up (presumably) using caching. 
 

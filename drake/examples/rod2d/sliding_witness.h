@@ -10,8 +10,10 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
-/// Determines whether the tangent velocity is above the sliding velocity
-/// threshold.
+/// Determines whether the tangent velocity crosses the sliding velocity
+/// threshold. This witness is used for two purposes: (1) it determines when
+/// a contact has moved from non-sliding-to-sliding-transition to proper sliding
+/// and (2) it determines when a contact has moved from sliding to non-sliding.
 template <class T>
 class SlidingWitness : public RodWitnessFunction<T> {
  public:
@@ -54,7 +56,10 @@ class SlidingWitness : public RodWitnessFunction<T> {
         context.get_state())[contact_index];
 
     // Verify rod is undergoing sliding contact at the specified index.
-    DRAKE_DEMAND(contact.sliding);
+    DRAKE_DEMAND(contact.sliding_type ==
+        multibody::constraint::SlidingModeType::kSliding || 
+        contact.sliding_type ==
+        multibody::constraint::SlidingModeType::kTransitioning);
 
     // Compute the translational velocity at the point of contact.
     const Vector2<T> pdot = rod.CalcContactVelocity(context,
