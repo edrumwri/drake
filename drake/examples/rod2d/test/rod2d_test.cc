@@ -32,6 +32,54 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
+// A system that outputs a constant vector between t_switch and t_switch_end.
+class StepOutput : public systems::LeafSystem<double> {
+ public:
+  explicit StepOutput(double t_switch, double t_switch_end, const Vector3d& v) :
+      t_switch_(t_switch), t_switch_end_(t_switch_end), v_(v) {
+  this->DeclareVectorOutputPort(systems::BasicVector<double>(3),
+      &StepOutput::CalcOutput);
+ }
+
+ private:
+  void CalcOutput(
+      const systems::Context<double>& context,
+      systems::BasicVector<double>* output) const {
+    Vector3<double> f;
+    f.setZero();
+    if (context.get_time() > t_switch_ && context.get_time() < t_switch_end_)
+      f = v_;
+    output->SetFromVector(f);
+  }
+
+  double t_switch_{0.0};
+  double t_switch_end_{ std::numeric_limits<double>::infinity() };
+  Vector3<double> v_;
+};
+
+// Creates a system diagram that applies an upward input force at t = 0.1s,
+// for the ContactingAndAcceleratingUpward test.
+std::unique_ptr<systems::Diagram<double>> CreateRodDiagramWithTimedInput(
+  double t_switch, double t_switch_end, const Vector3d& f) {
+  systems::DiagramBuilder<double> builder;
+
+  // Add the rod to the system.
+  const double dt = 0.0;  // Since system is piecewise DAE.
+  Rod2D<double>* rod = builder.AddSystem<Rod2D<double>>(
+      Rod2D<double>::SimulationType::kPiecewiseDAE, dt);
+  rod->set_name("rod");
+
+  // Adds the step input to the system.
+  StepOutput* step = builder.AddSystem<StepOutput>(t_switch, t_switch_end, f);
+  step->set_name("step_input");
+
+  // Wire the systems together.
+  builder.Connect(step->get_output_port(0), rod->get_input_port(0));
+
+  // Return the diagram system.
+  return builder.Build();
+}
+
 /// Class for testing the Rod2D example using a piecewise DAE
 /// approach.
 class Rod2DDAETest : public ::testing::Test {
@@ -657,7 +705,8 @@ TEST_F(Rod2DDAETest, MultiPoint) {
 
   // Set the velocity on the rod such that it is moving horizontally.
   xc[3] = 1.0;
-  dut_->SetBothEndpointsContacting(&context_->get_mutable_state(), true);
+  dut_->SetBothEndpointsContacting(
+      &context_->get_mutable_state(), Rod2D<double>::SlidingModeType::kSliding);
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set the coefficient of friction to zero.
@@ -696,7 +745,9 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   ext_input->SetAtIndex(1, 0.0);
   ext_input->SetAtIndex(2, 0.0);
   context_->FixInputPort(0, std::move(ext_input));
-  dut_->SetBothEndpointsContacting(&context_->get_mutable_state(), false);
+  dut_->SetBothEndpointsContacting(
+      &context_->get_mutable_state(),
+      Rod2D<double>::SlidingModeType::kNotSliding);
 
   // Verify that the linear and angular acceleration are still zero.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -705,9 +756,10 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   EXPECT_NEAR((*derivatives_)[5], 0, tol);
 
   // Set the coefficient of friction to zero. Now the force should result
-  // in the rod being pushed to the right.
+  // in the rod being pushed to the right *after redetermining the active set*.
   dut_->set_mu_coulomb(0.0);
   dut_->set_mu_static(0.0);
+  dut_->DetermineContactModes(*context_, &context_->get_mutable_state());
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], fX/dut_->get_rod_mass(), tol);
   EXPECT_NEAR((*derivatives_)[4], 0, tol);
@@ -982,6 +1034,235 @@ TEST_F(Rod2DDAETest, RigidContactProblemDataVerticalSliding) {
   EXPECT_EQ(data.sliding_contacts.size(), num_contacts);
 }
 
+/*
+// Verifies that the mode changes as expected when the rod is in sustained
+// contact in a horizontal configuration and goes from sliding to not sliding.
+TEST_F(Rod2DDAETest, SlidingToNotSliding) {
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the state such that the velocity is horizontal
+  // (and the contact mode is set appropriately).
+  const bool sliding = true;
+  SetRestingHorizontalConfig();
+  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  xc[3] = 0.1;
+  dut_->SetBothEndpointsContacting(state, sliding);
+
+  // Simulate forward.
+  const double t_final = 1.0;
+  Simulator<double> sim(*dut_, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that exactly one unrestricted update (sliding direction change)
+  // was handled.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
+
+  // Both contact points should be in the set of force calculations.
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 2);
+
+  // Verify that three witness functions are active for the each endpoint- one
+  // for signed distance, one for normal force, and one for sticking friction
+  // slack.
+  const int left_endpoint_id = 0, right_endpoint_id = 1;
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled());
+
+  // All other witnesses should be disabled.
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+}
+*/
+
+// Verifies that the mode changes as expected when the rod is in sustained
+// contact in a horizontal configuration and goes from not sliding to sliding.
+TEST_F(Rod2DDAETest, NotSlidingToSliding) {
+  // Set the input force to slide to the right. 
+  std::unique_ptr<BasicVector<double>> ext_input =
+      std::make_unique<BasicVector<double>>(3);
+  ext_input->SetAtIndex(0, 1.0);
+  ext_input->SetAtIndex(1, 0.0);
+  ext_input->SetAtIndex(2, 0.0);
+  context_->FixInputPort(0, std::move(ext_input));
+
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the coefficient of friction to very near zero.
+  dut_->set_mu_coulomb(1e-6);
+  dut_->set_mu_static(1e-6);
+
+  // Set the state such that the velocity is zero 
+  // (and the contact mode is set appropriately).
+  SetRestingHorizontalConfig();
+  dut_->SetBothEndpointsContacting(
+      state, Rod2D<double>::SlidingModeType::kNotSliding);
+  dut_->DetermineContactModes(*context_, state);
+
+  // Verify that the both contacts are still in the set of force calculations. 
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 2);
+
+  // Verify that both contacts are transitioning.
+  const int left_endpoint_id = dut_->get_left_endpoint_index();
+  const int right_endpoint_id = dut_->get_right_endpoint_index();
+  EXPECT_TRUE(
+      dut_->GetPosSlidingWitness(left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(
+      dut_->GetPosSlidingWitness(right_endpoint_id, *state)->is_enabled());
+
+  // Simulate forward.
+  const double t_final = 1.0;
+  Simulator<double> sim(*dut_, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that one unrestricted update occurs: transition to proper sliding.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
+
+  // Both contact points should be in the set of force calculations.
+  EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 2);
+
+  // Verify that three witness functions are active for the each endpoint- one
+  // for signed distance, one for normal force, and one for sliding friction
+  // direction change. 
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+
+  // All other witnesses should be disabled.
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+}
+
+// Verifies that the mode changes as expected when the rod is in sustained
+// contact in a horizontal configuration and goes from not sliding to sliding
+// after some time.
+TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
+// Create a diagram with an input that causes the rod to start accelerating
+  // upward at t = 0.1s.
+  const double t_switch_on = 0.1;
+  const double t_switch_off = std::numeric_limits<double>::infinity();
+  auto diagram = CreateRodDiagramWithTimedInput(
+      t_switch_on, t_switch_off, Vector3d(1, 0, 0));
+
+  // Create a new context.
+  context_ = diagram->CreateDefaultContext();
+
+  // Get a pointer to the mutable state- it will be used repeatedly.
+  systems::State<double>* state = &context_->get_mutable_state();
+
+  // Set the coefficient of friction to very near zero.
+  Rod2D<double>& rod = *const_cast<Rod2D<double>*>(
+      dynamic_cast<const Rod2D<double>*>(diagram->GetSystems().front()));
+  rod.set_mu_coulomb(1e-6);
+  rod.set_mu_static(1e-6);
+
+  // Set the state such that the velocity is zero 
+  // (and the contact mode is set appropriately).
+  SetRestingHorizontalConfig();
+  rod.SetBothEndpointsContacting(
+      state, Rod2D<double>::SlidingModeType::kNotSliding);
+
+  // TODO: Re-enable and debug this.
+  /*
+  rod.DetermineContactModes(rod, *context_), state);
+  */
+
+  // Verify that the both contacts are still in the set of force calculations. 
+  EXPECT_EQ(rod.get_contacts_used_in_force_calculations(state).size(), 2);
+
+  // Verify that contacts are not transitioning.
+  const int left_endpoint_id = rod.get_left_endpoint_index();
+  const int right_endpoint_id = rod.get_right_endpoint_index();
+  EXPECT_FALSE(
+      rod.GetPosSlidingWitness(left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(
+      rod.GetPosSlidingWitness(right_endpoint_id, *state)->is_enabled());
+
+  // Simulate forward.
+  const double t_final = 1.0;
+  Simulator<double> sim(*diagram, std::move(context_));
+  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.StepTo(t_final);
+
+  // Verify that two unrestricted updates occurs: transition point, then
+  // proper sliding.
+  EXPECT_EQ(sim.get_num_unrestricted_updates(), 2);
+
+  // Both contact points should be in the set of force calculations.
+  EXPECT_EQ(rod.get_contacts_used_in_force_calculations(state).size(), 2);
+
+  // Verify that three witness functions are active for the each endpoint- one
+  // for signed distance, one for normal force, and one for sliding friction
+  // direction change. 
+  EXPECT_TRUE(rod.GetSignedDistanceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(rod.GetNormalForceWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(rod.GetSignedDistanceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(rod.GetNormalForceWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(rod.GetSlidingDotWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetSlidingDotWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+
+  // All other witnesses should be disabled.
+  EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
+      left_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
+      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(rod.GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(rod.GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(rod.GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(rod.GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+}
+
 // Verifies that the mode changes as expected when the rod is in contact but
 // moving slightly upward (and remains in contact).
 TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
@@ -1229,53 +1510,6 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
       right_endpoint_id, *state)->is_enabled()); 
 }
 
-// A step output system.
-class StepOutput : public systems::LeafSystem<double> {
- public:
-  explicit StepOutput(double t_switch, double t_switch_end) :
-      t_switch_(t_switch), t_switch_end_(t_switch_end) {
-  this->DeclareVectorOutputPort(systems::BasicVector<double>(3),
-      &StepOutput::CalcOutput);
- }
-
- private:
-  void CalcOutput(
-      const systems::Context<double>& context,
-      systems::BasicVector<double>* output) const {
-    Vector3<double> f;
-    f.setZero();
-    if (context.get_time() > t_switch_ && context.get_time() < t_switch_end_)
-      f[1] = 10.0;
-    output->SetFromVector(f);
-  }
-
-  double t_switch_{0.0};
-  double t_switch_end_{ std::numeric_limits<double>::infinity() };
-};
-
-// Creates a system diagram that applies an upward input force at t = 0.1s,
-// for the ContactingAndAcceleratingUpward test.
-std::unique_ptr<systems::Diagram<double>> CreateRodDiagramWithTimedInput(
-  double t_switch, double t_switch_end) {
-  systems::DiagramBuilder<double> builder;
-
-  // Add the rod to the system.
-  const double dt = 0.0;  // Since system is piecewise DAE.
-  Rod2D<double>* rod = builder.AddSystem<Rod2D<double>>(
-      Rod2D<double>::SimulationType::kPiecewiseDAE, dt);
-  rod->set_name("rod");
-
-  // Adds the step input to the system.
-  StepOutput* step = builder.AddSystem<StepOutput>(t_switch, t_switch_end);
-  step->set_name("step_input");
-
-  // Wire the systems together.
-  builder.Connect(step->get_output_port(0), rod->get_input_port(0));
-
-  // Return the diagram system.
-  return builder.Build();
-}
-
 // Verifies that the mode changes as expected when the rod is in contact but
 // begins accelerating upward. 
 TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
@@ -1283,7 +1517,8 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
   // upward at t = 0.1s.
   const double t_switch = 0.1;
   const double inf = std::numeric_limits<double>::infinity();
-  auto diagram = CreateRodDiagramWithTimedInput(t_switch, inf);
+  auto diagram = CreateRodDiagramWithTimedInput(
+      t_switch, inf, Vector3d(0, 10, 0));
 
   // Create a new context.
   context_ = diagram->CreateDefaultContext();
@@ -1354,7 +1589,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   // upward at t = 0.1s.
   const double t_switch_on = 0.1, t_switch_off = 0.2;
   auto diagram = CreateRodDiagramWithTimedInput(
-      t_switch_on, t_switch_off);
+      t_switch_on, t_switch_off, Vector3d(0, 10, 0));
 
   // Create a new context.
   context_ = diagram->CreateDefaultContext();
@@ -1427,7 +1662,8 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
   // upward at t = 0.1s.
   const double t_switch = 0.1;
   const double inf = std::numeric_limits<double>::infinity();
-  auto diagram = CreateRodDiagramWithTimedInput(t_switch, inf);
+  auto diagram = CreateRodDiagramWithTimedInput(
+      t_switch, inf, Vector3d(0, 10, 0));
 
   // Create a new context.
   context_ = diagram->CreateDefaultContext();

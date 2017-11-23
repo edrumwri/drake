@@ -532,7 +532,7 @@ void Simulator<T>::StepTo(const T& boundary_time) {
   while (context_->get_time() < boundary_time || sample_time_hit) {
     // Starting a new step on the trajectory.
     const T step_start_time = context_->get_time();
-    SPDLOG_TRACE(log(), "Starting a simulation step at {}", step_start_time);
+    SPDLOG_DEBUG(log(), "Starting a simulation step at {}", step_start_time);
 
     // Delay to match target realtime rate if requested and possible.
     PauseIfTooFast();
@@ -714,6 +714,8 @@ void Simulator<T>::IsolateWitnessTriggers(
     bool trigger = false;
     for (size_t i = 0; i < witnesses.size(); ++i) {
       wc[i] = get_system().EvaluateWitness(context, *witnesses[i]);
+      SPDLOG_DEBUG(drake::log(), "Witness {} values: {} {}",
+          witnesses[i]->get_name(), w0[i], wc[i]);
       if (witnesses[i]->should_trigger(w0[i], wc[i]))
         trigger = true;
     }

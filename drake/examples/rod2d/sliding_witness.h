@@ -24,9 +24,11 @@ class SlidingWitness : public RodWitnessFunction<T> {
       double sliding_velocity_threshold) :
       RodWitnessFunction<T>(
           rod,
-          systems::WitnessFunctionDirection::kPositiveThenNonPositive,
+          systems::WitnessFunctionDirection::kCrossesZero,
           contact_index) {
     this->name_ = "Sliding";
+    positive_ = pos_direction;
+    velocity_threshold_ = sliding_velocity_threshold;
   }
 
   typename RodWitnessFunction<T>::WitnessType

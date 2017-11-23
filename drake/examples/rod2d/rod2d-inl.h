@@ -159,7 +159,7 @@ void Rod2D<T>::SetLeftEndpointContacting(
 template <class T>
 void Rod2D<T>::SetBothEndpointsContacting(
     systems::State<T>* state,
-    bool sliding) const {
+    Rod2D<T>::SlidingModeType sliding_type) const {
   // Set constants for contact indices.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
@@ -168,6 +168,8 @@ void Rod2D<T>::SetBothEndpointsContacting(
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.resize(2);
+  const bool sliding = (sliding_type == SlidingModeType::kSliding ||
+                        sliding_type == SlidingModeType::kTransitioning);
   contacts.front().sliding = sliding;
   contacts.back().sliding = sliding;
   contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
@@ -178,43 +180,65 @@ void Rod2D<T>::SetBothEndpointsContacting(
   GetSignedDistanceWitness(right_endpoint_id, *state)->set_enabled(true);
 
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
-  if (sliding) {
-    // Enable these witnesses.
-    GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(true);
-    GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(true);
+  switch (sliding_type) {
+    case SlidingModeType::kSliding:
+      // Enable these witnesses.
+      GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(true);
 
-    // Disable these witnesses.
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-    GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-    GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-    GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
-        set_enabled(false);
-    GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
-        set_enabled(false);
-  } else {
-    // Enable these witnesses.
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-    GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-    GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
-    GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
-        set_enabled(true);
-    GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
-        set_enabled(true);
+      // Disable these witnesses.
+      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
+      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
+      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+          set_enabled(false);
+      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+          set_enabled(false);
+      break;
 
-    // Disable these witnesses.
-    GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(false);
-    GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(false);
+    case SlidingModeType::kNotSliding:
+      // Enable these witnesses.
+      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+          set_enabled(true);
+      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+          set_enabled(true);
+
+      // Disable these witnesses.
+      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
+      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
+      GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(false);
+      break;
+
+    case SlidingModeType::kTransitioning:
+      // Enable these witnesses.
+      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
+
+      // Disable these witnesses.
+      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+          set_enabled(false);
+      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+          set_enabled(false);
+      GetSlidingDotWitness(left_endpoint_id, *state)->set_enabled(false);
+      GetSlidingDotWitness(right_endpoint_id, *state)->set_enabled(false);
+      break;
   }
+
+  // Enable the normal force witnesses. 
+  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(true);
+  GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(true);
 
   // The following witnesses will be disabled by default. 
   GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
   GetNormalVelWitness(right_endpoint_id, *state)->set_enabled(false);
   GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
   GetNormalAccelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(false);
 }
 
 // Computes the external forces on the rod.
@@ -1113,72 +1137,121 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         } else {
           // The contact point should potentially be accounted for in the force
           // calculations. Add it to the set if necessary.
-          int contact_array_index = GetContactArrayIndex(*state, i);
-          if (contact_array_index < 0) {
+          if (GetContactArrayIndex(*state, i) < 0) {
             AddContactToForceCalculationSet(i, context, state);
-            contact_array_index = contacts.size() - 1;
-            DRAKE_ASSERT(contact_array_index ==
-                GetContactArrayIndex(*state, i));
           }
         }
       } 
     }
 
-    // Now redetermine the acceleration level active set. This is done by
-    // solving the complementarity problem and then examining each contact.
-    // If the acceleration at the contact is truly positive, then the contact
-    // can be disabled.
-    // 1. Populate problem data and solve the contact problem.
-    const int ngv = 3;  // Number of rod generalized velocities.
-    VectorX<T> cf;
-    multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
+    // Now redetermine the acceleration level active set.
+    DetermineContactModes(context, state);
+  }
+}
 
-    // Determine the new generalized acceleration. Complementarity solver
-    // *must* be used.
-    VectorX<T> ga;
-    CalcConstraintProblemData(context, *state, &problem_data);
-    problem_data.use_complementarity_problem_solver = true;
-    solver_.SolveConstraintProblem(problem_data, &cf);
-    solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+// Redetermines the modes used for contacts at the acceleration level.
+template <class T>
+void Rod2D<T>::DetermineContactModes(
+    const systems::Context<T>& context, systems::State<T>* state) const {
+  // Get the vector of contacts.
+  std::vector<multibody::constraint::PointContact>& contacts =
+      get_contacts_used_in_force_calculations(state);
 
-    // The point of contact is x + R * u, so its velocity is
-    // xdot + Rdot * u * thetadot, and its acceleration is
-    // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
-    const auto q = context.get_continuous_state().get_generalized_position().
-        CopyToVector();
-    const auto v = context.get_continuous_state().get_generalized_velocity().
-        CopyToVector();
-    const Vector2<T> xddot = ga.segment(0, 2);
-    const T& theta = q[2];
-    const T& thetadot = v[2];
-    const T& thetaddot = ga[2];
-    const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
-    const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
-    for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
-      // Get the index in the contact array.
-      int contact_array_index = GetContactArrayIndex(*state, i);
-      if (contact_array_index < 0)
-        continue;
+  // Redetermining the acceleration level active set is done by
+  // solving the complementarity problem and then examining each contact.
+  // If the acceleration at the contact is truly positive, then the contact
+  // can be disabled.
+  // 1. Populate problem data and solve the contact problem.
+  const int ngv = 3;  // Number of rod generalized velocities.
+  VectorX<T> cf;
+  multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
 
-      // Get the vertical acceleration.
-      const Vector2<T> a = xddot + Rdot * contact_candidates_[i] * thetaddot +
-          Rddot * contact_candidates_[i] * thetadot;
-      if (a[1] > 0.0) {
-          // Remove the contact from the set used to compute forces.
-          contacts[contact_array_index] = contacts.back();
-          contacts.pop_back();
+  // Determine the new generalized acceleration. Complementarity solver
+  // *must* be used.
+  VectorX<T> ga;
+  CalcConstraintProblemData(context, *state, &problem_data);
+  problem_data.use_complementarity_problem_solver = true;
+  solver_.SolveConstraintProblem(problem_data, &cf);
+  solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
 
-          // Enable the normal acceleration witness.
-          GetNormalAccelWitness(i, *state)->set_enabled(true);
+  // Get some arrays that will be used repeatedly.
+  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
+  const std::vector<int>& non_sliding_contacts =
+      problem_data.non_sliding_contacts;
+  DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
+                              non_sliding_contacts.end()));
+  const int num_sliding = sliding_contacts.size();
+  const int num_non_sliding = non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
+  const int k = get_num_tangent_directions_per_contact();
+  const int r = k / 2;
 
-          // Disable all other witnesses.
-          GetNormalForceWitness(i, *state)->set_enabled(false);
+  // The point of contact is x + R * u, so its velocity is
+  // xdot + Rdot * u * thetadot, and its acceleration is
+  // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
+  const auto q = context.get_continuous_state().get_generalized_position().
+      CopyToVector();
+  const auto v = context.get_continuous_state().get_generalized_velocity().
+      CopyToVector();
+  const Vector2<T> xddot = ga.segment(0, 2);
+  const T& theta = q[2];
+  const T& thetadot = v[2];
+  const T& thetaddot = ga[2];
+  const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
+  const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
+  std::vector<int> contacts_to_remove;
+  for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
+    // Get the index in the contact array.
+    int contact_array_index = GetContactArrayIndex(*state, i);
+    if (contact_array_index < 0)
+      continue;
+
+    // Get the acceleration.
+    const Vector2<T> a = xddot + Rdot * contact_candidates_[i] * thetaddot +
+        Rddot * contact_candidates_[i] * thetadot;
+    if (a[1] > 10 * std::numeric_limits<double>::epsilon()) {
+        // Mark the contact for removal.
+        contacts_to_remove.push_back(contact_array_index);
+
+        // Enable the normal acceleration witness.
+        GetNormalAccelWitness(i, *state)->set_enabled(true);
+
+        // Disable all other witnesses.
+        GetNormalForceWitness(i, *state)->set_enabled(false);
+        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+        GetPosSlidingWitness(i, *state)->set_enabled(false);
+        GetNegSlidingWitness(i, *state)->set_enabled(false);
+        GetSlidingDotWitness(i, *state)->set_enabled(false);
+    } else {
+      // The contact is active. If the contact is not sliding, see whether
+      // it needs to transition to sliding.
+      if (!contacts[contact_array_index].sliding) {
+        // Determine the amount of frictional force slack.
+        const int non_sliding_index = std::distance(
+          non_sliding_contacts.begin(),
+          std::lower_bound(non_sliding_contacts.begin(),
+                           non_sliding_contacts.end(),
+                           contact_array_index));
+        const auto fN = cf[contact_array_index];
+        const auto fF = cf.segment(nc + non_sliding_index * r, r).
+            template lpNorm<1>();
+
+        // TODO: Need a more numerically robust scheme.
+        if (problem_data.mu_non_sliding[non_sliding_index] * fN - fF <
+            10 * std::numeric_limits<double>::epsilon()) {
+          contacts[contact_array_index].sliding = true;
+          GetPosSlidingWitness(i, *state)->set_enabled(true);
+          GetNegSlidingWitness(i, *state)->set_enabled(true);
           GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
-          GetPosSlidingWitness(i, *state)->set_enabled(false);
-          GetNegSlidingWitness(i, *state)->set_enabled(false);
-          GetSlidingDotWitness(i, *state)->set_enabled(false);
+        }
       }
     }
+  }
+  
+  // Remove all contacts slated for removal.
+  for (int i = contacts_to_remove.size() - 1; i >= 0; --i) {
+    contacts[contacts_to_remove[i]] = contacts.back();
+    contacts.pop_back();
   }
 }
 

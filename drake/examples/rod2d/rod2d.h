@@ -196,6 +196,18 @@ class Rod2D : public systems::LeafSystem<T> {
     kCompliant
   };
 
+  /// The mode for sliding contact.
+  enum class SlidingModeType {
+    // The rod is sliding at the contact.
+    kSliding,
+
+    // The rod is not sliding at the contact. 
+    kNotSliding,
+
+    // The rod is transitioning from not sliding to sliding at the contact.
+    kTransitioning,
+  };
+
   /// Constructor for the 2D rod system using the piecewise DAE (differential
   /// algebraic equation) based approach, the time stepping approach, or the
   /// compliant ordinary differential equation based approach.
@@ -449,6 +461,12 @@ class Rod2D : public systems::LeafSystem<T> {
     return *pose_output_port_;
   }
 
+  /// Gets the index of the left endpoint in the contact candidates vector.
+  int get_left_endpoint_index() const { return 0; }
+
+  /// Gets the index of the right endpoint in the contact candidates vector.
+  int get_right_endpoint_index() const { return 1; }
+
   /// Utility method for determining the World frame location of one of three
   /// points on the rod whose origin is Ro. Let r be the half-length of the rod.
   /// Define point P = Ro+k*r where k = { -1, 0, 1 }. This returns p_WP.
@@ -540,7 +558,8 @@ class Rod2D : public systems::LeafSystem<T> {
   void SetLeftEndpointContacting(systems::State<T>* state, bool sliding) const;
 
   /// Puts the rod's state into a mode with both endpoints contacting.
-  void SetBothEndpointsContacting(systems::State<T>* state, bool sliding) const;
+  void SetBothEndpointsContacting(
+      systems::State<T>* state, SlidingModeType sliding_type) const;
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -568,6 +587,8 @@ class Rod2D : public systems::LeafSystem<T> {
     return GetPointInWorldFrame(q, contact_candidates_[contact_index]);
   }
 
+  void DetermineContactModes(
+      const systems::Context<T>& context, systems::State<T>* state) const;
   int GetContactArrayIndex(const systems::State<T>& state,
       int contact_candidate_index) const;
   void SetContactCandidates();
@@ -647,6 +668,9 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest_SeparationWitness_Test;
   friend class Rod2DDAETest_VelocityChangesWitness_Test;
   friend class Rod2DDAETest_StickingSlidingWitness_Test;
+  friend class Rod2DDAETest_SlidingToNotSliding_Test;
+  friend class Rod2DDAETest_NotSlidingToSliding_Test;
+  friend class Rod2DDAETest_NotSlidingToSliding2_Test;
   friend class Rod2DDAETest_ContactingAndMovingSlightlyUpward_Test;
   friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
   friend class Rod2DDAETest_ContactingMovingUpwardAndSeparating_Test;
