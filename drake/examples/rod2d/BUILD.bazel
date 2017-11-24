@@ -52,7 +52,6 @@ drake_cc_library(
         "rod_witness_function.h",
         "signed_distance_witness.h",
         "sliding_witness.h",
-        "sliding_dot_witness.h",
         "sticking_friction_forces_slack_witness.h",
     ],
     deps = [

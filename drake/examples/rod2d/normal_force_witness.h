@@ -50,6 +50,7 @@ class NormalForceWitness : public RodWitnessFunction<T> {
     const int contact_index = this->get_contact_index();
     const int force_index = rod.GetContactArrayIndex(
         context.get_state(), contact_index);
+    DRAKE_DEMAND(force_index >= 0);
 
     // Populate problem data and solve the contact problem.
     const int ngv = 3;  // Number of rod generalized velocities.

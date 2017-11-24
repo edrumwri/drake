@@ -559,12 +559,10 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   // obtain this behavior.
   const double mu_slide = 0.999 * mu_stick;
   dut_->set_mu_static(mu_slide);
-  const systems::State<double>& state = context_->get_state();
-  const int left_endpoint_id = 0;
-  dut_->GetPosSlidingWitness(left_endpoint_id, state)->set_enabled(true);
-  dut_->GetNegSlidingWitness(left_endpoint_id, state)->set_enabled(true);
-  dut_->GetStickingFrictionForceSlackWitness(left_endpoint_id, state)
-      ->set_enabled(true);
+  auto& contacts = dut_->get_contacts_used_in_force_calculations(
+      &context_->get_mutable_state());
+  contacts.front().sliding_type = SlidingModeType::kTransitioning;  
+  contacts.back().sliding_type = SlidingModeType::kTransitioning;  
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_GT((*derivatives_)[3], tol);  // horizontal accel. should be nonzero.
 
@@ -1078,14 +1076,10 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
       right_endpoint_id, *state)->is_enabled());
 
   // All other witnesses should be disabled.
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1150,10 +1144,6 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
       right_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(dut_->GetSlidingDotWitness(
-      right_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(dut_->GetPosSlidingWitness(
@@ -1174,8 +1164,8 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
 // contact in a horizontal configuration and goes from not sliding to sliding
 // after some time.
 TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
-// Create a diagram with an input that causes the rod to start accelerating
-  // upward at t = 0.1s.
+  // Create a diagram with an input that causes the rod to start accelerating
+  // to the right at t = 0.1s.
   const double t_switch_on = 0.1;
   const double t_switch_off = std::numeric_limits<double>::infinity();
   auto diagram = CreateRodDiagramWithTimedInput(
@@ -1220,10 +1210,6 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   sim.get_mutable_context().set_accuracy(1e-8);
   sim.StepTo(t_final);
 
-  // Verify that two unrestricted updates occurs: transition point, then
-  // proper sliding.
-  EXPECT_EQ(sim.get_num_unrestricted_updates(), 2);
-
   // Both contact points should be in the set of force calculations.
   EXPECT_EQ(rod.get_contacts_used_in_force_calculations(state).size(), 2);
 
@@ -1238,10 +1224,6 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
       right_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(rod.GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(rod.GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(rod.GetSlidingDotWitness(
-      right_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(rod.GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_TRUE(rod.GetNegSlidingWitness(
@@ -1322,8 +1304,6 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1335,8 +1315,6 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1404,8 +1382,6 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1417,8 +1393,6 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1483,8 +1457,6 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1496,8 +1468,6 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1559,8 +1529,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
 
   // Only one witness function for the right endpoint should be enabled.
   EXPECT_TRUE(dut_->GetSignedDistanceWitness(
@@ -1568,8 +1536,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1632,8 +1598,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
 
   // Only one witness function for the right endpoint should be enabled.
   EXPECT_TRUE(dut_->GetSignedDistanceWitness(
@@ -1641,8 +1605,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1705,8 +1667,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
 
   // Only one witness function for the right endpoint should be enabled.
   EXPECT_TRUE(dut_->GetSignedDistanceWitness(
@@ -1714,8 +1674,6 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1774,8 +1732,6 @@ TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1787,8 +1743,6 @@ TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 
@@ -1851,8 +1805,6 @@ TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
       left_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
       left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
-      left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       left_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetNegSlidingWitness(
@@ -1864,8 +1816,6 @@ TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
   EXPECT_FALSE(dut_->GetNormalForceWitness(
       right_endpoint_id, *state)->is_enabled());
   EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetSlidingDotWitness(
       right_endpoint_id, *state)->is_enabled()); 
   EXPECT_FALSE(dut_->GetPosSlidingWitness(
       right_endpoint_id, *state)->is_enabled()); 

@@ -4,7 +4,6 @@
 #include "drake/examples/rod2d/normal_force_witness.h"
 #include "drake/examples/rod2d/normal_vel_witness.h"
 #include "drake/examples/rod2d/signed_distance_witness.h"
-#include "drake/examples/rod2d/sliding_dot_witness.h"
 #include "drake/examples/rod2d/sliding_witness.h"
 #include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
 
@@ -170,7 +169,6 @@ Outputs: Output Port 0 corresponds to the state vector; Output Port 1
 // TODO(edrumwri): Track energy and add a test to check it.
 template <typename T>
 class Rod2D : public systems::LeafSystem<T> {
-  friend class SlidingDotWitness<T>;
   friend class SlidingWitness<T>;
   friend class StickingFrictionForcesSlackWitness<T>;
   friend class NormalAccelWitness<T>;
@@ -614,8 +612,6 @@ class Rod2D : public systems::LeafSystem<T> {
       const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
-  bool IsContactTransitioning(
-      int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetSignedDistanceWitness(
       int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalVelWitness(
@@ -625,8 +621,6 @@ class Rod2D : public systems::LeafSystem<T> {
   RodWitnessFunction<T>* GetPosSlidingWitness(
       int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNegSlidingWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetSlidingDotWitness(
       int contact_index, const systems::State<T>& state) const;
   RodWitnessFunction<T>* GetNormalForceWitness(
       int contact_index, const systems::State<T>& state) const;
@@ -769,15 +763,13 @@ class Rod2D : public systems::LeafSystem<T> {
 
     kStickingFrictionForceSlackWitnessAbstractIndex = 4,
 
-    kSlidingDotWitnessAbstractIndex = 5,
+    kNormalForceWitnessAbstractIndex = 5,
 
-    kNormalForceWitnessAbstractIndex = 6,
+    kNegSlidingWitnessAbstractIndex = 6,
 
-    kNegSlidingWitnessAbstractIndex = 7,
+    kPosSlidingWitnessAbstractIndex = 7,
 
-    kPosSlidingWitnessAbstractIndex = 8,
-
-    kNumAbstractIndices = 9,
+    kNumAbstractIndices = 8,
   };
 };
 

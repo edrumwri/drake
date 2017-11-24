@@ -59,8 +59,6 @@ class RodWitnessFunction : public systems::AbstractValues, public systems::Witne
       /// force is being generated. 
       kStickingFrictionForceSlack,
 
-      kSlidingDot,
-
       kNormalForce,
 
       kSlidingWitness,
