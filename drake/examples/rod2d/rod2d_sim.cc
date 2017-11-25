@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <sstream>
 
 #include <gflags/gflags.h>
 
@@ -24,6 +25,7 @@
 #include "drake/systems/rendering/pose_bundle_to_draw_message.h"
 
 using Rod2D = drake::examples::rod2d::Rod2D<double>;
+using drake::examples::rod2d::Rod2dStateVector;
 using drake::lcm::DrakeLcm;
 using drake::systems::BasicVector;
 using drake::systems::Context;
@@ -41,12 +43,16 @@ using drake::systems::RungeKutta3Integrator;
 // Simulation parameters.
 DEFINE_string(simulation_type, "timestepping",
               "Type of simulation, valid values are "
-              "'timestepping','compliant'");
+              "'pDAE', 'timestepping','compliant'");
 DEFINE_double(dt, 1e-2, "Integration step size");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
-DEFINE_double(sim_duration, 10, "Simulation duration in virtual seconds");
+DEFINE_double(sim_duration, 5, "Simulation duration in virtual seconds");
 DEFINE_double(accuracy, 1e-5,
               "Requested simulation accuracy (ignored for time stepping)");
+DEFINE_string(state, "0 0 0 0 0 0", "Six dimensional, space delimited vector "
+                     "of initial conditions.");
+DEFINE_double(mu_c, 0.1, "Coefficient of Coulomb friction");
+DEFINE_double(mu_s, 0.1, "Coefficient of static friction");
 
 int main(int argc, char* argv[]) {
   // Parse any flags.
@@ -82,11 +88,18 @@ int main(int argc, char* argv[]) {
   } else if (FLAGS_simulation_type == "compliant") {
     rod = builder.template AddSystem<Rod2D>(Rod2D::SimulationType::kCompliant,
                                             0.0);
+  } else if (FLAGS_simulation_type == "pDAE") {
+    rod = builder.
+        template AddSystem<Rod2D>(Rod2D::SimulationType::kPiecewiseDAE, 0.0);
   } else {
     std::cerr << "Invalid simulation type '" << FLAGS_simulation_type
               << "'; note that types are case sensitive." << std::endl;
     return -1;
   }
+
+  // Set the friction coefficients.
+  rod->set_mu_coulomb(FLAGS_mu_c);
+  rod->set_mu_static(FLAGS_mu_s);
 
   // Create the rod visualization.
   DrakeShapes::VisualElement rod_vis(
@@ -130,6 +143,17 @@ int main(int argc, char* argv[]) {
   ext_input->SetAtIndex(2, 0.0);
   rod_context.FixInputPort(0, std::move(ext_input));
 
+/*
+  // Set the initial state.
+  const int state_dim = 6;
+  std::istringstream iss(FLAGS_state);
+  Eigen::VectorXd initial_state(state_dim);
+  for (int i = 0; i < state_dim; ++i)
+    iss >> initial_state[i];
+  Rod2dStateVector<double>& rod_state =
+      rod->get_mutable_state(&rod_context.get_mutable_continuous_state());
+  rod_state.SetFromVector(initial_state);
+*/
   // Set up the integrator.
   Simulator<double> simulator(*diagram, std::move(context));
   if (FLAGS_simulation_type == "compliant") {
@@ -142,6 +166,7 @@ int main(int argc, char* argv[]) {
                                                               &mut_context);
   }
   simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
+  simulator.get_mutable_context().set_accuracy(FLAGS_accuracy);
   simulator.get_mutable_integrator()->set_maximum_step_size(FLAGS_dt);
 
   // Start simulating.

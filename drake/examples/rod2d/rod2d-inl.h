@@ -918,6 +918,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     const systems::Context<T>& context,
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
     systems::State<T>* state) const {
+  using std::abs;
+
   // Get the current configuration of the system.
   const VectorX<T> q = state->get_continuous_state().
       get_generalized_position().CopyToVector();
@@ -1066,7 +1068,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 
           // Enable the sticking friction slack and disable the sliding dot
           // and sliding witnesses.
-          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
+          GetStickingFrictionForceSlackWitness(contact_index, *state)
+              ->set_enabled(true);
           GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
           GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
         }
@@ -1104,11 +1107,15 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // Handle any impacts, then redetermine the mode for all contacts.
   if (impacting) {
     ModelImpact(context, state);
+    SPDLOG_DEBUG(drake::log(), "Handling impact");
+
+    // Get the sliding velocity tolerance.
+    const T sliding_vel_tol = GetSlidingVelocityTolerance();
 
     // Get all points currently considered to be in contact.
     for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
       // Get the vertical velocity at the rod endpoint.
-      const T& v = CalcContactVelocity(*state, i)[1];
+      const auto& v = CalcContactVelocity(*state, i);
 
       // The point is considered to be in contact if one of the following is
       // activated: the normal force witness, the normal velocity witness,
@@ -1120,7 +1127,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // force calculations. Remove it from force calculations and activate
         // the normal velocity witness (and deactivate other witnesses) if the
         // velocity is strictly positive.
-        if (v > 0) {
+        if (v[1] > 0) {
+          SPDLOG_DEBUG(drake::log(), "Disabling contact {} from force "
+              "calculations", i);
           GetNormalVelWitness(i, *state)->set_enabled(true);
           GetNormalAccelWitness(i, *state)->set_enabled(false);
           GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
@@ -1141,9 +1150,18 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         } else {
           // The contact point should potentially be accounted for in the force
           // calculations. Add it to the set if necessary.
-          if (GetContactArrayIndex(*state, i) < 0) {
+          int contact_index = GetContactArrayIndex(*state, i);
+          if (contact_index < 0) {
             AddContactToForceCalculationSet(i, context, state);
+            contact_index = contacts.size() - 1;
+            DRAKE_ASSERT(contact_index == GetContactArrayIndex(*state, i));
           }
+
+          // Set the contact state to either sliding or not sliding.
+          SPDLOG_DEBUG(drake::log(), "Contact velocity: {}", v[0]);
+          contacts[contact_index].sliding_type = (abs(v[0]) > sliding_vel_tol) ?
+              drake::multibody::constraint::SlidingModeType::kSliding :
+              drake::multibody::constraint::SlidingModeType::kNotSliding;
         }
       } 
     }
@@ -1157,6 +1175,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 template <class T>
 void Rod2D<T>::DetermineContactModes(
     const systems::Context<T>& context, systems::State<T>* state) const {
+  SPDLOG_DEBUG(drake::log(), "Redetermining contact modes");
+
   // Get the vector of contacts.
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
@@ -1210,21 +1230,22 @@ void Rod2D<T>::DetermineContactModes(
     if (contact_array_index < 0)
       continue;
 
-    // Get the acceleration.
-    const Vector2<T> a = xddot + Rdot * contact_candidates_[i] * thetaddot +
-        Rddot * contact_candidates_[i] * thetadot;
-    if (a[1] > 10 * std::numeric_limits<double>::epsilon()) {
-        // Mark the contact for removal.
-        contacts_to_remove.push_back(contact_array_index);
+    // Get whether the contact is active. 
+    if (cf[contact_array_index] < 10 * std::numeric_limits<double>::epsilon()) {
+      SPDLOG_DEBUG(drake::log(), "Removing contact from force calculations");
 
-        // Enable the normal acceleration witness.
-        GetNormalAccelWitness(i, *state)->set_enabled(true);
+      // Mark the contact for removal.
+      contacts_to_remove.push_back(contact_array_index);
 
-        // Disable all other witnesses.
-        GetNormalForceWitness(i, *state)->set_enabled(false);
-        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
-        GetPosSlidingWitness(i, *state)->set_enabled(false);
-        GetNegSlidingWitness(i, *state)->set_enabled(false);
+      // Enable the normal acceleration witness.
+      GetNormalAccelWitness(i, *state)->set_enabled(true);
+
+      // Disable all other witnesses
+      GetNormalVelWitness(i, *state)->set_enabled(false);
+      GetNormalForceWitness(i, *state)->set_enabled(false);
+      GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+      GetPosSlidingWitness(i, *state)->set_enabled(false);
+      GetNegSlidingWitness(i, *state)->set_enabled(false);
     } else {
       // The contact is active. If the contact is not sliding, see whether
       // it needs to transition to sliding.
@@ -1243,6 +1264,7 @@ void Rod2D<T>::DetermineContactModes(
         // TODO: Need a more numerically robust scheme.
         if (problem_data.mu_non_sliding[non_sliding_index] * fN - fF <
             10 * std::numeric_limits<double>::epsilon()) {
+          SPDLOG_DEBUG(drake::log(), "Setting contact to 'transitioning'");
           contacts[contact_array_index].sliding_type =
               multibody::constraint::SlidingModeType::kTransitioning;
           GetPosSlidingWitness(i, *state)->set_enabled(true);

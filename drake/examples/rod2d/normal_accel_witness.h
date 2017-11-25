@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sstream>
+
 #include "drake/examples/rod2d/rod2d.h"
 #include "drake/examples/rod2d/rod_witness_function.h"
 
@@ -22,7 +24,9 @@ class NormalAccelWitness : public RodWitnessFunction<T> {
           rod,
           systems::WitnessFunctionDirection::kPositiveThenNonPositive,
           contact_index) {
-    this->name_ = "NormalAccel";
+    std::ostringstream oss;
+    oss << "NormalAccel (" << contact_index << ")";
+    this->set_name(oss.str());
     solver_ = &rod->solver_;
   }
 

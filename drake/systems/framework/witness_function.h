@@ -159,15 +159,15 @@ class WitnessFunction {
   /// @param context an already-validated Context
   virtual T DoEvaluate(const Context<T>& context) const = 0;
 
-  // The name of this witness function.
-  std::string name_;
-
  private:
   // A reference to the system.
   const System<T>& system_;
 
   // Direction(s) under which this witness function triggers.
   WitnessFunctionDirection dir_type_;
+
+  // The name of this witness function.
+  std::string name_;
 };
 
 }  // namespace systems
