@@ -215,15 +215,35 @@ class Rod2D : public systems::LeafSystem<T> {
   }
 
   static const Rod2dStateVector<T>& get_state(
+      const systems::DiscreteValues<T>& dstate) {
+    return dynamic_cast<const Rod2dStateVector<T>&>(dstate.get_vector());
+  }
+
+  static Rod2dStateVector<T>& get_mutable_state(
+      systems::DiscreteValues<T>* dstate) {
+    return dynamic_cast<Rod2dStateVector<T>&>(dstate->get_mutable_vector());
+  }
+
+  static const Rod2dStateVector<T>& get_state(
       const systems::Context<T>& context) {
-    return dynamic_cast<const Rod2dStateVector<T>&>(
+    if (context.get_continuous_state_vector().size() == 0) {
+      return dynamic_cast<const Rod2dStateVector<T>&>(
+        context.get_discrete_state_vector());
+    } else {
+      return dynamic_cast<const Rod2dStateVector<T>&>(
         context.get_continuous_state_vector());
+    }
   }
 
   static Rod2dStateVector<T>& get_mutable_state(
       systems::Context<T>* context) {
-    return dynamic_cast<Rod2dStateVector<T>&>(
-        context->get_mutable_continuous_state_vector());
+    if (context->get_continuous_state_vector().size() == 0) {
+      return dynamic_cast<Rod2dStateVector<T>&>(
+        context->get_mutable_discrete_state_vector());
+    } else {
+      return dynamic_cast<Rod2dStateVector<T>&>(
+          context->get_mutable_continuous_state_vector());
+    }
   }
 
   /// Transforms dissipation (α) to damping, given a characteristic

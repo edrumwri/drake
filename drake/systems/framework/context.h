@@ -140,6 +140,13 @@ class Context {
     return get_discrete_state().get_vector();
   }
 
+  /// Returns a reference to the discrete state vector. The vector may be of
+  /// size zero.
+  BasicVector<T>& get_mutable_discrete_state_vector() {
+    return get_mutable_state().get_mutable_discrete_state().
+        get_mutable_vector();
+  }
+
   /// Returns a mutable pointer to the discrete component of the state,
   /// which may be of size zero.
   DiscreteValues<T>& get_mutable_discrete_state() {

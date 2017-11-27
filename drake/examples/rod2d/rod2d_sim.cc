@@ -53,6 +53,10 @@ DEFINE_string(state, "0 0 0 0 0 0", "Six dimensional, space delimited vector "
                      "of initial conditions.");
 DEFINE_double(mu_c, 0.1, "Coefficient of Coulomb friction");
 DEFINE_double(mu_s, 0.1, "Coefficient of static friction");
+DEFINE_bool(output_state, false, "Whether to output time and state to "
+            "state.output");
+DEFINE_bool(output_force, false, "Whether to output time and contact forces "
+           "to force.output");
 
 int main(int argc, char* argv[]) {
   // Parse any flags.
@@ -144,6 +148,9 @@ int main(int argc, char* argv[]) {
   rod_context.FixInputPort(0, std::move(ext_input));
 
 /*
+  // TODO: To implement this, we also need to set the mode variables
+  appropriately.
+
   // Set the initial state.
   const int state_dim = 6;
   std::istringstream iss(FLAGS_state);
@@ -151,7 +158,7 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < state_dim; ++i)
     iss >> initial_state[i];
   Rod2dStateVector<double>& rod_state =
-      rod->get_mutable_state(&rod_context.get_mutable_continuous_state());
+      rod->get_mutable_state(&rod_context);
   rod_state.SetFromVector(initial_state);
 */
   // Set up the integrator.
