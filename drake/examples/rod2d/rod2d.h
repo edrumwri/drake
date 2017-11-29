@@ -204,6 +204,15 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
 
+  /// Gets default value for stiffness.
+  static constexpr double get_default_stiffness() { return 10000; }
+
+  /// Gets default value for dissipation.
+  static constexpr double get_default_dissipation() { return 1; }
+
+  /// Gets default value of friction (both static and dynamic).
+  static constexpr double get_default_mu() { return 0.1; }
+
   static const Rod2dStateVector<T>& get_state(
       const systems::ContinuousState<T>& cstate) {
     return dynamic_cast<const Rod2dStateVector<T>&>(cstate.get_vector());
@@ -447,6 +456,16 @@ class Rod2D : public systems::LeafSystem<T> {
     return *pose_output_port_;
   }
 
+  /// Returns the 6D state output of this rod.
+  const systems::OutputPort<T>& state_output() const {
+    return *state_output_port_;
+  }
+
+  /// Returns the 3D generalized contact force acting on this rod.
+  const systems::OutputPort<T>& contact_force_output() const {
+    return *contact_force_output_port_;
+  }
+
   /// Gets the index of the left endpoint in the contact candidates vector.
   int get_left_endpoint_index() const { return 0; }
 
@@ -574,6 +593,10 @@ class Rod2D : public systems::LeafSystem<T> {
     return GetPointInWorldFrame(q, contact_candidates_[contact_index]);
   }
 
+  void ComputeTimeSteppingProblemData(
+      const Vector3<T>& q,
+      const Vector3<T>& v,
+      multibody::constraint::ConstraintVelProblemData<T>* problem_data) const;
   void DetermineContactModes(
       const systems::Context<T>& context, systems::State<T>* state) const;
   int GetContactArrayIndex(const systems::State<T>& state,
@@ -592,6 +615,9 @@ class Rod2D : public systems::LeafSystem<T> {
   MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
+  void ComputeAndCopyContactForceOut(
+      const systems::Context<T>& context,
+      systems::BasicVector<T>* output) const;
   void CopyStateOut(const systems::Context<T>& context,
                     systems::BasicVector<T>* output) const;
   void CopyPoseOut(const systems::Context<T>& context,
@@ -730,26 +756,34 @@ class Rod2D : public systems::LeafSystem<T> {
 
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
-  double dt_{0.};           // Integration step-size for time stepping approach.
-  double mass_{1.};         // The mass of the rod (kg).
-  double half_length_{1.};  // The length of the rod (m).
-  double mu_{1000.};        // The (dynamic) coefficient of friction.
-  double g_{-9.81};         // The acceleration due to gravity (in y direction).
-  double J_{1.};            // The moment of the inertia of the rod.
+  double dt_{0.};               // Integration step-size for time stepping
+                                // approach.
+  double mass_{1.};             // The mass of the rod (kg).
+  double half_length_{1.};      // The length of the rod (m).
+  double mu_{get_default_mu()}; // The (dynamic) coefficient of friction.
+  double g_{-9.81};             // Acceleration due to gravity (in y direction).
+  double J_{1.};                // The moment of the inertia of the rod.
 
   // Compliant contact parameters.
-  double stiffness_{10000};   // Normal stiffness of the ground plane (N/m).
-  double dissipation_{1};     // Dissipation factor in 1/velocity (s/m).
-  double mu_s_{mu_};          // Static coefficient of friction (>= mu).
+  double stiffness_{get_default_stiffness()};      // Normal stiffness of the
+                                                   // ground plane (N/m).
+  double dissipation_{get_default_dissipation()};  // Dissipation factor in
+                                                   // 1/velocity (s/m).
+  double mu_s_{get_default_mu()};                  // Static coefficient of
+                                                   // friction (>= mu).
   double v_stick_tol_{1e-5};  // Slip speed below which the compliant model
                               //   considers the rod to be in stiction.
 
   // Characteristic deformation is 1mm for a 1m (unit length) rod half-length.
   double kCharacteristicDeformation{1e-3};
 
+  // Temporary matrices used in time stepping computation.
+  mutable Eigen::Matrix<T, 2, 3> N_, F_;
+
   // Output ports.
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
+  const systems::OutputPort<T>* contact_force_output_port_{nullptr};
 
   // Abstract state variable constants.
   enum AbstractIndices {
