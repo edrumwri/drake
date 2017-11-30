@@ -1192,39 +1192,21 @@ void Rod2D<T>::DetermineContactModes(
   VectorX<T> cf;
   multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
 
-  // Determine the new generalized acceleration. Complementarity solver
-  // *must* be used.
-  VectorX<T> ga;
+  // Determine the residual tangential accelerations for sticking contacts,
+  // and determine which contacts have no forces applied. The complementarity
+  // solver *must* be used.
+  VectorX<T> Lambda;
   CalcConstraintProblemData(context, *state, &problem_data);
   problem_data.use_complementarity_problem_solver = true;
-  solver_.SolveConstraintProblem(problem_data, &cf);
-  solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+  solver_.SolveConstraintProblem(problem_data, &cf, &Lambda);
 
   // Get some arrays that will be used repeatedly.
-  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
   const std::vector<int>& non_sliding_contacts =
       problem_data.non_sliding_contacts;
   DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
                               non_sliding_contacts.end()));
-  const int num_sliding = sliding_contacts.size();
-  const int num_non_sliding = non_sliding_contacts.size();
-  const int nc = num_sliding + num_non_sliding;
-  const int k = get_num_tangent_directions_per_contact();
-  const int r = k / 2;
 
-  // The point of contact is x + R * u, so its velocity is
-  // xdot + Rdot * u * thetadot, and its acceleration is
-  // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
-  const auto q = context.get_continuous_state().get_generalized_position().
-      CopyToVector();
-  const auto v = context.get_continuous_state().get_generalized_velocity().
-      CopyToVector();
-  const Vector2<T> xddot = ga.segment(0, 2);
-  const T& theta = q[2];
-  const T& thetadot = v[2];
-  const T& thetaddot = ga[2];
-  const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
-  const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
+  // Examine contact forces and residual accelerations.
   std::vector<int> contacts_to_remove;
   for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
     // Get the index in the contact array.
@@ -1250,21 +1232,18 @@ void Rod2D<T>::DetermineContactModes(
       GetNegSlidingWitness(i, *state)->set_enabled(false);
     } else {
       // The contact is active. If the contact is not sliding, see whether
-      // it needs to transition to sliding.
+      // it needs to transition to sliding. Do this by examining whether the
+      // tangential acceleration is clearly non-zero.
       if (contacts[contact_array_index].sliding_type ==
           multibody::constraint::SlidingModeType::kNotSliding) {
-        // Determine the amount of frictional force slack.
         const int non_sliding_index = std::distance(
           non_sliding_contacts.begin(),
           std::lower_bound(non_sliding_contacts.begin(),
                            non_sliding_contacts.end(),
                            contact_array_index));
-        const auto fN = cf[contact_array_index];
-        const auto fF = cf.segment(nc + non_sliding_index * r, r).
-            template lpNorm<1>();
 
         // TODO: Need a more numerically robust scheme.
-        if (problem_data.mu_non_sliding[non_sliding_index] * fN - fF <
+        if (Lambda[non_sliding_index] > 
             10 * std::numeric_limits<double>::epsilon()) {
           SPDLOG_DEBUG(drake::log(), "Setting contact to 'transitioning'");
           contacts[contact_array_index].sliding_type =
@@ -1518,7 +1497,6 @@ void Rod2D<T>::ComputeTimeSteppingProblemData(
   // Determine ERP and CFM.
   const double erp = get_erp();
   const double cfm = get_cfm();
-  const int ngc = 3;      // Number of generalized coords / velocities.
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
