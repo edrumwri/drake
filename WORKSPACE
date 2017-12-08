@@ -238,8 +238,8 @@ github_archive(
 github_archive(
     name = "pybind11",
     repository = "RobotLocomotion/pybind11",
-    commit = "6d72785766558047ee2e2075198c07d8c25eb631",
-    sha256 = "08b4813b3b17f607efc4e8ba8b73bf55759ba744cab125e9fc666b5161cb1d0a",  # noqa
+    commit = "ffcf754ae9e766632610975d22372a86a7b63014",
+    sha256 = "7cd6f4efb02bf9ae17eeb2afba68023af913e61ae76e8b4254203d0eec019525",  # noqa
     build_file = "tools/workspace/pybind11/pybind11.BUILD.bazel",
 )
 
@@ -311,10 +311,12 @@ mosek_repository(
     name = "mosek",
 )
 
+# We directly declare a git_repository because the snopt source code requires
+# authentication, and our github_archive does not (yet, easily) support that.
 git_repository(
     name = "snopt",
     remote = "git@github.com:RobotLocomotion/snopt.git",
-    commit = "2ec980370eeb72897135b11570033a19bda885a7",
+    commit = "0f475624131c9ca4d5624e74c3f8273ccc926f9b",
 )
 
 # Python Libraries
@@ -336,10 +338,10 @@ bind(
 # When updating the version of protobuf,
 # update tools/install/protobuf/protobuf.cps
 github_archive(
-    name = "protobuf",
+    name = "com_google_protobuf",
     repository = "google/protobuf",
-    commit = "v3.1.0",
-    sha256 = "fb2a314f4be897491bb2446697be693d489af645cb0e165a85e7e64e07eb134d",  # noqa
+    commit = "v3.5.0",
+    sha256 = "0cc6607e2daa675101e9b7398a436f09167dffb8ca0489b0307ff7260498c13c",  # noqa
 )
 
 pypi_archive(
