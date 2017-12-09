@@ -33,6 +33,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "aabb",
+    srcs = ["aabb.cc"],
+    hdrs = ["aabb.h"],
+    deps = [
+        ":triangle",
+        "//drake/common",
+    ],
+)
+
+drake_cc_library(
     name = "triangle",
     srcs = ["triangle.cc"],
     hdrs = ["triangle.h"],
