@@ -878,6 +878,42 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
 }
 
 template <typename T>
+void RigidBodyPlant<T>::DoCalcNextUpdateTime(
+    const Context<T>& context,
+    CompositeEventCollection<T>* events,
+    T* time) const {
+  // Attempt to do time stepping using the standard step size.
+
+  // See whether any "witnesses" were triggered.
+
+  // 
+}
+
+// Gets *new* contacts, given that the state has been stepped right before the
+// point that the new contacts occur. 
+template <class T>
+std::vector<drake::multibody::collision::PointPair>
+    RigidBodyPlant<T>::DetermineContacts() const {
+  // NOTE: All new contacts between existing triangles will be determined by
+  // locating when a vertex crosses the plane of contact. Note that the plane
+  // of contact is considered to be moving. Also, any newly contacting edges
+  // must be intesected against the alternative triangle.  
+
+  // Get all pairs of triangles not already contacting that are no further than
+  // eps tolerance apart, including closest points on the triangles.
+
+    // Get the contact normal, which will be determined by the closest points.  
+
+    // Project points, from both triangles, within eps distance to the
+    // plane passing halfway through the closest points (and determined by the
+    // surface normal).
+
+    // Intersect the points/edges/triangles sufficiently close to the plane,
+    // and store the result.
+}
+
+
+template <typename T>
 void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     const drake::systems::Context<T>& context,
     const std::vector<const drake::systems::DiscreteUpdateEvent<double>*>&,

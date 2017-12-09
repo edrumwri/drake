@@ -33,6 +33,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "triangle",
+    srcs = ["triangle.cc"],
+    hdrs = ["triangle.h"],
+    deps = [
+        "//drake/common",
+        "//drake/math:orthonormal_basis",
+    ],
+)
+
+drake_cc_library(
     name = "compliant_material",
     srcs = ["compliant_material.cc"],
     hdrs = ["compliant_material.h"],
