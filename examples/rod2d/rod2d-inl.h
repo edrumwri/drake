@@ -936,6 +936,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // Indicate there are no impacts.
   bool impacting = false;
 
+  // Indicate that sliding, not-sliding, and separating states do not need to
+  // be redetermined. Note that redetermination requires solving a
+  // complementarity problem.
+  bool redetermine_modes = false;
+
   // The vector of contacts to be removed from the force set.
   std::vector<int> contacts_to_remove;
 
@@ -996,6 +1001,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Add the contact.
         AddContactToForceCalculationSet(contact_index, context, state);
 
+        // Redetermine the modes.
+        redetermine_modes = true;
+
         break;
       }
 
@@ -1019,6 +1027,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         if (v[1] <= 0) {
           // Add the contact.
           AddContactToForceCalculationSet(contact_index, context, state);
+
+          // Modes must now be redetermined.
+          redetermine_modes = true;
         } else {
           GetNormalVelWitness(contact_index, *state)->set_enabled(true);
         }
@@ -1050,6 +1061,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         GetStickingFrictionForceSlackWitness(contact_index, *state)->
             set_enabled(false);
         
+        // Modes must now be redetermined.
+        redetermine_modes = true;
+
         break;
       }
 
@@ -1074,6 +1088,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
               ->set_enabled(true);
           GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
           GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+
+          // Modes must now be redetermined.
+          redetermine_modes = true;
         }
         break;
       }
@@ -1090,6 +1107,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Mark the contact as transitioning.
         contacts[contact_array_index].sliding_type =
             multibody::constraint::SlidingModeType::kTransitioning;
+
+        // Modes must now be redetermined.
+        redetermine_modes = true;
 
         break;
       }
@@ -1167,10 +1187,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         }
       } 
     }
-
-    // Now redetermine the acceleration level active set.
-    DetermineContactModes(context, state);
   }
+
+  // Now redetermine the acceleration level active set.
+  if (impacting || redetermine_modes)
+    DetermineContactModes(context, state);
 }
 
 // Redetermines the modes used for contacts at the acceleration level.
