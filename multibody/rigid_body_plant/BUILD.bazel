@@ -53,6 +53,27 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "trimesh_coldet",
+    srcs = ["trimesh_coldet.cc"],
+    hdrs = ["trimesh_coldet.h", "trimesh_coldet-inl.h"],
+    deps = [
+        ":aabb",
+        ":trimesh",
+        "//drake/common",
+    ],
+)
+
+drake_cc_library(
+    name = "trimesh",
+    srcs = ["trimesh.cc"],
+    hdrs = ["trimesh.h"],
+    deps = [
+        "//drake/common",
+        ":triangle",
+    ],
+)
+
+drake_cc_library(
     name = "compliant_material",
     srcs = ["compliant_material.cc"],
     hdrs = ["compliant_material.h"],

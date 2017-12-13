@@ -882,18 +882,100 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     const Context<T>& context,
     CompositeEventCollection<T>* events,
     T* time) const {
-  // Attempt to do time stepping using the standard step size.
+  // Get the witnesses active for the current context.
+
+  // Update the cloned context.
+
+  // Attempt to do time stepping using the standard step size and the cloned
+  // context.
 
   // See whether any "witnesses" were triggered.
 
-  // 
+  // If no witnesses were triggered, return the standard discrete update time. 
+
+  // One or more witnesses triggered: isolate the triggering time.
+
+  // Create an unrestricted update event to change the contacts.
+}
+
+template <typename T>
+T RigidBodyPlant<T>::IsolateWitnessTriggers(
+    const std::vector<const systems::WitnessFunction<T>*>& witnesses,
+    const VectorX<T>& w0, const T& t0, const VectorX<T>& x0,
+    const T& tf,
+    std::vector<const WitnessFunction<T>*>* triggered_witnesses) const {
+  // Verify that the vector of triggered witnesses is non-null.
+  DRAKE_DEMAND(triggered_witnesses);
+
+  // Will need to alter the context repeatedly.
+  Context<T>& context = get_mutable_context();
+
+  // Get the witness isolation interval length.
+  const optional<T> witness_iso_len = GetCurrentWitnessTimeIsolation();
+
+  // Check whether witness functions *are* to be isolated. If not, the witnesses
+  // that were triggered on entry will be the set that is returned.
+  if (!witness_iso_len)
+    return;
+
+  // Mini function for stepping the system forward in time from t0.
+  std::function<void(const T&)> step_forward =
+      [&t0, &x0, &context, this](const T& t_des) {
+    const T inf = std::numeric_limits<double>::infinity();
+    context.set_time(t0);
+    context.get_mutable_discrete_state(0).SetFromVector(x0);
+    T t_remaining = t_des - t0;
+    while (t_remaining > 0) {
+      // TODO: step forward here.
+
+      t_remaining = t_des - context.get_time();
+    }
+  };
+
+  // Loop until the isolation window is sufficiently small.
+  SPDLOG_DEBUG(drake::log(),
+      "Isolating witness functions using isolation window of {} over [{}, {}]",
+      witness_iso_len.value(), t0, tf);
+  VectorX<T> wc(witnesses.size());
+  T a = t0;
+  T b = tf;
+  do {
+    // Compute the midpoint and evaluate the witness functions at it.
+    T c = (a + b) / 2;
+    SPDLOG_DEBUG(drake::log(), "Integrating forward to time {}", c);
+    step_forward(c);
+
+    // See whether any witness functions trigger.
+    bool trigger = false;
+    for (size_t i = 0; i < witnesses.size(); ++i) {
+      wc[i] = EvaluateWitness(context, *witnesses[i]);
+      if (witnesses[i]->should_trigger(w0[i], wc[i]))
+        trigger = true;
+    }
+
+    // If no witness function triggered, we can continue stepping forward.
+    if (!trigger) {
+      SPDLOG_DEBUG(drake::log(), "No witness functions triggered up to {}", c);
+      triggered_witnesses->clear();
+      return;
+    } else {
+      b = c;
+    }
+  } while (b - a > witness_iso_len.value());
+
+  // Determine the set of triggered witnesses.
+  triggered_witnesses->clear();
+  for (size_t i = 0; i < witnesses.size(); ++i) {
+    if (witnesses[i]->should_trigger(w0[i], wc[i]))
+      triggered_witnesses->push_back(witnesses[i]);
+  }
 }
 
 // Gets *new* contacts, given that the state has been stepped right before the
 // point that the new contacts occur. 
 template <class T>
 std::vector<drake::multibody::collision::PointPair>
-    RigidBodyPlant<T>::DetermineContacts() const {
+    RigidBodyPlant<T>::DetermineContacts(const Context<T>& context) const {
   // NOTE: All new contacts between existing triangles will be determined by
   // locating when a vertex crosses the plane of contact. Note that the plane
   // of contact is considered to be moving. Also, any newly contacting edges
@@ -912,7 +994,6 @@ std::vector<drake::multibody::collision::PointPair>
     // and store the result.
 }
 
-
 template <typename T>
 void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     const drake::systems::Context<T>& context,
@@ -927,7 +1008,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   if (!is_state_discrete()) return;
 
   // Get the time step.
-  double dt = this->get_time_step();
+  double dt = context.get_time() - context.get_last_discrete_update_time();
   DRAKE_DEMAND(dt > 0.0);
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
@@ -969,6 +1050,8 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   VectorX<T> right_hand_side =
       -tree.dynamicsBiasTerm(kinematics_cache, no_external_wrenches);
   if (num_actuators > 0) right_hand_side += tree.B * u;
+
+  // TODO: Get the set of contacts from the abstract state.
 
   // Determine the set of contact points corresponding to the current q.
   std::vector<drake::multibody::collision::PointPair> contacts =
