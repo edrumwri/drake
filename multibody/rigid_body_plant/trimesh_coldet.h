@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <set>
 
 #include "drake/common/eigen_types.h"
@@ -12,9 +13,17 @@ namespace multibody {
 template <class T>
 class TrimeshColdet {
  public:
-  T CalcDistance(const Isometry3<T>& poseA, const Trimesh<T>& mA,
-                 const Isometry3<T>& poseB, const Trimesh<T>& mB,
-                 const std::set<std::pair<int, int>>& pairs_to_ignore) const;
+  T CalcDistance(const Trimesh<T>& mA,
+                 const Trimesh<T>& mB,
+                 const std::vector<std::pair<int, int>>& pairs_to_check) const;
+  void CalcIntersections(
+                 const Trimesh<T>& mA,
+                 const Trimesh<T>& mB,
+                 const std::vector<std::pair<int, int>>& pairs_to_check) const;
+  void UpdateAABBs(const Trimesh<T>& mesh, const Isometry3<T>& wTm);
+  void UpdateBroadPhaseStructs();
+  void DoBroadPhase(const Trimesh<T>& mA, const Trimesh<T>& mB,
+                    std::vector<std::pair<int, int>>* to_check) const;
 
  private:
   // Structure for doing broad phase collision detection.
@@ -25,13 +34,12 @@ class TrimeshColdet {
     bool operator<(const BoundsStruct& bs) const { return (!end && bs.end); }
   };
 
-  void DoBroadPhase(const Trimesh<T>& mA, const Trimesh<T>& mB,
-                    std::vector<std::pair<int, int>>* to_check) const;
-  void UpdateAABBs(const Trimesh<T>& mesh, const Isometry3<T>& wTm);
-  void UpdateBroadPhaseStructs();
   void UpdateOverlaps(
       int bounds_index,
       std::set<std::pair<int, int>>* overlaps) const; 
+
+  // The poses for each triangle mesh.
+  std::map<const Trimesh<T>*, Isometry3<T>> poses_;
 
   // Sweep and prune data structure. Mutable because it is used only for
   // speeding computations- it does not affect the correctness. The first

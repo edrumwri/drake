@@ -115,21 +115,27 @@ void TrimeshColdet<T>::UpdateOverlaps(
 
 template <class T>
 T TrimeshColdet<T>::CalcDistance(
-    const Isometry3<T>& poseA, const Trimesh<T>& tA,
-    const Isometry3<T>& poseB, const Trimesh<T>& tB,
-    const std::set<std::pair<int, int>>& pairs_to_ignore) const {
+    const Trimesh<T>& mA,
+    const Trimesh<T>& mB,
+    const std::set<std::pair<int, int>>& candidate_tris) const {
   // TODO: Use the distance between the two AABBs as the default
   // non-intersecting distance.
   T distance = 100.0;
 
-  // Call the broad phase algorithm to determine pairs of triangles to check.
+  // Get iterators to the two poses for the triangle meshes.
+  const auto& poses_iter_mA = poses_.find(&mA);
+  const auto& poses_iter_mB = poses_.find(&mB);
+
+  // Verify that the meshes were found.
+  if (poses_iter_mA == poses_.end() || poses_iter_mB == poses_.end())
+    throw std::logic_error("Mesh was not found in the pose map.");
+
+  // Get the poses.
+  const Isometry3<T>& poseA = poses_iter_mA->second;
+  const Isometry3<T>& poseB = poses_iter_mB->second;
 
   // Get the distance between each pair of triangles.
   for (int i = 0; i < candidate_tris.size(); ++i) {
-    // See whether the triangle is in the pairs to ignore.
-    if (pairs_to_ignore.find(candidate_tris[i]) != pairs_to_ignore.end())
-      continue;
-
     // Get the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
     const auto tA = mA.get_triangle(candidate_tris[i].first).transform(poseA);
@@ -145,15 +151,14 @@ T TrimeshColdet<T>::CalcDistance(
   return distance;
 }
 
-/*
 /// @note aborts if `contacts` is null or not empty on entry.
 /// @pre There exists some positive distance between any two triangles not
 ///      already designated as being intersecting.
 template <class T>
 void TrimeshColdet<T>::CalcIntersections(
-    const Isometry3<T>& poseA, const Trimesh<T>& tA,
-    const Isometry3<T>& poseB, const Trimesh<T>& tB,
-    const std::set<std::pair<int, int>>& pairs_to_ignore,
+    const Trimesh<T>& mA,
+    const Trimesh<T>& mB,
+    const std::set<std::pair<int, int>>& candidate_tris,
     std::vector<multibody::collision::PointPair>* contacts) const {
   using std::sqrt;
 
@@ -162,9 +167,19 @@ void TrimeshColdet<T>::CalcIntersections(
   // TODO: Set the intersecting threshold in a principled manner.
   const double intersecting_threshold = 1e-8;
 
-  // Call the broad phase algorithm to determine pairs of triangles to check.
+  // Get iterators to the two poses for the triangle meshes.
+  const auto& poses_iter_mA = poses_.find(&mA);
+  const auto& poses_iter_mB = poses_.find(&mB);
 
-  // TODO: it seems like we also need to store contact data for (a) the IDs of
+  // Verify that the meshes were found.
+  if (poses_iter_mA == poses_.end() || poses_iter_mB == poses_.end())
+    throw std::logic_error("Mesh was not found in the pose map.");
+
+  // Get the poses.
+  const Isometry3<T>& poseA = poses_iter_mA->second;
+  const Isometry3<T>& poseB = poses_iter_mB->second;
+
+ // TODO: it seems like we also need to store contact data for (a) the IDs of
   // the triangles newly determined to be in contact, (b) contact points in the
   // body frames, (c) features of the triangles (both so we can track which
   // features are in contact, and which features aren't).
@@ -216,4 +231,4 @@ void TrimeshColdet<T>::CalcIntersections(
 
   return distance;
 }
-*/
+
