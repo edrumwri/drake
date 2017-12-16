@@ -1,7 +1,7 @@
 #pragma once
 
 #include "drake/common/eigen_types.h"
-#include "drake/multibody/rigid_body_plant/triangle.h"
+#include "drake/multibody/rigid_body_plant/triangle3.h"
 
 namespace drake {
 namespace multibody {
@@ -13,7 +13,7 @@ class AABB {
       minp_(minp), maxp_(maxp) {
   }
  
-  AABB(const Triangle<T>& t) {
+  AABB(const Triangle3<T>& t) {
     using std::min;
     using std::max;
 

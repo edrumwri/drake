@@ -34,12 +34,23 @@ class TrimeshColdet {
     bool operator<(const BoundsStruct& bs) const { return (!end && bs.end); }
   };
 
+  static Vector3<T> ReverseProject(
+      const Vector2<T>& point, const Vector3<T>& normal, T offset);
+  static Vector2<T> ProjectTo2d(
+      const Vector3<T>& point, const Vector3<T>& normal);
+  static std::pair<Vector2<T>, Vector2<T>> ProjectTo2d(
+      const std::pair<Vector3<T>, Vector3<T>>& edge,
+      const Vector3<T>& normal);
   void UpdateOverlaps(
       int bounds_index,
       std::set<std::pair<int, int>>* overlaps) const; 
 
-  // The poses for each triangle mesh.
+  // The poses for each triangle mesh; these correspond to the transformation
+  // from the trimesh frame to the world frame.
   std::map<const Trimesh<T>*, Isometry3<T>> poses_;
+
+  // The bounding structs for each triangle mesh.
+  std::map<const Trimesh<T>*, std::vector<BoundsStruct*>> trimesh_bs_;
 
   // Sweep and prune data structure. Mutable because it is used only for
   // speeding computations- it does not affect the correctness. The first

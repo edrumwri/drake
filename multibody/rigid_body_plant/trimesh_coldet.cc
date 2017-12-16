@@ -1,4 +1,5 @@
 #include "drake/multibody/rigid_body_plant/trimesh_coldet.h"
+#include "drake/multibody/rigid_body_plant/trimesh_coldet-inl.h"
 
 namespace drake {
 namespace multibody {

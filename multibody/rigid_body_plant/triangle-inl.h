@@ -1,0 +1,574 @@
+#pragma once
+
+/// @file
+/// Template method implementations for triangle.h.
+/// Most users should only include that file, not this one.
+/// For background, see http://drake.mit.edu/cxx_inl.html.
+
+namespace drake {
+namespace multibody {
+
+// Partial template specializations on three dimensional triangles follow.
+template <class T>
+Vector3<T> Triangle3<T>::CalcNormal() const {
+  const Vector3<T> e1 = b() - a();
+  const Vector3<T> e2 = c() - b();
+  return e1.cross(e2).normalized();
+}
+
+/// Determines the distance between a triangle and a line and the closest
+/// point on the line to the triangle.
+/// @param origin the origin of the line
+/// @param dir the direction of the line 
+/// @param[out] closest_point_on_line the closest point on the line, on
+///             return
+/// @param[out] closest_point_on_tri the closest point on the triangle, on
+///             return.
+/// @param[out] The point on the line, defined origin + dir*t_line, on return.
+/// @return the Euclidean distance between this triangle and the point.
+/// \note code adapted from www.geometrictools.com 
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+    const Vector3<T>& origin,
+    const Vector3<T>& dir,
+    Vector3<T>* closest_point_on_line,
+    Vector3<T>* closest_point_on_tri,
+    T* t_line) const {
+  using std::abs;
+
+  // TODO: replace this with a more informed tolerance.
+  const double zero_tol = 10 * std::numeric_limits<double>::epsilon(); 
+
+  // Test if line intersects triangle. If so, the squared distance is zero.
+  Vector3<T> edge0 = b() - a();
+  Vector3<T> edge1 = c() - a();
+  Vector3<T> normal = CalcNormal();
+
+  // get the direction and origin of the line segment
+  T NdD = normal.dot(dir);
+  if (abs(NdD) > zero_tol) {
+    // The line and triangle are not parallel, so the line intersects
+    // the plane of the triangle.
+    Vector3<T> kDiff = origin - a();
+    Matrix3<T> R = math::ComputeBasisFromAxis(0, dir);
+    const Vector3<T> kU = R.col(1);
+    const Vector3<T> kV = R.col(2);
+    T UdE0 = kU.dot(edge0);
+    T UdE1 = kU.dot(edge1);
+    T UdDiff = kU.dot(kDiff);
+    T VdE0 = kV.dot(edge0);
+    T VdE1 = kV.dot(edge1);
+    T VdDiff = kV.dot(kDiff);
+    T inv_det = 1.0/(UdE0*VdE1 - UdE1*VdE0);
+
+    // Barycentric coordinates for the point of intersection.
+    T B1 = (VdE1*UdDiff - UdE1*VdDiff)*inv_det;
+    T B2 = (UdE0*VdDiff - VdE0*UdDiff)*inv_det;
+    T B0 = 1.0 - B1 - B2;
+
+    if (B0 >= 0.0 && B1 >= 0.0 && B2 >= 0.0) {
+      // Line parameter for the point of intersection.
+      T DdE0 = dir.dot(edge0);
+      T DdE1 = dir.dot(edge1);
+      T DdDiff = dir.dot(kDiff);
+      *t_line = B1*DdE0 + B2*DdE1 - DdDiff;
+
+      // The intersection point is inside or on the triangle.
+      *closest_point_on_line = origin + (*t_line)*dir;
+      *closest_point_on_tri = a() + B1*edge0 + B2*edge1;
+      return T(0);
+    }
+  }
+
+  // Either (1) the line is not parallel to the triangle and the point of
+  // intersection of the line and the plane of the triangle is outside the
+  // triangle or (2) the line and triangle are parallel.  Regardless, the
+  // closest point on the triangle is on an edge of the triangle.  Compare
+  // the line to all three edges of the triangle.
+  T square_dist = std::numeric_limits<T>::max();
+  for (int i0 = 2, i1 = 0; i1 < 3; i0 = i1++) {
+    // Construct the edge.
+    std::pair<Vector3<T>, Vector3<T>> edge(
+      get_vertex(i0), get_vertex(i1));
+
+    // Compute the squared distance and closest points.
+    T t, t_seg;
+    Vector3<T> temp_point1, temp_point2;
+    T edge_square_dist = CalcSquareDistance(
+        origin, dir, edge, &temp_point1, &temp_point2, &t, &t_seg);
+    if (edge_square_dist < square_dist) {
+      *closest_point_on_line = temp_point1;
+      *closest_point_on_tri = temp_point2;
+      square_dist = edge_square_dist;
+      *t_line = t;
+    }
+  }
+
+  return square_dist;
+}
+
+/// Determines the distance between a line and a line segment
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+    const Vector3<T>& origin,
+    const Vector3<T>& dir,
+    const std::pair<Vector3<T>, Vector3<T>>& seg,
+    Vector3<T>* closest_point_on_line,
+    Vector3<T>* closest_point_on_seg,
+    T* t_line,
+    T* t_seg) const {
+  DRAKE_DEMAND(closest_point_on_line);
+  DRAKE_DEMAND(closest_point_on_seg);
+  DRAKE_DEMAND(t_line);
+  DRAKE_DEMAND(t_seg);
+
+  using std::abs;
+
+  // TODO: come up with a better tolerance.
+  const double zero_tol = 1e-8;
+
+  // determine the origins of the segment
+  const Vector3<T> seg_origin = (seg.first + seg.second) * 0.5;
+
+  // determine the directions of the segment
+  Vector3<T> seg_dir = seg.second - seg.first;
+  const T seg_dir_len = seg_dir.norm();
+  seg_dir /= seg_dir_len;
+
+  // determine the extents of the segment
+  const T seg_extent = seg_dir_len * 0.5;
+
+  const Vector3<T> kDiff = origin - seg_origin;
+  T A01 = -dir.dot(seg_dir);
+  T B0 = kDiff.dot(dir);
+  T C = kDiff.squaredNorm();
+  T det = abs(1.0 - A01 * A01);
+  T B1, S0, S1, sqr_dist, ext_det;
+
+  if (det >= zero_tol) {
+    // The line and segment are not parallel.
+    B1 = -kDiff.dot(seg_dir);
+    S1 = A01 * B0 - B1;
+    ext_det = seg_extent * det;
+
+    if (S1 >= -ext_det) {
+      if (S1 <= ext_det) {
+        // Two interior points are closest, one on the line and one
+        // on the segment.
+        T inv_det = (1.0) / det;
+        S0 = (A01 * B1 - B0) * inv_det;
+        S1 *= inv_det;
+        sqr_dist = S0 * (S0 + A01 * S1 + 2 * B0) +
+                   S1 * (A01 * S0 + S1 + 2 * B1) + C;
+      } else {
+        // The end point e1 of the segment and an interior point of
+        // the line are closest.
+        S1 = seg_extent;
+        S0 = -(A01 * S1 + B0);
+        sqr_dist = -S0 * S0 + S1 * (S1 + 2 * B1) + C;
+      } 
+    } else {
+      // The end point e0 of the segment and an interior point of the
+      // line are closest.
+      S1 = -seg_extent;
+      S0 = -(A01 * S1 + B0);
+      sqr_dist = -S0 * S0 + S1 * (S1 + 2 * B1) + C;
+    }
+  } else {
+    // The line and segment are parallel.  Choose the closest pair so that
+    // one point is at segment origin.
+    S1 = T(0);
+    S0 = -B0;
+    sqr_dist = B0 * S0 + C;
+  }
+
+  *closest_point_on_line = origin + S0*dir;
+  *closest_point_on_seg = seg_origin + S1*seg_dir;
+  *t_line = S0;
+  *t_seg = S1;
+  return abs(sqr_dist);
+}
+
+/// Determines the distance between this triangle and a given point
+/// @param point the query point
+/// @param[out] sout the Barycentric coordinate s, where
+///             a*s + b*t + c*(1-s-t) = p
+/// @param[out] tout the Barycentric coordinate t 
+/// @return the Euclidean distance between this triangle and the point
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+    const Vector3<T>& point, T* sout, T* tout) const {
+  using std::abs;
+
+  // compute needed quantities
+  const Vector3<T> k_diff = a() - point;
+  const Vector3<T> E0 = b() - a();
+  const Vector3<T> E1 = c() - a();
+  T A00 = E0.squaredNorm();
+  T A01 = E0.dot(E1);
+  T A11 = E1.squaredNorm(); 
+  T B0 = k_diff.dot(E0);
+  T B1 = k_diff.dot(E1);
+  T C = k_diff.squaredNorm();
+  T det = abs(A00 * A11 - A01 * A01);
+  T s = A01 * B1 - A11 * B0;
+  T t = A01 * B0 - A00 * B1;
+  T sqr_dist;
+
+  if (s + t <= det) {
+    if (s < 0) {
+      if (t < 0) {
+        // region 4
+        if (B0 < 0) {
+          t = 0.0;
+          if (-B0 >= A00) {
+            s = 1.0;
+            sqr_dist = A00 + (2 * B0) + C;
+          } else {
+            s = -B0/A00;
+            sqr_dist = (B0*s)+C;
+          }
+        } else {
+          s = 0.0;
+          if (B1 >= 0) {
+            t = 0.0;
+            sqr_dist = C;
+          } else {
+            if (-B1 >= A11) {
+              t = 1.0;
+              sqr_dist = A11 + (2 * B1) + C;
+            } else {
+              t = -B1 / A11;
+              sqr_dist = (B1 * t) + C;
+            }
+          }  
+        } 
+      } else {
+        // region 3
+        s = 0;
+        if (B1 >= 0) {
+          t = 0;
+          sqr_dist = C;
+        } else {
+          if (-B1 >= A11) {
+            t = 1.0;
+            sqr_dist = A11 + (2 * B1) + C;
+          } else {
+            t = -B1 / A11;
+            sqr_dist = (B1 * t) + C;
+          }
+        }
+      } 
+    } else {
+      if (t < 0) {
+        // region 5
+        t = 0;
+        if (B0 >= 0) {
+          s = 0;
+          sqr_dist = C;
+        } else {
+          if (-B0 >= A00) {
+            s = 1.0;
+            sqr_dist = A00 + (2 * B0) + C;
+          } else {
+            s = -B0 / A00;
+            sqr_dist = (B0 * s) + C;
+          }
+        }
+      } else {
+        // region 0
+        const double inv_det = 1.0/det;
+        s *= inv_det;
+        t *= inv_det;
+        sqr_dist = s * (A00 * s + A01 * t + (2 * B0)) +
+                   t * (A01 * s + A11* t + (2 * B1)) + C;
+      }
+    }
+  } else {
+    T tmp0, tmp1, numer, denom;
+    if (s < 0) {
+      // region 2
+    tmp0 = A01 + B0;
+    tmp1 = A11 + B1;
+    if (tmp1 > tmp0) {
+      numer = tmp1 - tmp0;
+      denom = A00 - 2 * A01 + A11;
+      if (numer >= denom) {
+        s = 1.0;
+        t = 0.0;
+        sqr_dist = A00 + (2 * B0) + C;
+      } else {
+        s = numer/denom;
+        t = 1.0 - s;
+        sqr_dist = s * (A00 * s + A01 * t + 2 * B0) +
+                   t * (A01 * s + A11 * t + 2 * B1) + C;
+      }
+    } else {
+      s = 0.0;
+      if (tmp1 <= 0) {
+        t = 1.0;
+        sqr_dist = A11 + 2 * B1 + C;
+      } else {
+        if (B1 >= 0) {
+          t = 0.0;
+          sqr_dist = C;
+        } else {
+          t = -B1 / A11;
+          sqr_dist = B1 * t + C;
+        }
+      }
+    } 
+  } else {
+    if (t < 0) {
+      // region 6
+      tmp0 = A01 + B1;
+      tmp1 = A00 + B0;
+      if (tmp1 > tmp0) {
+        numer = tmp1 - tmp0;
+        denom = A00 - 2 * A01 + A11;
+        if (numer >= denom) {
+          t = 1.0;
+          s = 0.0;
+          sqr_dist = A11 + 2 * B1 + C;
+        } else {
+          t = numer / denom;
+          s = 1.0 - t;
+          sqr_dist = s * (A00 * s + A01 * t + 2 * B0) +
+                     t * (A01 * s + A11 * t + 2 *B1) + C;
+        }
+      } else {
+        t = 0.0;
+        if (tmp1 <= 0) {
+          s = 1.0;
+          sqr_dist = A00 + 2 * B0+C;
+        } else {
+          if (B0 >= 0) {
+            s = 0.0;
+            sqr_dist = C;
+          } else {
+            s = -B0 / A00;
+            sqr_dist = B0 * s + C;
+          }
+        }
+      } 
+    } else {
+      // region 1
+      numer = A11 + B1 - A01 - B0;
+      if (numer <= 0) {
+        s = 0.0;
+        t = 1.0;
+        sqr_dist = A11 + 2 * B1 + C;
+        } else {
+          denom = A00 - 2 * A01 + A11;
+          if (numer >= denom) {
+            s = 1.0;
+            t = 0.0;
+            sqr_dist = A00 + 2 * B0 + C;
+          } else {
+            s = numer / denom;
+            t = 1.0 - s;
+            sqr_dist =  s * (A00 * s + A01 * t + 2 * B0) +
+                        t * (A01 * s + A11 * t + 2 * B1) + C;
+          }
+        }
+      }
+    } 
+  }
+
+  // Convert to standard formulation. 
+  *sout = 1 - s - t;
+  *tout = s;
+  return sqr_dist;
+}
+
+/// Determines the signed distance between this triangle and a given point
+/// @param query_point the query point
+/// @param[out] closest_point the closest point on the triangle, on return.
+/// @return the square distance between this triangle and the point
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+    const Vector3<T>& query_point,
+    Vector3<T>* closest_point) const {
+  DRAKE_DEMAND(closest_point);
+
+  // Get the closest point in barycentric coordinates.
+  T s, t;
+  T square_distance = CalcSquareDistance(query_point, &s, &t);
+
+  // compute the closest point
+  *closest_point = a()*s + b()*t + c()*(1-s-t);
+
+  return square_distance;
+}
+
+/// Computes the closest distance between a triangle and a line segment.
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+    const std::pair<Vector3<T>, Vector3<T>>& seg,
+    Vector3<T>* closest_point_on_tri,
+    Vector3<T>* closest_point_on_seg) const {
+  // Compute the segment origin, direction, and extent.
+  Vector3<T> origin = (seg.first + seg.second) * 0.5;
+  Vector3<T> dir = seg.second - seg.first;
+  T dir_len = dir.norm();
+  T extent = dir_len * 0.5;
+  dir /= dir_len;
+
+  // Get the squared distance between a line containing the segment and
+  // the triangle.
+  T t_line;
+  T square_dist = CalcSquareDistance(
+      origin, dir, closest_point_on_seg, closest_point_on_tri, &t_line);
+
+  if (t_line >= -extent) {
+    if (t_line <= extent) {
+      return square_dist;
+    } else {
+      *closest_point_on_seg = seg.second;
+    }
+  } else {
+    *closest_point_on_seg = seg.first;
+  }
+
+  // If at this point, it is necessary to compute the closest point to the
+  // triangle.
+  return CalcSquareDistance(*closest_point_on_seg, closest_point_on_tri);
+}
+
+/// Computes the square distance between two triangles and returns closest
+/// points on each.
+/// @param point the query point
+/// @param closest_point the closest point on the triangle is returned here
+/// @return the squared Euclidean distance between this triangle and the point
+/// @note code adapted from www.geometrictools.com 
+template <class T>
+T Triangle3<T>::CalcSquareDistance(
+      const Triangle3<T>& t,
+      Vector3<T>* closest_point_on_this,
+      Vector3<T>* closest_point_on_t) const {
+  Vector3<T> tmp1, tmp2;
+
+  // Compare edges of t1 to the interior of t2
+  T square_dist = std::numeric_limits<T>::max();
+  std::pair<Vector3<T>, Vector3<T>> seg;
+  for (int i0 = 2, i1 = 0; i1 < 3; i0 = i1++) {
+    // Compute the distance between the triangle and the line segment.
+    seg.first = get_vertex(i0);
+    seg.second = get_vertex(i1);
+    T square_seg_dist = t.CalcSquareDistance(seg, &tmp2, &tmp1);
+    if (square_seg_dist < square_dist) {
+      *closest_point_on_this = tmp2;
+      *closest_point_on_t = tmp1;
+      square_dist = square_seg_dist;
+    }
+  }
+
+  // compare edges of t2 to the interior of t1
+  for (int i0 = 2, i1 = 0; i1 < 3; i0 = i1++) {
+    seg.first = t.get_vertex(i0);
+    seg.second = t.get_vertex(i1);
+    T square_seg_dist = CalcSquareDistance(seg, &tmp1, &tmp2);
+    if (square_seg_dist < square_dist) {
+      *closest_point_on_this = tmp1;
+      *closest_point_on_t = tmp2;
+      square_dist = square_seg_dist;
+    }
+  }
+
+  return square_dist;
+}
+
+template <class T>
+Triangle2<T> Triangle3<T>::ProjectTo2d(
+    const Vector3<T>& normal) const {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2);
+
+  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
+  Eigen::Matrix<T, 2, 3> P;
+  P.row(0) = v1;
+  P.row(1) = v2;
+
+  // Create the new triangle.
+  return Triangle2<T>(P * a(), P * b(), P * c());
+}
+
+/// Computes the sign of the area of two vectors with respect to an arbitrary
+/// center.
+template <class T>
+typename Triangle2<T>::OrientationType Triangle2<T>::CalcAreaSign(
+    const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c, T tol) {
+  using std::abs;
+
+  DRAKE_DEMAND(tol >= 0);
+  const T a1 = (b[0] - a[0]) * (c[1] - a[1]);
+  const T a2 = (c[0] - a[0]) * (b[1] - a[1]);
+  const T area = a1 - a2;
+  if (abs(area) < tol)
+    return Triangle2<T>::OrientationType::kOn;
+  return (area > 0) ? Triangle2<T>::OrientationType::kLeft :
+                      Triangle2<T>::OrientationType::kRight;
+}
+
+/// Determines whether a point is strictly inside or on a triangle.
+/// Adapted from O'Rourke, p. 236.
+template <class T>
+bool Triangle2<T>::PointIsInside(const Vector2<T>& point) const {
+  // TODO: Determine tolerance in a more principled manner.
+  const T tol = 1e-8;
+
+  // Get the signed areas.
+  auto o1 = CalcAreaSign(point, a(), b(), tol);
+  auto o2 = CalcAreaSign(point, b(), c(), tol);
+  auto o3 = CalcAreaSign(point, c(), a(), tol);
+
+  if ((o1 == kOn && o2 == kLeft && o3 == kLeft) ||
+      (o2 == kOn && o1 == kLeft && o3 == kLeft) ||
+      (o3 == kOn && o1 == kLeft && o2 == kLeft))
+    return true;  // On the edge of the triangle.
+
+  if ((o1 == kOn && o2 == kRight && o3 == kLeft) ||
+      (o2 == kOn && o1 == kRight && o3 == kLeft) ||
+      (o3 == kOn && o1 == kRight && o2 == kLeft))
+    return true;  // On the edge of the triangle.
+  
+  if ((o1 == kLeft && o2 == kLeft && o3 == kLeft) ||
+      (o1 == kRight && o2 == kRight && o3 == kRight))
+    return true;  // Point is strictly inside the polygon.
+
+  if ((o1 == kOn && o2 == kOn) ||
+      (o1 == kOn && o3 == kOn) ||
+      (o2 == kOn && o3 == kOn))
+    return true;  // Point is on a vertex of the triangle.
+
+  // Some cases are clearly impossible; we will handle those here.
+
+  // We must assume that one of the areas is close to zero (right on the zero
+  // side of our tolerance) - it could be the case where two or even all three
+  // areas are off.
+  if (o1 == kOn && o2 == kOn && o3 == kOn)
+    return true;  // Point is on a vertex of the triangle.
+
+  // If none of the other cases apply, point must be outside of the triangle.
+  return false;
+}
+
+/*
+/// Intersects a triangle with a line segment in 2D.
+template <class T>
+Triangle2<T>::Intersect(
+  const std::pair<Vector2<T>, Vector2<T>>& edge) const {
+  // TODO: implement me.
+}
+
+/// Intersects a triangle with another triangle in 2D.
+template <class T>
+int Triangle2<T>::Intersect(
+    const Triangle2<T>& t, Vector2<T>* intersections) const {
+  // TODO: implement me.
+}
+*/
+}  // namespace examples
+}  // namespace drake

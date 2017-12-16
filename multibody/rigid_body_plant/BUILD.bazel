@@ -45,7 +45,7 @@ drake_cc_library(
 drake_cc_library(
     name = "triangle",
     srcs = ["triangle.cc"],
-    hdrs = ["triangle.h"],
+    hdrs = ["triangle.h", "triangle-inl.h"],
     deps = [
         "//drake/common",
         "//drake/math:orthonormal_basis",
@@ -59,6 +59,7 @@ drake_cc_library(
     deps = [
         ":aabb",
         ":trimesh",
+        ":triangle2",
         "//drake/common",
     ],
 )

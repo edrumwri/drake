@@ -12,6 +12,22 @@ namespace multibody {
 template <class T>
 void TrimeshColdet<T>::UpdateAABBs(
     const Trimesh<T>& mesh, const Isometry3<T>& wTm) {
+  // Update the pose in the map.
+  auto poses_iter = poses_.find(&mesh);
+  DRAKE_DEMAND(poses_iter != poses_.end());
+  poses_iter->second = wTm;
+
+  // Update each AABB corresponding to this mesh.
+  auto trimesh_bs_iter = trimesh_aabbs_.find(&mesh);
+  DRAKE_DEMAND(trimesh_bs_iter != trimesh_aabbs_.end());
+  const std::vector<BoundingStructs*>& bs = trimesh_bs_iter->second; 
+  for (int i = 0; i < static_cast<int>(bs.size()); ++i) {
+    // Get the requisite triangle in the mesh, transform it, and reconstruct
+    // the AABB around it.
+    const Triangle3<T>& tri = mesh.get_triangle(bs[i]->tri);
+    AABB<T>& aabb = *bs[i]->aabb; 
+    aabb = AABB<T>(tri.transform(wTm));
+  }
 }
 
 /// Sorts data structures for broad-phase collision detection.
@@ -151,6 +167,60 @@ T TrimeshColdet<T>::CalcDistance(
   return distance;
 }
 
+// Projects a point to 2D given a normal.
+template <class T>
+Vector2<T> TrimeshColdet<T>::ProjectTo2d(
+    const Vector3<T>& point, const Vector3<T>& normal) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2); 
+
+  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
+  Eigen::Matrix<T, 2, 3> P;
+  P.row(0) = v1;
+  P.row(1) = v2;
+
+  return P * point;
+}
+
+// Projects an edge to 2D given a normal.
+template <class T>
+std::pair<Vector2<T>, Vector2<T>> TrimeshColdet<T>::ProjectTo2d(
+    const std::pair<Vector3<T>, Vector3<T>>& edge, const Vector3<T>& normal) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2);
+
+  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
+  Eigen::Matrix<T, 2, 3> P;
+  P.row(0) = v1;
+  P.row(1) = v2;
+
+  return std::make_pair(P * edge.first, P * edge.second);
+}
+
+// Projects a point from 2D back to 3D given a normal and offset.
+template <class T>
+Vector3<T> TrimeshColdet<T>::ReverseProject(
+    const Vector2<T>& p,
+    const Vector3<T>& normal,
+    T offset) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2); 
+
+  // Construct the reverse projection matrix.
+  Matrix3<T> rP;
+  rP.col(0) = v1;
+  rP.col(1) = v2;
+  rP.col(2) = normal;
+
+  return rP * Vector3(p[0], p[1], offset);
+}
+
 /// @note aborts if `contacts` is null or not empty on entry.
 /// @pre There exists some positive distance between any two triangles not
 ///      already designated as being intersecting.
@@ -204,17 +274,9 @@ void TrimeshColdet<T>::CalcIntersections(
       // Verify that the distance isn't *too* small.
       DRAKE_DEMAND(tri_distance > 0);
 
-      // Create a new contact.
-      contacts->push_back(multibody::collision::PointPair());  
-
-      // Set the closest points.
-      contacts->back().ptA = closest_on_tA;
-      contacts->back().ptB = closest_on_tB;
-
-      // Set the normal such that it points toward A.
+      // Compute the surface normal such that it points toward A.
       Vector3<T> normal = closest_on_tA - closest_on_tB;
       normal.normalize();
-      contacts->back().normal = normal;
 
       // Determine the offset for the plane parallel and halfway between the
       // two planes passing through the closest points.
@@ -222,10 +284,166 @@ void TrimeshColdet<T>::CalcIntersections(
       const T offsetB = normal.dot(closest_on_tB);
       const T offset = (offsetA + offsetB) / 2.0;
 
-      // Project all points that are within the given tolerance of the offset
-      // to the contact plane.
+      // Project all points from a triangle to the plane. Stores a point
+      // if it is within tolerance.
+      auto project_and_store = [&normal, offset, tolerance](
+          const Triangle3<T>& t, std::vector<int>* p) {
+        const T d_a = t.a().dot(normal) - offset;
+        if (abs(d_a) < tolerance)
+          p->push_back(0);
 
-      //  
+        const T d_b = t.b().dot(normal) - offset;
+        if (abs(d_b) < tolerance)
+          p->push_back(1);
+
+        const T d_c = t.c().dot(normal) - offset;
+        if (abs(d_c) < tolerance)
+          p->push_back(2);
+      };
+
+      // Project all points from both triangles to the plane, storing indices
+      // of points that lie within the tolerance away.
+      std::vector<int> pA, pB;
+      project_and_store(tA, &pA);
+      project_and_store(tB, &pA);
+
+      // Degenerate cases that we can reject immediately: nothing/anything,
+      // vertex/vertex and vertex edge.
+      if (pA.size() == 0 || pB.size() == 0)
+        continue;
+      if (pA.size() == 1) {
+        if (pB.size() <= 2)
+          continue;
+      } else {
+        if (pA.size() == 2 && pB.size() == 1)
+          continue;
+      }
+
+      // Note: We treat the case of no intersection after the projection as a
+      // singular configuration (i.e., active only instantaneously) and keep
+      // looping.
+
+      // Remaining cases are edge/edge, vertex/face, edge/face, and face/face.
+      switch (pA.size()) {
+        case 1: {
+          // Since the point on A is only a vertex, there must be three points
+          // from B. Verify that the projected vertex lies within the projected
+          // triangle.
+          DRAKE_DEMAND(pB.size(), 3);
+          Vector2<T> point_2d = ProjectTo2d(
+              tA.get_vertex(pA.front()), normal);
+          Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
+          if (!tB_2d.PointIsInside(point_2d)) {
+            continue;          
+          } else {
+            // Record how the contact point is determined using a moving plane
+            // and the specified vertex from A.
+
+            // Create the contact.
+            contacts->push_back(multibody::collision::PointPair());  
+            contacts->back().ptA = closest_on_tA;
+            contacts->back().ptB = closest_on_tB;
+            contacts->back().normal = normal;
+          }
+          break;
+        }
+
+        case 2: {
+          if (pB.size() == 2) {
+            // Edge/edge case. Intersect the projected edges.
+            auto eA_2d = ProjectTo2d(
+                std::make_pair(tA.get_vertex(pA.front()),
+                               tA.get_vertex(pA.back())), normal);
+            auto eB_2d = ProjectTo2d(
+                std::make_pair(tB.get_vertex(pB.front()),
+                               tB.get_vertex(pB.back())), normal);
+            
+            // Verify that the intersection exists.
+
+            // Create the contact point(s).
+
+          } else {
+            DRAKE_DEMAND(pB.size() == 3);
+            // Edge/face case. Intersect the edge with the projected triangle.
+
+            // Project the edge from A to 2D.
+            auto eA_2d = ProjectTo2d(
+                std::make_pair(tA.get_vertex(pA.front()),
+                               tA.get_vertex(pA.back())), normal);
+
+            // Project triangle B to 2D.
+            Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
+
+            // Verify that the intersection exists.
+
+            // Create the contact points.
+
+            // TODO (true?)
+            // Note how the contact point is determined using a moving plane
+            // and the specified vertex from A.
+
+          }
+          break;
+        }
+
+        case 3: {
+          if (pB.size() == 1) {
+            // Vertex / face. Verify that the vertex lies within the face.
+            DRAKE_DEMAND(pA.size(), 3);
+            Vector2<T> point_2d = ProjectTo2d(
+                tB.get_vertex(pB.front()), normal);
+            Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
+            if (!tA_2d.PointIsInside(point_2d)) {
+              continue;          
+            } else {
+              // Record how the contact point is determined using a moving plane
+              // and the specified vertex from B.
+
+              // Create the contact.
+              contacts->push_back(multibody::collision::PointPair());  
+              contacts->back().ptA = closest_on_tA;
+              contacts->back().ptB = closest_on_tB;
+              contacts->back().normal = normal;
+            }
+          } else {
+            // Edge / face. Intersect the edge with the projected triangle.
+            if (pB.size() == 2) {
+              // Project the edge from B to 2D.
+              auto eB_2d = ProjectTo2d(
+                  std::make_pair(tB.get_vertex(pB.front()),
+                                 tB.get_vertex(pB.back())), normal);
+
+            // Project triangle A to 2D.
+            Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
+
+            // Verify that the intersection exists.
+
+            // Create the contact points.
+
+            } else {
+              // Face / face. Intersect the two projected triangles.
+              const int kMaxIntersects = 6;
+              DRAKE_DEMAND(pB.size() == 3);
+              Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
+              Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
+              Vector2<T> intersects[kMaxIntersects];
+              auto intersects_begin = &intersects[0];
+              int num_intersects = tA_2d.Intersect(tB_2d, intersects_begin);
+
+              // Verify that there was an intersection.
+              if (num_intersects == 0)
+                continue;
+
+              // Create the contact(s).
+ 
+            }
+          }
+          break;
+        }
+
+        default:
+          DRAKE_ABORT();  // Should never get here.
+      }
     }
   }
 
