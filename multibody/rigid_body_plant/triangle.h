@@ -68,8 +68,13 @@ class Triangle3 {
     }
   }
 
- private:
   Vector3<T> CalcNormal() const;
+
+ private:
+  friend class Triangle3Test_CalcLineSquareDistanceParallel_Test;
+  friend class Triangle3Test_CalcLineSquareDistanceIntersects_Test;
+  friend class Triangle3Test_CalcLineSquareDistanceFromSegmentDisjoint_Test;
+  friend class Triangle3Test_CalcLineSquareDistanceFromSegmentIntersects_Test;
 
   T CalcSquareDistance(
       const Vector3<T>& origin,
@@ -78,14 +83,14 @@ class Triangle3 {
       Vector3<T>* closest_point_on_tri,
       T* t_line) const;
 
-  T CalcSquareDistance(
+  static T CalcSquareDistance(
       const Vector3<T>& origin,
       const Vector3<T>& dir,
       const std::pair<Vector3<T>, Vector3<T>>& seg,
       Vector3<T>* closest_point_on_line,
       Vector3<T>* closest_point_on_seg,
       T* t_line,
-      T* t_seg) const; 
+      T* t_seg); 
 
   T CalcSquareDistance(
       const Vector3<T>& point, T* sout, T* tout) const;

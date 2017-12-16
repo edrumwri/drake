@@ -52,6 +52,13 @@ drake_cc_library(
     ],
 )
 
+drake_cc_googletest(
+    name = "triangle_test",
+    deps = [
+        ":triangle",
+    ],
+)
+
 drake_cc_library(
     name = "trimesh_coldet",
     srcs = ["trimesh_coldet.cc"],

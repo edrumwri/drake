@@ -336,6 +336,7 @@ void TrimeshColdet<T>::CalcIntersections(
           if (!tB_2d.PointIsInside(point_2d)) {
             continue;          
           } else {
+            // TODO:
             // Record how the contact point is determined using a moving plane
             // and the specified vertex from A.
 
@@ -396,6 +397,7 @@ void TrimeshColdet<T>::CalcIntersections(
             if (!tA_2d.PointIsInside(point_2d)) {
               continue;          
             } else {
+              // TODO:
               // Record how the contact point is determined using a moving plane
               // and the specified vertex from B.
 

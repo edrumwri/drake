@@ -107,7 +107,10 @@ T Triangle3<T>::CalcSquareDistance(
   return square_dist;
 }
 
-/// Determines the distance between a line and a line segment
+/// Determines the distance between a line and a line segment.
+/// @param[out] t_seg the value that corresponds to the closest point on the
+///             line segment, such that closest_point_on_seg = seg.first +
+///             (seg.second - seg.first)*t_seg 
 template <class T>
 T Triangle3<T>::CalcSquareDistance(
     const Vector3<T>& origin,
@@ -116,7 +119,7 @@ T Triangle3<T>::CalcSquareDistance(
     Vector3<T>* closest_point_on_line,
     Vector3<T>* closest_point_on_seg,
     T* t_line,
-    T* t_seg) const {
+    T* t_seg) {
   DRAKE_DEMAND(closest_point_on_line);
   DRAKE_DEMAND(closest_point_on_seg);
   DRAKE_DEMAND(t_line);
@@ -185,7 +188,13 @@ T Triangle3<T>::CalcSquareDistance(
   *closest_point_on_line = origin + S0*dir;
   *closest_point_on_seg = seg_origin + S1*seg_dir;
   *t_line = S0;
-  *t_seg = S1;
+
+  // Determine parameter using formula:
+  // seg.first + (seg.second - seg.first)*t_line = closest_point_on_seg
+  // t_line = (closest_point_on_seg - seg.first)/(seg.second - seg.first).
+  *t_seg = (*closest_point_on_seg - seg.first).norm() /
+           (seg.second - seg.first).norm();
+
   return abs(sqr_dist);
 }
 
