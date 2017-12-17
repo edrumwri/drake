@@ -10,10 +10,44 @@ namespace multibody {
 template <class T>
 class Triangle2 {
  private:
+  // The orientation of a point with respect to a line in 2D.
   enum OrientationType {
     kLeft,
     kOn,
     kRight
+  };
+
+  // Locations on a line segment. 
+  enum SegLocationType {
+    kSegEndpoint,
+    kSegOrigin,
+    kSegInterior
+  };
+
+  // Locations on a polygon.
+  enum PolygonLocationType {
+    kPolygonInside,
+    kPolygonOutside,
+    kPolygonOnVertex,
+    kPolygonOnEdge
+  };
+
+  // Types of intersections between two line segments.
+  enum SegSegIntersectType {
+    kSegSegNoIntersect,
+    kSegSegVertex,
+    kSegSegEdge,
+    kSegSegIntersect
+  };
+
+  // Types of intersections between a point and a triangle.
+  enum SegTriIntersectType {
+    kSegTriNoIntersect,
+    kSegTriVertex,
+    kSegTriEdge,
+    kSegTriEdgeOverlap,
+    kSegTriPlanarIntersect,
+    kSegTriInside
   };
 
  public:
@@ -37,10 +71,22 @@ class Triangle2 {
   }
 
   bool PointIsInside(const Vector2<T>& point) const;
+  PolygonLocationType GetLocation(const Vector2<T>& point) const;
 
  private:
+  static T DetermineLineParam(
+      const Vector2<T>& origin, const Vector2<T>& dir, const Vector2<T>& point);
   static OrientationType CalcAreaSign(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c, T tol);
+  static SegLocationType DetermineSegLocation(
+      const std::pair<Vector2<T>, Vector2<T>>& seg, T t);
+  SegTriIntersectType Intersect(
+      const std::pair<Vector2<T>, Vector2<T>>& seg, T tol,
+      Vector2<T>* isect, Vector2<T>* isect2) const;
+  static SegSegIntersectType IntersectSegs(
+      const std::pair<Vector2<T>, Vector2<T>>& seg1,
+      const std::pair<Vector2<T>, Vector2<T>>& seg2,
+      Vector2<T>* isect, Vector2<T>* isect2);
 
   Vector2<T> a_, b_, c_;
 };

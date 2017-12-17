@@ -522,9 +522,17 @@ typename Triangle2<T>::OrientationType Triangle2<T>::CalcAreaSign(
 }
 
 /// Determines whether a point is strictly inside or on a triangle.
-/// Adapted from O'Rourke, p. 236.
 template <class T>
 bool Triangle2<T>::PointIsInside(const Vector2<T>& point) const {
+  auto polygon_location = GetLocation(point);
+  return (polygon_location != kPolygonOutside);
+}
+
+/// Determines the location of a point on the triangle.
+/// Adapted from O'Rourke, p. 236.
+template <class T>
+typename Triangle2<T>::PolygonLocationType Triangle2<T>::GetLocation(
+    const Vector2<T>& point) const {
   // TODO: Determine tolerance in a more principled manner.
   const T tol = 1e-8;
 
@@ -536,21 +544,21 @@ bool Triangle2<T>::PointIsInside(const Vector2<T>& point) const {
   if ((o1 == kOn && o2 == kLeft && o3 == kLeft) ||
       (o2 == kOn && o1 == kLeft && o3 == kLeft) ||
       (o3 == kOn && o1 == kLeft && o2 == kLeft))
-    return true;  // On the edge of the triangle.
+    return kPolygonOnEdge;
 
   if ((o1 == kOn && o2 == kRight && o3 == kLeft) ||
       (o2 == kOn && o1 == kRight && o3 == kLeft) ||
       (o3 == kOn && o1 == kRight && o2 == kLeft))
-    return true;  // On the edge of the triangle.
+    return kPolygonOnEdge;
   
   if ((o1 == kLeft && o2 == kLeft && o3 == kLeft) ||
       (o1 == kRight && o2 == kRight && o3 == kRight))
-    return true;  // Point is strictly inside the polygon.
+    return kPolygonInside; 
 
   if ((o1 == kOn && o2 == kOn) ||
       (o1 == kOn && o3 == kOn) ||
       (o2 == kOn && o3 == kOn))
-    return true;  // Point is on a vertex of the triangle.
+    return kPolygonOnVertex; 
 
   // Some cases are clearly impossible; we will handle those here.
 
@@ -558,10 +566,448 @@ bool Triangle2<T>::PointIsInside(const Vector2<T>& point) const {
   // side of our tolerance) - it could be the case where two or even all three
   // areas are off.
   if (o1 == kOn && o2 == kOn && o3 == kOn)
-    return true;  // Point is on a vertex of the triangle.
+    return kPolygonOnVertex;  // Point is on a vertex of the triangle.
 
   // If none of the other cases apply, point must be outside of the triangle.
-  return false;
+  return kPolygonOutside;
+}
+
+/// Determines the intersection between a line segment and triangle in 2D
+/**
+ * \param seg a line segment in 2D
+ * \param tri a triangle in 2D
+ * \param isect contains the point of intersection, if any (on return)
+ * \param isect2 contains a second point of intersection, if the intersection
+ *               type is kSegTriInside, kSegTriEdgeOverlap, or 
+ *               kSegTriPlanarIntersect 
+ *               (on return)
+ * \return kSegTriInside (if the segment lies wholly within the triangle face
+ *         kSegTriVertex (if an endpoint of the segment coincides with a vertex
+ *         of the triangle), kSegTriEdge (if an endpoint of the segment is in
+ *         the relative interior of an edge of the triangle),  
+ *         kSegTriEdgeOverlap (if the segment overlaps one edge of the
+ *         triangle [or vice versa]), kSegTriPlanarIntersect (if the
+ *         segment lies partially within the face of the triangle), or
+ *         kSegTriNoIntersect (if there is no intersection).
+ * \note assumes triangle is oriented ccw 
+ */
+template <class T>
+typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
+    const std::pair<Vector2<T>, Vector2<T>>& seg, T tol,
+    Vector2<T>* isect, Vector2<T>* isect2) const {
+  DRAKE_DEMAND(isect);
+  DRAKE_DEMAND(isect2);
+  using std::min;
+  using std::max;
+  using std::abs;
+
+  // get the two points
+  const Vector2<T>& p = seg.first;
+  const Vector2<T>& q = seg.second;
+
+  // make segments out of the edges
+  auto e1 = std::make_pair(a(), b());
+  auto e2 = std::make_pair(b(), c());
+  auto e3 = std::make_pair(c(), a());
+
+  // get the orientations w.r.t. the edges
+  OrientationType pe1 = CalcAreaSign(a(), b(), p, tol);
+  OrientationType pe2 = CalcAreaSign(b(), c(), p, tol);
+  OrientationType pe3 = CalcAreaSign(c(), a(), p, tol);
+  OrientationType qe1 = CalcAreaSign(a(), b(), q, tol);
+  OrientationType qe2 = CalcAreaSign(b(), c(), q, tol);
+  OrientationType qe3 = CalcAreaSign(c(), a(), q, tol);
+
+  // see whether points are outside (most common)
+  if ((pe1 == kRight && qe1 == kRight) ||
+      (pe2 == kRight && qe2 == kRight) ||
+      (pe3 == kRight && qe3 == kRight))
+    return kSegTriNoIntersect;
+
+  // check for edge overlap
+  if (pe1 == kOn && qe1 == kOn) {
+    // do parallel segment / segment intersection
+    const Vector2<T> dir = e1.second - e1.first;
+    T t1 = DetermineLineParam(e1.first, dir, p);
+    T t2 = DetermineLineParam(e1.first, dir, q);
+    if (t2 < t1)
+      std::swap(t1, t2); 
+    t1 = max(t1, (T) 0.0);
+    t2 = min(t2, (T) 1.0);
+    if (abs(t1 - t2) < tol) {
+      // vertex only
+      *isect = e1.first + (e1.second - e1.first) * t1;
+      return kSegTriVertex;
+    } else {
+      if (t2 > t1) {
+        // Edge overlap.
+        *isect = e1.first + dir*t1;
+        *isect2 = e1.first + dir*t2;
+        return kSegTriEdgeOverlap;
+      } else {
+        // No overlap.
+        return kSegTriNoIntersect;
+      }
+    }
+  }
+
+  if (pe2 == kOn && qe2 == kOn) {
+    // do parallel segment / segment intersection
+    const Vector2<T> dir = e2.second - e2.first;
+    T t1 = DetermineLineParam(e2.first, dir, p);
+    T t2 = DetermineLineParam(e2.first, dir, q);
+    if (t2 < t1)
+      std::swap(t1, t2); 
+    t1 = max(t1, (T) 0.0);
+    t2 = min(t2, (T) 1.0);
+    if (abs(t1 - t2) < tol) {
+      // vertex only
+      *isect = e2.first + (e2.second - e2.first) * t1;
+      return kSegTriVertex;
+    } else {
+      if (t2 > t1) {
+        // Edge overlap.
+        *isect = e2.first + dir*t1;
+        *isect2 = e2.first + dir*t2;
+        return kSegTriEdgeOverlap;
+      } else {
+        // No overlap.
+        return kSegTriNoIntersect;
+      }
+    }
+  }
+
+  if (pe3 == kOn && qe3 == kOn) {
+    const Vector2<T> dir = e3.second - e3.first; 
+    T t1 = DetermineLineParam(e3.first, dir, p);
+    T t2 = DetermineLineParam(e3.first, dir, q);
+    if (t2 < t1)
+      std::swap(t1, t2); 
+    t1 = max(t1, (T) 0.0);
+    t2 = min(t2, (T) 1.0);
+    if (abs(t1 - t2) < tol) {
+      // vertex only
+      *isect = e3.first + (e3.second - e3.first)*t1;
+      return kSegTriVertex;
+    } else {
+      if (t2 > t1) {
+        // Edge overlap.
+        *isect = e3.first + dir * t1;
+        *isect2 = e3.first + dir * t2;
+        return kSegTriEdgeOverlap;
+      } else {
+        // no overlap
+        return kSegTriNoIntersect;
+      }
+    }
+  }
+
+   // check for edge or vertex intersection with edge #1
+  if (pe1 == kRight) {
+    // if q is on edge 1, it may be on a vertex, an edge, or neither
+    if (qe1 == kOn) {
+      const Vector2<T> dir = e1.second - e1.first;
+      T t = DetermineLineParam(e1.first, dir, q);
+      SegLocationType feat = DetermineSegLocation(e1, t);
+      *isect = e1.first + dir*t;
+      if (feat == kSegOrigin || feat == kSegEndpoint) {
+        return kSegTriVertex;
+      } else {
+        if (feat == kSegInterior)
+          return kSegTriEdge;
+      }
+    } else {
+      // q *should* be to the left of e1; see whether q is on a vertex, an
+      // edge, or inside the triangle 
+      PolygonLocationType qloc = GetLocation(q);
+      if (qloc == kPolygonOnVertex) {
+        *isect2 = q;
+        return kSegTriVertex;
+      } else {
+        if (qloc == kPolygonOnEdge) {
+          *isect2 = q;
+          return kSegTriEdge;
+        } else {
+          if (qloc == kPolygonInside) {
+            // Intersect seg vs. e1. 
+            SegSegIntersectType type = IntersectSegs(seg, e1, isect, isect2);
+            *isect2 = q;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:  
+                return kSegTriPlanarIntersect;
+
+              case kSegSegNoIntersect:
+                break;
+
+              // none of these should occur, so we'll return the points
+              // of intersection and fudge the type 
+              case kSegSegVertex:  
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
+            }
+          }
+        }
+      }
+    }
+  } else {
+    if (qe1 == kRight) {
+      if (pe1 == kOn) {
+        const Vector2<T> dir = e1.second - e1.first;
+        T t = DetermineLineParam(e1.first, dir, p);
+        SegLocationType feat = DetermineSegLocation(e1, t);
+        *isect = e1.first + dir*t;
+        if (feat == kSegOrigin || feat == kSegEndpoint) {
+          return kSegTriVertex;
+        } else {
+          if (feat == kSegInterior)
+            return kSegTriEdge;
+        }
+      }
+    } else {
+      // p *should* be to the left of e1; see whether p is on a vertex, an
+      // edge, or inside the triangle 
+      PolygonLocationType ploc = GetLocation(p);
+      if (ploc == kPolygonOnVertex) {
+        *isect2 = p;
+        return kSegTriVertex;
+      } else {
+        if (ploc == kPolygonOnEdge) {
+          *isect2 = p;
+          return kSegTriEdge;
+        } else {
+          if (ploc == kPolygonInside) {
+            // Intersect seg vs. e1.
+            SegSegIntersectType type = IntersectSegs(seg, e1, isect, isect2);
+            *isect2 = p;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:  
+                return kSegTriPlanarIntersect;
+
+              case kSegSegNoIntersect:
+                break; 
+
+              // None of these should occur, so we'll return the points
+              // of intersection and fudge the type. 
+              case kSegSegVertex:  
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
+            }
+          }
+        }
+      }  
+    }
+  }
+
+  // check for edge or vertex intersection with edge #2
+  if (pe2 == kRight) {
+    if (qe2 == kOn) {
+      const Vector2<T> dir = e2.second - e2.first;
+      T t = DetermineLineParam(e2.first, dir, q);
+      SegLocationType feat = DetermineSegLocation(e2, t);
+      *isect = e2.first + dir*t;
+      if (feat == kSegOrigin || feat == kSegEndpoint) {
+        return kSegTriVertex;
+      } else {
+        if (feat == kSegInterior) {
+          return kSegTriEdge;
+        } else {
+          // q *should* be to the left of e2; see whether q is on a vertex, an
+          // edge, or inside the triangle 
+          PolygonLocationType qloc = GetLocation(q);
+          if (qloc == kPolygonOnVertex) {
+            *isect2 = q;
+            return kSegTriVertex;
+          } else {
+            if (qloc == kPolygonOnEdge) {
+              *isect2 = q;
+              return kSegTriEdge;
+            } else {
+              if (qloc == kPolygonInside) {
+                // intersect seg vs. e2
+                SegSegIntersectType type =
+                    IntersectSegs(seg, e2, isect, isect2);
+                *isect2 = q;
+                std::swap(*isect, *isect2);
+                switch (type) {
+                  case kSegSegIntersect:  
+                    return kSegTriPlanarIntersect;
+
+                  case kSegSegNoIntersect:
+                    break; 
+
+                  // None of these should occur, so we'll return the points
+                  // of intersection and fudge the type. 
+                  case kSegSegVertex:  
+                  case kSegSegEdge:
+                    return kSegTriPlanarIntersect;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } else {
+    if (qe2 == kRight) {
+      if (pe2 == kOn) {
+        const Vector2<T> dir = e2.second - e2.first;
+        T t = DetermineLineParam(e2.first, dir, p);
+        SegLocationType feat = DetermineSegLocation(e2, t);
+        *isect = e2.first + dir*t;
+        if (feat == kSegOrigin || feat == kSegEndpoint) {
+          return kSegTriVertex;
+        } else {
+          if (feat == kSegInterior)
+            return kSegTriEdge;
+        }
+      }
+    } else {
+      // p *should* be to the left of e2; see whether p is on a vertex, an
+      // edge, or inside the triangle 
+      PolygonLocationType ploc = GetLocation(p);
+      if (ploc == kPolygonOnVertex) {
+        *isect2 = p;
+        return kSegTriVertex;
+      } else {
+        if (ploc == kPolygonOnEdge) {
+          *isect2 = p;
+          return kSegTriEdge;
+        } else {
+          if (ploc == kPolygonInside) {
+            // Intersect seg vs. e2.
+            SegSegIntersectType type = IntersectSegs(seg, e2, isect, isect2);
+            *isect2 = p;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:  
+                return kSegTriPlanarIntersect;
+
+              case kSegSegNoIntersect:
+                return kSegTriEdge;
+
+              // None of these should occur, so we'll return the points
+              // of intersection and fudge the type 
+              case kSegSegVertex:  
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
+            }
+          }
+        }
+      }      
+    }
+  }
+
+  // Check for edge or vertex intersection with edge #3
+  if (pe3 == kRight) {
+    if (qe3 == kOn) {
+      const Vector2<T> dir = e3.second - e3.first;
+      T t = DetermineLineParam(e3.first, dir, q);
+      SegLocationType feat = DetermineSegLocation(e3, t);
+      *isect = e3.first + dir * t;
+      if (feat == kSegOrigin || feat == kSegEndpoint) {
+        return kSegTriVertex;
+      } else {
+        if (feat == kSegInterior)
+          return kSegTriEdge;
+      }
+    } else {
+      // q *should* be to the left of e3; see whether q is on a vertex, an
+      // edge, or inside the triangle 
+      PolygonLocationType qloc = GetLocation(q);
+      if (qloc == kPolygonOnVertex) {
+        *isect2 = q;
+        return kSegTriVertex;
+      } else {
+        if (qloc == kPolygonOnEdge) {
+          *isect2 = q;
+          return kSegTriEdge;
+        } else {
+          if (qloc == kPolygonInside) {
+            // intersect seg vs. e3
+            SegSegIntersectType type = IntersectSegs(seg, e3, isect, isect2);
+            *isect2 = q;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:  
+                return kSegTriPlanarIntersect;
+
+              case kSegSegNoIntersect:
+                return kSegTriEdge;
+
+              // None of these should occur, so we'll return the points
+              // of intersection and fudge the type. 
+              case kSegSegVertex:  
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
+            }
+          }
+        }
+      }
+    }
+  } else {
+    if (qe3 == kRight) {
+      if (pe3 == kOn) {
+        const Vector2<T> dir = e3.second - e3.first;
+        T t = DetermineLineParam(e3.first, dir, p);
+        SegLocationType feat = DetermineSegLocation(e3, t);
+        *isect = e3.first + dir*t;
+         if (feat == kSegOrigin || feat == kSegEndpoint) {
+           return kSegTriVertex;
+         } else {
+           if (feat == kSegInterior)
+             return kSegTriEdge;
+         }
+      }
+    } else {
+      // p *should* be to the left of e3; see whether p is on a vertex, an
+      // edge, or inside the triangle 
+      PolygonLocationType ploc = GetLocation(p);
+      if (ploc == kPolygonOnVertex) {
+        *isect2 = p;
+        return kSegTriVertex;
+      } else {
+        if (ploc == kPolygonOnEdge) {
+          *isect2 = p;
+          return kSegTriEdge;
+        } else {
+          if (ploc == kPolygonInside) {
+            // intersect seg vs. e3
+            SegSegIntersectType type = IntersectSegs(seg, e3, isect, isect2);
+            *isect2 = p;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:  
+                return kSegTriPlanarIntersect;
+
+              case kSegSegNoIntersect:
+                return kSegTriEdge;
+
+              // None of these should occur, so we'll return the points
+              // of intersection and fudge the type. 
+              case kSegSegVertex:  
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
+            }
+          }
+        }
+      }
+    }
+  }
+ 
+  // if we're here, one of two cases has occurred: both points are inside
+  // the triangle or the segment does not intersect the triangle; find out
+  // which it is
+  if (pe1 != kRight && pe2 != kRight && pe3 != kRight &&
+      qe1 != kRight && qe2 != kRight && qe3 != kRight) { 
+    *isect = p;
+    *isect2 = q;
+    return kSegTriInside;
+  } else {
+//    assert(in_tri(tri, p) == ePolygonOutside && in_tri(tri, q) == ePolygonOutside);
+    return kSegTriNoIntersect;
+  }
 }
 
 /*
