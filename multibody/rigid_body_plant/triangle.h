@@ -21,7 +21,8 @@ class Triangle2 {
   enum SegLocationType {
     kSegEndpoint,
     kSegOrigin,
-    kSegInterior
+    kSegInterior,
+    kSegExterior
   };
 
   // Locations on a polygon.
@@ -74,12 +75,22 @@ class Triangle2 {
   PolygonLocationType GetLocation(const Vector2<T>& point) const;
 
  private:
+  friend class Triangle2Test_IsBetween_Test;
+  friend class Triangle2Test_DetermineLineParam_Test;
+  friend class Triangle2Test_CalcAreaSign_Test;
+  friend class Triangle2Test_SegLocation_Test;
+  friend class Triangle2Test_SegTriIntersection_Test;
+  friend class Triangle2Test_SegSegIntersection_Test;
+  friend class Triangle2Test_ParallelSegSegIntersection_Test;
+  friend class Triangle2Test_TriTriIntersection_Test;
+
+  static bool IsBetween(
+      const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c);
   static T DetermineLineParam(
       const Vector2<T>& origin, const Vector2<T>& dir, const Vector2<T>& point);
   static OrientationType CalcAreaSign(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c, T tol);
-  static SegLocationType DetermineSegLocation(
-      const std::pair<Vector2<T>, Vector2<T>>& seg, T t);
+  static SegLocationType DetermineSegLocation(T t);
   SegTriIntersectType Intersect(
       const std::pair<Vector2<T>, Vector2<T>>& seg, T tol,
       Vector2<T>* isect, Vector2<T>* isect2) const;
@@ -87,6 +98,13 @@ class Triangle2 {
       const std::pair<Vector2<T>, Vector2<T>>& seg1,
       const std::pair<Vector2<T>, Vector2<T>>& seg2,
       Vector2<T>* isect, Vector2<T>* isect2);
+  static SegSegIntersectType IntersectParallelSegs(
+      const std::pair<Vector2<T>, Vector2<T>>& seg1,
+      const std::pair<Vector2<T>, Vector2<T>>& seg2,
+      Vector2<T>* isect, Vector2<T>* isect2);
+  int Intersect(const Triangle2& t, Vector2<T>* intersections) const;
+  static void ClipConvexPolygonAgainstLine(
+      const Vector2<T>& rkN, T fC, int* ri, Vector2<T>* isects);
 
   Vector2<T> a_, b_, c_;
 };

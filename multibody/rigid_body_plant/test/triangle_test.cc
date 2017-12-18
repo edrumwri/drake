@@ -125,6 +125,199 @@ TEST_F(Triangle3Test, CalcLineSquareDistanceFromSegmentIntersects) {
   EXPECT_NEAR(t_line, 0, tol_);
   EXPECT_NEAR(t_seg, 0.5, tol_);
 }
-  
+ 
+class Triangle2Test : public ::testing::Test {
+ protected:
+  const double tol_ = 10 * std::numeric_limits<double>::epsilon();
+};
+
+// Tests the IsBetween() function.
+TEST_F(Triangle2Test, IsBetween) {
+  // Set segment endpoints along the x-axis.
+  Vector2<double> a(0, 0), b(1, 0);
+
+  // Set query points.
+  Vector2<double> q1(-1, 0), q2(2, 0), q3(0.5, 0);
+
+  // Check non-collinear points.
+  EXPECT_FALSE(Triangle2<double>::IsBetween(a, b, Vector2<double>(1, 1)));
+
+  // Do the tests.
+  EXPECT_TRUE(Triangle2<double>::IsBetween(a, b, q3));
+  EXPECT_FALSE(Triangle2<double>::IsBetween(a, b, q1));
+  EXPECT_FALSE(Triangle2<double>::IsBetween(a, b, q2));
+
+  // Set segment endpoints along the y-axis.
+  b = Vector2<double>(0, 1);
+
+  // Reset query points.
+  q1 = Vector2<double>(0, -1);
+  q2 = Vector2<double>(0, 2);
+  q3 = Vector2<double>(0, 0.5);
+
+  // Do the tests.
+  EXPECT_TRUE(Triangle2<double>::IsBetween(a, b, q3));
+  EXPECT_FALSE(Triangle2<double>::IsBetween(a, b, q1));
+  EXPECT_FALSE(Triangle2<double>::IsBetween(a, b, q2));
+}
+
+// Tests the DetermineLineParam() function.
+TEST_F(Triangle2Test, DetermineLineParam) {
+  const double tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // Set the origin, direction, and query points.
+  const Vector2<double> origin(0, 0);
+  const Vector2<double> dir(1, 0);
+  const Vector2<double> q1(2, 0), q2(-2, 0);
+  EXPECT_NEAR(Triangle2<double>::DetermineLineParam(origin, dir, q1), 2, tol);
+  EXPECT_NEAR(Triangle2<double>::DetermineLineParam(origin, dir, q2), -2, tol);
+}
+
+TEST_F(Triangle2Test, CalcAreaSign) {
+  const double tol = 10 * std::numeric_limits<double>::epsilon();
+ 
+  // Set the two points.
+  const Vector2<double> p1(0, 0), p2(1, 0);
+
+  // Set the query points.
+  const Vector2<double> q1(2, 0), q2(1, -1), q3(1, 1);
+
+  // Check for expected results.
+  EXPECT_EQ(Triangle2<double>::CalcAreaSign(p1, p2, q1, tol),
+            Triangle2<double>::kOn);
+  EXPECT_EQ(Triangle2<double>::CalcAreaSign(p1, p2, q2, tol),
+            Triangle2<double>::kRight);
+  EXPECT_EQ(Triangle2<double>::CalcAreaSign(p1, p2, q3, tol),
+            Triangle2<double>::kLeft);
+}
+
+TEST_F(Triangle2Test, SegLocation) {
+
+}
+
+TEST_F(Triangle2Test, SegTriIntersection) {
+  const Vector2<double> a(0, 0), b(1, 0), c(0, 1);
+  const Triangle2<double> t(a, b, c);
+
+  // Set query segments.
+  auto s1 = std::make_pair(Vector2<double>(.1, .5), Vector2<double>(.1, .2));
+  auto s2 = std::make_pair(Vector2<double>(0, -1), Vector2<double>(0, 0));
+  auto s3 = std::make_pair(Vector2<double>(.1, 0), Vector2<double>(.1, -1));
+  auto s4 = std::make_pair(Vector2<double>(.1, 0), Vector2<double>(.2, 0));
+  auto s5 = std::make_pair(Vector2<double>(-1, .5), Vector2<double>(.1, .5));
+  auto s6 = std::make_pair(Vector2<double>(0, -1), Vector2<double>(1, -1));
+
+  // Do the tests.
+  Vector2<double> isect, isect2;
+  EXPECT_EQ(t.Intersect(s1, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriInside);
+
+  EXPECT_EQ(t.Intersect(s2, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriVertex); 
+  EXPECT_EQ(isect[0], 0);
+  EXPECT_EQ(isect[1], 0);
+
+  EXPECT_EQ(t.Intersect(s3, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriEdge);
+  EXPECT_EQ(isect[0], .1);
+  EXPECT_EQ(isect[1], 0); 
+
+  EXPECT_EQ(t.Intersect(s4, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriEdgeOverlap);
+  EXPECT_TRUE((isect[0] == .1 && isect2[0] == .2) ||
+              (isect[0] == .2 && isect2[0] == .1));
+  EXPECT_EQ(isect[1], 0);
+  EXPECT_EQ(isect2[1], 0);
+
+  EXPECT_EQ(t.Intersect(s5, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriPlanarIntersect);
+  EXPECT_TRUE((isect[0] == .1 && isect[1] == .5 &&
+               isect2[0] == 0 && isect2[1] == 0.5) ||
+              (isect2[0] == .1 && isect2[1] == .5 &&
+              isect[0] == 0 && isect[1] == 0.5));
+
+  EXPECT_EQ(t.Intersect(s6, tol_, &isect, &isect2),
+      Triangle2<double>::kSegTriNoIntersect);
+}
+
+// Checks the line segment intersection algorithms.
+TEST_F(Triangle2Test, SegSegIntersection) {
+  auto seg1 = std::make_pair(Vector2<double>(0, 0), Vector2<double>(1, 0));
+
+  // Check proper intersection.
+  auto seg2 = std::make_pair(Vector2<double>(.5, .5), Vector2<double>(.5, -.5));
+  Vector2<double> isect, isect2;
+  EXPECT_EQ(Triangle2<double>::IntersectSegs(seg1, seg2, &isect, &isect2),
+            Triangle2<double>::kSegSegIntersect);
+  EXPECT_EQ(isect[0], .5);
+  EXPECT_EQ(isect[1], 0);
+
+  // Check vertex intersection.
+  auto seg3 = std::make_pair(Vector2<double>(0, 1), Vector2<double>(0, -.1));
+  EXPECT_EQ(Triangle2<double>::IntersectSegs(seg1, seg3, &isect, &isect2),
+            Triangle2<double>::kSegSegVertex);
+  EXPECT_EQ(isect[0], 0);
+  EXPECT_EQ(isect[1], 0);
+
+  // Check edge/edge intersection.
+  auto seg4 = std::make_pair(Vector2<double>(-1, 0), Vector2<double>(.5, 0));
+  EXPECT_EQ(Triangle2<double>::IntersectSegs(seg1, seg4, &isect, &isect2),
+            Triangle2<double>::kSegSegEdge);
+  EXPECT_TRUE((isect[0] == 0 && isect2[0] == .5) ||
+              (isect2[0] == 0 && isect[0] == .5));
+  EXPECT_EQ(isect[1], 0);
+  EXPECT_EQ(isect2[1], 0);
+
+  // Check no intersection.
+  auto seg5 = std::make_pair(Vector2<double>(-1, 1), Vector2<double>(-1, -.1));
+  EXPECT_EQ(Triangle2<double>::IntersectSegs(seg1, seg5, &isect, &isect2),
+            Triangle2<double>::kSegSegNoIntersect);
+}
+
+TEST_F(Triangle2Test, ParallelSegSegIntersection) {
+  auto seg1 = std::make_pair(Vector2<double>(0, 0), Vector2<double>(2, 0));
+  auto seg2 = std::make_pair(Vector2<double>(1, 0), Vector2<double>(3, 0));
+  auto seg3 = std::make_pair(Vector2<double>(3, 0), Vector2<double>(4, 0));
+  Vector2<double> isect, isect2;
+  EXPECT_EQ(Triangle2<double>::IntersectParallelSegs(
+      seg1, seg2, &isect, &isect2), Triangle2<double>::kSegSegEdge);
+  EXPECT_TRUE((isect[0] == 1 && isect2[0] == 2) ||
+              (isect[0] == 2 && isect2[0] == 1));
+  EXPECT_EQ(Triangle2<double>::IntersectParallelSegs(
+      seg1, seg3, &isect, &isect2), Triangle2<double>::kSegSegNoIntersect);
+}
+
+// Checks intersection between two triangles in 2D.
+TEST_F(Triangle2Test, TriTriIntersection) {
+  Triangle2<double> tA(Vector2<double>(-.5, 0), Vector2<double>(.5, 0),
+                       Vector2<double>(0, 1));
+  Triangle2<double> tB(Vector2<double>(-.5, 2), Vector2<double>(.5, 2),
+                       Vector2<double>(0, 3));
+  Triangle2<double> tC(Vector2<double>(-.5, -1), Vector2<double>(.5, -1),
+                       Vector2<double>(0, 0));
+  Triangle2<double> tD(Vector2<double>(-.25, 0), Vector2<double>(.25, 0),
+                       Vector2<double>(0, -1));
+  Triangle2<double> tE(Vector2<double>(-.5, 1), Vector2<double>(.5, 1),
+                       Vector2<double>(0, 0));
+
+  // Should be no intersection between tA and tB.
+  Vector2<double> intersections[6];
+  EXPECT_EQ(tA.Intersect(tB, &intersections[0]), 0);
+
+  // Should be exactly three intersections between tA and itself.
+  EXPECT_EQ(tA.Intersect(tA, &intersections[0]), 3);
+
+  // Should be exactly one intersection between tA and tC.
+  EXPECT_EQ(tA.Intersect(tC, &intersections[0]), 1);
+  EXPECT_EQ(intersections[0][0], 0);
+  EXPECT_EQ(intersections[0][1], 0);
+
+  // Should be two intersections between tA and tD.
+  EXPECT_EQ(tA.Intersect(tD, &intersections[0]), 2);
+
+  // Should be six intersections between tA and tE.
+  EXPECT_EQ(tA.Intersect(tE, &intersections[0]), 6);
+}
+
 }  // namespace multibody 
 }  // namespace drake

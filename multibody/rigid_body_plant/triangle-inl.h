@@ -708,7 +708,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
     if (qe1 == kOn) {
       const Vector2<T> dir = e1.second - e1.first;
       T t = DetermineLineParam(e1.first, dir, q);
-      SegLocationType feat = DetermineSegLocation(e1, t);
+      SegLocationType feat = DetermineSegLocation(t);
       *isect = e1.first + dir*t;
       if (feat == kSegOrigin || feat == kSegEndpoint) {
         return kSegTriVertex;
@@ -755,7 +755,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
       if (pe1 == kOn) {
         const Vector2<T> dir = e1.second - e1.first;
         T t = DetermineLineParam(e1.first, dir, p);
-        SegLocationType feat = DetermineSegLocation(e1, t);
+        SegLocationType feat = DetermineSegLocation(t);
         *isect = e1.first + dir*t;
         if (feat == kSegOrigin || feat == kSegEndpoint) {
           return kSegTriVertex;
@@ -805,7 +805,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
     if (qe2 == kOn) {
       const Vector2<T> dir = e2.second - e2.first;
       T t = DetermineLineParam(e2.first, dir, q);
-      SegLocationType feat = DetermineSegLocation(e2, t);
+      SegLocationType feat = DetermineSegLocation(t);
       *isect = e2.first + dir*t;
       if (feat == kSegOrigin || feat == kSegEndpoint) {
         return kSegTriVertex;
@@ -854,7 +854,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
       if (pe2 == kOn) {
         const Vector2<T> dir = e2.second - e2.first;
         T t = DetermineLineParam(e2.first, dir, p);
-        SegLocationType feat = DetermineSegLocation(e2, t);
+        SegLocationType feat = DetermineSegLocation(t);
         *isect = e2.first + dir*t;
         if (feat == kSegOrigin || feat == kSegEndpoint) {
           return kSegTriVertex;
@@ -904,7 +904,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
     if (qe3 == kOn) {
       const Vector2<T> dir = e3.second - e3.first;
       T t = DetermineLineParam(e3.first, dir, q);
-      SegLocationType feat = DetermineSegLocation(e3, t);
+      SegLocationType feat = DetermineSegLocation(t);
       *isect = e3.first + dir * t;
       if (feat == kSegOrigin || feat == kSegEndpoint) {
         return kSegTriVertex;
@@ -951,7 +951,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
       if (pe3 == kOn) {
         const Vector2<T> dir = e3.second - e3.first;
         T t = DetermineLineParam(e3.first, dir, p);
-        SegLocationType feat = DetermineSegLocation(e3, t);
+        SegLocationType feat = DetermineSegLocation(t);
         *isect = e3.first + dir*t;
          if (feat == kSegOrigin || feat == kSegEndpoint) {
            return kSegTriVertex;
@@ -1010,20 +1010,310 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
   }
 }
 
-/*
-/// Intersects a triangle with a line segment in 2D.
+// Determines the location of a point on a line, determined by its line
+// parameter.
 template <class T>
-Triangle2<T>::Intersect(
-  const std::pair<Vector2<T>, Vector2<T>>& edge) const {
-  // TODO: implement me.
+typename Triangle2<T>::SegLocationType Triangle2<T>::DetermineSegLocation(T t) {
+  using std::abs;
+  using std::max;
+
+  // Setup a reasonable tolerance.
+  const double tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // See whether the point is on the origin.
+  if (abs(t) < tol)
+    return kSegOrigin;
+
+  // See whether the point is on the second endpoint.
+  if (abs(t - 1) < tol)
+    return kSegEndpoint;
+
+  // Point is either in the interior or the exterior.
+  if (t > 0 && t < 1) {
+    return kSegInterior;
+  } else {
+    return kSegExterior;
+  }
+}
+
+// Determines the parameter of a point on a line.
+template <class T>
+T Triangle2<T>::DetermineLineParam(
+    const Vector2<T>& origin, const Vector2<T>& dir, const Vector2<T>& point) {
+  const T dir_norm = dir.norm();
+  DRAKE_DEMAND(dir_norm > std::numeric_limits<double>::epsilon());
+
+  auto sgn = [](T a, T b) {
+    if (b > 0) {
+      return a;
+    } else {
+      if (b < 0)
+        return -a;
+      else
+        return T(0);
+    }
+  };
+
+  return sgn((point - origin).norm() / dir_norm, (point - origin).dot(dir));
+}
+
+// Determines the two types of parallel intersection.
+template <class T>
+typename Triangle2<T>::SegSegIntersectType Triangle2<T>::IntersectParallelSegs(
+    const std::pair<Vector2<T>, Vector2<T>>& seg1,
+    const std::pair<Vector2<T>, Vector2<T>>& seg2,
+    Vector2<T>* isect,
+    Vector2<T>* isect2) {
+  // TODO: Determine a tolerance in a principled manner.
+  const T tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // Get the individual points.
+  const Vector2<T>& pA = seg1.first;
+  const Vector2<T>& pB = seg1.second;
+  const Vector2<T>& qA = seg2.first;
+  const Vector2<T>& qB = seg2.second;
+
+  // Check for collinearity.
+  if (CalcAreaSign(pA, pB, qA, tol) == kRight)
+    return kSegSegNoIntersect;
+
+  if (IsBetween(pA, pB, qA) && IsBetween(pA, pB, qB)) {
+    *isect = qA;
+    *isect2 = qB;
+    return kSegSegEdge;
+  }
+
+  if (IsBetween(qA, qB, pA) && IsBetween(qA, qB, pB)) {
+    *isect = pA;
+    *isect2 = pB;
+    return kSegSegEdge;
+  }
+
+  if (IsBetween(pA, pB, qA) && IsBetween(qA, qB, pB)) {
+    *isect = qA;
+    *isect2 = pB;
+    return kSegSegEdge;
+  }
+
+  if (IsBetween(pA, pB, qA) && IsBetween(qA, qB, pA)) {
+    *isect = qA;
+    *isect2 = pA;
+    return kSegSegEdge;
+  }
+
+  if (IsBetween(pA, pB, qB) && IsBetween(qA, qB, pB)) {
+    *isect = qB;
+    *isect2 = pB;
+    return kSegSegEdge;
+  }
+
+  if (IsBetween(pA, pB, qB) && IsBetween(qA, qB, pA)) {
+    *isect = qB;
+    *isect2 = pA;
+    return kSegSegEdge;
+  }
+
+  return kSegSegNoIntersect;
+}
+
+// Determines whether point c is between points [a, c].
+template <class T>
+bool Triangle2<T>::IsBetween(
+    const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c) {
+  using std::abs;
+
+  // TODO: Select a proper tolerance.
+  const T tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // If the points are not collinear, quit.
+  if (CalcAreaSign(a, b, c, tol) != kOn)
+    return false;
+
+  if (abs(a[0] - b[0]) > tol) {
+    return (a[0] <= c[0] && c[0] <= b[0]) || (a[0] >= c[0] && c[0] >= b[0]);
+  } else {
+    return (a[1] <= c[1] && c[1] <= b[1]) || (a[1] >= c[1] && c[1] >= b[1]);
+  }
+}
+
+// Intersects two line segments in 2D.
+template <class T>
+typename Triangle2<T>::SegSegIntersectType Triangle2<T>::IntersectSegs(
+    const std::pair<Vector2<T>, Vector2<T>>& seg1,
+    const std::pair<Vector2<T>, Vector2<T>>& seg2,
+    Vector2<T>* isect,
+    Vector2<T>* isect2) {
+  using std::abs;
+
+  DRAKE_DEMAND(isect);
+  DRAKE_DEMAND(isect2);
+
+  // TODO: Set the tolerance in a principled manner.
+  const T tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // Set intersection type to 'none' initially.
+  SegSegIntersectType type = kSegSegNoIntersect;
+
+  // Get the individual points.
+  const Vector2<T>& pA = seg1.first;
+  const Vector2<T>& pB = seg1.second;
+  const Vector2<T>& qA = seg2.first;
+  const Vector2<T>& qB = seg2.second;
+
+  // Compute the denominator.
+  const T denom = pA[0] * (qB[1] - qA[1]) + pB[0] * (qA[1] - qB[1]) + 
+      qB[0] * (pB[1] - pA[1]) + qA[0] * (pA[1] - pB[1]);
+ 
+  // If the denominator is zero, the segments are parallel: handle separately.
+  if (abs(denom) < tol)
+    return IntersectParallelSegs(seg1, seg2, isect, isect2);
+
+  // Calculate the numerator.
+  T num = pA[0] * (qB[1] - qA[1]) + qA[0] * (pA[1] - qB[1]) +
+      qB[0] * (qA[1] - pA[1]);
+
+  if (abs(num) < tol || abs(num - denom) < tol)
+    type = kSegSegVertex;
+  const T s = num / denom;
+  num = -(pA[0] * (qA[1] - pB[1]) + pB[0] * (pA[1] - qA[1]) +
+      qA[0] * (pB[1] - pA[1]));
+  if (abs(num) < tol || abs(num - denom) < tol)
+    type = kSegSegVertex;
+
+  const T t = num / denom;
+  if (s > 0 && s < 1 && t > 0 && t < 1) {
+    type = kSegSegIntersect;
+  } else {
+    if (s < 0 || s > 1 || t < 0 || t > 1)
+      type = kSegSegNoIntersect;
+  }
+  
+  *isect = pA + s * (pB - pA);
+  return type;
 }
 
 /// Intersects a triangle with another triangle in 2D.
 template <class T>
 int Triangle2<T>::Intersect(
     const Triangle2<T>& t, Vector2<T>* intersections) const {
-  // TODO: implement me.
+  // Initialize the potential intersection with t.
+  intersections[0] = t.a();
+  intersections[1] = t.b();
+  intersections[2] = t.c();
+  int num_intersections = 3;
+
+  // Clip against edges.
+  for (int i1 = 2, i0 = 0; i0 < 3; i1 = i0, ++i0) {
+    const Vector2<T> kN(get_vertex(i1)[1] - get_vertex(i0)[1],
+                        get_vertex(i0)[0] - get_vertex(i1)[0]);
+    const T fC = kN.dot(get_vertex(i1));
+    ClipConvexPolygonAgainstLine(kN, fC, &num_intersections, intersections);
+    if (num_intersections == 0)
+      break; 
+  }
+
+  return num_intersections;
 }
-*/
+
+template <class T>
+void Triangle2<T>::ClipConvexPolygonAgainstLine(
+    const Vector2<T>& rkN, T fC, int* ri, Vector2<T>* isects) {
+  // input vertices assumed to be ccw
+
+  // test on which side of line the vertices are
+  int iPositive = 0, iNegative = 0, iPIndex = -1;
+  T afTest[6];
+  for (int i=0; i< *ri; ++i)
+  {
+    afTest[i] = rkN.dot(isects[i]) - fC;
+    if (afTest[i] >= 0)
+    {
+      iPositive++;
+      if (iPIndex < 0)
+        iPIndex = i;
+    }
+    else if (afTest[i] < 0)
+     iNegative++;
+  }
+
+  if (iPositive > 0)
+  {
+    if (iNegative > 0)
+    {
+      // line transversely intersects polygon
+      Vector2<T> akCV[6];
+      int iCQuantity = 0;
+      int iCur, iPrv;
+      T fT;
+
+      if (iPIndex > 0)
+      {
+        // first clip vertex on line
+        iCur = iPIndex;
+        iPrv = iCur-1;
+        fT = afTest[iCur]/(afTest[iCur] - afTest[iPrv]);
+        akCV[iCQuantity++] = isects[iCur]+fT*(isects[iPrv]-isects[iCur]);
+
+        // vertices on positive side of line
+        while (iCur < *ri && afTest[iCur] > 0)
+          akCV[iCQuantity++] = isects[iCur++];
+
+        // last clip vertex on line
+        if (iCur < *ri)
+          iPrv = iCur - 1;
+        else
+        {
+          iCur = 0;
+          iPrv = *ri - 1;
+        }
+        fT = afTest[iCur]/(afTest[iCur] - afTest[iPrv]);
+        akCV[iCQuantity++] = isects[iCur]+fT*(isects[iPrv]-isects[iCur]);
+      }
+      else // iPIndex is 0
+      {
+        // vertices on positive side of line
+        iCur = 0;
+        while (iCur < *ri && afTest[iCur] > 0)
+          akCV[iCQuantity++] = isects[iCur++];
+
+        // last clip vertex on line
+        iPrv = iCur-1;
+        fT = afTest[iCur]/(afTest[iCur] - afTest[iPrv]);
+        akCV[iCQuantity++] = isects[iCur]+fT*(isects[iPrv]-isects[iCur]);
+
+        // skip vertices on negative side
+        while (iCur < *ri && afTest[iCur] <= 0)
+          iCur++;
+
+        // first clip vertex on line
+        if (iCur < *ri)
+        {
+          iPrv = iCur-1;
+          fT = afTest[iCur]/(afTest[iCur] - afTest[iPrv]);
+          akCV[iCQuantity++] = isects[iCur]+fT*(isects[iPrv]-isects[iCur]);
+
+          // vertices on positive side of line
+          while (iCur < *ri && afTest[iCur] > 0)
+            akCV[iCQuantity++] = isects[iCur++];
+        }
+        else
+        {
+          // iCur = 0;
+          iPrv = *ri - 1;
+          fT = afTest[0]/(afTest[0] - afTest[iPrv]);
+          akCV[iCQuantity++] = isects[0]+fT*(isects[iPrv]-isects[0]);
+        }
+      }
+
+      *ri = iCQuantity;
+      for (int i=0; i< iCQuantity; ++i)
+        isects[i] = akCV[i];
+    }
+    // else polygon fully on positive side of line, nothing to do
+  }
+  else // polygon does not intersect positive side of line, clip all
+    *ri = 0;
+}
+
 }  // namespace examples
 }  // namespace drake
