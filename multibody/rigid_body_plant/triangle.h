@@ -55,6 +55,7 @@ class Triangle2 {
   Triangle2(const Vector2<T>& a,
      const Vector2<T>& b,
      const Vector2<T>& c) : a_(a), b_(b), c_(c) {
+    DRAKE_ASSERT(ccw());
   }
 
   const Vector2<T>& a() const { return a_; }
@@ -71,8 +72,9 @@ class Triangle2 {
     }
   }
 
-  bool PointIsInside(const Vector2<T>& point) const;
+  bool PointInside(const Vector2<T>& point) const;
   PolygonLocationType GetLocation(const Vector2<T>& point) const;
+  static int Advance(int a, int* aa, bool inside, const Vector2<T>& p, Vector2<T>* intersections, int* num_intersections);
 
  private:
   friend class Triangle2Test_IsBetween_Test;
@@ -84,6 +86,7 @@ class Triangle2 {
   friend class Triangle2Test_ParallelSegSegIntersection_Test;
   friend class Triangle2Test_TriTriIntersection_Test;
 
+  bool ccw() const;
   static bool IsBetween(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c);
   static T DetermineLineParam(

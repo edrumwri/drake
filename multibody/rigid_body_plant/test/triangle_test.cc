@@ -295,10 +295,10 @@ TEST_F(Triangle2Test, TriTriIntersection) {
                        Vector2<double>(0, 3));
   Triangle2<double> tC(Vector2<double>(-.5, -1), Vector2<double>(.5, -1),
                        Vector2<double>(0, 0));
-  Triangle2<double> tD(Vector2<double>(-.25, 0), Vector2<double>(.25, 0),
-                       Vector2<double>(0, -1));
-  Triangle2<double> tE(Vector2<double>(-.5, 1), Vector2<double>(.5, 1),
-                       Vector2<double>(0, 0));
+  Triangle2<double> tD(Vector2<double>(-.25, 0), Vector2<double>(0, -1),
+                       Vector2<double>(.25, 0));
+  Triangle2<double> tE(Vector2<double>(-.5, 1), Vector2<double>(0, 0),
+                       Vector2<double>(.5, 1));
 
   // Should be no intersection between tA and tB.
   Vector2<double> intersections[6];
@@ -307,16 +307,18 @@ TEST_F(Triangle2Test, TriTriIntersection) {
   // Should be exactly three intersections between tA and itself.
   EXPECT_EQ(tA.Intersect(tA, &intersections[0]), 3);
 
-  // Should be exactly one intersection between tA and tC.
+  // Should be exactly one intersection between tA and tC (one vertex from tC
+  // intersects tA).
   EXPECT_EQ(tA.Intersect(tC, &intersections[0]), 1);
   EXPECT_EQ(intersections[0][0], 0);
   EXPECT_EQ(intersections[0][1], 0);
 
-  // Should be two intersections between tA and tD.
+  // Should be two intersections between tA and tD (due to a shared edge).
   EXPECT_EQ(tA.Intersect(tD, &intersections[0]), 2);
 
-  // Should be six intersections between tA and tE.
-  EXPECT_EQ(tA.Intersect(tE, &intersections[0]), 6);
+  // Should be four intersections between tA and tE (the shape of intersection
+  // looks like a diamond).
+  EXPECT_EQ(tA.Intersect(tE, &intersections[0]), 4);
 }
 
 }  // namespace multibody 

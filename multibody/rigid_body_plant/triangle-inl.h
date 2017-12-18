@@ -523,7 +523,7 @@ typename Triangle2<T>::OrientationType Triangle2<T>::CalcAreaSign(
 
 /// Determines whether a point is strictly inside or on a triangle.
 template <class T>
-bool Triangle2<T>::PointIsInside(const Vector2<T>& point) const {
+bool Triangle2<T>::PointInside(const Vector2<T>& point) const {
   auto polygon_location = GetLocation(point);
   return (polygon_location != kPolygonOutside);
 }
@@ -1192,6 +1192,7 @@ typename Triangle2<T>::SegSegIntersectType Triangle2<T>::IntersectSegs(
   return type;
 }
 
+/*
 /// Intersects a triangle with another triangle in 2D.
 template <class T>
 int Triangle2<T>::Intersect(
@@ -1313,6 +1314,169 @@ void Triangle2<T>::ClipConvexPolygonAgainstLine(
   }
   else // polygon does not intersect positive side of line, clip all
     *ri = 0;
+}
+*/
+
+/// Utility function for intersect_coplanar_tris()
+/**
+ * Taken from O'Rourke, p. 259.
+ */
+template <class T>
+int Triangle2<T>::Advance(int a, int* aa, bool inside, const Vector2<T>& p, Vector2<T>* intersections, int* num_intersections) {
+  const int num_vertices = 3;
+
+  if (inside)
+    intersections[(*num_intersections)++] = p;
+
+  (*aa)++;
+  return (a+1) % num_vertices;
+}
+
+/// Verifies that the 2D triangle is counter-clockwise.
+template <class T>
+bool Triangle2<T>::ccw() const {
+  // TODO: Pick a proper tolerance here.
+  const T tol = 10 * std::numeric_limits<double>::epsilon();
+
+  return CalcAreaSign(a(), b(), c(), tol) != kRight;
+}
+
+/// @note Adapted from O'Rourke's convex polygon intersection algorithm.
+///       algorithm.
+template <class T>
+int Triangle2<T>::Intersect(
+    const Triangle2<T>& t, Vector2<T>* intersections) const {
+  enum tInFlag { kPin, kQin, kUnknown };
+
+  // TODO: Replace this with a proper tolerance.
+  const T tol = 10 * std::numeric_limits<double>::epsilon();
+
+  // Number of vertices is constant.
+  const int num_vertices = 3;
+
+  // now compute their intersections  
+  int a = 0, b = 0, aa = 0, ba = 0;
+  tInFlag inflag = kUnknown;
+  bool first_point = true;
+  Vector2<T> origin(0,0);
+  int num_intersections = 0;
+
+  do {
+    int a1 = (a + num_vertices-1) % num_vertices;
+    int b1 = (b + num_vertices-1) % num_vertices;
+
+    const Vector2<T> AX = get_vertex(a) - get_vertex(a1);
+    const Vector2<T> BX = t.get_vertex(b) - t.get_vertex(b1);
+
+    // determine signs of cross-products
+    OrientationType cross = CalcAreaSign(origin, AX, BX, tol);
+    OrientationType aHB = CalcAreaSign(
+        t.get_vertex(b1), t.get_vertex(b), get_vertex(a), tol);
+    OrientationType bHA = CalcAreaSign(
+        get_vertex(a1), get_vertex(a), t.get_vertex(b), tol);
+    
+    // if A and B intersect, update inflag
+    Vector2<T> p, q;
+    SegSegIntersectType type = IntersectSegs(
+        std::make_pair(get_vertex(a1), get_vertex(a)),
+        std::make_pair(t.get_vertex(b1), t.get_vertex(b)), &p, &q);
+    if (type == kSegSegVertex || type == kSegSegIntersect) {
+      if (inflag == kUnknown && first_point) {
+        aa = ba = 0;
+        first_point = false;
+      }
+
+      intersections[num_intersections++] = p;
+      if (aHB == kLeft) {
+        inflag = kPin;
+      } else {
+        if (bHA == kLeft)
+          inflag = kQin;
+      }
+    }
+
+    // --------- Advance rules --------------
+    // special cases: O'Rourke p. 262
+    // special case: A and B overlap and oppositely oriented; intersection
+    // is only a line segment
+    if ((type == kSegSegEdge) && AX.dot(BX) < 0) {
+      intersections[num_intersections++] = p;
+      intersections[num_intersections++] = q;
+      return num_intersections;
+    } else { 
+      // special case: A and B are parallel and disjoint
+      if ((cross == kOn) && (aHB == kRight) && (bHA == kRight)) {
+        return num_intersections;
+      } else {
+        // special case: A and B are collinear
+        if ((cross == kOn) && (aHB == kOn) && (bHA == kOn)) {
+          // Advance but do not add point to intersecting polygon.
+          if (inflag == kPin) {
+            b = Advance(b, &ba, inflag == kQin, t.get_vertex(b), intersections, &num_intersections);
+          } else {
+            a = Advance(a, &aa, inflag == kPin, get_vertex(a), intersections, &num_intersections);
+          }
+        } else {
+          // generic cases (continued from p. 258)
+          if (cross == kOn || cross == kLeft) {
+            if (bHA == kLeft) {
+              a = Advance(a, &aa, inflag == kPin, get_vertex(a), intersections, &num_intersections);
+            } else {
+              b = Advance(b, &ba, inflag == kQin, t.get_vertex(b), intersections, &num_intersections);
+            }
+          } else {
+            if (aHB == kLeft) {
+              b = Advance(b, &ba, inflag == kQin, t.get_vertex(b), intersections, &num_intersections);
+            } else {
+              a = Advance(a, &aa, inflag == kPin, get_vertex(a), intersections, &num_intersections);
+            }
+          } 
+        }
+      }
+    }
+  } while (((aa < num_vertices) || (ba < num_vertices)) && (aa < 2*num_vertices) && (ba < 2*num_vertices));
+
+  // deal with remaining special cases: P fully inside Q, Q fully inside P,
+  // or P and Q do not intersect
+  if (inflag == kUnknown) {
+    // look for 'this' fully inside t.
+    if (t.PointInside(this->a())) {
+      intersections[0] = this->a();
+      intersections[1] = this->b();
+      intersections[2] = this->c();
+      return 3;
+    }
+
+    // Look for t fully inside 'this'.
+    if (PointInside(t.a())) {
+      intersections[0] = t.a();
+      intersections[1] = t.b();
+      intersections[2] = t.c();
+      return 3;
+    }
+
+    // If at this point, the polygons must not intersect.
+    return 0;
+  }
+
+  // Remove duplicates.
+  for (int i = 1; i < num_intersections; ++i) {
+    if ((intersections[i] - intersections[i-1]).norm() < tol) {
+      // Shift all intersections after i on to the left
+      for (int j = i + 1; j < num_intersections ; ++j)
+        intersections[j-1] = intersections[j];
+      --i;
+      --num_intersections;
+    }
+  }
+
+  // Check whether the last point is a duplicate of the first.
+  if (num_intersections > 1 &&
+      (intersections[0] - intersections[num_intersections-1]).norm() < tol) {
+    --num_intersections;
+  }
+
+  return num_intersections;
 }
 
 }  // namespace examples
