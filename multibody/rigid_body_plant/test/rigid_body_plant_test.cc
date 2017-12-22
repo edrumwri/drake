@@ -583,6 +583,29 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
   EXPECT_TRUE(CompareMatrices(updates->get_vector(0).CopyToVector(), xn));
 }
 
+class TestSustainedContact : public ::testing::Test {
+ protected:
+  void SetUp() {
+    // Read in the box.
+
+    // Read in the ground "plane" (a big triangle).
+
+    // Set the contact features by calling the appropriate method in
+    // RigidBodyPlant.
+
+    // Create a diagram?
+
+    // Set the initial velocity for the box to move to the right.
+
+  }
+};
+
+TEST_F(TestSustainedContact, BigTriangle) {
+  // Simulate the box forward by one second.
+
+  // Verify that the box has remained on the ground plane. 
+}
+
 }  // namespace
 }  // namespace test
 }  // namespace rigid_body_plant

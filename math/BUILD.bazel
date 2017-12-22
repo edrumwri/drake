@@ -63,6 +63,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "project_3d_to_2d",
+    srcs = ["project_3d_to_2d.cc"],
+    hdrs = ["project_3d_to_2d.h"],
+    deps = [
+        ":orthonormal_basis",
+        "//drake/common:essential",
+    ],
+)
+
+drake_cc_library(
     name = "orthonormal_basis",
     srcs = ["orthonormal_basis.cc"],
     hdrs = ["orthonormal_basis.h"],

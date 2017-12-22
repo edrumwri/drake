@@ -120,7 +120,7 @@ class Triangle3 {
      const Vector3<T>* c) : a_(a), b_(b), c_(c) {
   }
 
-  Triangle2<T> ProjectTo2d(const Vector3<T>& normal) const;
+  Triangle2<T> ProjectTo2d(const Eigen::Matrix<T, 3, 2>& P) const;
   const Vector3<T>& a() const { return *a_; }
   const Vector3<T>& b() const { return *b_; }
   const Vector3<T>& c() const { return *c_; }

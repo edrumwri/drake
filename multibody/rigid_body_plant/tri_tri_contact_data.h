@@ -66,6 +66,9 @@ struct TriTriContactData {
     // Points calculated from intersections.
     Vector2<T> isects[6];
 
+    // Get the projection matrix.
+    const auto P = math::DetermineProjectionMatrix3dTo2d(normal);
+
     switch (typeA) {
       case FeatureType::kVertex:  { 
         DRAKE_DEMAND(typeB == FeatureType::kFace);
@@ -73,12 +76,12 @@ struct TriTriContactData {
         // Get the triangle and the vector representing the vertex.
 
         // Project the vertex and the triangle to the contact plane. 
-        const Vector2<T> v_2d = ProjectTo2d(v);
-        const Triangle2<T> t_2d = t.ProjectTo2d();
+        const Vector2<T> v_2d = P * v;
+        const Triangle2<T> t_2d = t.ProjectTo2d(P);
 
         // Only process points that lie within the projected triangle.
         if (t_2d.PointInside(v_2d)) {
-          points->push_back(Unproject(v_2d, offset));
+          points->push_back(Unproject(normal, P, offset, v_2d));
           return;
         }
 
@@ -96,13 +99,13 @@ struct TriTriContactData {
             case Triangle2<T>::kSegSegVertex:
             case Triangle2<T>::kSegSegIntersect:
               // Un-project the first point.
-              points->push_back(Unproject(isects[0], offset));
+              points->push_back(Unproject(normal, P, offset, isects[0]));
               break;
 
             case Triangle2<T>::kSegSegEdge: 
               // Un-project the two points.
-              points->push_back(Unproject(isects[0], offset));
-              points->push_back(Unproject(isects[1], offset));
+              points->push_back(Unproject(normal, P, offset, isects[0]));
+              points->push_back(Unproject(normal, P, offset, isects[1]));
               break;
 
             case Triangle2<T>::kSegSegNoIntersect:
@@ -113,7 +116,7 @@ struct TriTriContactData {
           DRAKE_DEMAND(typeB == FeatureType::kFace);
 
           // Project the edge and the face to the contact plane.
-          const Triangle2<T> tB_2d = tB.ProjectTo2d();
+          const Triangle2<T> tB_2d = tB.ProjectTo2d(P);
 
           // Intersect the triangle with the line segment.
           Triangle2<T>::SegTriIntersectType intersect_type = tB_2d.Intersect(
@@ -123,15 +126,15 @@ struct TriTriContactData {
             case Triangle2<T>::kSegSegVertex:
             case Triangle2<T>::kSegSegEdge:
               // Un-project the first point.
-              points->push_back(Unproject(isects[0], offset));
+              points->push_back(Unproject(normal, P, offset, isects[0]));
               break;
 
             case Triangle2<T>::kSegTriPlanarIntersect:
             case Triangle2<T>::kSegTriEdgeOverlap:
             case Triangle2<T>::kSegTriInside:
               // Un-project the two points.
-              points->push_back(Unproject(isects[0], offset));
-              points->push_back(Unproject(isects[1], offset));
+              points->push_back(Unproject(normal, P, offset, isects[0]));
+              points->push_back(Unproject(normal, P, offset, isects[1]));
               break;
 
             case Triangle2<T>::kSegTriNoIntersect:
@@ -146,18 +149,18 @@ struct TriTriContactData {
           // Get the triangle and the vector representing the vertex.
 
           // Project the vertex and the triangle to the contact plane. 
-          const Vector2<T> v_2d = ProjectTo2d(v);
-          const Triangle2<T> t_2d = t.ProjectTo2d();
+          const Vector2<T> v_2d = P * v;
+          const Triangle2<T> t_2d = t.ProjectTo2d(P);
 
           // Only process points that lie within the projected triangle.
           if (t_2d.PointInside(v_2d)) {
-            points->push_back(Unproject(v_2d, offset));
+            points->push_back(Unproject(normal, P, offset, v_2d));
             return;
           }
         } else {
           if (typeB == FeatureType::kEdge) {
             // Project the edge and the face to the contact plane.
-            const Triangle2<T> tA_2d = tA.ProjectTo2d();
+            const Triangle2<T> tA_2d = tA.ProjectTo2d(P);
 
             // Intersect the triangle with the line segment.
             Triangle2<T>::SegTriIntersectType intersect_type = tA_2d.Intersect(
@@ -167,15 +170,15 @@ struct TriTriContactData {
               case Triangle2<T>::kSegSegVertex:
               case Triangle2<T>::kSegSegEdge:
                 // Un-project the first point.
-                points->push_back(Unproject(isects[0], offset));
+                points->push_back(Unproject(normal, P, offset, isects[0]));
                 break;
 
               case Triangle2<T>::kSegTriPlanarIntersect:
               case Triangle2<T>::kSegTriEdgeOverlap:
               case Triangle2<T>::kSegTriInside:
                 // Un-project the two points.
-                points->push_back(Unproject(isects[0], offset));
-                points->push_back(Unproject(isects[1], offset));
+                points->push_back(Unproject(normal, P, offset, isects[0]));
+                points->push_back(Unproject(normal, P, offset, isects[1]));
                 break;
 
               case Triangle2<T>::kSegTriNoIntersect:
@@ -186,19 +189,26 @@ struct TriTriContactData {
             return;
           } else {
               // It is a face-face intersection. Project both triangles to 2D.
-              const Triangle2<T> tA_2d = tA.ProjectTo2d();
-              const Triangle2<T> tB_2d = tB.ProjectTo2d();
+              const Triangle2<T> tA_2d = tA.ProjectTo2d(P);
+              const Triangle2<T> tB_2d = tB.ProjectTo2d(P);
 
               // Intersect the two triangles and then unproject the vertices of 
               // the construction.
               int num_intersections = tA_2d.Intersect(tB_2d, &isects[0]);
               for (int i = 0; i < num_intersections; ++i)
-                points->push_back(Unproject(isects[i], offset));
+                points->push_back(Unproject(normal, P, offset, isects[i]));
               return;
             }
           }
+        }
       }
     }
+
+ private:
+  static Vector3<T> Unproject(
+      const Vector3<T>& normal,
+      const Eigen::Matrix<T, 3, 2>& P, T offset, const Vector2<T>& p) {
+    return P.transpose() * p + normal*offset;
   }
 };
 

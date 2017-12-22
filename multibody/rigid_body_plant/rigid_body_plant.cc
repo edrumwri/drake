@@ -877,6 +877,7 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
   derivatives->SetFromVector(xdot);
 }
 
+/*
 template <typename T>
 void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     const Context<T>& context,
@@ -972,7 +973,7 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
       triggered_witnesses->push_back(witnesses[i]);
   }
 }
-
+*/
 // Gets points of contact using contacting features.
 template <class T>
 void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
@@ -988,7 +989,6 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
 
   // TODO: Compute the point(s) of contact, normal, and signed distance for each
   // feature pair.
-
 }
 
 // Saves the contact features upon the signed distance witness function

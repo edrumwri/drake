@@ -487,19 +487,10 @@ T Triangle3<T>::CalcSquareDistance(
   return square_dist;
 }
 
+/// Projects a triangle to 2d, given a projection matrix.
 template <class T>
 Triangle2<T> Triangle3<T>::ProjectTo2d(
-    const Vector3<T>& normal) const {
-  // Compute the orthonormal basis.
-  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
-  Vector3<T> v1 = R.col(1);
-  Vector3<T> v2 = R.col(2);
-
-  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
-  Eigen::Matrix<T, 2, 3> P;
-  P.row(0) = v1;
-  P.row(1) = v2;
-
+    const Eigen::Matrix<T, 3, 2>& P) const {
   // Create the new triangle.
   return Triangle2<T>(P * a(), P * b(), P * c());
 }

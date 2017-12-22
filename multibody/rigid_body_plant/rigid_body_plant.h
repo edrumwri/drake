@@ -379,11 +379,12 @@ class RigidBodyPlant : public LeafSystem<T> {
 
  private:
   OutputPortIndex DeclareContactResultsOutputPort();
+/*
   void DoCalcNextUpdateTime(
       const systems::Context<T>& context,
       systems::CompositeEventCollection<T>* events,
       T* time) const override;
-
+*/
   // These four are the output port calculator methods.
   void CopyStateToOutput(const Context<T>& context,
                          BasicVector<T>* state_output_vector) const;
