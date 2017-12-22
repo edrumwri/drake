@@ -93,14 +93,14 @@ drake_pybind_library(
 
 # TODO(eric.cousineau): Make private.
 drake_cc_library(
-    name = "symbolic_types_py",
+    name = "symbolic_types_py_h",
     hdrs = ["symbolic_types_py.h"],
 )
 
 drake_pybind_library(
     name = "symbolic_py",
     cc_deps = [
-        ":symbolic_types_py",
+        ":symbolic_types_py_h",
     ],
     cc_srcs = ["symbolic_py.cc"],
     py_deps = [
@@ -116,13 +116,16 @@ PYBIND_LIBRARIES = adjust_labels_for_drake_hoist([
     ":rbtree_py",
     ":symbolic_py",
     "//drake/bindings/pydrake/solvers",
+    "//drake/bindings/pydrake/systems",
 ])
+
+PY_LIBRARIES = [
+    ":util_py",
+]
 
 install(
     name = "install",
-    targets = [
-        ":util_py",
-    ],
+    targets = PY_LIBRARIES,
     py_dest = get_pybind_library_dest(),
     visibility = ["//visibility:public"],
     deps = get_drake_pybind_installs(PYBIND_LIBRARIES),
@@ -131,7 +134,29 @@ install(
 drake_py_library(
     name = "pydrake",
     visibility = ["//visibility:public"],
-    deps = PYBIND_LIBRARIES,
+    deps = PYBIND_LIBRARIES + PY_LIBRARIES,
+)
+
+# Test ODR (One Definition Rule).
+drake_pybind_library(
+    name = "odr_test_module_py",
+    testonly = 1,
+    add_install = False,
+    cc_deps = [
+        ":symbolic_types_py_h",
+    ],
+    cc_so_name = "test/odr_test_module",
+    cc_srcs = ["test/odr_test_module_py.cc"],
+)
+
+drake_py_test(
+    name = "odr_test",
+    size = "small",
+    srcs = ["test/odr_test.py"],
+    deps = [
+        ":odr_test_module_py",
+        ":symbolic_py",
+    ],
 )
 
 drake_py_test(
@@ -160,11 +185,16 @@ drake_py_test(
 drake_py_test(
     name = "common_install_test",
     size = "medium",
+    # Increase the timeout so that debug builds are successful.
+    timeout = "long",
     srcs = ["test/common_install_test.py"],
     data = ["//:install"],
     main = "test/common_install_test.py",
     tags = ["no_everything"],
-    deps = [":pydrake"],
+    deps = [
+        ":pydrake",
+        "//tools/install:install_test_helper",
+    ],
 )
 
 drake_py_test(
