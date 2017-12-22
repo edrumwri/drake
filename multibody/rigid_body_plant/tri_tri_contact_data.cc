@@ -1,10 +1,10 @@
-#include "drake/multibody/rigid_body_plant/point_contact.h"
+#include "drake/multibody/rigid_body_plant/tri_tri_contact_data.h"
 
 namespace drake {
 namespace multibody {
 
 // Template instantiations.
-template struct PointContact<double>;
+template struct TriTriContactData<double>;
 
 }  // namespace examples
 }  // namespace drake

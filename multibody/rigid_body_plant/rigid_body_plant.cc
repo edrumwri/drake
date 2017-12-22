@@ -882,6 +882,8 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     const Context<T>& context,
     CompositeEventCollection<T>* events,
     T* time) const {
+  // TODO: Do all of this.
+
   // Get the witnesses active for the current context.
 
   // Update the cloned context.
@@ -971,27 +973,31 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   }
 }
 
-// Gets *new* contacts, given that the state has been stepped right before the
-// point that the new contacts occur. 
+// Gets points of contact using contacting features.
 template <class T>
-std::vector<drake::multibody::collision::PointPair>
-    RigidBodyPlant<T>::DetermineContacts(const Context<T>& context) const {
-  // NOTE: All new contacts between existing triangles will be determined by
-  // locating when a vertex crosses the plane of contact. Note that the plane
-  // of contact is considered to be moving. Also, any newly contacting edges
-  // must be intesected against the alternative triangle.  
+void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
+  std::vector<drake::multibody::collision::PointPair>* contacts) const {
+  DRAKE_DEMAND(contacts);
+  DRAKE_DEMAND(contacts->empty());
 
-  // Get all pairs of triangles not already contacting that are no further than
-  // eps tolerance apart, including closest points on the triangles.
+  // TODO: Get contact features from the context.
 
-    // Get the contact normal, which will be determined by the closest points.  
+  // TODO: Determine the contact plane(s).
 
-    // Project points, from both triangles, within eps distance to the
-    // plane passing halfway through the closest points (and determined by the
-    // surface normal).
+  // TODO: Compute poses for each rigid body.
 
-    // Intersect the points/edges/triangles sufficiently close to the plane,
-    // and store the result.
+  // TODO: Compute the point(s) of contact, normal, and signed distance for each
+  // feature pair.
+
+}
+
+// Saves the contact features upon the signed distance witness function
+// triggering.
+// TODO: Can we get the witness function to tell us which features are
+// contacting?
+template <class T>
+void RigidBodyPlant<T>::AddContactFeaturesToState(
+    const Context<T>& context, State<T>* state) const {
 }
 
 template <typename T>
@@ -1268,6 +1274,21 @@ int RigidBodyPlant<T>::FindInstancePositionIndexFromWorldIndex(
   }
   return world_position_index - instance_positions.first;
 }
+
+// Gets modified poses for each rigid body based on the active contact
+// constraints.
+template <typename T>
+void RigidBodyPlant<T>::ComputePoses(
+    const Context<T>& context,
+    std::map<vector<RigidBody*, Isometry3<T>>>* poses) const {
+  DRAKE_DEMAND(poses);
+  DRAKE_DEMAND(!poses->empty());
+
+  // TODO: Go through the context, computing the pose of each rigid body.
+
+  // TODO: Use contact planes and distance between closest features to determine
+  // the signed distance. 
+} 
 
 template <typename T>
 void RigidBodyPlant<T>::DoMapQDotToVelocity(

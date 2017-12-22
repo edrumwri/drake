@@ -72,9 +72,16 @@ class Triangle2 {
     }
   }
 
+  int Intersect(const Triangle2& t, Vector2<T>* intersections) const;
   bool PointInside(const Vector2<T>& point) const;
   PolygonLocationType GetLocation(const Vector2<T>& point) const;
-  static int Advance(int a, int* aa, bool inside, const Vector2<T>& p, Vector2<T>* intersections, int* num_intersections);
+  SegTriIntersectType Intersect(
+      const std::pair<Vector2<T>, Vector2<T>>& seg, T tol,
+      Vector2<T>* isect, Vector2<T>* isect2) const;
+  static SegSegIntersectType IntersectSegs(
+      const std::pair<Vector2<T>, Vector2<T>>& seg1,
+      const std::pair<Vector2<T>, Vector2<T>>& seg2,
+      Vector2<T>* isect, Vector2<T>* isect2);
 
  private:
   friend class Triangle2Test_IsBetween_Test;
@@ -86,6 +93,7 @@ class Triangle2 {
   friend class Triangle2Test_ParallelSegSegIntersection_Test;
   friend class Triangle2Test_TriTriIntersection_Test;
 
+  static int Advance(int a, int* aa, bool inside, const Vector2<T>& p, Vector2<T>* intersections, int* num_intersections);
   bool ccw() const;
   static bool IsBetween(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c);
@@ -94,18 +102,10 @@ class Triangle2 {
   static OrientationType CalcAreaSign(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c, T tol);
   static SegLocationType DetermineSegLocation(T t);
-  SegTriIntersectType Intersect(
-      const std::pair<Vector2<T>, Vector2<T>>& seg, T tol,
-      Vector2<T>* isect, Vector2<T>* isect2) const;
-  static SegSegIntersectType IntersectSegs(
-      const std::pair<Vector2<T>, Vector2<T>>& seg1,
-      const std::pair<Vector2<T>, Vector2<T>>& seg2,
-      Vector2<T>* isect, Vector2<T>* isect2);
   static SegSegIntersectType IntersectParallelSegs(
       const std::pair<Vector2<T>, Vector2<T>>& seg1,
       const std::pair<Vector2<T>, Vector2<T>>& seg2,
       Vector2<T>* isect, Vector2<T>* isect2);
-  int Intersect(const Triangle2& t, Vector2<T>* intersections) const;
   static void ClipConvexPolygonAgainstLine(
       const Vector2<T>& rkN, T fC, int* ri, Vector2<T>* isects);
 
@@ -115,21 +115,21 @@ class Triangle2 {
 template <class T>
 class Triangle3 {
  public:
-  Triangle3(const Vector3<T>& a,
-     const Vector3<T>& b,
-     const Vector3<T>& c) : a_(a), b_(b), c_(c) {
+  Triangle3(const Vector3<T>* a,
+     const Vector3<T>* b,
+     const Vector3<T>* c) : a_(a), b_(b), c_(c) {
   }
 
   Triangle2<T> ProjectTo2d(const Vector3<T>& normal) const;
-  const Vector3<T>& a() const { return a_; }
-  const Vector3<T>& b() const { return b_; }
-  const Vector3<T>& c() const { return c_; }
+  const Vector3<T>& a() const { return *a_; }
+  const Vector3<T>& b() const { return *b_; }
+  const Vector3<T>& c() const { return *c_; }
 
   const Vector3<T>& get_vertex(int i) const {
     switch (i) {
-      case 0: return a_;
-      case 1: return b_;
-      case 2: return c_;
+      case 0: return *a_;
+      case 1: return *b_;
+      case 2: return *c_;
       default:
         DRAKE_ABORT();
     }
@@ -176,7 +176,9 @@ class Triangle3 {
       Vector3<T>* closest_point_on_this,
       Vector3<T>* closest_point_on_t) const;
 
-  Vector3<T> a_, b_, c_;
+  Vector3<T>* a_{nullptr};
+  Vector3<T>* b_{nullptr};
+  Vector3<T>* c_{nullptr};
 };
 
 }  // multibody

@@ -229,7 +229,7 @@ void TrimeshColdet<T>::CalcIntersections(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
     const std::set<std::pair<int, int>>& candidate_tris,
-    std::vector<multibody::collision::PointPair>* contacts) const {
+    std::vector<multibody::TriTriContactData>* contacts) const {
   using std::sqrt;
 
   DRAKE_DEMAND(contact_data && contact_data->empty());
@@ -249,10 +249,14 @@ void TrimeshColdet<T>::CalcIntersections(
   const Isometry3<T>& poseA = poses_iter_mA->second;
   const Isometry3<T>& poseB = poses_iter_mB->second;
 
- // TODO: it seems like we also need to store contact data for (a) the IDs of
-  // the triangles newly determined to be in contact, (b) contact points in the
-  // body frames, (c) features of the triangles (both so we can track which
-  // features are in contact, and which features aren't).
+  // Create two triangles, including vertices.
+  Vector3<T> Aa, Ab, Ac, Ba, Bb, Bc;
+  Triangle3<T> tA(&Aa, &Ab, &Ac);
+  Triangle3<T> tB(&Ba, &Bb, &Bc);
+
+  // TODO: we also need to store contact data for (a) the IDs of the triangles
+  // newly determined to be in contact and (b) features of the triangles (both
+  // so we can track which features are in contact, and which features aren't).
 
   // Get the distance between each pair of triangles.
   for (int i = 0; i < candidate_tris.size(); ++i) {
@@ -261,8 +265,8 @@ void TrimeshColdet<T>::CalcIntersections(
       continue;
 
     // Get the two triangles.
-    const auto tA = mA.get_triangle(candidate_tris[i].first).transform(poseA);
-    const auto tB = mB.get_triangle(candidate_tris[i].second).transform(poseB);
+    mA.get_triangle(candidate_tris[i].first).transform(poseA, &tA);
+    mB.get_triangle(candidate_tris[i].second).transform(poseB, &tB);
 
     // Get the distance between the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
@@ -326,26 +330,14 @@ void TrimeshColdet<T>::CalcIntersections(
       // Remaining cases are edge/edge, vertex/face, edge/face, and face/face.
       switch (pA.size()) {
         case 1: {
-          // Since the point on A is only a vertex, there must be three points
-          // from B. Verify that the projected vertex lies within the projected
-          // triangle.
-          DRAKE_DEMAND(pB.size(), 3);
-          Vector2<T> point_2d = ProjectTo2d(
-              tA.get_vertex(pA.front()), normal);
-          Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
-          if (!tB_2d.PointIsInside(point_2d)) {
-            continue;          
-          } else {
-            // TODO:
-            // Record how the contact point is determined using a moving plane
-            // and the specified vertex from A.
-
-            // Create the contact.
-            contacts->push_back(multibody::collision::PointPair());  
-            contacts->back().ptA = closest_on_tA;
-            contacts->back().ptB = closest_on_tB;
-            contacts->back().normal = normal;
-          }
+          // Record the contact data.
+          contacts->push_back(TriTriContactData());  
+          contacts->back().feature_A_id = static_cast<void*>(
+              mA.get_triangle(candidate_tris[i].first).get_vertex(pA[0]);
+          contacts->back().feature_B_id = static_cast<void*>(
+              candidate_tris[i].second);
+          contacts->back().typeA = FeatureType::kVertex;
+          contacts->back().typeB = FeatureType::kFace;
           break;
         }
 
@@ -359,85 +351,62 @@ void TrimeshColdet<T>::CalcIntersections(
                 std::make_pair(tB.get_vertex(pB.front()),
                                tB.get_vertex(pB.back())), normal);
             
-            // Verify that the intersection exists.
-
-            // Create the contact point(s).
-
+            // TODO: Record the contact data.
+            contacts->push_back(TriTriContactData());  
+//            contacts->back().feature_A_id = static_cast<void*>(
+//                mA.get_triangle(candidate_tris[i].first).get_vertex(pA[0]);
+ //           contacts->back().feature_B_id = static_cast<void*>(
+//                candidate_tris[i].second);
+            contacts->back().typeA = FeatureType::kEdge;
+            contacts->back().typeB = FeatureType::kEdge;
           } else {
             DRAKE_DEMAND(pB.size() == 3);
             // Edge/face case. Intersect the edge with the projected triangle.
 
-            // Project the edge from A to 2D.
-            auto eA_2d = ProjectTo2d(
-                std::make_pair(tA.get_vertex(pA.front()),
-                               tA.get_vertex(pA.back())), normal);
-
-            // Project triangle B to 2D.
-            Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
-
-            // Verify that the intersection exists.
-
-            // Create the contact points.
-
-            // TODO (true?)
-            // Note how the contact point is determined using a moving plane
-            // and the specified vertex from A.
-
+            // TODO: Figure out which edge it is.
+            // Record the contact data.
+            contacts->push_back(TriTriContactData());  
+//            contacts->back().feature_A_id = static_cast<void*>(
+//                mA.get_triangle(candidate_tris[i].first).get_vertex(pA[0]);
+            contacts->back().feature_B_id = static_cast<void*>(
+                candidate_tris[i].second);
+            contacts->back().typeA = FeatureType::kEdge;
+            contacts->back().typeB = FeatureType::kFace;
           }
           break;
         }
 
         case 3: {
           if (pB.size() == 1) {
-            // Vertex / face. Verify that the vertex lies within the face.
-            DRAKE_DEMAND(pA.size(), 3);
-            Vector2<T> point_2d = ProjectTo2d(
-                tB.get_vertex(pB.front()), normal);
-            Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
-            if (!tA_2d.PointIsInside(point_2d)) {
-              continue;          
-            } else {
-              // TODO:
-              // Record how the contact point is determined using a moving plane
-              // and the specified vertex from B.
-
-              // Create the contact.
-              contacts->push_back(multibody::collision::PointPair());  
-              contacts->back().ptA = closest_on_tA;
-              contacts->back().ptB = closest_on_tB;
-              contacts->back().normal = normal;
-            }
+            // Record the contact data.
+            contacts->push_back(TriTriContactData());  
+            contacts->back().feature_A_id = static_cast<void*>(
+                candidate_tris[i].first);
+            contacts->back().feature_B_id = static_cast<void*>(
+                mB.get_triangle(candidate_tris[i].second).get_vertex(pB[0]);
+            contacts->back().typeA = FeatureType::kFace;
+            contacts->back().typeB = FeatureType::kVertex;
           } else {
             // Edge / face. Intersect the edge with the projected triangle.
             if (pB.size() == 2) {
-              // Project the edge from B to 2D.
-              auto eB_2d = ProjectTo2d(
-                  std::make_pair(tB.get_vertex(pB.front()),
-                                 tB.get_vertex(pB.back())), normal);
-
-            // Project triangle A to 2D.
-            Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
-
-            // Verify that the intersection exists.
-
-            // Create the contact points.
-
+              // TODO: Record the edge.
+              // Record the contact data.
+              contacts->push_back(TriTriContactData());  
+              contacts->back().feature_A_id = static_cast<void*>(
+                  candidate_tris[i].first);
+//              contacts->back().feature_B_id = static_cast<void*>(
+//                  candidate_tris[i].second);
+              contacts->back().typeA = FeatureType::kFace;
+              contacts->back().typeB = FeatureType::kEdge;
             } else {
-              // Face / face. Intersect the two projected triangles.
-              const int kMaxIntersects = 6;
-              DRAKE_DEMAND(pB.size() == 3);
-              Triangle2<T> tA_2d = tA.ProjectTo2d(normal);
-              Triangle2<T> tB_2d = tB.ProjectTo2d(normal);
-              Vector2<T> intersects[kMaxIntersects];
-              auto intersects_begin = &intersects[0];
-              int num_intersects = tA_2d.Intersect(tB_2d, intersects_begin);
-
-              // Verify that there was an intersection.
-              if (num_intersects == 0)
-                continue;
-
-              // Create the contact(s).
- 
+              // Record the contact data.
+              contacts->push_back(TriTriContactData());  
+              contacts->back().feature_A_id = static_cast<void*>(
+                  candidate_tris[i].first);
+              contacts->back().feature_B_id = static_cast<void*>(
+                  candidate_tris[i].second);
+              contacts->back().typeA = FeatureType::kFace;
+              contacts->back().typeB = FeatureType::kFace;
             }
           }
           break;
