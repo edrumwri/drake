@@ -36,6 +36,7 @@ class TrimeshColdet {
     bool operator<(const BoundsStruct& bs) const { return (!end && bs.end); }
   };
 
+  static void* GetEdgeIndex(int v0, int v1);
   static Vector3<T> ReverseProject(
       const Vector2<T>& point, const Vector3<T>& normal, T offset);
   static Vector2<T> ProjectTo2d(

@@ -16,14 +16,14 @@ enum class FeatureType {
 
 template <class T>
 struct TriTriContactData {
-  void* idA;          // The identifier for geometry A.
-  void* idB;          // The identifier for geometry B.
-  FeatureType typeA;  // The feature in contact on geometry A.
-  FeatureType typeB;  // The feature in contact on geometry B.
-  void* feature_A_id; // The identifier of the feature on geometry A.
-  void* feature_B_id; // The identifier of the feature on geometry B.
-  Triangle3<T>* tA;   // The triangle on geometry A.
-  Triangle3<T>* tB;   // The triangle on geometry B.
+  void* idA;                // The identifier for geometry A.
+  void* idB;                // The identifier for geometry B.
+  FeatureType typeA;        // The feature in contact on geometry A.
+  FeatureType typeB;        // The feature in contact on geometry B.
+  void* feature_A_id;       // The identifier of the feature on geometry A.
+  void* feature_B_id;       // The identifier of the feature on geometry B.
+  const Triangle3<T>* tA;   // The triangle on geometry A.
+  const Triangle3<T>* tB;   // The triangle on geometry B.
 
   /// Gets the surface normal (pointing toward A).
   Vector3<T> GetSurfaceNormalExpressedInWorld(

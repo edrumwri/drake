@@ -8,6 +8,42 @@
 namespace drake {
 namespace multibody {
 
+// Gets the index of an edge from a triangle.
+template <class T>
+void* TrimeshColdet<T>::GetEdgeIndex(int vert_index0, int vert_index1) {
+  switch (vert_index0) {
+    case 0:
+      if (vert_index1 == 1) {
+        return reinterpret_cast<void*>(0);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 2);
+        return reinterpret_cast<void*>(2);
+      }
+      break;
+
+    case 1:
+      if (vert_index1 == 0) {
+        return reinterpret_cast<void*>(0);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 2);
+        return reinterpret_cast<void*>(1);
+      }
+      break;
+
+    case 2:
+      if (vert_index1 == 0) {
+        return reinterpret_cast<void*>(2);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 1);
+        return reinterpret_cast<void*>(1);
+      }
+      break;
+
+    default:
+      DRAKE_ABORT();
+  }
+}
+
 /// Updates all axis-aligned bounding boxes corresponding to `mesh`.
 template <class T>
 void TrimeshColdet<T>::UpdateAABBs(
@@ -18,15 +54,18 @@ void TrimeshColdet<T>::UpdateAABBs(
   poses_iter->second = wTm;
 
   // Update each AABB corresponding to this mesh.
-  auto trimesh_bs_iter = trimesh_aabbs_.find(&mesh);
-  DRAKE_DEMAND(trimesh_bs_iter != trimesh_aabbs_.end());
-  const std::vector<BoundingStructs*>& bs = trimesh_bs_iter->second; 
+  auto trimesh_bs_iter = trimesh_bs_.find(&mesh);
+  DRAKE_DEMAND(trimesh_bs_iter != trimesh_bs_.end());
+  const std::vector<BoundsStruct*>& bs = trimesh_bs_iter->second; 
   for (int i = 0; i < static_cast<int>(bs.size()); ++i) {
     // Get the requisite triangle in the mesh, transform it, and reconstruct
     // the AABB around it.
-    const Triangle3<T>& tri = mesh.get_triangle(bs[i]->tri);
-    AABB<T>& aabb = *bs[i]->aabb; 
-    aabb = AABB<T>(tri.transform(wTm));
+    const Triangle3<T>& tri = mesh.triangle(bs[i]->tri);
+    AABB<T>& aabb = *bs[i]->aabb;
+    const Vector3<T> v1 = wTm * tri.a();
+    const Vector3<T> v2 = wTm * tri.b();
+    const Vector3<T> v3 = wTm * tri.c();
+    aabb = AABB<T>(Triangle3<T>(&v1, &v2, &v3));
   }
 }
 
@@ -47,7 +86,7 @@ void TrimeshColdet<T>::UpdateBroadPhaseStructs() {
     // Update the bounds data using the corresponding AABBs.
     for (int j = 0; j < static_cast<int>(vec.size()); ++j) {
       // Get the axis-aligned bounding box.
-      const AABB<T>& aabb = *vec[j].aabb;
+      const AABB<T>& aabb = *vec[j].second.aabb;
 
       // Update the bound.
       const Vector3<T>& bound = (vec[j].second.end) ? aabb.upper_bounds() : 
@@ -95,22 +134,23 @@ void TrimeshColdet<T>::UpdateOverlaps(
     int bounds_index,
     std::set<std::pair<int, int>>* overlaps) const {
   // The set of active bounds.
-  std::vector<int> active_bounds;
+  std::set<int> active_bounds;
 
   // Make a new set of overlaps.
   std::set<std::pair<int, int>> new_overlaps;
 
   for (int j = 0; j < bounds_[bounds_index].first.size(); ++j) {
     // Eliminate from the active bounds if at the end of a bound.
-    auto bound_info = bounds_[bounds_index].first[j];
+    const auto& bound_info = bounds_[bounds_index].first[j].second;
     if (bound_info.end) {
       assert(active_bounds.find(bound_info.tri) != active_bounds.end());
       active_bounds.erase(bound_info.tri);
     } else {
-      // Encountered a new bound. 
+      // Encountered a new bound.
       for (const auto& tri : active_bounds) {
-        new_overlaps.insert(std::min(tri, bound_info.tri),
-                            std::max(tri, bound_info.tri));
+        new_overlaps.emplace(std::min(tri, bound_info.tri),
+                             std::max(tri, bound_info.tri));
+      }
 
       // Add the triangle to the active set.
       active_bounds.insert(bound_info.tri);
@@ -122,7 +162,7 @@ void TrimeshColdet<T>::UpdateOverlaps(
   std::vector<std::pair<int, int>> intersected_overlaps;
   std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
                         overlaps->begin(), overlaps->end(),
-                        std::back_inserter(intersected_overlaps); 
+                        std::back_inserter(intersected_overlaps)); 
 
   // Update overlaps. 
   overlaps->clear();
@@ -133,7 +173,7 @@ template <class T>
 T TrimeshColdet<T>::CalcDistance(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
-    const std::set<std::pair<int, int>>& candidate_tris) const {
+    const std::vector<std::pair<int, int>>& candidate_tris) const {
   // TODO: Use the distance between the two AABBs as the default
   // non-intersecting distance.
   T distance = 100.0;
@@ -154,8 +194,14 @@ T TrimeshColdet<T>::CalcDistance(
   for (int i = 0; i < candidate_tris.size(); ++i) {
     // Get the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
-    const auto tA = mA.get_triangle(candidate_tris[i].first).transform(poseA);
-    const auto tB = mB.get_triangle(candidate_tris[i].second).transform(poseB);
+    const Vector3<T> vAa = poseA * mA.triangle(candidate_tris[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(candidate_tris[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(candidate_tris[i].first).c();
+    const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
+    const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
+    const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);  
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);  
 
     // Get the distance between the two triangles.
     T tri_distance = tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB); 
@@ -218,7 +264,7 @@ Vector3<T> TrimeshColdet<T>::ReverseProject(
   rP.col(1) = v2;
   rP.col(2) = normal;
 
-  return rP * Vector3(p[0], p[1], offset);
+  return rP * Vector3<T>(p[0], p[1], offset);
 }
 
 /// @note aborts if `contacts` is null or not empty on entry.
@@ -228,11 +274,12 @@ template <class T>
 void TrimeshColdet<T>::CalcIntersections(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
-    const std::set<std::pair<int, int>>& candidate_tris,
+    const std::vector<std::pair<int, int>>& candidate_tris,
     std::vector<TriTriContactData<T>>* contacts) const {
   using std::sqrt;
+  using std::abs;
 
-  DRAKE_DEMAND(contact_data && contact_data->empty());
+  DRAKE_DEMAND(contacts && contacts->empty());
 
   // TODO: Set the intersecting threshold in a principled manner.
   const double intersecting_threshold = 1e-8;
@@ -249,20 +296,17 @@ void TrimeshColdet<T>::CalcIntersections(
   const Isometry3<T>& poseA = poses_iter_mA->second;
   const Isometry3<T>& poseB = poses_iter_mB->second;
 
-  // Create two triangles, including vertices.
-  Vector3<T> Aa, Ab, Ac, Ba, Bb, Bc;
-  Triangle3<T> tA(&Aa, &Ab, &Ac);
-  Triangle3<T> tB(&Ba, &Bb, &Bc);
-
   // Get the distance between each pair of triangles.
   for (int i = 0; i < candidate_tris.size(); ++i) {
-    // See whether the triangle is in the pairs to ignore.
-    if (pairs_to_ignore.find(candidate_tris[i]) != pairs_to_ignore.end())
-      continue;
-
     // Get the two triangles.
-    mA.get_triangle(candidate_tris[i].first).transform(poseA, &tA);
-    mB.get_triangle(candidate_tris[i].second).transform(poseB, &tB);
+    const Vector3<T> vAa = poseA * mA.triangle(candidate_tris[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(candidate_tris[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(candidate_tris[i].first).c();
+    const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
+    const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
+    const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);  
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);  
 
     // Get the distance between the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
@@ -286,18 +330,18 @@ void TrimeshColdet<T>::CalcIntersections(
 
       // Project all points from a triangle to the plane. Stores a point
       // if it is within tolerance.
-      auto project_and_store = [&normal, offset, tolerance](
+      auto project_and_store = [&normal, offset, intersecting_threshold](
           const Triangle3<T>& t, std::vector<int>* p) {
         const T d_a = t.a().dot(normal) - offset;
-        if (abs(d_a) < tolerance)
+        if (abs(d_a) < intersecting_threshold)
           p->push_back(0);
 
         const T d_b = t.b().dot(normal) - offset;
-        if (abs(d_b) < tolerance)
+        if (abs(d_b) < intersecting_threshold)
           p->push_back(1);
 
         const T d_c = t.c().dot(normal) - offset;
-        if (abs(d_c) < tolerance)
+        if (abs(d_c) < intersecting_threshold)
           p->push_back(2);
       };
 
@@ -328,9 +372,9 @@ void TrimeshColdet<T>::CalcIntersections(
         case 1: {
           // Record the contact data.
           contacts->push_back(TriTriContactData<T>());
-          contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-          contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
-          contacts->back().feature_A_id = static_cast<void*>(pA[0]);
+          contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+          contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+          contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
           contacts->back().typeA = FeatureType::kVertex;
           contacts->back().typeB = FeatureType::kFace;
           break;
@@ -338,37 +382,21 @@ void TrimeshColdet<T>::CalcIntersections(
 
         case 2: {
           if (pB.size() == 2) {
-            // Edge/edge case. Intersect the projected edges.
-            auto eA_2d = ProjectTo2d(
-                std::make_pair(tA.get_vertex(pA.front()),
-                               tA.get_vertex(pA.back())), normal);
-            auto eB_2d = ProjectTo2d(
-                std::make_pair(tB.get_vertex(pB.front()),
-                               tB.get_vertex(pB.back())), normal);
-            
             // Record the contact data.
             contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-            contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
-            contacts->back().feature_A_id = GetEdgeIndex(
-                mA.get_triangle(candidate_tris[i].first),
-                pA.front(), pA.back());
-            contacts->back().feature_B_id = GetEdgeIndex(
-                mB.get_triangle(candidate_tris[i].second),
-                pB.front(), pB.back());
+            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+            contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+            contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
+            contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
             contacts->back().typeA = FeatureType::kEdge;
             contacts->back().typeB = FeatureType::kEdge;
           } else {
             DRAKE_DEMAND(pB.size() == 3);
-            // Edge/face case. Intersect the edge with the projected triangle.
-
             // Record the contact data.
             contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-            contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
-            contacts->back().feature_A_id = GetEdgeIndex(
-                mA.get_triangle(candidate_tris[i].first),
-                pA.front(), pA.back());
+            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+            contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+            contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
             contacts->back().typeA = FeatureType::kEdge;
             contacts->back().typeB = FeatureType::kFace;
           }
@@ -379,10 +407,9 @@ void TrimeshColdet<T>::CalcIntersections(
           if (pB.size() == 1) {
             // Record the contact data.
             contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-            contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
-            contacts->back().feature_B_id = static_cast<void*>(
-                mB.get_triangle(candidate_tris[i].second).get_vertex(pB[0]);
+            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+            contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+            contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
             contacts->back().typeA = FeatureType::kFace;
             contacts->back().typeB = FeatureType::kVertex;
           } else {
@@ -390,18 +417,17 @@ void TrimeshColdet<T>::CalcIntersections(
             if (pB.size() == 2) {
               // Record the contact data.
               contacts->push_back(TriTriContactData<T>());  
-              contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-              contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
+              contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+              contacts->back().tB = &mB.triangle(candidate_tris[i].second);
               contacts->back().feature_B_id = GetEdgeIndex(
-                  mB.get_triangle(candidate_tris[i].second),
                   pB.front(), pB.back());
               contacts->back().typeA = FeatureType::kFace;
               contacts->back().typeB = FeatureType::kEdge;
             } else {
               // Record the contact data.
               contacts->push_back(TriTriContactData<T>());  
-              contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
-              contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
+              contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+              contacts->back().tB = &mB.triangle(candidate_tris[i].second);
               contacts->back().typeA = FeatureType::kFace;
               contacts->back().typeB = FeatureType::kFace;
             }
@@ -414,7 +440,8 @@ void TrimeshColdet<T>::CalcIntersections(
       }
     }
   }
-
-  return distance;
 }
+
+}  // namespace multibody
+}  // namespace drake
 

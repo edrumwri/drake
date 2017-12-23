@@ -23,8 +23,11 @@ class AABB {
     }
   }
 
+  const Vector3<T>& lower_bounds() const { return minp_; } 
   Vector3<T>& lower_bounds() { return minp_; } 
+  const Vector3<T>& upper_bounds() const { return maxp_; }
   Vector3<T>& upper_bounds() { return maxp_; }
+
 
   bool Intersects(const AABB<T>& a) const {
     for (int i = 0; i < 3; ++i) {

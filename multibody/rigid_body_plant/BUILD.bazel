@@ -76,8 +76,9 @@ drake_cc_library(
     hdrs = ["trimesh_coldet.h", "trimesh_coldet-inl.h"],
     deps = [
         ":aabb",
-        ":trimesh",
+        ":tri_tri_contact_data",
         ":triangle",
+        ":trimesh",
         "//drake/common",
     ],
 )

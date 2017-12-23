@@ -1537,7 +1537,7 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
     abstract_data.push_back(std::make_unique<
-        std::vector<Value<multibody::TriTriContactData<T>>>>());
+        Value<std::vector<multibody::TriTriContactData<T>>>>());
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
     return std::make_unique<AbstractValues>();
