@@ -317,7 +317,7 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   // Gets a constant reference to the state vector, irrespective of whether
   // the state is continuous or discrete.
-  Eigen::VectorBlock<const VectorX<T>> GetStateVector(
+  Eigen::VectorBlock<const VectorX<T>> get_state_vector(
       const Context<T>& context) const;
 
   /// Gets whether this system is modeled using discrete state.
@@ -337,6 +337,7 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   std::unique_ptr<ContinuousState<T>> AllocateContinuousState() const override;
   std::unique_ptr<DiscreteValues<T>> AllocateDiscreteState() const override;
+  std::unique_ptr<AbstractValues<T>> AllocateAbstractState() const override;
 
   // System<T> overrides.
 
@@ -380,7 +381,10 @@ class RigidBodyPlant : public LeafSystem<T> {
  private:
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
+  friend class PolgonalContactTest;
+  friend class PolgonalContactTest_BigTriangle_Test;
   OutputPortIndex DeclareContactResultsOutputPort();
+  void DetermineContactFeatures(State<T>* state) const;
 /*
   void DoCalcNextUpdateTime(
       const systems::Context<T>& context,

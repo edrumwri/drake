@@ -12,6 +12,7 @@
 #include "drake/multibody/kinematics_cache.h"
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/compliant_material.h"
+#include "drake/multibody/rigid_body_plant/tri_tri_contact_data.h"
 #include "drake/solvers/mathematical_program.h"
 
 using std::make_unique;
@@ -65,7 +66,7 @@ OutputPortIndex RigidBodyPlant<T>::DeclareContactResultsOutputPort() {
 }
 
 template <class T>
-Eigen::VectorBlock<const VectorX<T>> RigidBodyPlant<T>::GetStateVector(
+Eigen::VectorBlock<const VectorX<T>> RigidBodyPlant<T>::get_state_vector(
     const Context<T>& context) const {
   if (is_state_discrete()) {
     return dynamic_cast<const BasicVector<T>&>(
@@ -981,7 +982,10 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   DRAKE_DEMAND(contacts);
   DRAKE_DEMAND(contacts->empty());
 
-  // TODO: Get contact features from the context.
+  // Get contact features from the context.
+  const std::vector<TriTriContactData>& contacting_features =
+      context.get_abstract_state().get_value(0).
+          template GetValue<std::vector<TriContactData>>();
 
   // TODO: Determine the contact plane(s).
 
@@ -989,6 +993,9 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
 
   // TODO: Compute the point(s) of contact, normal, and signed distance for each
   // feature pair.
+  for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
+    
+  }
 }
 
 // Saves the contact features upon the signed distance witness function
@@ -1303,7 +1310,7 @@ void RigidBodyPlant<T>::DoMapQDotToVelocity(
 
   // TODO(amcastro-tri): provide nicer accessor to an Eigen representation for
   // LeafSystems.
-  auto x = GetStateVector(context);
+  auto x = get_state_vector(context);
   const int nq = get_num_positions();
   const int nv = get_num_velocities();
   const int nstates = get_num_states();
@@ -1340,7 +1347,7 @@ void RigidBodyPlant<T>::DoMapVelocityToQDot(
     return;
   }
 
-  auto x = GetStateVector(context);
+  auto x = get_state_vector(context);
   const int nq = get_num_positions();
   const int nv = get_num_velocities();
   const int nstates = get_num_states();
@@ -1404,7 +1411,7 @@ void RigidBodyPlant<T>::CalcContactResultsOutput(
   // because the data is not properly accessible in the cache.  This is
   // boilerplate drawn from EvalDerivatives.  See that code for further
   // comments
-  auto x = GetStateVector(context);
+  auto x = get_state_vector(context);
   const int nq = get_num_positions();
   const int nv = get_num_velocities();
   VectorX<T> q = x.topRows(nq);
@@ -1455,6 +1462,22 @@ VectorX<T> RigidBodyPlant<T>::EvaluateActuatorInputs(
     }
   }
   return u;
+}
+
+/// Allocates the abstract state (containing contact data).
+template <typename T>
+std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
+    const {
+  // Only allocate state if this is a time stepping system.
+  if () {
+    // Do not set any bodies as being in contact by default.
+    std::vector<std::unique_ptr<AbstractValue>> abstract_data;
+    abstract_data.push_back(
+        std::make_unique<std::vector<Value<TriTriContactData>>>());
+    return std::make_unique<AbstractValues>(std::move(abstract_data));
+  } else {
+    return std::make_unique<AbstractValue>();
+  }
 }
 
 // Explicitly instantiates on the most common scalar types.

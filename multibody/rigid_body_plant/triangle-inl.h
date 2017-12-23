@@ -490,7 +490,7 @@ T Triangle3<T>::CalcSquareDistance(
 /// Projects a triangle to 2d, given a projection matrix.
 template <class T>
 Triangle2<T> Triangle3<T>::ProjectTo2d(
-    const Eigen::Matrix<T, 3, 2>& P) const {
+    const Eigen::Matrix<T, 2, 3>& P) const {
   // Create the new triangle.
   return Triangle2<T>(P * a(), P * b(), P * c());
 }

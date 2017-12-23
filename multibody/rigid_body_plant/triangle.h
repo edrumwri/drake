@@ -9,6 +9,26 @@ namespace multibody {
 
 template <class T>
 class Triangle2 {
+ public:
+  // Types of intersections between two line segments.
+  enum SegSegIntersectType {
+    kSegSegNoIntersect,
+    kSegSegVertex,
+    kSegSegEdge,
+    kSegSegIntersect
+  };
+
+  // Types of intersections between a point and a triangle.
+  enum SegTriIntersectType {
+    kSegTriNoIntersect,
+    kSegTriVertex,
+    kSegTriEdge,
+    kSegTriEdgeOverlap,
+    kSegTriPlanarIntersect,
+    kSegTriInside
+  };
+
+
  private:
   // The orientation of a point with respect to a line in 2D.
   enum OrientationType {
@@ -33,24 +53,6 @@ class Triangle2 {
     kPolygonOnEdge
   };
 
-  // Types of intersections between two line segments.
-  enum SegSegIntersectType {
-    kSegSegNoIntersect,
-    kSegSegVertex,
-    kSegSegEdge,
-    kSegSegIntersect
-  };
-
-  // Types of intersections between a point and a triangle.
-  enum SegTriIntersectType {
-    kSegTriNoIntersect,
-    kSegTriVertex,
-    kSegTriEdge,
-    kSegTriEdgeOverlap,
-    kSegTriPlanarIntersect,
-    kSegTriInside
-  };
-
  public:
   Triangle2(const Vector2<T>& a,
      const Vector2<T>& b,
@@ -61,6 +63,16 @@ class Triangle2 {
   const Vector2<T>& a() const { return a_; }
   const Vector2<T>& b() const { return b_; }
   const Vector2<T>& c() const { return c_; }
+
+  std::pair<Vector2<T>, Vector2<T>> get_edge(int i) const {
+    switch (i) {
+      case 0: return std::make_pair(a_, b_);
+      case 1: return std::make_pair(b_, c_);
+      case 2: return std::make_pair(c_, a_);
+      default:
+        DRAKE_ABORT();
+    }
+  }
 
   const Vector2<T>& get_vertex(int i) const {
     switch (i) {
@@ -120,10 +132,20 @@ class Triangle3 {
      const Vector3<T>* c) : a_(a), b_(b), c_(c) {
   }
 
-  Triangle2<T> ProjectTo2d(const Eigen::Matrix<T, 3, 2>& P) const;
+  Triangle2<T> ProjectTo2d(const Eigen::Matrix<T, 2, 3>& P) const;
   const Vector3<T>& a() const { return *a_; }
   const Vector3<T>& b() const { return *b_; }
   const Vector3<T>& c() const { return *c_; }
+
+  std::pair<Vector3<T>, Vector3<T>> get_edge(int i) const {
+    switch (i) {
+      case 0: return std::make_pair(*a_, *b_);
+      case 1: return std::make_pair(*b_, *c_);
+      case 2: return std::make_pair(*c_, *a_);
+      default:
+        DRAKE_ABORT();
+    }
+  }
 
   const Vector3<T>& get_vertex(int i) const {
     switch (i) {
@@ -176,9 +198,9 @@ class Triangle3 {
       Vector3<T>* closest_point_on_this,
       Vector3<T>* closest_point_on_t) const;
 
-  Vector3<T>* a_{nullptr};
-  Vector3<T>* b_{nullptr};
-  Vector3<T>* c_{nullptr};
+  const Vector3<T>* a_{nullptr};
+  const Vector3<T>* b_{nullptr};
+  const Vector3<T>* c_{nullptr};
 };
 
 }  // multibody

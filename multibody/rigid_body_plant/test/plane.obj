@@ -1,0 +1,9 @@
+mtllib ./box.obj.mtl
+
+# Vertices
+v -2500 0 0
+v 2500 0 0
+v 0 4330.1 0
+
+f 1 2 3 
+

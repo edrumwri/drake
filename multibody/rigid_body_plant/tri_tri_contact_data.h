@@ -2,6 +2,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
+#include "drake/math/project_3d_to_2d.h"
 #include "drake/multibody/rigid_body_plant/triangle.h"
 
 namespace drake {
@@ -37,7 +38,12 @@ struct TriTriContactData {
         DRAKE_DEMAND(typeB == FeatureType::kEdge ||
                      typeB == FeatureType::kFace);
         if (typeB == FeatureType::kEdge) {
-          // TODO: Compute the cross product between the two edges.
+          // Compute the cross product between the two edges.
+          auto edgeA = tA->get_edge(reinterpret_cast<long>(feature_A_id)); 
+          auto edgeB = tB->get_edge(reinterpret_cast<long>(feature_B_id));
+          const Vector3<T> vA = (edgeA.second - edgeA.first).normalized();
+          const Vector3<T> vB = (edgeB.second - edgeB.first).normalized();
+          return vA.cross(vB).normalized(); 
         } else {
           return poseB.linear() * tB->CalcNormal();
         }
@@ -61,38 +67,49 @@ struct TriTriContactData {
       const Isometry3<T>& poseA, const Isometry3<T>& poseB,
       std::vector<Vector3<T>>* points) const {
     DRAKE_DEMAND(points);
-    DRAKE_DEMAND(points->is_empty());
+    DRAKE_DEMAND(points->empty());
+
+    // TODO: Compute tolerance in an informed manner.
+    const T tol = std::numeric_limits<double>::epsilon();
 
     // Points calculated from intersections.
     Vector2<T> isects[6];
 
     // Get the projection matrix.
-    const auto P = math::DetermineProjectionMatrix3dTo2d(normal);
+    const auto P = math::Determine3dTo2dProjectionMatrix(normal);
 
     switch (typeA) {
       case FeatureType::kVertex:  { 
         DRAKE_DEMAND(typeB == FeatureType::kFace);
 
         // Get the triangle and the vector representing the vertex.
+        const Vector3<T>& v = tA->get_vertex(
+            reinterpret_cast<long>(feature_A_id)); 
+        const Triangle3<T>& t = *tB; 
 
         // Project the vertex and the triangle to the contact plane. 
         const Vector2<T> v_2d = P * v;
         const Triangle2<T> t_2d = t.ProjectTo2d(P);
 
         // Only process points that lie within the projected triangle.
-        if (t_2d.PointInside(v_2d)) {
+        if (t_2d.PointInside(v_2d))
           points->push_back(Unproject(normal, P, offset, v_2d));
-          return;
-        }
+        return;
+      }
 
       case FeatureType::kEdge:
         if (typeB == FeatureType::kEdge) {
+          // Get the two edges.
+          auto edgeA = tA->get_edge(reinterpret_cast<long>(feature_A_id)); 
+          auto edgeB = tB->get_edge(reinterpret_cast<long>(feature_B_id)); 
+
           // Project each edge to 2D.
+          auto eA_2d = std::make_pair(P * edgeA.first, P * edgeA.second);
+          auto eB_2d = std::make_pair(P * edgeB.first, P * edgeB.second);
 
           // Intersect the two line segments together.
-          Triangle2<T>::SegSegIntersectType intersect_code = 
-            Triangle2<T>::IntersectSegs(std::make_pair(vA1_2d, vA2_2d),
-                                        std::make_pair(vB1_2d, vB2_2d),
+          typename Triangle2<T>::SegSegIntersectType intersect_code = 
+            Triangle2<T>::IntersectSegs(eA_2d, eB_2d,
                                         &isects[0], &isects[1]);
 
           switch (intersect_code) {
@@ -116,11 +133,13 @@ struct TriTriContactData {
           DRAKE_DEMAND(typeB == FeatureType::kFace);
 
           // Project the edge and the face to the contact plane.
-          const Triangle2<T> tB_2d = tB.ProjectTo2d(P);
+          auto edge = tA->get_edge(reinterpret_cast<long>(feature_A_id));
+          auto e_2d = std::make_pair(P * edge.first, P * edge.second);
+          const Triangle2<T> tB_2d = tB->ProjectTo2d(P);
 
           // Intersect the triangle with the line segment.
-          Triangle2<T>::SegTriIntersectType intersect_type = tB_2d.Intersect(
-              std::make_pair(vA1_2d, vA2_2d), tol, &isects[0], &isects[1]); 
+          typename Triangle2<T>::SegTriIntersectType intersect_type =
+              tB_2d.Intersect(e_2d, tol, &isects[0], &isects[1]); 
 
           switch (intersect_type) {
             case Triangle2<T>::kSegSegVertex:
@@ -147,6 +166,9 @@ struct TriTriContactData {
       case FeatureType::kFace:
         if (typeB == FeatureType::kVertex) {
           // Get the triangle and the vector representing the vertex.
+          const Triangle3<T>& t = *tA; 
+          const Vector3<T>& v = tB->get_vertex(
+              reinterpret_cast<long>(feature_B_id)); 
 
           // Project the vertex and the triangle to the contact plane. 
           const Vector2<T> v_2d = P * v;
@@ -160,11 +182,13 @@ struct TriTriContactData {
         } else {
           if (typeB == FeatureType::kEdge) {
             // Project the edge and the face to the contact plane.
-            const Triangle2<T> tA_2d = tA.ProjectTo2d(P);
+            const Triangle2<T> tA_2d = tA->ProjectTo2d(P);
+            auto edge = tB->get_edge(reinterpret_cast<long>(feature_B_id)); 
+            auto e_2d = std::make_pair(P * edge.first, P * edge.second);
 
             // Intersect the triangle with the line segment.
-            Triangle2<T>::SegTriIntersectType intersect_type = tA_2d.Intersect(
-                std::make_pair(vB1_2d, vB2_2d), tol, &isects[0], &isects[1]); 
+            typename Triangle2<T>::SegTriIntersectType intersect_type =
+                tA_2d.Intersect(e_2d, tol, &isects[0], &isects[1]); 
 
             switch (intersect_type) {
               case Triangle2<T>::kSegSegVertex:
@@ -189,8 +213,8 @@ struct TriTriContactData {
             return;
           } else {
               // It is a face-face intersection. Project both triangles to 2D.
-              const Triangle2<T> tA_2d = tA.ProjectTo2d(P);
-              const Triangle2<T> tB_2d = tB.ProjectTo2d(P);
+              const Triangle2<T> tA_2d = tA->ProjectTo2d(P);
+              const Triangle2<T> tB_2d = tB->ProjectTo2d(P);
 
               // Intersect the two triangles and then unproject the vertices of 
               // the construction.
@@ -201,13 +225,12 @@ struct TriTriContactData {
             }
           }
         }
-      }
     }
 
  private:
   static Vector3<T> Unproject(
       const Vector3<T>& normal,
-      const Eigen::Matrix<T, 3, 2>& P, T offset, const Vector2<T>& p) {
+      const Eigen::Matrix<T, 2, 3>& P, T offset, const Vector2<T>& p) {
     return P.transpose() * p + normal*offset;
   }
 };

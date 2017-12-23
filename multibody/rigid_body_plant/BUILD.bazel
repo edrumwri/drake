@@ -57,7 +57,9 @@ drake_cc_library(
     srcs = ["tri_tri_contact_data.cc"],
     hdrs = ["tri_tri_contact_data.h" ],
     deps = [
+        ":triangle",
         "//drake/common",
+        "//drake/math:project_3d_to_2d",
     ],
 )
 

@@ -11,7 +11,7 @@ namespace math {
 /// Determines a projection matrix for projecting points from 3D to 2D.
 /// @param normal A normal to a plane to which the points will be projected.
 template <class T>
-Eigen::Matrix<T, 2, 3> DetermineProjectionMatrix3dTo2d(
+Eigen::Matrix<T, 2, 3> Determine3dTo2dProjectionMatrix(
     const Vector3<T>& normal) {
   using std::abs; 
 

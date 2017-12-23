@@ -581,27 +581,86 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
   EXPECT_TRUE(CompareMatrices(updates->get_vector(0).CopyToVector(), xn));
 }
 
-class TestSustainedContact : public ::testing::Test {
+class PolygonalContactTest : public ::testing::Test {
  protected:
   void SetUp() {
-    // Read in the box.
+    // Step size is arbitrarily chosen.
+    const double step_size = 1e-3;
 
-    // Read in the ground "plane" (a big triangle).
+    // Read in the box.
+    auto tree = std::make_unique<RigidBodyTree<double>>();
+    AddModelInstancesFromSdfFile(
+        FindResourceOrThrow(
+            "drake/multibody/rigid_body_plant/test/box.sdf"),
+        kQuaternion, nullptr /* weld to frame */, tree.get());
+
+    // Add the triangle terrain.
+    AddBigTriangleTerrainToWorld(tree.get());
+
+    // Create the plant.
+    plant_ = std::make_unique<RigidBodyPlant<double>>(move(tree), step_size);
+
+    // Create the context.
+    context_ = plant_->CreateDefaultContext();
 
     // Set the contact features by calling the appropriate method in
     // RigidBodyPlant.
+    plant_->DetermineContactFeatures(context_.get_mutable_state());
 
-    // Create a diagram?
+    // Set the contact material.
+    const double stiffness = 1e12;
+    const double dissipation = 0;
+    const double mu_static = 0, mu_dynamic = 0;
+    CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+    plant_->compliant_contact_model_->set_default_material(material);
 
-    // Set the initial velocity for the box to move to the right.
-
+    // Set the initial velocity for the box to move horizontally. 
+    VectorX<double> x = plant_->get_state_vector(*context_);
+    x[11] = 1.0;
+    plant_->set_state_vector(context_->get_mutable_state(), x);
   }
+
+  void AddBigTriangleTerrainToWorld(RigidBodyTreed* tree) {
+    const double box_length = 10000;
+    const double box_depth = 1e-4;  // Only used for visualization.
+    const DrakeShapes::Box box_geom(Eigen::Vector3d(edge_length, edge_length,
+        box_depth));
+    Eigen::Isometry3d T_element_to_link = Eigen::Isometry3d::Identity();
+    T_element_to_link.translation() << 0, 0, 0;
+    RigidBody<double>& world = tree->world();
+
+    // Defines a color called "desert sand" according to htmlcsscolor.com.
+    Eigen::Vector4d color;
+    color << 0.9297, 0.7930, 0.6758, 1;
+
+    // The world element is easy.
+    world.AddVisualElement(
+        DrakeShapes::VisualElement(box_geom, T_element_to_link, color));
+
+    // The triangle terrain is almost as easy.
+    const DrakeShapes::Mesh mesh_geom("",
+        "drake/multibody/rigid_body_plant/test/plane.obj");
+    tree->addCollisionElement(
+        multibody::collision::Element(mesh_geom, T_element_to_link, &world),
+        world, "terrain");
+    tree->compile();
+  }
+
+  std::unique_ptr<RigidBodyPlant<double>> plant_;
+  std::unique_ptr<Context<double>> context_;
 };
 
-TEST_F(TestSustainedContact, BigTriangle) {
+TEST_F(PolygonalContactTest, BigTriangle) {
   // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
 
   // Verify that the box has remained on the ground plane. 
+  const auto x = plant_->get_state_vector(context);
+  const double tol = 10 * std::numeric_limits<double>::epsilon();
+  EXPECT_NEAR(x[3], tol);
 }
 
 }  // namespace

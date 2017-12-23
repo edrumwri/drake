@@ -1,0 +1,39 @@
+<?xml version="1.0" ?>
+<sdf version="1.4">
+  <model name="box">
+    <pose>0 0 0 0 0 0</pose>
+    <link name="box">
+      <pose>0 0 0 0 0 0</pose>
+        <inertial>
+          <mass>5.</mass>
+          <!-- These values are set using inertia matrix values for a box
+               with size 0.05 and mass 5.0, keeping in mind that the geometry
+               is that of a box. -->
+          <inertia>
+            <ixx>.005</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>.005</iyy>
+            <iyz>0</iyz>
+            <izz>.005</izz>
+        </inertia>
+        </inertial>
+      <visual name="box">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.05 0.05 0.05</size>
+          </box>
+        </geometry>
+        <material/>
+      </visual>
+      <collision name="box">
+        <geometry>
+          <mesh>
+            <filename>box.obj</filename>
+          </mesh>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
