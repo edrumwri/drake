@@ -1,6 +1,6 @@
 #pragma once
 
-#include "drake/multibody/rigid_body_plant/triangle3.h"
+#include "drake/multibody/rigid_body_plant/triangle.h"
 
 namespace drake {
 namespace multibody {
@@ -19,6 +19,9 @@ class Trimesh {
     DRAKE_DEMAND(index < tris_.size() && index >= 0); 
     return tris_[index];
   } 
+
+  /// Gets the number of triangles.
+  int num_triangles() const { return static_cast<int>(tris_.size()); }
  
  private:
   // Vector of triangles.

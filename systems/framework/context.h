@@ -60,7 +60,7 @@ class Context {
   }
 
   /// Gets the time of the last discrete update, if any.
-  const T& get_last_discrete_update_time() {
+  const T& get_last_discrete_update_time() const {
       return get_step_info().last_discrete_update_time_sec;
   }
 

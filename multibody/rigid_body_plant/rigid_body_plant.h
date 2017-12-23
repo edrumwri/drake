@@ -11,6 +11,8 @@
 #include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
+#include "drake/multibody/rigid_body_plant/trimesh.h"
+#include "drake/multibody/rigid_body_plant/trimesh_coldet.h"
 #include "drake/multibody/rigid_body_tree.h"
 #include "drake/systems/framework/leaf_system.h"
 
@@ -337,7 +339,7 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   std::unique_ptr<ContinuousState<T>> AllocateContinuousState() const override;
   std::unique_ptr<DiscreteValues<T>> AllocateDiscreteState() const override;
-  std::unique_ptr<AbstractValues<T>> AllocateAbstractState() const override;
+  std::unique_ptr<AbstractValues> AllocateAbstractState() const override;
 
   // System<T> overrides.
 
@@ -384,7 +386,13 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class PolgonalContactTest;
   friend class PolgonalContactTest_BigTriangle_Test;
   OutputPortIndex DeclareContactResultsOutputPort();
-  void DetermineContactFeatures(State<T>* state) const;
+  void DetermineContacts(
+      const Context<T>& context,
+      std::vector<multibody::collision::PointPair>* contacts) const;
+  void DetermineContactingFeatures(
+      const Context<T>& context,
+      const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
+      State<T>* state) const;
 /*
   void DoCalcNextUpdateTime(
       const systems::Context<T>& context,
@@ -456,6 +464,12 @@ class RigidBodyPlant : public LeafSystem<T> {
   // timestep == 0.0 implies continuous-time dynamics,
   // timestep > 0.0 implies a discrete-time dynamics approximation.
   const double timestep_{0.0};
+
+  // Mappings of rigid bodies to meshes.
+  std::map<RigidBody<T>*, multibody::Trimesh<T>> meshes_;
+
+  // Collision detection method.
+  mutable multibody::TrimeshColdet<T> collision_detection_;
 
   // Maps model instance ids to input port indices.  A value of
   // kInvalidPortIdentifier indicates that a model instance has no actuators,

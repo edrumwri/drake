@@ -1,7 +1,7 @@
 #pragma once
 
 #include "drake/common/eigen_types.h"
-#include "drake/multibody/rigid_body_plant/triangle3.h"
+#include "drake/multibody/rigid_body_plant/triangle.h"
 
 namespace drake {
 namespace multibody {

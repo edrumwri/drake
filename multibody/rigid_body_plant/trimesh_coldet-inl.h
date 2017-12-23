@@ -229,7 +229,7 @@ void TrimeshColdet<T>::CalcIntersections(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
     const std::set<std::pair<int, int>>& candidate_tris,
-    std::vector<multibody::TriTriContactData>* contacts) const {
+    std::vector<TriTriContactData<T>>* contacts) const {
   using std::sqrt;
 
   DRAKE_DEMAND(contact_data && contact_data->empty());
@@ -253,10 +253,6 @@ void TrimeshColdet<T>::CalcIntersections(
   Vector3<T> Aa, Ab, Ac, Ba, Bb, Bc;
   Triangle3<T> tA(&Aa, &Ab, &Ac);
   Triangle3<T> tB(&Ba, &Bb, &Bc);
-
-  // TODO: we also need to store contact data for (a) the IDs of the triangles
-  // newly determined to be in contact and (b) features of the triangles (both
-  // so we can track which features are in contact, and which features aren't).
 
   // Get the distance between each pair of triangles.
   for (int i = 0; i < candidate_tris.size(); ++i) {
@@ -331,7 +327,7 @@ void TrimeshColdet<T>::CalcIntersections(
       switch (pA.size()) {
         case 1: {
           // Record the contact data.
-          contacts->push_back(TriTriContactData());
+          contacts->push_back(TriTriContactData<T>());
           contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
           contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
           contacts->back().feature_A_id = static_cast<void*>(pA[0]);
@@ -351,7 +347,7 @@ void TrimeshColdet<T>::CalcIntersections(
                                tB.get_vertex(pB.back())), normal);
             
             // Record the contact data.
-            contacts->push_back(TriTriContactData());  
+            contacts->push_back(TriTriContactData<T>());  
             contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
             contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
             contacts->back().feature_A_id = GetEdgeIndex(
@@ -367,7 +363,7 @@ void TrimeshColdet<T>::CalcIntersections(
             // Edge/face case. Intersect the edge with the projected triangle.
 
             // Record the contact data.
-            contacts->push_back(TriTriContactData());  
+            contacts->push_back(TriTriContactData<T>());  
             contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
             contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
             contacts->back().feature_A_id = GetEdgeIndex(
@@ -382,7 +378,7 @@ void TrimeshColdet<T>::CalcIntersections(
         case 3: {
           if (pB.size() == 1) {
             // Record the contact data.
-            contacts->push_back(TriTriContactData());  
+            contacts->push_back(TriTriContactData<T>());  
             contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
             contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
             contacts->back().feature_B_id = static_cast<void*>(
@@ -393,7 +389,7 @@ void TrimeshColdet<T>::CalcIntersections(
             // Edge / face. Intersect the edge with the projected triangle.
             if (pB.size() == 2) {
               // Record the contact data.
-              contacts->push_back(TriTriContactData());  
+              contacts->push_back(TriTriContactData<T>());  
               contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
               contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
               contacts->back().feature_B_id = GetEdgeIndex(
@@ -403,7 +399,7 @@ void TrimeshColdet<T>::CalcIntersections(
               contacts->back().typeB = FeatureType::kEdge;
             } else {
               // Record the contact data.
-              contacts->push_back(TriTriContactData());  
+              contacts->push_back(TriTriContactData<T>());  
               contacts->back().tA = &mA.get_triangle(candidate_tris[i].first); 
               contacts->back().tB = &mB.get_triangle(candidate_second[i].first);
               contacts->back().typeA = FeatureType::kFace;

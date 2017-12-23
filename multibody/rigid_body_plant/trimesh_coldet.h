@@ -6,6 +6,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/rigid_body_plant/aabb.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
+#include "drake/multibody/rigid_body_plant/tri_tri_contact_data.h"
 
 namespace drake {
 namespace multibody {
@@ -19,7 +20,8 @@ class TrimeshColdet {
   void CalcIntersections(
                  const Trimesh<T>& mA,
                  const Trimesh<T>& mB,
-                 const std::vector<std::pair<int, int>>& pairs_to_check) const;
+                 const std::vector<std::pair<int, int>>& pairs_to_check,
+                 std::vector<TriTriContactData<T>>* contacts) const;
   void UpdateAABBs(const Trimesh<T>& mesh, const Isometry3<T>& wTm);
   void UpdateBroadPhaseStructs();
   void DoBroadPhase(const Trimesh<T>& mA, const Trimesh<T>& mB,

@@ -77,7 +77,7 @@ drake_cc_library(
     deps = [
         ":aabb",
         ":trimesh",
-        ":triangle2",
+        ":triangle",
         "//drake/common",
     ],
 )
@@ -127,6 +127,8 @@ drake_cc_library(
     deps = [
         ":compliant_contact_model",
         ":tri_tri_contact_data",
+        ":trimesh",
+        ":trimesh_coldet",
         "//drake/common:copyable_unique_ptr",
         "//drake/common:essential",
         "//drake/math:orthonormal_basis",

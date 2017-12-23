@@ -43,6 +43,19 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
                                     &RigidBodyPlant::CopyStateToOutput)
           .get_index();
   ExportModelInstanceCentricPorts();
+
+  // Build custom meshes.
+  for (int i = 0; i < static_cast<int>(tree_->bodies.size()); ++i) {
+    RigidBody<T>& body = *tree_->bodies[i];
+    auto collision_element_iterator = body.collision_elements_begin();
+    while (collision_element_iterator != body.collision_elements_end()) {
+      // Get the geometry and make sure that it is a triangle mesh.
+      const auto& geometry = (*collision_element_iterator)->getGeometry();
+
+      // 
+    }
+  }
+
   // Declares an abstract valued output port for kinematics results.
   kinematics_output_port_index_ =
       this->DeclareAbstractOutputPort(
@@ -975,6 +988,59 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   }
 }
 */
+// Determines closest (contacting) features after the signed distance witness
+// function triggered.
+template <class T>
+void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
+  const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
+  State<T>* state) const {
+  // The stub below simply looks at triangles that are sufficiently close.
+  // For testing, we're assuming exactly two triangle meshes.
+  DRAKE_DEMAND(meshes_.size() == 2);
+
+  // Get the triangle/triangle feature data from the abstract state.
+  std::vector<multibody::TriTriContactData<T>>& contacting_features =
+      state->get_mutable_abstract_state().get_mutable_value(0).template
+          GetMutableValue<std::vector<multibody::TriTriContactData<T>>>();
+
+  // Get the two meshes.
+  auto mesh_iter = meshes_.begin();
+  const multibody::Trimesh<T>& mA = mesh_iter->second;
+  mesh_iter++;
+  const multibody::Trimesh<T>& mB = mesh_iter->second;
+
+  // Loop through all pairs of triangle indices from each mesh.
+  std::vector<std::pair<int, int>> candidate_tris;
+  for (int i = 0; i < mA.num_triangles(); ++i) {
+    for (int j = 0; j < mB.num_triangles(); ++j)
+      candidate_tris.push_back(std::make_pair(i, j));
+  }
+
+  // TODO: Set the poses for the meshes.
+
+  // Compute the intersections.
+  collision_detection_.CalcIntersections(
+      mA, mB, candidate_tris, &contacting_features);
+
+  // TODO: Replace the stub above with the correct code (which was started to
+  // be fleshed out below).
+/*
+  // Loop through all unrestricted update events.
+  for (int i = 0; i < static_cast<int>(events.size()); ++i) {
+    // Only process witness function triggers.
+    if (events[i]->get_trigger_type() != Event<T>::TriggerType::kWitness)
+      continue;
+
+    // Get the triggering information.
+    const RigidBodyPlantEventTriggerInfo& trigger_info = events[i]->template get_attribute<RigidBodyPlantEventTriggerInfo>();
+    
+    // Verify that the witness that triggered was a signed distance
+    // witness. 
+  }
+*/
+
+}
+
 // Gets points of contact using contacting features.
 template <class T>
 void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
@@ -983,9 +1049,9 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   DRAKE_DEMAND(contacts->empty());
 
   // Get contact features from the context.
-  const std::vector<TriTriContactData>& contacting_features =
+  const std::vector<multibody::TriTriContactData<T>>& contacting_features =
       context.get_abstract_state().get_value(0).
-          template GetValue<std::vector<TriContactData>>();
+          template GetValue<std::vector<multibody::TriTriContactData<T>>>();
 
   // TODO: Determine the contact plane(s).
 
@@ -993,18 +1059,17 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
 
   // TODO: Compute the point(s) of contact, normal, and signed distance for each
   // feature pair.
+  std::vector<Vector3<T>> points;
   for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
-    
-  }
-}
+    // Determine the contact points.
+    points.clear();
+//    contacting_features[i].DetermineContactPoints(
+//        normal, offset, poseA, poseB, &points);
 
-// Saves the contact features upon the signed distance witness function
-// triggering.
-// TODO: Can we get the witness function to tell us which features are
-// contacting?
-template <class T>
-void RigidBodyPlant<T>::AddContactFeaturesToState(
-    const Context<T>& context, State<T>* state) const {
+    // TODO: Create the contact(s).
+    for (int j = 0; j < static_cast<int>(points.size()); ++j) {
+    }
+  }
 }
 
 template <typename T>
@@ -1064,12 +1129,9 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
       -tree.dynamicsBiasTerm(kinematics_cache, no_external_wrenches);
   if (num_actuators > 0) right_hand_side += tree.B * u;
 
-  // TODO: Get the set of contacts from the abstract state.
-
-  // Determine the set of contact points corresponding to the current q.
-  std::vector<drake::multibody::collision::PointPair> contacts =
-      const_cast<RigidBodyTree<T>*>(&tree)->ComputeMaximumDepthCollisionPoints(
-          kinematics_cache, true);
+  // Get the set of contacts from the abstract state.
+  std::vector<drake::multibody::collision::PointPair> contacts;
+  DetermineContacts(context, &contacts);
 
   // Set the stabilization term for contact normal direction (kN). Also,
   // determine the friction coefficients and (half) the number of friction cone
@@ -1282,6 +1344,7 @@ int RigidBodyPlant<T>::FindInstancePositionIndexFromWorldIndex(
   return world_position_index - instance_positions.first;
 }
 
+/*
 // Gets modified poses for each rigid body based on the active contact
 // constraints.
 template <typename T>
@@ -1296,6 +1359,7 @@ void RigidBodyPlant<T>::ComputePoses(
   // TODO: Use contact planes and distance between closest features to determine
   // the signed distance. 
 } 
+*/
 
 template <typename T>
 void RigidBodyPlant<T>::DoMapQDotToVelocity(
@@ -1469,14 +1533,14 @@ template <typename T>
 std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
     const {
   // Only allocate state if this is a time stepping system.
-  if () {
+  if (is_state_discrete()) {
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
-    abstract_data.push_back(
-        std::make_unique<std::vector<Value<TriTriContactData>>>());
+    abstract_data.push_back(std::make_unique<
+        std::vector<Value<multibody::TriTriContactData<T>>>>());
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
-    return std::make_unique<AbstractValue>();
+    return std::make_unique<AbstractValues>();
   }
 }
 
