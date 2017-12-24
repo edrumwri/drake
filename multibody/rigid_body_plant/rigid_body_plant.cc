@@ -1063,7 +1063,6 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
       mA, mB, candidate_tris, &contacting_features);
 
   // Update contacting features with rigid bodies.
-  DRAKE_DEMAND(contacting_features.size() <= 1);
   for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
     contacting_features[i].idA = elmA;
     contacting_features[i].idB = elmB;
@@ -1128,7 +1127,7 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
     T signed_distance = contacting_features[i].DetermineContactPoints(
         normal, wTa, wTb, &points);
 
-    // TODO: Create the contact(s).
+    // Create the contact(s).
     for (int j = 0; j < static_cast<int>(points.size()); ++j) {
       contacts->push_back(multibody::collision::PointPair());
       contacts->back().elementA = contacting_features[i].idA;
@@ -1156,10 +1155,13 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // Get the time step.
   double dt = context.get_time() - context.get_last_discrete_update_time();
-dt = timestep_;
-//  DRAKE_DEMAND(dt > 0.0);
 
-std::cerr << "dt: " << dt << std::endl;
+  // TODO: Remove the hack below and re-enable the check for positive dt when
+  // CalcNextUpdateTime() is repaired.
+  if (dt == 0.0)
+    dt = timestep_;
+  std::cerr << "dt: " << dt << std::endl;
+//  DRAKE_DEMAND(dt > 0.0);
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
 

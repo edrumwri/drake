@@ -309,10 +309,11 @@ void TrimeshColdet<T>::CalcIntersections(
     const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);  
 
     // Get the distance between the two triangles.
+    // TODO: Investigate why square distance return value not sufficiently
+    // accurate.
     Vector3<T> closest_on_tA, closest_on_tB;
-    const T square_distance = tA.CalcSquareDistance(
-        tB, &closest_on_tA, &closest_on_tB); 
-    const T tri_distance = sqrt(square_distance);
+    tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB); 
+    const T tri_distance = (closest_on_tA - closest_on_tB).norm();
 
     // See whether the distance is sufficiently small.
     if (tri_distance < intersecting_threshold) {
@@ -350,7 +351,7 @@ void TrimeshColdet<T>::CalcIntersections(
       // of points that lie within the tolerance away.
       std::vector<int> pA, pB;
       project_and_store(tA, &pA);
-      project_and_store(tB, &pA);
+      project_and_store(tB, &pB);
 
       // Degenerate cases that we can reject immediately: nothing/anything,
       // vertex/vertex and vertex edge.

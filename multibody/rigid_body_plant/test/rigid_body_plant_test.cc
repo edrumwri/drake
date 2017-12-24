@@ -590,7 +590,7 @@ class PolygonalContactTest : public ::testing::Test {
  protected:
   void SetUp() {
     // Step size is arbitrarily chosen.
-    const double step_size = 1e-3;
+    const double step_size = 1e-1;
 
     // Read in the box.
     auto tree = std::make_unique<RigidBodyTree<double>>();
@@ -612,7 +612,7 @@ class PolygonalContactTest : public ::testing::Test {
     // box not contact the plane. 
     VectorX<double> x = plant_->get_state_vector(*context_);
     x[11] = 1.0;
-    x[2] = 1e-8;
+    x[2] = 1e-10;
     plant_->set_state_vector(&context_->get_mutable_state(), x);
   }
 
@@ -666,9 +666,10 @@ TEST_F(PolygonalContactTest, BigTriangle) {
   Context<double>& context = simulator.get_mutable_context();
   simulator.StepTo(target_time);
 
-  // Verify that the box has remained on the ground plane. 
+  // Verify that the box has essentially remained on the ground plane. Note
+  // that the expected position after 1s with no constraints is -g/2 m.
   const auto x = plant_->get_state_vector(context);
-  const double tol = 10 * std::numeric_limits<double>::epsilon();
+  const double tol = 2e-6;
   EXPECT_NEAR(x[2], 0, tol);
 }
 

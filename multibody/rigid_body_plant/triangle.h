@@ -57,6 +57,8 @@ class Triangle2 {
   Triangle2(const Vector2<T>& a,
      const Vector2<T>& b,
      const Vector2<T>& c) : a_(a), b_(b), c_(c) {
+    if (!ccw())
+      std::swap(b_, c_);
     DRAKE_ASSERT(ccw());
   }
 
