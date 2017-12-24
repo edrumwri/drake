@@ -44,36 +44,42 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
           .get_index();
   ExportModelInstanceCentricPorts();
 
-  // Build custom meshes.
-  for (int i = 0; i < static_cast<int>(tree_->bodies.size()); ++i) {
-    RigidBody<T>& body = *tree_->bodies[i];
-    auto collision_element_iterator = body.collision_elements_begin();
-    while (collision_element_iterator != body.collision_elements_end()) {
-      // Get the geometry and make sure that it is a triangle mesh.
-      const auto& geometry = (*collision_element_iterator)->getGeometry();
-      if (!geometry.hasFaces()) {
-        std::cerr << "Warning! Geometry does not have faces!" << std::endl;
+  if (is_state_discrete()) {
+    // Allocate temporary for storing discrete state in witness function
+    // isolation.
+    discrete_update_temporary_ = this->AllocateDiscreteVariables();
+
+    // Build custom meshes.
+    for (int i = 0; i < static_cast<int>(tree_->bodies.size()); ++i) {
+      RigidBody<T>& body = *tree_->bodies[i];
+      auto collision_element_iterator = body.collision_elements_begin();
+      while (collision_element_iterator != body.collision_elements_end()) {
+        // Get the geometry and make sure that it is a triangle mesh.
+        const auto& geometry = (*collision_element_iterator)->getGeometry();
+        if (!geometry.hasFaces()) {
+          std::cerr << "Warning! Geometry does not have faces!" << std::endl;
+          collision_element_iterator++;
+          continue;
+        }
+
+        // Get the vertices.
+        Eigen::Matrix3Xd points;
+        geometry.getPoints(points);
+        std::vector<Vector3<T>> vertices(points.cols());
+        for (int i = 0; i < static_cast<int>(points.cols()); ++i)
+          vertices[i] = points.col(i);
+
+        // Get the face indices.
+        DrakeShapes::TrianglesVector face_indices;
+        geometry.getFaces(&face_indices);
+
+        // Create a triangle mesh.
+        meshes_[*collision_element_iterator] =
+            multibody::Trimesh<T>(vertices, face_indices);
+
+        // Advance the iterator.
         collision_element_iterator++;
-        continue;
       }
-
-      // Get the vertices.
-      Eigen::Matrix3Xd points;
-      geometry.getPoints(points);
-      std::vector<Vector3<T>> vertices(points.cols());
-      for (int i = 0; i < static_cast<int>(points.cols()); ++i)
-        vertices[i] = points.col(i);
-
-      // Get the face indices.
-      DrakeShapes::TrianglesVector face_indices;
-      geometry.getFaces(&face_indices);
-
-      // Create a triangle mesh.
-      meshes_[*collision_element_iterator] =
-          multibody::Trimesh<T>(vertices, face_indices);
-
-      // Advance the iterator.
-      collision_element_iterator++;
     }
   }
 
@@ -935,9 +941,11 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
 
   // Create an unrestricted update event to change the contacts.
 }
+*/
 
 template <typename T>
 T RigidBodyPlant<T>::IsolateWitnessTriggers(
+    const Context<T>& context,
     const std::vector<const systems::WitnessFunction<T>*>& witnesses,
     const VectorX<T>& w0, const T& t0, const VectorX<T>& x0,
     const T& tf,
@@ -945,28 +953,33 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   // Verify that the vector of triggered witnesses is non-null.
   DRAKE_DEMAND(triggered_witnesses);
 
-  // Will need to alter the context repeatedly.
-  Context<T>& context = get_mutable_context();
+  // Clone the context.
+  context_clone_ = context.Clone();
 
-  // Get the witness isolation interval length.
-  const optional<T> witness_iso_len = GetCurrentWitnessTimeIsolation();
+  // TODO: Get the witness isolation interval length.
+  const optional<T> witness_iso_len = 1e-8;
+//  const optional<T> witness_iso_len = GetCurrentWitnessTimeIsolation();
 
   // Check whether witness functions *are* to be isolated. If not, the witnesses
   // that were triggered on entry will be the set that is returned.
+  const T inf = std::numeric_limits<double>::infinity();
   if (!witness_iso_len)
-    return;
+    return inf;
 
   // Mini function for stepping the system forward in time from t0.
   std::function<void(const T&)> step_forward =
-      [&t0, &x0, &context, this](const T& t_des) {
-    const T inf = std::numeric_limits<double>::infinity();
-    context.set_time(t0);
-    context.get_mutable_discrete_state(0).SetFromVector(x0);
+      [&t0, &x0, this](const T& t_des) {
+    context_clone_->set_time(t0);
+    context_clone_->get_mutable_discrete_state(0).SetFromVector(x0);
     T t_remaining = t_des - t0;
     while (t_remaining > 0) {
-      // TODO: step forward here.
-
-      t_remaining = t_des - context.get_time();
+      discrete_update_temporary_->CopyFrom(
+          context_clone_->get_discrete_state());
+      DoCalcDiscreteVariableUpdates(*context_clone_, {},
+          discrete_update_temporary_.get());
+      context_clone_->get_mutable_discrete_state().CopyFrom(
+          *discrete_update_temporary_);
+      t_remaining = t_des - context_clone_->get_time();
     }
   };
 
@@ -986,7 +999,7 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     // See whether any witness functions trigger.
     bool trigger = false;
     for (size_t i = 0; i < witnesses.size(); ++i) {
-      wc[i] = EvaluateWitness(context, *witnesses[i]);
+      wc[i] = this->EvaluateWitness(*context_clone_, *witnesses[i]);
       if (witnesses[i]->should_trigger(w0[i], wc[i]))
         trigger = true;
     }
@@ -995,7 +1008,7 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     if (!trigger) {
       SPDLOG_DEBUG(drake::log(), "No witness functions triggered up to {}", c);
       triggered_witnesses->clear();
-      return;
+      return c;
     } else {
       b = c;
     }
@@ -1007,8 +1020,10 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     if (witnesses[i]->should_trigger(w0[i], wc[i]))
       triggered_witnesses->push_back(witnesses[i]);
   }
+
+  return b;
 }
-*/
+
 // Determines closest (contacting) features after the signed distance witness
 // function triggered.
 template <class T>
@@ -1062,7 +1077,7 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
   collision_detection_.CalcIntersections(
       mA, mB, candidate_tris, &contacting_features);
 
-  // Update contacting features with rigid bodies.
+  // Update contacting features with elements.
   for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
     contacting_features[i].idA = elmA;
     contacting_features[i].idB = elmB;

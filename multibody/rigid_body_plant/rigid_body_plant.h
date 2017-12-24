@@ -384,6 +384,14 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
   friend class PolygonalContactTest_BigTriangle_Test;
+  T IsolateWitnessTriggers(
+      const Context<T>& context,
+      const std::vector<const WitnessFunction<T>*>& witnesses,
+      const VectorX<T>& w0,
+      const T& t0,
+      const VectorX<T>& x0,
+      const T& tf,
+      std::vector<const WitnessFunction<T>*>* triggered_witnesses) const;
   OutputPortIndex DeclareContactResultsOutputPort();
   void DetermineContacts(
       const Context<T>& context,
@@ -452,6 +460,10 @@ class RigidBodyPlant : public LeafSystem<T> {
       const std::vector<int>& half_num_cone_edges) const;
 
   std::unique_ptr<const RigidBodyTree<T>> tree_;
+
+  // Temporary data used for isolating witness function triggers.
+  mutable std::unique_ptr<DiscreteValues<T>> discrete_update_temporary_;
+  mutable std::unique_ptr<Context<T>> context_clone_;
 
   // Object that performs all constraint computations.
   multibody::constraint::ConstraintSolver<T> constraint_solver_;
