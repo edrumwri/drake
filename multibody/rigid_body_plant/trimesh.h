@@ -24,6 +24,13 @@ class Trimesh {
     ConstructTriangles(); 
   }
 
+  Trimesh& operator=(const Trimesh<T>& t) {
+    vertices_ = t.vertices_;
+    face_indices_ = t.face_indices_;
+    ConstructTriangles();
+    return *this; 
+  }
+
   /// Gets the requisite triangle. Aborts on index out of bound error.
   const Triangle3<T>& triangle(int i) const {
     DRAKE_DEMAND(i < face_indices_.size() && i >= 0); 

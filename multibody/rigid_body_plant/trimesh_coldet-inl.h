@@ -310,8 +310,9 @@ void TrimeshColdet<T>::CalcIntersections(
 
     // Get the distance between the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
-    T tri_distance = sqrt(tA.CalcSquareDistance(
-        tB, &closest_on_tA, &closest_on_tB)); 
+    const T square_distance = tA.CalcSquareDistance(
+        tB, &closest_on_tA, &closest_on_tB); 
+    const T tri_distance = sqrt(square_distance);
 
     // See whether the distance is sufficiently small.
     if (tri_distance < intersecting_threshold) {
