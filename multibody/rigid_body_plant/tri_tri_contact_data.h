@@ -3,6 +3,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
 #include "drake/math/project_3d_to_2d.h"
+#include "drake/multibody/collision/element.h"
 #include "drake/multibody/rigid_body_plant/triangle.h"
 
 namespace drake {
@@ -16,14 +17,14 @@ enum class FeatureType {
 
 template <class T>
 struct TriTriContactData {
-  void* idA;                // The identifier for geometry A.
-  void* idB;                // The identifier for geometry B.
-  FeatureType typeA;        // The feature in contact on geometry A.
-  FeatureType typeB;        // The feature in contact on geometry B.
-  void* feature_A_id;       // The identifier of the feature on geometry A.
-  void* feature_B_id;       // The identifier of the feature on geometry B.
-  const Triangle3<T>* tA;   // The triangle on geometry A.
-  const Triangle3<T>* tB;   // The triangle on geometry B.
+  const collision::Element* idA;  // The identifier for geometry A.
+  const collision::Element* idB;  // The identifier for geometry B.
+  FeatureType typeA;              // The feature in contact on geometry A.
+  FeatureType typeB;              // The feature in contact on geometry B.
+  void* feature_A_id;             // Identifier of the feature on geometry A.
+  void* feature_B_id;             // Identifier of the feature on geometry B.
+  const Triangle3<T>* tA;         // The triangle on geometry A.
+  const Triangle3<T>* tB;         // The triangle on geometry B.
 
   /// Gets the surface normal (pointing toward A).
   Vector3<T> GetSurfaceNormalExpressedInWorld(
@@ -62,8 +63,8 @@ struct TriTriContactData {
     }
   }
 
-  /// Gets the contact points.
-  void DetermineContactPoints(const Vector3<T>& normal, T offset,
+  /// Gets the contact points and returns the signed distance.
+  T DetermineContactPoints(const Vector3<T>& normal,
       const Isometry3<T>& poseA, const Isometry3<T>& poseB,
       std::vector<Vector3<T>>* points) const {
     DRAKE_DEMAND(points);
@@ -83,9 +84,17 @@ struct TriTriContactData {
         DRAKE_DEMAND(typeB == FeatureType::kFace);
 
         // Get the triangle and the vector representing the vertex.
-        const Vector3<T>& v = tA->get_vertex(
+        const Vector3<T> v = poseA * tA->get_vertex(
             reinterpret_cast<long>(feature_A_id)); 
-        const Triangle3<T>& t = *tB; 
+        const Vector3<T> v1 = poseB * tB->a();
+        const Vector3<T> v2 = poseB * tB->b();
+        const Vector3<T> v3 = poseB * tB->c();
+        Triangle3<T> t(&v1, &v2, &v3); 
+
+        // Determine the contact plane.
+        const T offA = normal.dot(v);
+        const T offB = normal.dot(t.a());
+        T offset = 0.5 * (offA + offB); 
 
         // Project the vertex and the triangle to the contact plane. 
         const Vector2<T> v_2d = P * v;
@@ -94,7 +103,8 @@ struct TriTriContactData {
         // Only process points that lie within the projected triangle.
         if (t_2d.PointInside(v_2d))
           points->push_back(Unproject(normal, P, offset, v_2d));
-        return;
+
+        return offA - offB;
       }
 
       case FeatureType::kEdge:
@@ -102,6 +112,17 @@ struct TriTriContactData {
           // Get the two edges.
           auto edgeA = tA->get_edge(reinterpret_cast<long>(feature_A_id)); 
           auto edgeB = tB->get_edge(reinterpret_cast<long>(feature_B_id)); 
+
+          // Transform the edges into the world.
+          edgeA.first = poseA * edgeA.first;
+          edgeA.second = poseA * edgeA.second;
+          edgeB.first = poseB * edgeB.first;
+          edgeB.second = poseB * edgeB.second;
+
+          // Determine the contact plane.
+          const T offA = normal.dot(edgeA.first);
+          const T offB = normal.dot(edgeB.first);
+          T offset = 0.5 * (offA + offB); 
 
           // Project each edge to 2D.
           auto eA_2d = std::make_pair(P * edgeA.first, P * edgeA.second);
@@ -129,13 +150,26 @@ struct TriTriContactData {
               // Do nothing.
               break;
           }
+
+          return offA - offB;
         } else {
           DRAKE_DEMAND(typeB == FeatureType::kFace);
 
           // Project the edge and the face to the contact plane.
           auto edge = tA->get_edge(reinterpret_cast<long>(feature_A_id));
+          edge.first = poseA * edge.first;
+          edge.second = poseA * edge.second;
           auto e_2d = std::make_pair(P * edge.first, P * edge.second);
-          const Triangle2<T> tB_2d = tB->ProjectTo2d(P);
+          const Vector3<T> v1 = poseB * tB->a();
+          const Vector3<T> v2 = poseB * tB->b();
+          const Vector3<T> v3 = poseB * tB->c();
+          Triangle3<T> t(&v1, &v2, &v3); 
+          const Triangle2<T> tB_2d = t.ProjectTo2d(P);
+
+          // Determine the contact plane.
+          const T offA = normal.dot(edge.first);
+          const T offB = normal.dot(t.a());
+          T offset = 0.5 * (offA + offB); 
 
           // Intersect the triangle with the line segment.
           typename Triangle2<T>::SegTriIntersectType intersect_type =
@@ -160,15 +194,24 @@ struct TriTriContactData {
               // Do nothing.
               break;
           }
+
+          return offA - offB;
         }
-        return;
 
       case FeatureType::kFace:
         if (typeB == FeatureType::kVertex) {
           // Get the triangle and the vector representing the vertex.
-          const Triangle3<T>& t = *tA; 
-          const Vector3<T>& v = tB->get_vertex(
+          const Vector3<T> v1 = poseA * tA->a();
+          const Vector3<T> v2 = poseA * tA->b();
+          const Vector3<T> v3 = poseA * tA->c();
+          Triangle3<T> t(&v1, &v2, &v3); 
+          const Vector3<T> v = poseB * tB->get_vertex(
               reinterpret_cast<long>(feature_B_id)); 
+
+          // Determine the contact plane.
+          const T offA = normal.dot(t.a());
+          const T offB = normal.dot(v);
+          T offset = 0.5 * (offA + offB); 
 
           // Project the vertex and the triangle to the contact plane. 
           const Vector2<T> v_2d = P * v;
@@ -177,14 +220,26 @@ struct TriTriContactData {
           // Only process points that lie within the projected triangle.
           if (t_2d.PointInside(v_2d)) {
             points->push_back(Unproject(normal, P, offset, v_2d));
-            return;
           }
+
+          return offA - offB;
         } else {
           if (typeB == FeatureType::kEdge) {
             // Project the edge and the face to the contact plane.
-            const Triangle2<T> tA_2d = tA->ProjectTo2d(P);
-            auto edge = tB->get_edge(reinterpret_cast<long>(feature_B_id)); 
+            const Vector3<T> v1 = poseA * tA->a();
+            const Vector3<T> v2 = poseA * tA->b();
+            const Vector3<T> v3 = poseA * tA->c();
+            const Triangle3<T> t(&v1, &v2, &v3); 
+            const Triangle2<T> tA_2d = t.ProjectTo2d(P);
+            auto edge = tB->get_edge(reinterpret_cast<long>(feature_B_id));
+            edge.first = poseB * edge.first;
+            edge.second = poseB * edge.second;
             auto e_2d = std::make_pair(P * edge.first, P * edge.second);
+
+            // Determine the contact plane.
+            const T offA = normal.dot(t.a());
+            const T offB = normal.dot(edge.first);
+            T offset = 0.5 * (offA + offB); 
 
             // Intersect the triangle with the line segment.
             typename Triangle2<T>::SegTriIntersectType intersect_type =
@@ -210,18 +265,32 @@ struct TriTriContactData {
                 break;
             }
 
-            return;
+            return offA - offB;
           } else {
               // It is a face-face intersection. Project both triangles to 2D.
-              const Triangle2<T> tA_2d = tA->ProjectTo2d(P);
-              const Triangle2<T> tB_2d = tB->ProjectTo2d(P);
+              const Vector3<T> vA1 = poseA * tA->a();
+              const Vector3<T> vA2 = poseA * tA->b();
+              const Vector3<T> vA3 = poseA * tA->c();
+              const Vector3<T> vB1 = poseB * tB->a();
+              const Vector3<T> vB2 = poseB * tB->b();
+              const Vector3<T> vB3 = poseB * tB->c();
+              const Triangle3<T> tA_3d(&vA1, &vA2, &vA3); 
+              const Triangle3<T> tB_3d(&vB1, &vB2, &vB3); 
+              const Triangle2<T> tA_2d = tA_3d.ProjectTo2d(P);
+              const Triangle2<T> tB_2d = tB_3d.ProjectTo2d(P);
+
+              // Determine the contact plane.
+              const T offA = normal.dot(tA_3d.a());
+              const T offB = normal.dot(tB_3d.a());
+              T offset = 0.5 * (offA + offB); 
 
               // Intersect the two triangles and then unproject the vertices of 
               // the construction.
               int num_intersections = tA_2d.Intersect(tB_2d, &isects[0]);
               for (int i = 0; i < num_intersections; ++i)
                 points->push_back(Unproject(normal, P, offset, isects[i]));
-              return;
+
+              return offA - offB;
             }
           }
         }

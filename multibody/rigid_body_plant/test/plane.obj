@@ -1,5 +1,3 @@
-mtllib ./box.obj.mtl
-
 # Vertices
 v -2500 0 0
 v 2500 0 0

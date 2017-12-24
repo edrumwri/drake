@@ -27,6 +27,11 @@ class TrimeshColdet {
   void DoBroadPhase(const Trimesh<T>& mA, const Trimesh<T>& mB,
                     std::vector<std::pair<int, int>>* to_check) const;
 
+  // TODO: Remove this method once UpdateAABBs() tested
+  void SetPose(const Trimesh<T>* trimesh, const Isometry3<T>& wTm) {
+    poses_[trimesh] = wTm;
+  } 
+
  private:
   // Structure for doing broad phase collision detection.
   struct BoundsStruct {

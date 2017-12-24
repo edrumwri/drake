@@ -16,6 +16,7 @@
 #include "drake/multibody/parsers/sdf_parser.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_tree_construction.h"
+#include "drake/systems/analysis/simulator.h"
 
 using Eigen::Isometry3d;
 using Eigen::Quaterniond;
@@ -32,6 +33,7 @@ using multibody::joints::kFixed;
 using multibody::joints::kQuaternion;
 using parsers::ModelInstanceIdTable;
 using parsers::sdf::AddModelInstancesFromSdfFile;
+using systems::Simulator;
 
 namespace systems {
 namespace {
@@ -272,7 +274,7 @@ TEST_P(KukaArmTest, SetDefaultState) {
 
   // Asserts that for this case the zero configuration corresponds to a state
   // vector with all entries equal to zero.
-  auto x = kuka_plant_->GetStateVector(*context_);
+  auto x = kuka_plant_->get_state_vector(*context_);
   ASSERT_EQ(kNumStates_, x.size());
   ASSERT_EQ(x, VectorXd::Zero(x.size()));
 }
@@ -326,7 +328,7 @@ TEST_P(KukaArmTest, EvalOutput) {
   }
   VectorXd desired_state(kNumStates_);
   desired_state << desired_angles, VectorXd::Zero(kNumVelocities_);
-  auto x = kuka_plant_->GetStateVector(*context_);
+  auto x = kuka_plant_->get_state_vector(*context_);
   ASSERT_EQ(x, desired_state);
 
   // Four output ports:
@@ -543,7 +545,6 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
   // Check that the time-stepping model has the same states as the continuous,
   // but as discrete state.
   EXPECT_TRUE(continuous_context->has_only_continuous_state());
-  EXPECT_TRUE(time_stepping_context->has_only_discrete_state());
   EXPECT_EQ(continuous_context->get_continuous_state().size(),
             time_stepping_context->get_discrete_state(0).size());
 
@@ -580,6 +581,10 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
 
   EXPECT_TRUE(CompareMatrices(updates->get_vector(0).CopyToVector(), xn));
 }
+}  // namespace
+
+// Note that the typical anonymous namespace cannot be used here, because the
+// testing namespace must be the same as the class namespace.
 
 class PolygonalContactTest : public ::testing::Test {
  protected:
@@ -603,25 +608,16 @@ class PolygonalContactTest : public ::testing::Test {
     // Create the context.
     context_ = plant_->CreateDefaultContext();
 
-    // Set the contact features by calling the appropriate method in
-    // RigidBodyPlant.
-    plant_->DetermineContactFeatures(context_.get_mutable_state());
-
-    // Set the contact material.
-    const double stiffness = 1e12;
-    const double dissipation = 0;
-    const double mu_static = 0, mu_dynamic = 0;
-    CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-    plant_->compliant_contact_model_->set_default_material(material);
-
-    // Set the initial velocity for the box to move horizontally. 
+    // Set the initial velocity for the box to move horizontally, and make the
+    // box not contact the plane. 
     VectorX<double> x = plant_->get_state_vector(*context_);
     x[11] = 1.0;
-    plant_->set_state_vector(context_->get_mutable_state(), x);
+    x[2] = 1e-8;
+    plant_->set_state_vector(&context_->get_mutable_state(), x);
   }
 
   void AddBigTriangleTerrainToWorld(RigidBodyTreed* tree) {
-    const double box_length = 10000;
+    const double edge_length = 10000;
     const double box_depth = 1e-4;  // Only used for visualization.
     const DrakeShapes::Box box_geom(Eigen::Vector3d(edge_length, edge_length,
         box_depth));
@@ -639,7 +635,7 @@ class PolygonalContactTest : public ::testing::Test {
 
     // The triangle terrain is almost as easy.
     const DrakeShapes::Mesh mesh_geom("",
-        "drake/multibody/rigid_body_plant/test/plane.obj");
+        FindResourceOrThrow("drake/multibody/rigid_body_plant/test/plane.obj"));
     tree->addCollisionElement(
         multibody::collision::Element(mesh_geom, T_element_to_link, &world),
         world, "terrain");
@@ -651,6 +647,19 @@ class PolygonalContactTest : public ::testing::Test {
 };
 
 TEST_F(PolygonalContactTest, BigTriangle) {
+  // Set the contact features by calling the appropriate method in
+  // RigidBodyPlant.
+  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
+  plant_->DetermineContactingFeatures(
+      *context_, events, &context_->get_mutable_state());
+
+  // Set the contact material.
+  const double stiffness = 1e12;
+  const double dissipation = 0;
+  const double mu_static = 0, mu_dynamic = 0;
+  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+  plant_->compliant_contact_model_->set_default_material(material);
+
   // Simulate the box forward by one second.
   const double target_time = 1.0;
   Simulator<double> simulator(*plant_, std::move(context_));
@@ -660,13 +669,8 @@ TEST_F(PolygonalContactTest, BigTriangle) {
   // Verify that the box has remained on the ground plane. 
   const auto x = plant_->get_state_vector(context);
   const double tol = 10 * std::numeric_limits<double>::epsilon();
-  EXPECT_NEAR(x[3], tol);
+  EXPECT_NEAR(x[2], 0, tol);
 }
-
-}  // namespace
-
-// Note that the typical anonymous namespace cannot be used here, because the
-// testing namespace must be the same as the class namespace.
 
 // Test fixture class for checking data used for time stepping. This test
 // uses a sphere resting on a fixed ground plane to determine contact Jacobians;

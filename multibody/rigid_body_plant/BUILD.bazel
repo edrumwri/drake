@@ -60,6 +60,7 @@ drake_cc_library(
         ":triangle",
         "//drake/common",
         "//drake/math:project_3d_to_2d",
+        "//drake/multibody/collision",
     ],
 )
 
@@ -332,6 +333,7 @@ drake_cc_googletest(
         "//drake/common/test_utilities:eigen_matrix_compare",
         "//drake/multibody:rigid_body_tree_construction",
         "//drake/multibody/parsers",
+        "//drake/systems/analysis:simulator",
     ],
 )
 

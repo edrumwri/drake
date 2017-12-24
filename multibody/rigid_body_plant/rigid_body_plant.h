@@ -383,8 +383,7 @@ class RigidBodyPlant : public LeafSystem<T> {
  private:
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
-  friend class PolgonalContactTest;
-  friend class PolgonalContactTest_BigTriangle_Test;
+  friend class PolygonalContactTest_BigTriangle_Test;
   OutputPortIndex DeclareContactResultsOutputPort();
   void DetermineContacts(
       const Context<T>& context,
@@ -466,7 +465,7 @@ class RigidBodyPlant : public LeafSystem<T> {
   const double timestep_{0.0};
 
   // Mappings of rigid bodies to meshes.
-  std::map<RigidBody<T>*, multibody::Trimesh<T>> meshes_;
+  std::map<multibody::collision::Element*, multibody::Trimesh<T>> meshes_;
 
   // Collision detection method.
   mutable multibody::TrimeshColdet<T> collision_detection_;

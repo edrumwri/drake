@@ -30,7 +30,7 @@
       <collision name="box">
         <geometry>
           <mesh>
-            <filename>box.obj</filename>
+            <uri>box.obj</uri>
           </mesh>
         </geometry>
       </collision>

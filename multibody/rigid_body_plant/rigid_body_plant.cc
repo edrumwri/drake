@@ -51,8 +51,29 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
     while (collision_element_iterator != body.collision_elements_end()) {
       // Get the geometry and make sure that it is a triangle mesh.
       const auto& geometry = (*collision_element_iterator)->getGeometry();
+      if (!geometry.hasFaces()) {
+        std::cerr << "Warning! Geometry does not have faces!" << std::endl;
+        collision_element_iterator++;
+        continue;
+      }
 
-      // 
+      // Get the vertices.
+      Eigen::Matrix3Xd points;
+      geometry.getPoints(points);
+      std::vector<Vector3<T>> vertices(points.cols());
+      for (int i = 0; i < static_cast<int>(points.cols()); ++i)
+        vertices[i] = points.col(i);
+
+      // Get the face indices.
+      DrakeShapes::TrianglesVector face_indices;
+      geometry.getFaces(&face_indices);
+
+      // Create a triangle mesh.
+      meshes_[*collision_element_iterator] =
+          multibody::Trimesh<T>(vertices, face_indices);
+
+      // Advance the iterator.
+      collision_element_iterator++;
     }
   }
 
@@ -1003,11 +1024,28 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
       state->get_mutable_abstract_state().get_mutable_value(0).template
           GetMutableValue<std::vector<multibody::TriTriContactData<T>>>();
 
+  // Build a kinematics cache.
+  const auto& tree = this->get_rigid_body_tree();
+  const int nq = this->get_num_positions();
+  const int nv = this->get_num_velocities();
+  auto x = context.get_discrete_state(0).get_value();
+  VectorX<T> q = x.topRows(nq);
+  VectorX<T> v = x.bottomRows(nv);
+  auto kinematics_cache = tree.doKinematics(q, v);
+
   // Get the two meshes.
   auto mesh_iter = meshes_.begin();
+  const multibody::collision::Element* elmA = mesh_iter->first;
+  const RigidBody<T>& rbA = *elmA->get_body();
   const multibody::Trimesh<T>& mA = mesh_iter->second;
   mesh_iter++;
+  const multibody::collision::Element* elmB = mesh_iter->first;
+  const RigidBody<T>& rbB = *elmB->get_body();
   const multibody::Trimesh<T>& mB = mesh_iter->second;
+
+  // Get poses for the meshes.
+  auto wTa = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
+  auto wTb = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
 
   // Loop through all pairs of triangle indices from each mesh.
   std::vector<std::pair<int, int>> candidate_tris;
@@ -1016,11 +1054,20 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
       candidate_tris.push_back(std::make_pair(i, j));
   }
 
-  // TODO: Set the poses for the meshes.
+  // Set the poses for the meshes.
+  collision_detection_.SetPose(&mA, wTa);
+  collision_detection_.SetPose(&mB, wTb);
 
   // Compute the intersections.
   collision_detection_.CalcIntersections(
       mA, mB, candidate_tris, &contacting_features);
+
+  // Update contacting features with rigid bodies.
+  DRAKE_DEMAND(contacting_features.size() <= 1);
+  for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
+    contacting_features[i].idA = elmA;
+    contacting_features[i].idB = elmB;
+  }  
 
   // TODO: Replace the stub above with the correct code (which was started to
   // be fleshed out below).
@@ -1053,21 +1100,43 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
       context.get_abstract_state().get_value(0).
           template GetValue<std::vector<multibody::TriTriContactData<T>>>();
 
-  // TODO: Determine the contact plane(s).
+  // Build a kinematics cache.
+  const auto& tree = this->get_rigid_body_tree();
+  const int nq = this->get_num_positions();
+  const int nv = this->get_num_velocities();
+  auto x = context.get_discrete_state(0).get_value();
+  VectorX<T> q = x.topRows(nq);
+  VectorX<T> v = x.bottomRows(nv);
+  auto kinematics_cache = tree.doKinematics(q, v);
 
-  // TODO: Compute poses for each rigid body.
-
-  // TODO: Compute the point(s) of contact, normal, and signed distance for each
+  // Compute the point(s) of contact, normal, and signed distance for each
   // feature pair.
   std::vector<Vector3<T>> points;
   for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
+    // Get poses for the meshes.
+    const RigidBody<T>& rbA = *contacting_features[i].idA->get_body();
+    const RigidBody<T>& rbB = *contacting_features[i].idB->get_body();
+    auto wTa = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
+    auto wTb = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
+
+    // Determine the contact plane.
+    auto normal = contacting_features[i].GetSurfaceNormalExpressedInWorld(
+        wTa, wTb);
+
     // Determine the contact points.
     points.clear();
-//    contacting_features[i].DetermineContactPoints(
-//        normal, offset, poseA, poseB, &points);
+    T signed_distance = contacting_features[i].DetermineContactPoints(
+        normal, wTa, wTb, &points);
 
     // TODO: Create the contact(s).
     for (int j = 0; j < static_cast<int>(points.size()); ++j) {
+      contacts->push_back(multibody::collision::PointPair());
+      contacts->back().elementA = contacting_features[i].idA;
+      contacts->back().elementB = contacting_features[i].idB;
+      contacts->back().ptA = wTa.inverse() * points[i];
+      contacts->back().ptB = wTb.inverse() * points[i];
+      contacts->back().normal = normal;
+      contacts->back().distance = signed_distance;
     }
   }
 }
@@ -1087,7 +1156,10 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
 
   // Get the time step.
   double dt = context.get_time() - context.get_last_discrete_update_time();
-  DRAKE_DEMAND(dt > 0.0);
+dt = timestep_;
+//  DRAKE_DEMAND(dt > 0.0);
+
+std::cerr << "dt: " << dt << std::endl;
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
 
