@@ -646,19 +646,19 @@ class PolygonalContactTest : public ::testing::Test {
   std::unique_ptr<Context<double>> context_;
 };
 
-TEST_F(PolygonalContactTest, BigTriangle) {
-  // Set the contact features by calling the appropriate method in
-  // RigidBodyPlant.
-  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
-  plant_->DetermineContactingFeatures(
-      *context_, events, &context_->get_mutable_state());
-
+TEST_F(PolygonalContactTest, BigTriangleSliding) {
   // Set the contact material.
   const double stiffness = 1e12;
   const double dissipation = 0;
   const double mu_static = 0, mu_dynamic = 0;
   CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
   plant_->compliant_contact_model_->set_default_material(material);
+
+  // Set the contact features by calling the appropriate method in
+  // RigidBodyPlant.
+  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
+  plant_->DetermineContactingFeatures(
+      *context_, events, &context_->get_mutable_state());
 
   // Simulate the box forward by one second.
   const double target_time = 1.0;
@@ -672,6 +672,41 @@ TEST_F(PolygonalContactTest, BigTriangle) {
   const double tol = 2e-6;
   EXPECT_NEAR(x[2], 0, tol);
 }
+
+TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
+  // Set the contact material.
+  const double stiffness = 1e12;
+  const double dissipation = 0;
+  const double mu_static = 0, mu_dynamic = 0;
+  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+  plant_->compliant_contact_model_->set_default_material(material);
+
+  // Set the contact features by calling the appropriate method in
+  // RigidBodyPlant.
+  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
+  plant_->DetermineContactingFeatures(
+      *context_, events, &context_->get_mutable_state());
+
+  // Set the initial velocity for the box to move upward, and make the
+  // box not contact the plane. 
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[12] = 100.0;
+  x[2] = 1e-10;
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
+
+  // Verify that the box has essentially remained on the ground plane. Note
+  // that the expected position after 1s with no constraints is -g/2 m.
+  x = plant_->get_state_vector(context);
+  const double tol = 2e-6;
+  EXPECT_NEAR(x[2], 0, tol);
+}
+
 
 // Test fixture class for checking data used for time stepping. This test
 // uses a sphere resting on a fixed ground plane to determine contact Jacobians;

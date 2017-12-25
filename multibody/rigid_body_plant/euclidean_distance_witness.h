@@ -1,18 +1,13 @@
 #pragma once
 
-#include "drake/multibody/constraint/point_contact.h"
-
-#include "drake/multibody/constraint/constraint_solver.h"
-#include "drake/systems/framework/abstract_values.h"
+#include "drake/multibody/collision/element.h"
+#include "drake/multibody/rigid_body_plant/trimesh.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
 
 namespace drake {
 namespace multibody {
-
-template <class T>
-class RigidBodyPlant;
 
 // A witness function for the minimum Euclidean distance, for two bodies,
 // between all triangles *not already determined to be intersecting*. This
@@ -23,15 +18,9 @@ class EuclideanDistanceWitnessFunction : public systems::AbstractValues,
                                          public systems::WitnessFunction<T> {
  public:
   EuclideanDistanceWitnessFunction(
-      const RigidBodyPlant<T>* rb_plant,
-      systems::WitnessFunctionDirection dir) :
-      systems::WitnessFunction<T>(*rb_plant, dir),
-      plant_(rb_plant) {
-/*
-    event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
-      systems::Event<T>::TriggerType::kWitness);
-*/
-  }
+      const systems::RigidBodyPlant<T>* rb_plant,
+      multibody::collision::Element* elementA,
+      multibody::collision::Element* elementB);
 
   /// Gets whether the witness function is active (default). If it is not
   /// active, it will not be used to track state changes.
@@ -41,12 +30,9 @@ class EuclideanDistanceWitnessFunction : public systems::AbstractValues,
   void set_enabled(bool flag) { enabled_ = flag; }
 
   /// Gets the plant.
-  const RigidBodyPlant<T>& get_plant() const { return *plant_; } 
+  const systems::RigidBodyPlant<T>& get_plant() const { return *plant_; } 
 
 /*
-  /// Gets the index of the contact candidate for this witness function.
-  int get_contact_index() const { return contact_index_; }
-
   /// The types of witness function.
   enum class WitnessType {
       /// The signed distance for a contact from the half-space.
@@ -72,49 +58,20 @@ class EuclideanDistanceWitnessFunction : public systems::AbstractValues,
   virtual WitnessType get_witness_function_type() const = 0; 
 */
  private:
-  T DoEvaluate(const systems::Context<T>& context) const override {
-    using std::sqrt;
-    using std::min;
+  T DoEvaluate(const systems::Context<T>& context) const override; 
 
-    // TODO: Pick a better value for this.
-    const double kInitialDistance = 1.0;
-
-    // Set the initial square distance.
-    double square_distance = kInitialDistance;
-
-    // Get all triangles currently considered to be contacting.
-
-    // Get all triangles that are sufficiently close (according to the broad
-    // phase check).
-
-    // Examine all candidate pairs.
-    for (int i = 0; i < static_cast<int>(candidate_pairs.size()); ++i) {
-      // If the candidate pair is already contacting, skip it.
-      if (contacting.find(candidate_pairs[i]) != contacting.end())
-        continue;
-
-      // Get the two triangles.
-
-      // Get the square distance between the triangles.
-
-      square_distance = min(square_distance, tri_square_dist);
-    }
-
-    return sqrt(square_distance);
-  }
-
-/*
   void DoAddEvent(systems::CompositeEventCollection<T>* events) const override {
     event_->set_attribute(
-        std::make_unique<systems::Value<const RodWitnessFunction<T>*>>(this));
+        std::make_unique<systems::Value<const systems::WitnessFunction<T>*>>(
+        this));
     event_->add_to_composite(events);
   }
 
   /// Unique pointer to the event.
   std::unique_ptr<systems::UnrestrictedUpdateEvent<T>> event_;
-*/
+
   /// Pointer to the plant.
-  const RigidBodyPlant<T>* plant_;
+  const systems::RigidBodyPlant<T>* plant_;
 
 /*
   /// Index of the contact point that this witness function applies to.
@@ -122,6 +79,14 @@ class EuclideanDistanceWitnessFunction : public systems::AbstractValues,
 */
   /// Whether the witness function is used to track state changes.
   bool enabled_{false};
+
+  // The two triangle meshes.
+  const multibody::Trimesh<T>* meshA_{nullptr};
+  const multibody::Trimesh<T>* meshB_{nullptr};
+
+  // The two elements for which the distance will be computed.
+  multibody::collision::Element* elementA_{nullptr};
+  multibody::collision::Element* elementB_{nullptr};
 };
 
 }  // namespace multibody 

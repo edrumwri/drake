@@ -119,10 +119,13 @@ drake_cc_library(
 drake_cc_library(
     name = "rigid_body_plant",
     srcs = [
+        "euclidean_distance_witness.cc",
         "kinematics_results.cc",
         "rigid_body_plant.cc",
     ],
     hdrs = [
+        "euclidean_distance_witness.h",
+        "euclidean_distance_witness-inl.h",
         "kinematics_results.h",
         "rigid_body_plant.h",
     ],

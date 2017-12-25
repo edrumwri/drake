@@ -17,6 +17,12 @@
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
+
+namespace multibody {
+    template <class T>
+    class EuclideanDistanceWitnessFunction;
+};
+
 namespace systems {
 
 /// This class provides a System interface around a multibody dynamics model
@@ -381,9 +387,20 @@ class RigidBodyPlant : public LeafSystem<T> {
       VectorBase<T>* generalized_velocity) const override;
 
  private:
+  friend class EuclideanDistanceWitnessFunction;
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
-  friend class PolygonalContactTest_BigTriangle_Test;
+  friend class PolygonalContactTest_BigTriangleSliding_Test;
+  friend class PolygonalContactTest_BigTriangleMovingUpward_Test;
+  std::vector<std::vector<std::unique_ptr<
+      multibody::EuclideanDistanceWitnessFunction<T>>>>
+      euclidean_distance_witnesses_;
+  std::vector<multibody::collision::Element*> GetElements() const;
+  void DoGetWitnessFunctions(
+      const Context<T>& context,
+      std::vector<const WitnessFunction<T>*>* witness_functions) const override;
+  void StepForward(const T& t0, const VectorX<T>& x0, const T& t_des,
+      Context<T>* context_clone) const;
   T IsolateWitnessTriggers(
       const Context<T>& context,
       const std::vector<const WitnessFunction<T>*>& witnesses,
@@ -400,12 +417,10 @@ class RigidBodyPlant : public LeafSystem<T> {
       const Context<T>& context,
       const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
       State<T>* state) const;
-/*
   void DoCalcNextUpdateTime(
-      const systems::Context<T>& context,
-      systems::CompositeEventCollection<T>* events,
+      const Context<T>& context,
+      CompositeEventCollection<T>* events,
       T* time) const override;
-*/
   // These four are the output port calculator methods.
   void CopyStateToOutput(const Context<T>& context,
                          BasicVector<T>* state_output_vector) const;
@@ -481,6 +496,10 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   // Collision detection method.
   mutable multibody::TrimeshColdet<T> collision_detection_;
+
+  // Determines whether a pair of collision elements is filtered.
+  std::set<std::pair<multibody::collision::Element*,
+                     multibody::collision::Element*>> collision_filtered_;
 
   // Maps model instance ids to input port indices.  A value of
   // kInvalidPortIdentifier indicates that a model instance has no actuators,

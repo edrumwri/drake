@@ -9,6 +9,7 @@
 
 #include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
+#include "drake/multibody/constraint/slack_variable_data.h"
 #include "drake/solvers/moby_lcp_solver.h"
 
 namespace drake {
@@ -126,8 +127,10 @@ class ConstraintSolver {
   ///         solve a complementarity problem); in such cases, it is
   ///         recommended to increase regularization and attempt again.
   /// @throws a std::logic_error if `cf` is null.
-  void SolveImpactProblem(const ConstraintVelProblemData<T>& problem_data,
-                          VectorX<T>* cf) const;
+  void SolveImpactProblem(
+      const ConstraintVelProblemData<T>& problem_data,
+      VectorX<T>* cf,
+      SlackVariableData<T>* slack_values = nullptr) const;
 
   /// Computes the generalized force on the system from the constraint forces
   /// given in packed storage.
@@ -866,7 +869,8 @@ void ConstraintSolver<T>::SolveConstraintProblem(
 template <typename T>
 void ConstraintSolver<T>::SolveImpactProblem(
     const ConstraintVelProblemData<T>& problem_data,
-    VectorX<T>* cf) const {
+    VectorX<T>* cf,
+    SlackVariableData<T>* slack_values) const {
   using std::max;
   using std::abs;
 
@@ -1121,6 +1125,13 @@ void ConstraintSolver<T>::SolveImpactProblem(
                (fD_plus - fD_minus).transpose());
   SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
                fL.transpose());
+
+  // Set slack variable values, if desired.
+  if (slack_values) {
+    slack_values->N_slack = ww.segment(0, num_contacts);
+    slack_values->L_slack = ww.segment(
+        num_contacts + num_spanning_vectors, num_limits);
+  }
 
   // Determine the new velocity and the bilateral constraint impulses.
   //     Au + Xv + a = 0

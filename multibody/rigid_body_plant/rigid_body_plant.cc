@@ -12,6 +12,7 @@
 #include "drake/multibody/kinematics_cache.h"
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/compliant_material.h"
+#include "drake/multibody/rigid_body_plant/euclidean_distance_witness.h"
 #include "drake/multibody/rigid_body_plant/tri_tri_contact_data.h"
 #include "drake/solvers/mathematical_program.h"
 
@@ -45,6 +46,23 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
   ExportModelInstanceCentricPorts();
 
   if (is_state_discrete()) {
+    // Create a signed distance witness for each pair of rigid bodies.
+    auto elm = GetElements();
+    for (size_t i = 0; i < elm.size(); ++i) {
+      euclidean_distance_witnesses_.push_back(
+          std::vector<std::unique_ptr<
+          multibody::EuclideanDistanceWitnessFunction<T>>>(
+          elm.size()));
+      for (size_t j = i+1; j < elm.size(); ++j) {
+        if (collision_filtered_.find(std::make_pair(elm[i], elm[j])) ==
+            collision_filtered_.end()) {
+          euclidean_distance_witnesses_[i][j] =
+              std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
+                  this, elm[i], elm[j]);
+        }
+      }
+    }
+
     // Allocate temporary for storing discrete state in witness function
     // isolation.
     discrete_update_temporary_ = this->AllocateDiscreteVariables();
@@ -918,30 +936,109 @@ void RigidBodyPlant<T>::DoCalcTimeDerivatives(
   derivatives->SetFromVector(xdot);
 }
 
-/*
 template <typename T>
 void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     const Context<T>& context,
     CompositeEventCollection<T>* events,
     T* time) const {
-  // TODO: Do all of this.
-
   // Get the witnesses active for the current context.
+  std::vector<const WitnessFunction<T>*> witness_functions;
+  this->GetWitnessFunctions(context, &witness_functions);
 
-  // Update the cloned context.
+  // Clone the context.
+  context_clone_ = context.Clone();
+
+  // Evaluate the witness functions.
+  VectorX<T> w0(witness_functions.size());
+  for (size_t i = 0; i < witness_functions.size(); ++i)
+    w0[i] = this->EvaluateWitness(*context_clone_, *witness_functions[i]);
 
   // Attempt to do time stepping using the standard step size and the cloned
   // context.
+  const T& t0 = context.get_time();
+  auto x0 = get_state_vector(context);
+  T t_des = t0 + timestep_;
+  StepForward(t0, x0, t_des, context_clone_.get());
+
+  // Evaluate the witness functions again.
+  VectorX<T> wf(witness_functions.size());
+  for (size_t i = 0; i < witness_functions.size(); ++i)
+    wf[i] = this->EvaluateWitness(*context_clone_, *witness_functions[i]);
 
   // See whether any "witnesses" were triggered.
+  std::vector<const WitnessFunction<T>*> triggered_witnesses;
+  for (size_t i = 0; i < witness_functions.size(); ++i) {
+    if (witness_functions[i]->should_trigger(w0[i], wf[i]))
+      triggered_witnesses.push_back(witness_functions[i]);
+  }
 
   // If no witnesses were triggered, return the standard discrete update time. 
+  if (triggered_witnesses.empty()) {
+    *time = t_des;
+    return;
+  }
 
   // One or more witnesses triggered: isolate the triggering time.
+  *time = IsolateWitnessTriggers(context, witness_functions, w0, t0, x0, t_des,
+    &triggered_witnesses);
 
-  // Create an unrestricted update event to change the contacts.
+  // Create an event for all triggered witnesses. 
+  for (const WitnessFunction<T>* fn : triggered_witnesses)
+    this->AddTriggeredWitnessFunctionToCompositeEventCollection(*fn, events);
 }
-*/
+
+// Gets all elements from a rigid body.
+template <typename T>
+std::vector<multibody::collision::Element*> 
+    RigidBodyPlant<T>::GetElements() const {
+  std::vector<multibody::collision::Element*> elements;
+  auto bodies = tree_->FindModelInstanceBodies(0);
+  for (size_t i = 0; i < bodies.size(); ++i) {
+    // Iterate over all elements for body i.
+    for (auto elm_iter = bodies[i]->collision_elements_begin(); 
+          elm_iter != bodies[i]->collision_elements_end(); ++elm_iter) {
+       elements.push_back(*elm_iter);     
+    }
+  }
+
+  return elements;
+}
+
+// Gets the witness functions active for the plant.
+template <typename T>
+void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
+  std::vector<const WitnessFunction<T>*>* witness_functions) const {
+  // Do we need witness functions to track each pair of contacting triangles?
+  // Option 1: one witness to track each pair of intersecting triangles.
+  // Note: we need something like this anyway b/c we have to look for contact
+  //   type changes (include separation).
+
+  // TODO: Consider only pairs of bodies that pass a broad phase check first.
+
+  // Loop through all rigid bodies.
+
+    // Loop through all other rigid bodies.
+
+    // Store the appropriate signed distance function.
+
+}
+
+// Steps time stepping systems forward in time from t0.
+template <typename T>
+void RigidBodyPlant<T>::StepForward(
+    const T& t0, const VectorX<T>& x0, const T& t_des,
+    Context<T>* context_clone) const {
+  DRAKE_DEMAND(is_state_discrete());
+  context_clone->set_time(t_des);
+  context_clone->set_last_discrete_update_time(t0);
+  context_clone->get_mutable_discrete_state(0).SetFromVector(x0);
+  discrete_update_temporary_->CopyFrom(
+      context_clone->get_discrete_state());
+  DoCalcDiscreteVariableUpdates(*context_clone, {},
+      discrete_update_temporary_.get());
+  context_clone->get_mutable_discrete_state().CopyFrom(
+      *discrete_update_temporary_);
+}
 
 template <typename T>
 T RigidBodyPlant<T>::IsolateWitnessTriggers(
@@ -966,23 +1063,6 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   if (!witness_iso_len)
     return inf;
 
-  // Mini function for stepping the system forward in time from t0.
-  std::function<void(const T&)> step_forward =
-      [&t0, &x0, this](const T& t_des) {
-    context_clone_->set_time(t0);
-    context_clone_->get_mutable_discrete_state(0).SetFromVector(x0);
-    T t_remaining = t_des - t0;
-    while (t_remaining > 0) {
-      discrete_update_temporary_->CopyFrom(
-          context_clone_->get_discrete_state());
-      DoCalcDiscreteVariableUpdates(*context_clone_, {},
-          discrete_update_temporary_.get());
-      context_clone_->get_mutable_discrete_state().CopyFrom(
-          *discrete_update_temporary_);
-      t_remaining = t_des - context_clone_->get_time();
-    }
-  };
-
   // Loop until the isolation window is sufficiently small.
   SPDLOG_DEBUG(drake::log(),
       "Isolating witness functions using isolation window of {} over [{}, {}]",
@@ -994,7 +1074,7 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     // Compute the midpoint and evaluate the witness functions at it.
     T c = (a + b) / 2;
     SPDLOG_DEBUG(drake::log(), "Integrating forward to time {}", c);
-    step_forward(c);
+    StepForward(t0, x0, c, context_clone_.get());
 
     // See whether any witness functions trigger.
     bool trigger = false;
@@ -1171,12 +1251,9 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   // Get the time step.
   double dt = context.get_time() - context.get_last_discrete_update_time();
 
-  // TODO: Remove the hack below and re-enable the check for positive dt when
-  // CalcNextUpdateTime() is repaired.
+  // Check for zero dt.
   if (dt == 0.0)
     dt = timestep_;
-  std::cerr << "dt: " << dt << std::endl;
-//  DRAKE_DEMAND(dt > 0.0);
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
 

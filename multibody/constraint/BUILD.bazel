@@ -25,6 +25,7 @@ drake_cc_library(
     srcs = ["constraint_solver.cc"],
     hdrs = [
         "constraint_solver.h",
+        "slack_variable_data.h",
     ],
     deps = [
         ":constraint",

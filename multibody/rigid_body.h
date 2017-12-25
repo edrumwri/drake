@@ -402,12 +402,22 @@ class RigidBody {
   typedef std::vector<drake::multibody::collision::Element*>
       CollisionElementsVector;
   typedef typename CollisionElementsVector::iterator CollisionElementsIterator;
+  typedef typename CollisionElementsVector::const_iterator
+      ConstCollisionElementsIterator;
 
   CollisionElementsIterator collision_elements_begin() {
     return collision_elements_.begin();
   }
 
   CollisionElementsIterator collision_elements_end() {
+    return collision_elements_.end();
+  }
+
+  ConstCollisionElementsIterator collision_elements_begin() const {
+    return collision_elements_.begin();
+  }
+
+  ConstCollisionElementsIterator collision_elements_end() const {
     return collision_elements_.end();
   }
 
