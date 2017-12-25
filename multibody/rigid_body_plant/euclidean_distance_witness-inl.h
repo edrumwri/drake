@@ -18,12 +18,10 @@ EuclideanDistanceWitnessFunction<T>::EuclideanDistanceWitnessFunction(
     plant_(rb_plant),
     elementA_(elementA),
     elementB_(elementB) {
-//  meshA_ = &plant_->meshes_.find(elementA_)->second;
-//  meshB_ = &plant_->meshes_.find(elementB_)->second;
-/*
-    event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
-      systems::Event<T>::TriggerType::kWitness);
-*/
+  meshA_ = &plant_->GetMesh(elementA_);
+  meshB_ = &plant_->GetMesh(elementB_);
+  event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
+    systems::Event<T>::TriggerType::kWitness);
 }
 
 template <class T>
@@ -32,26 +30,45 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
   using std::sqrt;
   using std::min;
 
-  // TODO: Pick a better value for this.
-  const double kInitialDistance = 1.0;
+  // Use the signed distance epsilon.
+  const double signed_distance_epsilon = 1e-8;
 
-  // Set the initial square distance.
-  double square_distance = kInitialDistance;
+  // Get the rigid bodies.
+  const RigidBody<T>& rbA = *elementA_->get_body();
+  const RigidBody<T>& rbB = *elementB_->get_body();
 
-  // Get the trimeshes for the elements.
+  // Compute the transforms for the RigidBody objects.
+  const auto& tree = plant_->get_rigid_body_tree();
+  const int nq = plant_->get_num_positions();
+  const int nv = plant_->get_num_velocities();
+  auto x = context.get_discrete_state(0).get_value();
+  VectorX<T> q = x.topRows(nq);
+  VectorX<T> v = x.bottomRows(nv);
+  auto kinematics_cache = tree.doKinematics(q, v);
+  auto wTA = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
+  auto wTB = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
 
-  // TODO: Update the AABB pose only once for each element.
+  // Update the AABB pose.
+  // TODO: Do this only once for each element, over all distance functions.
+  plant_->get_collision_detection().UpdateAABBs(*meshA_, wTA);
+  plant_->get_collision_detection().UpdateAABBs(*meshB_, wTB);
 
-  // Update the broad phase structures. TODO: This should also be cached.
+  // Update the broad phase structures.
+  // TODO: This should also be cached.
+  plant_->get_collision_detection().UpdateBroadPhaseStructs();
 
   // Do the broad phase between these two meshes and get the pairs of
   // triangles to check.
+  std::vector<std::pair<int, int>> to_check;
+  plant_->get_collision_detection().DoBroadPhase(*meshA_, *meshB_, &to_check);
 
   // Compute the distances between pairs of triangles.
+  const T distance = plant_->get_collision_detection().CalcDistance(
+      *meshA_, *meshB_, to_check);
 
   // Subtract the distance by some epsilon.
+  return distance - signed_distance_epsilon;
 }
-
 
 
 }  // namespace multibody

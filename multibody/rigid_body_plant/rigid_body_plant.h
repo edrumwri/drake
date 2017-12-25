@@ -336,6 +336,15 @@ class RigidBodyPlant : public LeafSystem<T> {
   /// (seconds per update).
   double get_time_step() const { return timestep_; }
 
+  const multibody::Trimesh<T>& GetMesh(
+      multibody::collision::Element* e) const {
+    DRAKE_ASSERT(meshes_.find(e) != meshes_.end());
+    return meshes_.find(e)->second;
+  }
+
+  multibody::TrimeshColdet<T>& get_collision_detection() const { 
+      return collision_detection_; } 
+
  protected:
   // Evaluates the actuator command input ports and throws a runtime_error
   // exception if at least one of the ports is not connected.
