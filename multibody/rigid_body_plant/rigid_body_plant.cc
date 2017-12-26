@@ -54,23 +54,6 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
   ExportModelInstanceCentricPorts();
 
   if (is_state_discrete()) {
-    // Create a signed distance witness for each pair of rigid bodies.
-    auto elm = GetElements();
-    for (size_t i = 0; i < elm.size(); ++i) {
-      euclidean_distance_witnesses_.push_back(
-          std::vector<std::unique_ptr<
-          multibody::EuclideanDistanceWitnessFunction<T>>>(
-          elm.size()));
-      for (size_t j = i+1; j < elm.size(); ++j) {
-        if (collision_filtered_.find(std::make_pair(elm[i], elm[j])) ==
-            collision_filtered_.end()) {
-          euclidean_distance_witnesses_[i][j] =
-              std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
-                  *this, elm[i], elm[j]);
-        }
-      }
-    }
-
     // Allocate temporary for storing discrete state in witness function
     // isolation.
     discrete_update_temporary_ = this->AllocateDiscreteVariables();
@@ -103,8 +86,28 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
         meshes_[*collision_element_iterator] =
             multibody::Trimesh<T>(vertices, face_indices);
 
+        // Point the collision detector to the mesh.
+        collision_detection_.AddMesh(&meshes_[*collision_element_iterator]);
+
         // Advance the iterator.
         collision_element_iterator++;
+      }
+    }
+    
+    // Create a signed distance witness for each pair of rigid bodies.
+    auto elm = GetElements();
+    for (size_t i = 0; i < elm.size(); ++i) {
+      euclidean_distance_witnesses_.push_back(
+          std::vector<std::unique_ptr<
+          multibody::EuclideanDistanceWitnessFunction<T>>>(
+          elm.size()));
+      for (size_t j = i+1; j < elm.size(); ++j) {
+        if (collision_filtered_.find(std::make_pair(elm[i], elm[j])) ==
+            collision_filtered_.end()) {
+          euclidean_distance_witnesses_[i][j] =
+              std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
+                  *this, elm[i], elm[j]);
+        }
       }
     }
   }
@@ -982,7 +985,7 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
 
   // If no witnesses were triggered, return the standard discrete update time. 
   if (triggered_witnesses.empty()) {
-    *time = t_des;
+    LeafSystem<T>::DoCalcNextUpdateTime(context, events, time);
     return;
   }
 
@@ -995,7 +998,7 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     this->AddTriggeredWitnessFunctionToCompositeEventCollection(*fn, events);
 }
 
-// Gets all elements from a rigid body in a sorted vector.
+// Gets all elements from a rigid body.
 template <typename T>
 std::vector<Element*> RigidBodyPlant<T>::GetElements() const {
   std::vector<Element*> elements;
@@ -1004,11 +1007,18 @@ std::vector<Element*> RigidBodyPlant<T>::GetElements() const {
     // Iterate over all elements for body i.
     for (auto elm_iter = bodies[i]->collision_elements_begin(); 
           elm_iter != bodies[i]->collision_elements_end(); ++elm_iter) {
-       elements.push_back(*elm_iter);     
+      const auto& geometry = (*elm_iter)->getGeometry();
+      if (geometry.hasFaces())
+        elements.push_back(*elm_iter);
     }
   }
 
-  std::sort(elements.begin(), elements.end());
+  // Add the world element.
+  for (auto elm_iter = tree_->world().collision_elements_begin(); 
+       elm_iter != tree_->world().collision_elements_end(); ++elm_iter) {
+     elements.push_back(*elm_iter);     
+  }
+
   return elements;
 }
 
@@ -1025,9 +1035,10 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
 
   // Get all contact features.
   auto& contacting_features = context.get_abstract_state().get_value(0).template
-      GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
+      GetValue<std::map<sorted_pair<Element*>,
+      std::vector<TriTriContactData<T>>>>();
 
-  // Get the elements.
+  // Get the elements with triangle meshes.
   const auto elms = GetElements();
 
   // Loop through all pairs of elements, adding witness functions that do not
@@ -1128,13 +1139,9 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
 // Determines closest (contacting) features after the signed distance witness
 // function triggered.
 template <class T>
-void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
+void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
   State<T>* state) const {
-  // The stub below simply looks at triangles that are sufficiently close.
-  // For testing, we're assuming exactly two triangle meshes.
-  DRAKE_DEMAND(meshes_.size() == 2);
-
   // Get the triangle/triangle feature data from the abstract state.
   auto& contacting_features = state->get_mutable_abstract_state().
       get_mutable_value(0).template GetMutableValue<std::map<sorted_pair<
@@ -1731,7 +1738,7 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
     abstract_data.push_back(std::make_unique<Value<
-      std::map<sorted_pair<Element*>, TriTriContactData<T>>>>());
+      std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>>());
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
     return std::make_unique<AbstractValues>();

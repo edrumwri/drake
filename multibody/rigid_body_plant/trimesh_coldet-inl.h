@@ -5,8 +5,55 @@
 /// Most users should only include that file, not this one.
 /// For background, see http://drake.mit.edu/cxx_inl.html.
 
+#include "trimesh_coldet.h"
 namespace drake {
 namespace multibody {
+
+// Adds a mesh to the collision detector.
+template <class T>
+void TrimeshColdet<T>::AddMesh(const Trimesh<T>* mesh) {
+  // Add the pose.
+  poses_[mesh];
+
+  // Get the vector of bounding structures corresponding to this triangle mesh.
+  auto& bs_vec = bounds_[mesh];
+
+  // Create three sorting axis vectors, if necessary.
+  const int num_3d_basis_vecs = 3;
+  bs_vec.resize(num_3d_basis_vecs);
+  for (int i = 0; i < num_3d_basis_vecs; ++i)
+    bs_vec[i].axis = Vector3<T>::Unit(i);
+
+  // Create an AABB around each triangle.
+  for (size_t i = 0; i < mesh->num_triangles(); ++i) {
+    // Create the AABB.
+    aabbs_.push_back(std::make_unique<AABB<T>>(mesh->triangle(i)));
+
+    // Create BoundingStruct objects: two for each AABB over each axis.
+    for (int j = 0; j < num_3d_basis_vecs; ++j) {
+      auto& bounds_vec = bs_vec[j].bound_struct_vector;
+      // Create the lower bound.
+      bounds_vec.push_back(
+          std::make_pair(0, BoundsStruct()));
+      bounds_vec.back().second.end = false;
+      bounds_vec.back().second.aabb = aabbs_.back().get();
+      bounds_vec.back().second.tri = i;
+      bounds_vec.back().second.mesh = mesh;
+      bounds_vec.back().first = aabbs_.back()->lower_bounds().dot(
+          bs_vec[j].axis);
+
+      // Create the upper bound.
+      bounds_vec.push_back(
+          std::make_pair(0, BoundsStruct()));
+      bounds_vec.back().second.end = true;
+      bounds_vec.back().second.aabb = aabbs_.back().get();
+      bounds_vec.back().second.tri = i;
+      bounds_vec.back().second.mesh = mesh;
+      bounds_vec.back().first = aabbs_.back()->upper_bounds().dot(
+          bs_vec[j].axis);
+    }
+  }
+}
 
 // Gets the index of an edge from a triangle.
 template <class T>
@@ -54,18 +101,22 @@ void TrimeshColdet<T>::UpdateAABBs(
   poses_iter->second = wTm;
 
   // Update each AABB corresponding to this mesh.
-  auto trimesh_bs_iter = trimesh_bs_.find(&mesh);
-  DRAKE_DEMAND(trimesh_bs_iter != trimesh_bs_.end());
-  const std::vector<BoundsStruct*>& bs = trimesh_bs_iter->second; 
-  for (int i = 0; i < static_cast<int>(bs.size()); ++i) {
-    // Get the requisite triangle in the mesh, transform it, and reconstruct
-    // the AABB around it.
-    const Triangle3<T>& tri = mesh.triangle(bs[i]->tri);
-    AABB<T>& aabb = *bs[i]->aabb;
-    const Vector3<T> v1 = wTm * tri.a();
-    const Vector3<T> v2 = wTm * tri.b();
-    const Vector3<T> v3 = wTm * tri.c();
-    aabb = AABB<T>(Triangle3<T>(&v1, &v2, &v3));
+  auto trimesh_bs_iter = bounds_.find(&mesh);
+  DRAKE_DEMAND(trimesh_bs_iter != bounds_.end());
+  const std::vector<BoundsStructsVectorPlusAxis>& bs = trimesh_bs_iter->second;
+  for (int i = 0; i < bs.size(); ++i) {
+    const std::vector<std::pair<T, BoundsStruct>>& bs_vec =
+        bs[i].bound_struct_vector;
+    for (int j = 0; j < bs_vec.size(); ++j) {
+      // Get the requisite triangle in the mesh, transform it, and reconstruct
+      // the AABB around it.
+      const Triangle3<T>& tri = mesh.triangle(bs_vec[j].second.tri);
+      AABB<T>& aabb = *bs_vec[j].second.aabb;
+      const Vector3<T> v1 = wTm * tri.a();
+      const Vector3<T> v2 = wTm * tri.b();
+      const Vector3<T> v3 = wTm * tri.c();
+      aabb = AABB<T>(Triangle3<T>(&v1, &v2, &v3));
+    }
   }
 }
 
@@ -73,34 +124,34 @@ void TrimeshColdet<T>::UpdateAABBs(
 /// @pre All AABBs have already been updated.
 template <class T>
 void TrimeshColdet<T>::UpdateBroadPhaseStructs() {
-  for (int i = 0; i < bounds_.size(); ++i) {
-    // Get the bounding structures for the i'th axis.
-    auto& vec_axis_pair = bounds_[i];
+  for (auto& bounds_iter : bounds_) {
+    // Loop over each axis.
+    for (int i = 0; i < bounds_iter.second.size(); ++i) {
+      // Get the i'th axis.
+      const Vector3<T>& axis = bounds_iter.second[i].axis;
 
-    // Get the i'th axis.
-    const Vector3<T>& axis = vec_axis_pair.second;
+      // Get the vector.
+      auto& vec = bounds_iter.second[i].bound_struct_vector;
 
-    // Get the vector.
-    auto& vec = vec_axis_pair.first;
+      // Update the bounds data using the corresponding AABBs.
+      for (int j = 0; j < vec.size(); ++j) {
+        // Get the axis-aligned bounding box.
+        const AABB<T>& aabb = *vec[j].second.aabb;
 
-    // Update the bounds data using the corresponding AABBs.
-    for (int j = 0; j < static_cast<int>(vec.size()); ++j) {
-      // Get the axis-aligned bounding box.
-      const AABB<T>& aabb = *vec[j].second.aabb;
+        // Update the bound.
+        const Vector3<T>& bound = (vec[j].second.end) ? aabb.upper_bounds() :
+                                                        aabb.lower_bounds();
+        vec[j].first = axis.dot(bound);
+      }
 
-      // Update the bound.
-      const Vector3<T>& bound = (vec[j].second.end) ? aabb.upper_bounds() : 
-                                                      aabb.lower_bounds();
-      vec[j].first = axis.dot(bound);
-    }
+      // Do an insertion sort of each vector.
+      for (auto it = vec.begin(); it != vec.end(); ++it) {
+        // Search the upper bound for the first element greater than *it.
+        auto const insertion_point = std::upper_bound(vec.begin(), it, *it);
 
-    // Do an insertion sort of each vector.
-    for (auto it = vec.begin(); it != vec.end(); ++it) {
-      // Search the upper bound for the first element greater than *it.
-      auto const insertion_point = std::upper_bound(vec.begin(), it, *it);
-      
-      // Shift the unsorted part.
-      std::rotate(insertion_point, it, it + 1);
+        // Shift the unsorted part.
+        std::rotate(insertion_point, it, it + 1);
+      }
     }
   }
 }
@@ -121,9 +172,18 @@ void TrimeshColdet<T>::DoBroadPhase(
   // Prepare to store overlaps for pairs.
   std::set<std::pair<int, int>> overlaps;
 
+  // Get the bounds struct plus axis for each mesh.
+  DRAKE_ASSERT(bounds_.find(&mA) != bounds_.end());
+  DRAKE_ASSERT(bounds_.find(&mB) != bounds_.end());
+  const auto& bs_vec_plus_axis_A = bounds_.find(&mA)->second;
+  const auto& bs_vec_plus_axis_B = bounds_.find(&mB)->second;
+  DRAKE_DEMAND(bs_vec_plus_axis_A.size() == bs_vec_plus_axis_B.size());
+
   // Iterate over each bounds vector.
-  for (int i = 0; i < bounds_.size(); ++i)
-    UpdateOverlaps(i, &overlaps);
+  for (int i = 0; i < bs_vec_plus_axis_A.size(); ++i) {
+    UpdateOverlaps(i, bs_vec_plus_axis_A, bs_vec_plus_axis_B, &mA, &mB,
+                   &overlaps);
+  }
 
   // Update to_check.
   std::copy(overlaps.begin(), overlaps.end(), std::back_inserter(*to_check)); 
@@ -132,41 +192,76 @@ void TrimeshColdet<T>::DoBroadPhase(
 template <class T>
 void TrimeshColdet<T>::UpdateOverlaps(
     int bounds_index,
+    const std::vector<BoundsStructsVectorPlusAxis>& bs_vec_plus_axis_A,
+    const std::vector<BoundsStructsVectorPlusAxis>& bs_vec_plus_axis_B,
+    const Trimesh<T>* mesh_A,
+    const Trimesh<T>* mesh_B,
     std::set<std::pair<int, int>>* overlaps) const {
-  // The set of active bounds.
-  std::set<int> active_bounds;
+  // The sets of active bounds.
+  std::set<int> active_bounds_A, active_bounds_B;
 
   // Make a new set of overlaps.
   std::set<std::pair<int, int>> new_overlaps;
 
-  for (int j = 0; j < bounds_[bounds_index].first.size(); ++j) {
+  // Get the vectors out.
+  const auto& bounds_vector_A = bs_vec_plus_axis_A[bounds_index].
+      bound_struct_vector;
+  const auto& bounds_vector_B = bs_vec_plus_axis_B[bounds_index].
+      bound_struct_vector;
+
+  // Merge the vector of bounds structs into a vector.
+  std::vector<std::pair<T, BoundsStruct>> bounds_vector;
+  std::merge(bounds_vector_A.begin(), bounds_vector_A.end(),
+             bounds_vector_B.begin(), bounds_vector_B.end(),
+             std::back_inserter(bounds_vector));
+
+  // Do the sweep and prune.
+  for (int j = 0; j < bounds_vector.size(); ++j) {
     // Eliminate from the active bounds if at the end of a bound.
-    const auto& bound_info = bounds_[bounds_index].first[j].second;
-    if (bound_info.end) {
-      assert(active_bounds.find(bound_info.tri) != active_bounds.end());
-      active_bounds.erase(bound_info.tri);
+    const BoundsStruct& bs = bounds_vector[j].second;
+    if (bs.end) {
+      if (bs.mesh == mesh_A) {
+        assert(active_bounds_A.find(bs.tri) !=
+            active_bounds_A.end());
+        active_bounds_A.erase(bs.tri);
+      } else {
+        assert(active_bounds_B.find(bs.tri) !=
+            active_bounds_B.end());
+        active_bounds_B.erase(bs.tri);
+      }
     } else {
       // Encountered a new bound.
-      for (const auto& tri : active_bounds) {
-        new_overlaps.emplace(std::min(tri, bound_info.tri),
-                             std::max(tri, bound_info.tri));
-      }
+      if (bs.mesh == mesh_A) {
+        // Record overlaps.
+        for (const auto& tri : active_bounds_B)
+          new_overlaps.emplace(bs.tri, tri);
 
-      // Add the triangle to the active set.
-      active_bounds.insert(bound_info.tri);
+        // Add the triangle to the active set for A.
+        active_bounds_A.insert(bs.tri);
+      } else {
+        for (const auto& tri : active_bounds_A)
+          new_overlaps.emplace(tri, bs.tri);
+
+        // Add the triangle to the active set for B.
+        active_bounds_B.insert(bs.tri);
+      }
     }
   }
 
   // Intersect with the old overlaps: only ones that are in both sets are
-  // retained.
-  std::vector<std::pair<int, int>> intersected_overlaps;
-  std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
-                        overlaps->begin(), overlaps->end(),
-                        std::back_inserter(intersected_overlaps)); 
+  // retained. We only do this if the bounds index is not the first one.
+  if (bounds_index > 0) {
+    std::vector <std::pair<int, int>> intersected_overlaps;
+    std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
+                          overlaps->begin(), overlaps->end(),
+                          std::back_inserter(intersected_overlaps));
 
-  // Update overlaps. 
-  overlaps->clear();
-  overlaps->insert(intersected_overlaps.begin(), intersected_overlaps.end());
+    // Update overlaps.
+    overlaps->clear();
+    overlaps->insert(intersected_overlaps.begin(), intersected_overlaps.end());
+  } else {
+    *overlaps = new_overlaps;
+  }
 }
 
 template <class T>

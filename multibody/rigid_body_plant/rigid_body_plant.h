@@ -422,10 +422,10 @@ class RigidBodyPlant : public LeafSystem<T> {
   void DetermineContacts(
       const Context<T>& context,
       std::vector<multibody::collision::PointPair>* contacts) const;
-  void DetermineContactingFeatures(
+  void DoCalcUnrestrictedUpdate(
       const Context<T>& context,
       const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
-      State<T>* state) const;
+      State<T>* state) const override;
   void DoCalcNextUpdateTime(
       const Context<T>& context,
       CompositeEventCollection<T>* events,

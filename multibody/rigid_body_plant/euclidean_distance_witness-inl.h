@@ -57,7 +57,8 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
   // Do the broad phase between these two meshes and get the pairs of
   // triangles to check.
   std::vector<std::pair<int, int>> to_check;
-  this->get_plant().get_collision_detection().DoBroadPhase(*meshA_, *meshB_, &to_check);
+  this->get_plant().get_collision_detection().DoBroadPhase(*meshA_, *meshB_,
+                                                           &to_check);
 
   // Compute the distances between pairs of triangles.
   const T distance = this->get_plant().get_collision_detection().CalcDistance(

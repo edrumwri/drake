@@ -612,7 +612,7 @@ class PolygonalContactTest : public ::testing::Test {
     // box not contact the plane. 
     VectorX<double> x = plant_->get_state_vector(*context_);
     x[11] = 1.0;
-    x[2] = 1e-10;
+    x[2] = 1e-8;
     plant_->set_state_vector(&context_->get_mutable_state(), x);
   }
 
@@ -654,12 +654,6 @@ TEST_F(PolygonalContactTest, BigTriangleSliding) {
   CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
   plant_->compliant_contact_model_->set_default_material(material);
 
-  // Set the contact features by calling the appropriate method in
-  // RigidBodyPlant.
-  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
-  plant_->DetermineContactingFeatures(
-      *context_, events, &context_->get_mutable_state());
-
   // Simulate the box forward by one second.
   const double target_time = 1.0;
   Simulator<double> simulator(*plant_, std::move(context_));
@@ -680,12 +674,6 @@ TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
   const double mu_static = 0, mu_dynamic = 0;
   CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
   plant_->compliant_contact_model_->set_default_material(material);
-
-  // Set the contact features by calling the appropriate method in
-  // RigidBodyPlant.
-  std::vector<const systems::UnrestrictedUpdateEvent<double>*> events;
-  plant_->DetermineContactingFeatures(
-      *context_, events, &context_->get_mutable_state());
 
   // Set the initial velocity for the box to move upward, and make the
   // box not contact the plane. 
