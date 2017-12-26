@@ -23,7 +23,9 @@ using std::string;
 using std::unique_ptr;
 using std::vector;
 
+using drake::multibody::collision::Element;
 using drake::multibody::collision::ElementId;
+using drake::multibody::TriTriContactData;
 
 namespace drake {
 namespace systems {
@@ -987,11 +989,10 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     this->AddTriggeredWitnessFunctionToCompositeEventCollection(*fn, events);
 }
 
-// Gets all elements from a rigid body.
+// Gets all elements from a rigid body in a sorted vector.
 template <typename T>
-std::vector<multibody::collision::Element*> 
-    RigidBodyPlant<T>::GetElements() const {
-  std::vector<multibody::collision::Element*> elements;
+std::vector<Element*> RigidBodyPlant<T>::GetElements() const {
+  std::vector<Element*> elements;
   auto bodies = tree_->FindModelInstanceBodies(0);
   for (size_t i = 0; i < bodies.size(); ++i) {
     // Iterate over all elements for body i.
@@ -1001,6 +1002,7 @@ std::vector<multibody::collision::Element*>
     }
   }
 
+  std::sort(elements.begin(), elements.end());
   return elements;
 }
 
@@ -1015,12 +1017,22 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
 
   // TODO: Consider only pairs of bodies that pass a broad phase check first.
 
-  // Loop through all rigid bodies.
+  // Get all contact features.
+  const std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>&
+      contacting_features = context.get_abstract_state().get_value(0).template
+          GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
 
-    // Loop through all other rigid bodies.
-
-    // Store the appropriate signed distance function.
-
+  // Loop through all pairs of elements, adding witness functions that do not
+  // already have contact data stored.
+  for (size_t i = 0; i < elms.size(); ++i) {
+    for (size_t j = i+1; j < elms.size(); ++j) {
+      if (euclidean_distance_witnesses_[i][j] &&
+          contacting_features.find(make_sorted_pair(elms[i], elms[j])) ==
+          contacting_features.end()) {
+          witness_functions.push_back(euclidean_distance_witnesses_[i][j]);
+      }
+    }
+  }
 }
 
 // Steps time stepping systems forward in time from t0.
@@ -1115,9 +1127,9 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
   DRAKE_DEMAND(meshes_.size() == 2);
 
   // Get the triangle/triangle feature data from the abstract state.
-  std::vector<multibody::TriTriContactData<T>>& contacting_features =
+  std::map<sorted_pair<Element*>, TriTriContactData<T>>& contacting_features =
       state->get_mutable_abstract_state().get_mutable_value(0).template
-          GetMutableValue<std::vector<multibody::TriTriContactData<T>>>();
+          GetMutableValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1190,9 +1202,9 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   DRAKE_DEMAND(contacts->empty());
 
   // Get contact features from the context.
-  const std::vector<multibody::TriTriContactData<T>>& contacting_features =
+  const std::map<sorted_pair<Element*>, TriTriContactData<T>>& contacting_features =
       context.get_abstract_state().get_value(0).
-          template GetValue<std::vector<multibody::TriTriContactData<T>>>();
+          template GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1702,8 +1714,8 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
   if (is_state_discrete()) {
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
-    abstract_data.push_back(std::make_unique<
-        Value<std::vector<multibody::TriTriContactData<T>>>>());
+    abstract_data.push_back(std::make_unique<Value<
+      std::map<sorted_pair<Element*>, TriTriContactData<T>>>>());
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
     return std::make_unique<AbstractValues>();
