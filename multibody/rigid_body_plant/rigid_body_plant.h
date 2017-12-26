@@ -506,6 +506,9 @@ class RigidBodyPlant : public LeafSystem<T> {
   // Collision detection method.
   mutable multibody::TrimeshColdet<T> collision_detection_;
 
+  /// Unique pointer to the discrete update event for time stepping.
+  std::unique_ptr<systems::DiscreteUpdateEvent<T>> discrete_update_event_;
+
   // Determines whether a pair of collision elements is filtered.
   std::set<std::pair<multibody::collision::Element*,
                      multibody::collision::Element*>> collision_filtered_;

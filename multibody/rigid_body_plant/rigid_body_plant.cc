@@ -54,6 +54,9 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
   ExportModelInstanceCentricPorts();
 
   if (is_state_discrete()) {
+    discrete_update_event_ = std::make_unique<systems::DiscreteUpdateEvent<T>>(
+        systems::Event<T>::TriggerType::kUnknown);
+
     // Allocate temporary for storing discrete state in witness function
     // isolation.
     discrete_update_temporary_ = this->AllocateDiscreteVariables();
@@ -983,7 +986,7 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
       triggered_witnesses.push_back(witness_functions[i]);
   }
 
-  // If no witnesses were triggered, return the standard discrete update time. 
+  // If no witnesses were triggered, return the standard discrete update time.
   if (triggered_witnesses.empty()) {
     LeafSystem<T>::DoCalcNextUpdateTime(context, events, time);
     return;
@@ -993,9 +996,15 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
   *time = IsolateWitnessTriggers(context, witness_functions, w0, t0, x0, t_des,
     &triggered_witnesses);
 
-  // Create an event for all triggered witnesses. 
-  for (const WitnessFunction<T>* fn : triggered_witnesses)
-    this->AddTriggeredWitnessFunctionToCompositeEventCollection(*fn, events);
+  // If no witnesses were triggered, set up an event for a discrete update
+  // event.
+  if (triggered_witnesses.empty()) {
+    discrete_update_event_->add_to_composite(events);
+  } else {
+    // Create an event for all triggered witnesses.
+    for (const WitnessFunction <T>* fn : triggered_witnesses)
+      this->AddTriggeredWitnessFunctionToCompositeEventCollection(*fn, events);
+  }
 }
 
 // Gets all elements from a rigid body.
@@ -1194,13 +1203,13 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         collision_detection_.DoBroadPhase(mA, mB, &candidate_tris);
 
         // Compute the intersections.
-        auto& contacting_features_vector = contacting_features.find(
-            make_sorted_pair(elmA, elmB))->second;
+        auto& contacting_features_vector = contacting_features[make_sorted_pair(
+            elmA, elmB)];
         collision_detection_.CalcIntersections(
             mA, mB, candidate_tris, &contacting_features_vector);
 
         // Update contacting features with elements.
-        for (size_t j = 0; j < contacting_features.size(); ++j) {
+        for (size_t j = 0; j < contacting_features_vector.size(); ++j) {
           contacting_features_vector[j].idA = elmA;
           contacting_features_vector[j].idB = elmB;
         }  
