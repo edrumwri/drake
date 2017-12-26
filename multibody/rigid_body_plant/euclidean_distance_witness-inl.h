@@ -10,18 +10,15 @@ namespace multibody {
 
 template <class T>
 EuclideanDistanceWitnessFunction<T>::EuclideanDistanceWitnessFunction(
-    const systems::RigidBodyPlant<T>* rb_plant,
+    const systems::RigidBodyPlant<T>& plant,
     multibody::collision::Element* elementA,
     multibody::collision::Element* elementB) :
-    systems::WitnessFunction<T>(*rb_plant,
+    RigidBodyPlantWitnessFunction<T>(plant,
         systems::WitnessFunctionDirection::kPositiveThenNonPositive),
-    plant_(rb_plant),
     elementA_(elementA),
     elementB_(elementB) {
-  meshA_ = &plant_->GetMesh(elementA_);
-  meshB_ = &plant_->GetMesh(elementB_);
-  event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
-    systems::Event<T>::TriggerType::kWitness);
+  meshA_ = &this->get_plant().GetMesh(elementA_);
+  meshB_ = &this->get_plant().GetMesh(elementB_);
 }
 
 template <class T>
@@ -38,9 +35,9 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
   const RigidBody<T>& rbB = *elementB_->get_body();
 
   // Compute the transforms for the RigidBody objects.
-  const auto& tree = plant_->get_rigid_body_tree();
-  const int nq = plant_->get_num_positions();
-  const int nv = plant_->get_num_velocities();
+  const auto& tree = this->get_plant().get_rigid_body_tree();
+  const int nq = this->get_plant().get_num_positions();
+  const int nv = this->get_plant().get_num_velocities();
   auto x = context.get_discrete_state(0).get_value();
   VectorX<T> q = x.topRows(nq);
   VectorX<T> v = x.bottomRows(nv);
@@ -50,20 +47,20 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
 
   // Update the AABB pose.
   // TODO: Do this only once for each element, over all distance functions.
-  plant_->get_collision_detection().UpdateAABBs(*meshA_, wTA);
-  plant_->get_collision_detection().UpdateAABBs(*meshB_, wTB);
+  this->get_plant().get_collision_detection().UpdateAABBs(*meshA_, wTA);
+  this->get_plant().get_collision_detection().UpdateAABBs(*meshB_, wTB);
 
   // Update the broad phase structures.
   // TODO: This should also be cached.
-  plant_->get_collision_detection().UpdateBroadPhaseStructs();
+  this->get_plant().get_collision_detection().UpdateBroadPhaseStructs();
 
   // Do the broad phase between these two meshes and get the pairs of
   // triangles to check.
   std::vector<std::pair<int, int>> to_check;
-  plant_->get_collision_detection().DoBroadPhase(*meshA_, *meshB_, &to_check);
+  this->get_plant().get_collision_detection().DoBroadPhase(*meshA_, *meshB_, &to_check);
 
   // Compute the distances between pairs of triangles.
-  const T distance = plant_->get_collision_detection().CalcDistance(
+  const T distance = this->get_plant().get_collision_detection().CalcDistance(
       *meshA_, *meshB_, to_check);
 
   // Subtract the distance by some epsilon.

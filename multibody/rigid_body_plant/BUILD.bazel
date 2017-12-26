@@ -128,6 +128,7 @@ drake_cc_library(
         "euclidean_distance_witness-inl.h",
         "kinematics_results.h",
         "rigid_body_plant.h",
+        "rigid_body_plant_witness_function.h",
     ],
     deps = [
         ":compliant_contact_model",
@@ -136,6 +137,7 @@ drake_cc_library(
         ":trimesh_coldet",
         "//drake/common:copyable_unique_ptr",
         "//drake/common:essential",
+        "//drake/common:sorted_pair",
         "//drake/math:orthonormal_basis",
         "//drake/multibody:rigid_body_tree",
         "//drake/multibody/constraint:constraint_solver",

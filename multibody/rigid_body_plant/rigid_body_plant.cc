@@ -8,7 +8,9 @@
 #include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
+#include "drake/common/sorted_pair.h"
 #include "drake/math/orthonormal_basis.h"
+#include "drake/multibody/collision/element.h"
 #include "drake/multibody/kinematics_cache.h"
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/compliant_material.h"
@@ -25,7 +27,11 @@ using std::vector;
 
 using drake::multibody::collision::Element;
 using drake::multibody::collision::ElementId;
+using drake::multibody::EuclideanDistanceWitnessFunction;
+using drake::multibody::RigidBodyPlantWitnessFunction;
 using drake::multibody::TriTriContactData;
+using drake::multibody::Trimesh;
+using drake::sorted_pair;
 
 namespace drake {
 namespace systems {
@@ -60,7 +66,7 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
             collision_filtered_.end()) {
           euclidean_distance_witnesses_[i][j] =
               std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
-                  this, elm[i], elm[j]);
+                  *this, elm[i], elm[j]);
         }
       }
     }
@@ -1018,9 +1024,11 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
   // TODO: Consider only pairs of bodies that pass a broad phase check first.
 
   // Get all contact features.
-  const std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>&
-      contacting_features = context.get_abstract_state().get_value(0).template
-          GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
+  auto& contacting_features = context.get_abstract_state().get_value(0).template
+      GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
+
+  // Get the elements.
+  const auto elms = GetElements();
 
   // Loop through all pairs of elements, adding witness functions that do not
   // already have contact data stored.
@@ -1029,7 +1037,8 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
       if (euclidean_distance_witnesses_[i][j] &&
           contacting_features.find(make_sorted_pair(elms[i], elms[j])) ==
           contacting_features.end()) {
-          witness_functions.push_back(euclidean_distance_witnesses_[i][j]);
+          witness_functions->push_back(
+              euclidean_distance_witnesses_[i][j].get());
       }
     }
   }
@@ -1127,9 +1136,9 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
   DRAKE_DEMAND(meshes_.size() == 2);
 
   // Get the triangle/triangle feature data from the abstract state.
-  std::map<sorted_pair<Element*>, TriTriContactData<T>>& contacting_features =
-      state->get_mutable_abstract_state().get_mutable_value(0).template
-          GetMutableValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
+  auto& contacting_features = state->get_mutable_abstract_state().
+      get_mutable_value(0).template GetMutableValue<std::map<sorted_pair<
+      Element*>, std::vector<TriTriContactData<T>>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1140,58 +1149,59 @@ void RigidBodyPlant<T>::DetermineContactingFeatures(const Context<T>& context,
   VectorX<T> v = x.bottomRows(nv);
   auto kinematics_cache = tree.doKinematics(q, v);
 
-  // Get the two meshes.
-  auto mesh_iter = meshes_.begin();
-  const multibody::collision::Element* elmA = mesh_iter->first;
-  const RigidBody<T>& rbA = *elmA->get_body();
-  const multibody::Trimesh<T>& mA = mesh_iter->second;
-  mesh_iter++;
-  const multibody::collision::Element* elmB = mesh_iter->first;
-  const RigidBody<T>& rbB = *elmB->get_body();
-  const multibody::Trimesh<T>& mB = mesh_iter->second;
-
-  // Get poses for the meshes.
-  auto wTa = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
-  auto wTb = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
-
-  // Loop through all pairs of triangle indices from each mesh.
+  // Loop through all elements whose witness functions have triggered.
   std::vector<std::pair<int, int>> candidate_tris;
-  for (int i = 0; i < mA.num_triangles(); ++i) {
-    for (int j = 0; j < mB.num_triangles(); ++j)
-      candidate_tris.push_back(std::make_pair(i, j));
+  for (size_t i = 0; i < events.size(); ++i) {
+    // Get the witness function.
+    DRAKE_DEMAND(events[i]->has_attribute());
+    auto const_witness = events[i]->get_attribute()->template GetValue<const
+        RigidBodyPlantWitnessFunction<T>*>();
+    auto witness = const_cast<RigidBodyPlantWitnessFunction<T>*>(const_witness);
+
+    switch (witness->get_witness_function_type()) {
+      case RigidBodyPlantWitnessFunction<T>::kEuclideanDistance:  {
+        // Get the two elements and rigid bodies.
+        auto euclidean_distance_witness =
+            static_cast<EuclideanDistanceWitnessFunction<T>*>(witness);
+        Element* elmA = euclidean_distance_witness->get_element_A();
+        Element* elmB = euclidean_distance_witness->get_element_B();
+        const RigidBody<T>& rbA = *elmA->get_body();
+        const RigidBody<T>& rbB = *elmB->get_body();
+
+        // Get the meshes.
+        DRAKE_ASSERT(meshes_.find(elmA) != meshes_.end());
+        DRAKE_ASSERT(meshes_.find(elmB) != meshes_.end());
+        const Trimesh<T>& mA = meshes_.find(elmA)->second;
+        const Trimesh<T>& mB = meshes_.find(elmB)->second;
+
+        // Get poses for the meshes.
+        auto wTA = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
+        auto wTB = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
+
+        // Set the poses for the meshes.
+        collision_detection_.SetPose(&mA, wTA);
+        collision_detection_.SetPose(&mB, wTB);
+
+        // Determine the candidate triangles.
+        candidate_tris.clear();
+        collision_detection_.DoBroadPhase(mA, mB, &candidate_tris);
+
+        // Compute the intersections.
+        auto& contacting_features_vector = contacting_features.find(
+            make_sorted_pair(elmA, elmB))->second;
+        collision_detection_.CalcIntersections(
+            mA, mB, candidate_tris, &contacting_features_vector);
+
+        // Update contacting features with elements.
+        for (size_t j = 0; j < contacting_features.size(); ++j) {
+          contacting_features_vector[j].idA = elmA;
+          contacting_features_vector[j].idB = elmB;
+        }  
+
+        break;
+      }
+    }
   }
-
-  // Set the poses for the meshes.
-  collision_detection_.SetPose(&mA, wTa);
-  collision_detection_.SetPose(&mB, wTb);
-
-  // Compute the intersections.
-  collision_detection_.CalcIntersections(
-      mA, mB, candidate_tris, &contacting_features);
-
-  // Update contacting features with elements.
-  for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
-    contacting_features[i].idA = elmA;
-    contacting_features[i].idB = elmB;
-  }  
-
-  // TODO: Replace the stub above with the correct code (which was started to
-  // be fleshed out below).
-/*
-  // Loop through all unrestricted update events.
-  for (int i = 0; i < static_cast<int>(events.size()); ++i) {
-    // Only process witness function triggers.
-    if (events[i]->get_trigger_type() != Event<T>::TriggerType::kWitness)
-      continue;
-
-    // Get the triggering information.
-    const RigidBodyPlantEventTriggerInfo& trigger_info = events[i]->template get_attribute<RigidBodyPlantEventTriggerInfo>();
-    
-    // Verify that the witness that triggered was a signed distance
-    // witness. 
-  }
-*/
-
 }
 
 // Gets points of contact using contacting features.
@@ -1202,9 +1212,9 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   DRAKE_DEMAND(contacts->empty());
 
   // Get contact features from the context.
-  const std::map<sorted_pair<Element*>, TriTriContactData<T>>& contacting_features =
-      context.get_abstract_state().get_value(0).
-          template GetValue<std::map<sorted_pair<Element*>, TriTriContactData<T>>>();
+  auto& contacting_features = context.get_abstract_state().get_value(0).template
+      GetValue<std::map<sorted_pair<Element*>,
+      std::vector<TriTriContactData<T>>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1215,34 +1225,40 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   VectorX<T> v = x.bottomRows(nv);
   auto kinematics_cache = tree.doKinematics(q, v);
 
-  // Compute the point(s) of contact, normal, and signed distance for each
-  // feature pair.
+  // Loop over each pair of elements.
   std::vector<Vector3<T>> points;
-  for (int i = 0; i < static_cast<int>(contacting_features.size()); ++i) {
-    // Get poses for the meshes.
-    const RigidBody<T>& rbA = *contacting_features[i].idA->get_body();
-    const RigidBody<T>& rbB = *contacting_features[i].idB->get_body();
-    auto wTa = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
-    auto wTb = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
+  for (const auto& contacting_features_iter : contacting_features) {
+    const std::vector<TriTriContactData<T>>& contact_data =
+        contacting_features_iter.second;
 
-    // Determine the contact plane.
-    auto normal = contacting_features[i].GetSurfaceNormalExpressedInWorld(
-        wTa, wTb);
+    // Compute the point(s) of contact, normal, and signed distance for each
+    // feature pair.
+    for (int i = 0; i < static_cast<int>(contact_data.size()); ++i) {
+      // Get poses for the meshes.
+      const RigidBody<T>& rbA = *contact_data[i].idA->get_body();
+      const RigidBody<T>& rbB = *contact_data[i].idB->get_body();
+      auto wTA = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
+      auto wTB = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
 
-    // Determine the contact points.
-    points.clear();
-    T signed_distance = contacting_features[i].DetermineContactPoints(
-        normal, wTa, wTb, &points);
+      // Determine the contact plane.
+      auto normal = contact_data[i].GetSurfaceNormalExpressedInWorld(
+          wTA, wTB);
 
-    // Create the contact(s).
-    for (int j = 0; j < static_cast<int>(points.size()); ++j) {
-      contacts->push_back(multibody::collision::PointPair());
-      contacts->back().elementA = contacting_features[i].idA;
-      contacts->back().elementB = contacting_features[i].idB;
-      contacts->back().ptA = wTa.inverse() * points[i];
-      contacts->back().ptB = wTb.inverse() * points[i];
-      contacts->back().normal = normal;
-      contacts->back().distance = signed_distance;
+      // Determine the contact points.
+      points.clear();
+      T signed_distance = contact_data[i].DetermineContactPoints(
+          normal, wTA, wTB, &points);
+
+      // Create the contact(s).
+      for (int j = 0; j < static_cast<int>(points.size()); ++j) {
+        contacts->push_back(multibody::collision::PointPair());
+        contacts->back().elementA = contact_data[i].idA;
+        contacts->back().elementB = contact_data[i].idB;
+        contacts->back().ptA = wTA.inverse() * points[j];
+        contacts->back().ptB = wTB.inverse() * points[j];
+        contacts->back().normal = normal;
+        contacts->back().distance = signed_distance;
+      }
     }
   }
 }

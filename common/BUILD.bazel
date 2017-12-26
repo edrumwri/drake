@@ -80,6 +80,15 @@ drake_cc_library(
     ],
 )
 
+# The sorted_pair type and utilities. 
+drake_cc_library(
+    name = "sorted_pair",
+    srcs = ["sorted_pair.cc"],
+    hdrs = ["sorted_pair.h"],
+    deps = [
+    ],
+)
+
 # Specific traits and operators that are relevant to all ScalarTypes.
 drake_cc_library(
     name = "cond",
