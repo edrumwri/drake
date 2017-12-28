@@ -401,9 +401,6 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
   friend class PolygonalContactTest_BigTriangleSliding_Test;
   friend class PolygonalContactTest_BigTriangleMovingUpward_Test;
-  std::vector<std::vector<std::unique_ptr<
-      multibody::EuclideanDistanceWitnessFunction<T>>>>
-      euclidean_distance_witnesses_;
   std::vector<multibody::collision::Element*> GetElements() const;
   void DoGetWitnessFunctions(
       const Context<T>& context,

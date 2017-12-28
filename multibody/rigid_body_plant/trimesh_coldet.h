@@ -4,6 +4,7 @@
 #include <set>
 
 #include "drake/common/eigen_types.h"
+#include "drake/common/text_logging.h"
 #include "drake/multibody/rigid_body_plant/aabb.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
 #include "drake/multibody/rigid_body_plant/tri_tri_contact_data.h"
@@ -14,13 +15,20 @@ namespace multibody {
 template <class T>
 class TrimeshColdet {
  public:
-  T CalcDistance(const Trimesh<T>& mA,
-                 const Trimesh<T>& mB,
-                 const std::vector<std::pair<int, int>>& pairs_to_check) const;
+  T CalcMinDistance(const Trimesh<T>& mA,
+                    const Trimesh<T>& mB,
+                    const std::vector<std::pair<int, int>>& pairs_to_check)
+                    const;
+  T CalcDistances(const Trimesh<T>& mA,
+                  const Trimesh<T>& mB,
+                  const std::vector<std::pair<int, int>>& pairs_to_check,
+                  std::vector<std::pair<std::pair<int, int>, T>>* distances)
+                  const;
   void CalcIntersections(
                  const Trimesh<T>& mA,
                  const Trimesh<T>& mB,
                  const std::vector<std::pair<int, int>>& pairs_to_check,
+                 T threshold,
                  std::vector<TriTriContactData<T>>* contacts) const;
   void UpdateAABBs(const Trimesh<T>& mesh, const Isometry3<T>& wTm);
   void UpdateBroadPhaseStructs();

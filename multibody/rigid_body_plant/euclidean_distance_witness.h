@@ -16,14 +16,14 @@ namespace multibody {
 // as to pass the broad phase collision detection check. 
 template <class T>
 class EuclideanDistanceWitnessFunction :
-    public RigidBodyPlantWitnessFunction<T> {
+    public RigidBodyPlantWitnessFunction<T>,  public systems::AbstractValues {
  public:
   EuclideanDistanceWitnessFunction(
-      const systems::RigidBodyPlant<T>& rb_plant,
+      const systems::RigidBodyPlant <T>& rb_plant,
       multibody::collision::Element* elementA,
       multibody::collision::Element* elementB);
 
-  /// Gets the type of witness function. 
+  /// Gets the type of witness function.
   typename RigidBodyPlantWitnessFunction<T>::WitnessType
       get_witness_function_type() const override {
     return RigidBodyPlantWitnessFunction<T>::kEuclideanDistance; 

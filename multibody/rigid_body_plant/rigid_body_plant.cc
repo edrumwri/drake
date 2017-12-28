@@ -9,6 +9,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/sorted_pair.h"
+#include "drake/common/text_logging.h"
 #include "drake/math/orthonormal_basis.h"
 #include "drake/multibody/collision/element.h"
 #include "drake/multibody/kinematics_cache.h"
@@ -94,23 +95,6 @@ RigidBodyPlant<T>::RigidBodyPlant(std::unique_ptr<const RigidBodyTree<T>> tree,
 
         // Advance the iterator.
         collision_element_iterator++;
-      }
-    }
-    
-    // Create a signed distance witness for each pair of rigid bodies.
-    auto elm = GetElements();
-    for (size_t i = 0; i < elm.size(); ++i) {
-      euclidean_distance_witnesses_.push_back(
-          std::vector<std::unique_ptr<
-          multibody::EuclideanDistanceWitnessFunction<T>>>(
-          elm.size()));
-      for (size_t j = i+1; j < elm.size(); ++j) {
-        if (collision_filtered_.find(std::make_pair(elm[i], elm[j])) ==
-            collision_filtered_.end()) {
-          euclidean_distance_witnesses_[i][j] =
-              std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
-                  *this, elm[i], elm[j]);
-        }
       }
     }
   }
@@ -1042,26 +1026,23 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
 
   // TODO: Consider only pairs of bodies that pass a broad phase check first.
 
-  // Get all contact features.
-  auto& contacting_features = context.get_abstract_state().get_value(0).template
-      GetValue<std::map<sorted_pair<Element*>,
-      std::vector<TriTriContactData<T>>>>();
+  /*
+  // Get Euclidean witness functions.
+  auto& euclidean_distance_witnesses = context.get_abstract_state().
+      get_value(1).template GetValue<std::vector<std::vector<std::unique_ptr<
+      multibody::EuclideanDistanceWitnessFunction<T>>>>>();
 
   // Get the elements with triangle meshes.
   const auto elms = GetElements();
 
-  // Loop through all pairs of elements, adding witness functions that do not
-  // already have contact data stored.
+  // Loop through all pairs of elements adding witness functions.
   for (size_t i = 0; i < elms.size(); ++i) {
     for (size_t j = i+1; j < elms.size(); ++j) {
-      if (euclidean_distance_witnesses_[i][j] &&
-          contacting_features.find(make_sorted_pair(elms[i], elms[j])) ==
-          contacting_features.end()) {
-          witness_functions->push_back(
-              euclidean_distance_witnesses_[i][j].get());
-      }
+      if (euclidean_distance_witnesses[i][j])
+        witness_functions->push_back(euclidean_distance_witnesses[i][j].get());
     }
   }
+   */
 }
 
 // Steps time stepping systems forward in time from t0.
@@ -1095,7 +1076,7 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   context_clone_ = context.Clone();
 
   // TODO: Get the witness isolation interval length.
-  const optional<T> witness_iso_len = 1e-8;
+  const optional<T> witness_iso_len = 1e-12;
 //  const optional<T> witness_iso_len = GetCurrentWitnessTimeIsolation();
 
   // Check whether witness functions *are* to be isolated. If not, the witnesses
@@ -1121,6 +1102,8 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     bool trigger = false;
     for (size_t i = 0; i < witnesses.size(); ++i) {
       wc[i] = this->EvaluateWitness(*context_clone_, *witnesses[i]);
+      SPDLOG_DEBUG(drake::log(), "Witness function evaluations: {}, {}",
+                   w0[i], wc[i]);
       if (witnesses[i]->should_trigger(w0[i], wc[i]))
         trigger = true;
     }
@@ -1151,6 +1134,9 @@ template <class T>
 void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   const std::vector<const UnrestrictedUpdateEvent<T>*>& events,
   State<T>* state) const {
+  SPDLOG_DEBUG(drake::log(), "RigidBodyPlant::DoCalcUnrestrictedUpdate()"
+      "entered");
+
   // Get the triangle/triangle feature data from the abstract state.
   auto& contacting_features = state->get_mutable_abstract_state().
       get_mutable_value(0).template GetMutableValue<std::map<sorted_pair<
@@ -1166,7 +1152,8 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   auto kinematics_cache = tree.doKinematics(q, v);
 
   // Loop through all elements whose witness functions have triggered.
-  std::vector<std::pair<int, int>> candidate_tris;
+  std::map<Element*, Isometry3<T>> poses;
+  std::vector<std::pair<Element*, Element*>> elements_to_check;
   for (size_t i = 0; i < events.size(); ++i) {
     // Get the witness function.
     DRAKE_DEMAND(events[i]->has_attribute());
@@ -1181,40 +1168,66 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
             static_cast<EuclideanDistanceWitnessFunction<T>*>(witness);
         Element* elmA = euclidean_distance_witness->get_element_A();
         Element* elmB = euclidean_distance_witness->get_element_B();
+        elements_to_check.push_back(std::make_pair(elmA, elmB));
         const RigidBody<T>& rbA = *elmA->get_body();
         const RigidBody<T>& rbB = *elmB->get_body();
 
-        // Get the meshes.
-        DRAKE_ASSERT(meshes_.find(elmA) != meshes_.end());
-        DRAKE_ASSERT(meshes_.find(elmB) != meshes_.end());
-        const Trimesh<T>& mA = meshes_.find(elmA)->second;
-        const Trimesh<T>& mB = meshes_.find(elmB)->second;
-
-        // Get poses for the meshes.
+        // Store the poses for the meshes.
         auto wTA = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
         auto wTB = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
-
-        // Set the poses for the meshes.
-        collision_detection_.SetPose(&mA, wTA);
-        collision_detection_.SetPose(&mB, wTB);
-
-        // Determine the candidate triangles.
-        candidate_tris.clear();
-        collision_detection_.DoBroadPhase(mA, mB, &candidate_tris);
-
-        // Compute the intersections.
-        auto& contacting_features_vector = contacting_features[make_sorted_pair(
-            elmA, elmB)];
-        collision_detection_.CalcIntersections(
-            mA, mB, candidate_tris, &contacting_features_vector);
-
-        // Update contacting features with elements.
-        for (size_t j = 0; j < contacting_features_vector.size(); ++j) {
-          contacting_features_vector[j].idA = elmA;
-          contacting_features_vector[j].idB = elmB;
-        }  
-
+        poses[elmA] = wTA;
+        poses[elmB] = wTB;
         break;
+      }
+    }
+  }
+
+  // Determine contacts.
+  if (!poses.empty()) {
+    // Update poses.
+    for (auto i = poses.begin(); i != poses.end(); ++i) {
+      const Trimesh <T>& m = meshes_.find(i->first)->second;
+      collision_detection_.UpdateAABBs(m, i->second);
+    }
+
+    // Update the broad phase structures.
+    collision_detection_.UpdateBroadPhaseStructs();
+
+    // Iterate over each pair of elements.
+    std::vector<std::pair<int, int>> candidate_tris;
+    for (const auto& element_pair : elements_to_check) {
+      const Trimesh<T>& mA = meshes_.find(element_pair.first)->second;
+      const Trimesh<T>& mB = meshes_.find(element_pair.second)->second;
+
+      // Determine candidate triangles.
+      candidate_tris.clear();
+      collision_detection_.DoBroadPhase(mA, mB, &candidate_tris);
+
+      // Get the distances between triangles.
+      std::vector<std::pair<std::pair<int, int>, T>> distances;
+      const T min_distance = collision_detection_.CalcDistances(
+          mA, mB, candidate_tris, &distances);
+
+      // Get the reduced set of triangles. Note: the minimum distance should
+      // be near zero.
+      candidate_tris.clear();
+      const double equal_tol = 1000 * std::numeric_limits<double>::epsilon();
+      for (int j = 0; j < distances.size(); ++j) {
+        if (distances[j].second - equal_tol < min_distance)
+          candidate_tris.push_back(distances[j].first);
+      }
+
+      // Compute the intersections.
+      auto& contacting_features_vector = contacting_features[
+          make_sorted_pair(element_pair.first, element_pair.second)];
+      collision_detection_.CalcIntersections(
+          mA, mB, candidate_tris, min_distance + equal_tol,
+          &contacting_features_vector);
+
+      // Update contacting features with elements.
+      for (size_t j = 0; j < contacting_features_vector.size(); ++j) {
+        contacting_features_vector[j].idA = element_pair.first;
+        contacting_features_vector[j].idB = element_pair.second;
       }
     }
   }
@@ -1746,8 +1759,41 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
   if (is_state_discrete()) {
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
+
+    // Create a mapping of element pairs to contact data.
     abstract_data.push_back(std::make_unique<Value<
       std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>>());
+
+    // Create a vector of Euclidean distance witnesses.
+    typedef std::vector<std::vector<EuclideanDistanceWitnessFunction<T>>>
+        EuclideanDistanceWitnessArray;
+    abstract_data.push_back(std::make_unique<Value<EuclideanDistanceWitnessArray>>());
+
+
+// multibody::EuclideanDistanceWitnessFunction<T>
+    /*
+    // Create the actual Euclidean distance witnesses.
+    auto& euclidean_distance_witnesses = abstract_data.back().template
+        GetValue<std::vector<std::vector<std::unique_ptr<
+        multibody::EuclideanDistanceWitnessFunction<T>>>>>();
+
+    // Create a signed distance witness for each pair of elements.
+    auto elm = GetElements();
+    for (size_t i = 0; i < elm.size(); ++i) {
+      euclidean_distance_witnesses.push_back(
+          std::vector<std::unique_ptr<
+              multibody::EuclideanDistanceWitnessFunction<T>>>(
+              elm.size()));
+      for (size_t j = i+1; j < elm.size(); ++j) {
+        if (collision_filtered_.find(std::make_pair(elm[i], elm[j])) ==
+            collision_filtered_.end()) {
+          euclidean_distance_witnesses[i][j] =
+              std::make_unique<multibody::EuclideanDistanceWitnessFunction<T>>(
+                  *this, elm[i], elm[j]);
+        }
+      }
+    }
+     */
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
     return std::make_unique<AbstractValues>();

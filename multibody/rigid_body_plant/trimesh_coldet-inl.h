@@ -101,12 +101,16 @@ void TrimeshColdet<T>::UpdateAABBs(
   poses_iter->second = wTm;
 
   // Update each AABB corresponding to this mesh.
+  SPDLOG_DEBUG(drake::log(), "Updating AABBs for mesh {} with transform {}",
+               (void*) &mesh, wTm.matrix());
   auto trimesh_bs_iter = bounds_.find(&mesh);
   DRAKE_DEMAND(trimesh_bs_iter != bounds_.end());
   const std::vector<BoundsStructsVectorPlusAxis>& bs = trimesh_bs_iter->second;
   for (int i = 0; i < bs.size(); ++i) {
     const std::vector<std::pair<T, BoundsStruct>>& bs_vec =
         bs[i].bound_struct_vector;
+    SPDLOG_DEBUG(drake::log(), "{} bounding structure objects found over this"
+                     " axis", bs_vec.size());
     for (int j = 0; j < bs_vec.size(); ++j) {
       // Get the requisite triangle in the mesh, transform it, and reconstruct
       // the AABB around it.
@@ -115,7 +119,13 @@ void TrimeshColdet<T>::UpdateAABBs(
       const Vector3<T> v1 = wTm * tri.a();
       const Vector3<T> v2 = wTm * tri.b();
       const Vector3<T> v3 = wTm * tri.c();
+      SPDLOG_DEBUG(drake::log(), "Untransformed triangle vertices: {}, {}, {}",
+                   tri.a(), tri.b(), tri.c());
+      SPDLOG_DEBUG(drake::log(), "Transformed triangle vertices: {}, {}, {}",
+                   v1, v2, v3);
       aabb = AABB<T>(Triangle3<T>(&v1, &v2, &v3));
+      SPDLOG_DEBUG(drake::log(), "AABB lower bound: {}", aabb.lower_bounds());
+      SPDLOG_DEBUG(drake::log(), "AABB upper bound: {}", aabb.upper_bounds());
     }
   }
 }
@@ -166,8 +176,7 @@ template <class T>
 void TrimeshColdet<T>::DoBroadPhase(
     const Trimesh<T>& mA, const Trimesh<T>& mB,
     std::vector<std::pair<int, int>>* to_check) const {
-  DRAKE_DEMAND(to_check);
-  to_check->clear();
+  DRAKE_DEMAND(to_check && to_check->empty());
 
   // Prepare to store overlaps for pairs.
   std::set<std::pair<int, int>> overlaps;
@@ -186,7 +195,7 @@ void TrimeshColdet<T>::DoBroadPhase(
   }
 
   // Update to_check.
-  std::copy(overlaps.begin(), overlaps.end(), std::back_inserter(*to_check)); 
+  std::copy(overlaps.begin(), overlaps.end(), std::back_inserter(*to_check));
 }
 
 template <class T>
@@ -208,6 +217,10 @@ void TrimeshColdet<T>::UpdateOverlaps(
       bound_struct_vector;
   const auto& bounds_vector_B = bs_vec_plus_axis_B[bounds_index].
       bound_struct_vector;
+
+  // Vectors must be sorted.
+  DRAKE_ASSERT(std::is_sorted(bounds_vector_A.begin(), bounds_vector_A.end()));
+  DRAKE_ASSERT(std::is_sorted(bounds_vector_B.begin(), bounds_vector_B.end()));
 
   // Merge the vector of bounds structs into a vector.
   std::vector<std::pair<T, BoundsStruct>> bounds_vector;
@@ -251,7 +264,7 @@ void TrimeshColdet<T>::UpdateOverlaps(
   // Intersect with the old overlaps: only ones that are in both sets are
   // retained. We only do this if the bounds index is not the first one.
   if (bounds_index > 0) {
-    std::vector <std::pair<int, int>> intersected_overlaps;
+    std::vector<std::pair<int, int>> intersected_overlaps;
     std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
                           overlaps->begin(), overlaps->end(),
                           std::back_inserter(intersected_overlaps));
@@ -265,7 +278,7 @@ void TrimeshColdet<T>::UpdateOverlaps(
 }
 
 template <class T>
-T TrimeshColdet<T>::CalcDistance(
+T TrimeshColdet<T>::CalcMinDistance(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
     const std::vector<std::pair<int, int>>& candidate_tris) const {
@@ -303,9 +316,65 @@ T TrimeshColdet<T>::CalcDistance(
 
     // See whether the distance is below the minimum.
     distance = std::min(tri_distance, distance);
+    if (distance == T(0))
+      return distance;
   }
 
   return distance;
+}
+
+template <class T>
+T TrimeshColdet<T>::CalcDistances(
+    const Trimesh<T>& mA,
+    const Trimesh<T>& mB,
+    const std::vector<std::pair<int, int>>& candidate_tris,
+    std::vector<std::pair<std::pair<int, int>, T>>* distances) const {
+  DRAKE_DEMAND(distances && distances->empty());
+
+  // TODO: Use the distance between the two AABBs as the default
+  // non-intersecting distance.
+  T min_distance = 100.0;
+
+  // Get iterators to the two poses for the triangle meshes.
+  const auto& poses_iter_mA = poses_.find(&mA);
+  const auto& poses_iter_mB = poses_.find(&mB);
+
+  // Verify that the meshes were found.
+  if (poses_iter_mA == poses_.end() || poses_iter_mB == poses_.end())
+    throw std::logic_error("Mesh was not found in the pose map.");
+
+  // Get the poses.
+  const Isometry3<T>& poseA = poses_iter_mA->second;
+  const Isometry3<T>& poseB = poses_iter_mB->second;
+
+  // Get the distance between each pair of triangles.
+  for (int i = 0; i < candidate_tris.size(); ++i) {
+    // Get the two triangles.
+    const Vector3<T> vAa = poseA * mA.triangle(candidate_tris[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(candidate_tris[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(candidate_tris[i].first).c();
+    const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
+    const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
+    const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
+
+    // Get the distance between the two triangles.
+    Vector3<T> closest_on_tA, closest_on_tB;
+    T tri_sq_dist = tA.CalcSquareDistance(tB, &closest_on_tA,
+                                          &closest_on_tB);
+
+    // TODO: Fix CalcSquareDistance()
+    tri_sq_dist = (closest_on_tA - closest_on_tB).norm();
+    DRAKE_DEMAND(tri_sq_dist >= 0);
+    distances->push_back(std::make_pair(candidate_tris[i],
+        sqrt(tri_sq_dist)));
+
+    // See whether the distance is below the minimum.
+    min_distance = std::min(distances->back().second, min_distance);
+  }
+
+  return min_distance;
 }
 
 // Projects a point to 2D given a normal.
@@ -370,14 +439,12 @@ void TrimeshColdet<T>::CalcIntersections(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
     const std::vector<std::pair<int, int>>& candidate_tris,
+    T threshold,
     std::vector<TriTriContactData<T>>* contacts) const {
   using std::sqrt;
   using std::abs;
 
   DRAKE_DEMAND(contacts && contacts->empty());
-
-  // TODO: Set the intersecting threshold in a principled manner.
-  const double intersecting_threshold = 1e-8;
 
   // Get iterators to the two poses for the triangle meshes.
   const auto& poses_iter_mA = poses_.find(&mA);
@@ -401,140 +468,131 @@ void TrimeshColdet<T>::CalcIntersections(
     const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
     const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
     const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);  
-    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);  
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
-    // Get the distance between the two triangles.
-    // TODO: Investigate why square distance return value not sufficiently
-    // accurate.
+    // Compute closest points.
     Vector3<T> closest_on_tA, closest_on_tB;
-    tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB); 
-    const T tri_distance = (closest_on_tA - closest_on_tB).norm();
+    tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
 
-    // See whether the distance is sufficiently small.
-    if (tri_distance < intersecting_threshold) {
-      // Verify that the distance isn't *too* small.
-      DRAKE_DEMAND(tri_distance > 0);
+    // Compute the surface normal such that it points toward A.
+    Vector3<T> normal = closest_on_tA - closest_on_tB;
+    normal.normalize();
 
-      // Compute the surface normal such that it points toward A.
-      Vector3<T> normal = closest_on_tA - closest_on_tB;
-      normal.normalize();
+    // Determine the offset for the plane parallel and halfway between the
+    // two planes passing through the closest points.
+    const T offsetA = normal.dot(closest_on_tA);
+    const T offsetB = normal.dot(closest_on_tB);
+    const T offset = (offsetA + offsetB) / 2.0;
 
-      // Determine the offset for the plane parallel and halfway between the
-      // two planes passing through the closest points.
-      const T offsetA = normal.dot(closest_on_tA);
-      const T offsetB = normal.dot(closest_on_tB);
-      const T offset = (offsetA + offsetB) / 2.0;
+    // Project all points from a triangle to the plane. Stores a point
+    // if it is within tolerance.
+    auto project_and_store = [&normal, offset, threshold](
+        const Triangle3<T>& t, std::vector<int>* p) {
+      const T d_a = t.a().dot(normal) - offset;
+      if (abs(d_a) < threshold)
+        p->push_back(0);
 
-      // Project all points from a triangle to the plane. Stores a point
-      // if it is within tolerance.
-      auto project_and_store = [&normal, offset, intersecting_threshold](
-          const Triangle3<T>& t, std::vector<int>* p) {
-        const T d_a = t.a().dot(normal) - offset;
-        if (abs(d_a) < intersecting_threshold)
-          p->push_back(0);
+      const T d_b = t.b().dot(normal) - offset;
+      if (abs(d_b) < threshold)
+        p->push_back(1);
 
-        const T d_b = t.b().dot(normal) - offset;
-        if (abs(d_b) < intersecting_threshold)
-          p->push_back(1);
+      const T d_c = t.c().dot(normal) - offset;
+      if (abs(d_c) < threshold)
+        p->push_back(2);
+    };
 
-        const T d_c = t.c().dot(normal) - offset;
-        if (abs(d_c) < intersecting_threshold)
-          p->push_back(2);
-      };
+    // Project all points from both triangles to the plane, storing indices
+    // of points that lie within the tolerance away.
+    std::vector<int> pA, pB;
+    project_and_store(tA, &pA);
+    project_and_store(tB, &pB);
 
-      // Project all points from both triangles to the plane, storing indices
-      // of points that lie within the tolerance away.
-      std::vector<int> pA, pB;
-      project_and_store(tA, &pA);
-      project_and_store(tB, &pB);
-
-      // Degenerate cases that we can reject immediately: nothing/anything,
-      // vertex/vertex and vertex edge.
-      if (pA.size() == 0 || pB.size() == 0)
+    // Degenerate cases that we can reject immediately: nothing/anything,
+    // vertex/vertex and vertex edge.
+    if (pA.size() == 0 || pB.size() == 0)
+      continue;
+    if (pA.size() == 1) {
+      if (pB.size() <= 2)
         continue;
-      if (pA.size() == 1) {
-        if (pB.size() <= 2)
-          continue;
-      } else {
-        if (pA.size() == 2 && pB.size() == 1)
-          continue;
+    } else {
+      if (pA.size() == 2 && pB.size() == 1)
+        continue;
+    }
+
+    // Note: We treat the case of no intersection after the projection as a
+    // singular configuration (i.e., active only instantaneously) and keep
+    // looping.
+
+    // Remaining cases are edge/edge, vertex/face, edge/face, and face/face.
+    switch (pA.size()) {
+      case 1: {
+        // Record the contact data.
+        contacts->push_back(TriTriContactData<T>());
+        contacts->back().tA = &mA.triangle(candidate_tris[i].first);
+        contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+        contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+        contacts->back().typeA = FeatureType::kVertex;
+        contacts->back().typeB = FeatureType::kFace;
+        break;
       }
 
-      // Note: We treat the case of no intersection after the projection as a
-      // singular configuration (i.e., active only instantaneously) and keep
-      // looping.
-
-      // Remaining cases are edge/edge, vertex/face, edge/face, and face/face.
-      switch (pA.size()) {
-        case 1: {
+      case 2: {
+        if (pB.size() == 2) {
           // Record the contact data.
           contacts->push_back(TriTriContactData<T>());
-          contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+          contacts->back().tA = &mA.triangle(candidate_tris[i].first);
           contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-          contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
-          contacts->back().typeA = FeatureType::kVertex;
+          contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
+          contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
+          contacts->back().typeA = FeatureType::kEdge;
+          contacts->back().typeB = FeatureType::kEdge;
+        } else {
+          DRAKE_DEMAND(pB.size() == 3);
+          // Record the contact data.
+          contacts->push_back(TriTriContactData<T>());
+          contacts->back().tA = &mA.triangle(candidate_tris[i].first);
+          contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+          contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
+          contacts->back().typeA = FeatureType::kEdge;
           contacts->back().typeB = FeatureType::kFace;
-          break;
         }
+        break;
+      }
 
-        case 2: {
+      case 3: {
+        if (pB.size() == 1) {
+          // Record the contact data.
+          contacts->push_back(TriTriContactData<T>());
+          contacts->back().tA = &mA.triangle(candidate_tris[i].first);
+          contacts->back().tB = &mB.triangle(candidate_tris[i].second);
+          contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+          contacts->back().typeA = FeatureType::kFace;
+          contacts->back().typeB = FeatureType::kVertex;
+        } else {
+          // Edge / face. Intersect the edge with the projected triangle.
           if (pB.size() == 2) {
             // Record the contact data.
-            contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+            contacts->push_back(TriTriContactData<T>());
+            contacts->back().tA = &mA.triangle(candidate_tris[i].first);
             contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-            contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
-            contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
-            contacts->back().typeA = FeatureType::kEdge;
+            contacts->back().feature_B_id = GetEdgeIndex(
+                pB.front(), pB.back());
+            contacts->back().typeA = FeatureType::kFace;
             contacts->back().typeB = FeatureType::kEdge;
           } else {
-            DRAKE_DEMAND(pB.size() == 3);
             // Record the contact data.
-            contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
+            contacts->push_back(TriTriContactData<T>());
+            contacts->back().tA = &mA.triangle(candidate_tris[i].first);
             contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-            contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
-            contacts->back().typeA = FeatureType::kEdge;
+            contacts->back().typeA = FeatureType::kFace;
             contacts->back().typeB = FeatureType::kFace;
           }
-          break;
         }
-
-        case 3: {
-          if (pB.size() == 1) {
-            // Record the contact data.
-            contacts->push_back(TriTriContactData<T>());  
-            contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
-            contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-            contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
-            contacts->back().typeA = FeatureType::kFace;
-            contacts->back().typeB = FeatureType::kVertex;
-          } else {
-            // Edge / face. Intersect the edge with the projected triangle.
-            if (pB.size() == 2) {
-              // Record the contact data.
-              contacts->push_back(TriTriContactData<T>());  
-              contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
-              contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-              contacts->back().feature_B_id = GetEdgeIndex(
-                  pB.front(), pB.back());
-              contacts->back().typeA = FeatureType::kFace;
-              contacts->back().typeB = FeatureType::kEdge;
-            } else {
-              // Record the contact data.
-              contacts->push_back(TriTriContactData<T>());  
-              contacts->back().tA = &mA.triangle(candidate_tris[i].first); 
-              contacts->back().tB = &mB.triangle(candidate_tris[i].second);
-              contacts->back().typeA = FeatureType::kFace;
-              contacts->back().typeB = FeatureType::kFace;
-            }
-          }
-          break;
-        }
-
-        default:
-          DRAKE_ABORT();  // Should never get here.
+        break;
       }
+
+      default:
+          DRAKE_ABORT();  // Should never get here.
     }
   }
 }

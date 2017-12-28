@@ -61,8 +61,8 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
                                                            &to_check);
 
   // Compute the distances between pairs of triangles.
-  const T distance = this->get_plant().get_collision_detection().CalcDistance(
-      *meshA_, *meshB_, to_check);
+  const T distance = this->get_plant().get_collision_detection().
+      CalcMinDistance(*meshA_, *meshB_, to_check);
 
   // Subtract the distance by some epsilon.
   return distance - signed_distance_epsilon;
