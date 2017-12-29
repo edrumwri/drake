@@ -1,6 +1,7 @@
 #pragma once
 
 #include "drake/common/drake_assert.h"
+#include "drake/common/text_logging.h"
 #include "drake/common/eigen_types.h"
 #include "drake/math/project_3d_to_2d.h"
 #include "drake/multibody/collision/element.h"
@@ -25,6 +26,18 @@ struct TriTriContactData {
   void* feature_B_id;             // Identifier of the feature on geometry B.
   const Triangle3<T>* tA;         // The triangle on geometry A.
   const Triangle3<T>* tB;         // The triangle on geometry B.
+
+  /// Determines whether the type of contact is degenerate.
+  bool is_degenerate() const {
+    if (typeA == FeatureType::kVertex && typeB == FeatureType::kVertex)
+      return true;
+    if (typeA == FeatureType::kVertex && typeB == FeatureType::kEdge)
+      return true;
+    if (typeA == FeatureType::kEdge && typeB == FeatureType::kVertex)
+      return true;
+
+    return false;
+  }
 
   /// Gets the surface normal (pointing toward A).
   Vector3<T> GetSurfaceNormalExpressedInWorld(
@@ -56,7 +69,9 @@ struct TriTriContactData {
         } else {
           // Average the two normals.
           const Vector3<T> nA = -poseA.linear() * tA->CalcNormal(); 
-          const Vector3<T> nB = poseB.linear() * tB->CalcNormal();
+          Vector3<T> nB = poseB.linear() * tB->CalcNormal();
+          if (nA.dot(nB) < 0)
+            nB = -nB;
           return ((nA * 0.5) + (nB * 0.5)).normalized();
         break;
       }
@@ -80,29 +95,35 @@ struct TriTriContactData {
     const auto P = math::Determine3dTo2dProjectionMatrix(normal);
 
     switch (typeA) {
-      case FeatureType::kVertex:  { 
-        DRAKE_DEMAND(typeB == FeatureType::kFace);
+      case FeatureType::kVertex:  {
+        if (typeB == FeatureType::kVertex || typeB == FeatureType::kEdge)
+          return 0;
 
         // Get the triangle and the vector representing the vertex.
         const Vector3<T> v = poseA * tA->get_vertex(
-            reinterpret_cast<long>(feature_A_id)); 
+            reinterpret_cast<long>(feature_A_id));
         const Vector3<T> v1 = poseB * tB->a();
         const Vector3<T> v2 = poseB * tB->b();
         const Vector3<T> v3 = poseB * tB->c();
-        Triangle3<T> t(&v1, &v2, &v3); 
+        Triangle3<T> t(&v1, &v2, &v3);
 
         // Determine the contact plane.
         const T offA = normal.dot(v);
         const T offB = normal.dot(t.a());
-        T offset = 0.5 * (offA + offB); 
+        T offset = 0.5 * (offA + offB);
 
         // Project the vertex and the triangle to the contact plane. 
         const Vector2<T> v_2d = P * v;
         const Triangle2<T> t_2d = t.ProjectTo2d(P);
 
         // Only process points that lie within the projected triangle.
-        if (t_2d.PointInside(v_2d))
+        if (t_2d.PointInside(v_2d)) {
           points->push_back(Unproject(normal, P, offset, v_2d));
+          SPDLOG_DEBUG(drake::log(), "Vertex/face contact: {}",
+                       points->back().transpose());
+        } else {
+          SPDLOG_DEBUG(drake::log(), "Vertex/face contact: point outside");
+        }
 
         return offA - offB;
       }
@@ -138,22 +159,30 @@ struct TriTriContactData {
             case Triangle2<T>::kSegSegIntersect:
               // Un-project the first point.
               points->push_back(Unproject(normal, P, offset, isects[0]));
+              SPDLOG_DEBUG(drake::log(), "Edge/edge contact: point {}",
+                           points->back().transpose());
               break;
 
             case Triangle2<T>::kSegSegEdge: 
               // Un-project the two points.
               points->push_back(Unproject(normal, P, offset, isects[0]));
+              SPDLOG_DEBUG(drake::log(), "Edge/edge contact: point {}",
+                           points->back().transpose());
               points->push_back(Unproject(normal, P, offset, isects[1]));
+              SPDLOG_DEBUG(drake::log(), "Edge/edge contact: point {}",
+                           points->back().transpose());
               break;
 
             case Triangle2<T>::kSegSegNoIntersect:
               // Do nothing.
+              SPDLOG_DEBUG(drake::log(), "Edge/edge contact: point outside");
               break;
           }
 
           return offA - offB;
         } else {
-          DRAKE_DEMAND(typeB == FeatureType::kFace);
+          if (typeB == FeatureType::kVertex)
+            return 0;
 
           // Project the edge and the face to the contact plane.
           auto edge = tA->get_edge(reinterpret_cast<long>(feature_A_id));
@@ -180,6 +209,8 @@ struct TriTriContactData {
             case Triangle2<T>::kSegSegEdge:
               // Un-project the first point.
               points->push_back(Unproject(normal, P, offset, isects[0]));
+              SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                           points->back().transpose());
               break;
 
             case Triangle2<T>::kSegTriPlanarIntersect:
@@ -187,10 +218,15 @@ struct TriTriContactData {
             case Triangle2<T>::kSegTriInside:
               // Un-project the two points.
               points->push_back(Unproject(normal, P, offset, isects[0]));
+              SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                           points->back().transpose());
               points->push_back(Unproject(normal, P, offset, isects[1]));
+              SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                           points->back().transpose());
               break;
 
             case Triangle2<T>::kSegTriNoIntersect:
+              SPDLOG_DEBUG(drake::log(), "Edge/face contact: point outside");
               // Do nothing.
               break;
           }
@@ -220,6 +256,10 @@ struct TriTriContactData {
           // Only process points that lie within the projected triangle.
           if (t_2d.PointInside(v_2d)) {
             points->push_back(Unproject(normal, P, offset, v_2d));
+            SPDLOG_DEBUG(drake::log(), "Vertex/face contact: point {}",
+                         points->back().transpose());
+          } else {
+            SPDLOG_DEBUG(drake::log(), "Vertex/face contact: point outside");
           }
 
           return offA - offB;
@@ -250,6 +290,8 @@ struct TriTriContactData {
               case Triangle2<T>::kSegSegEdge:
                 // Un-project the first point.
                 points->push_back(Unproject(normal, P, offset, isects[0]));
+                SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                             points->back().transpose());
                 break;
 
               case Triangle2<T>::kSegTriPlanarIntersect:
@@ -257,10 +299,15 @@ struct TriTriContactData {
               case Triangle2<T>::kSegTriInside:
                 // Un-project the two points.
                 points->push_back(Unproject(normal, P, offset, isects[0]));
+                SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                             points->back().transpose());
                 points->push_back(Unproject(normal, P, offset, isects[1]));
+                SPDLOG_DEBUG(drake::log(), "Edge/face contact: point {}",
+                             points->back().transpose());
                 break;
 
               case Triangle2<T>::kSegTriNoIntersect:
+                SPDLOG_DEBUG(drake::log(), "Edge/face contact: point outside");
                 // Do nothing.
                 break;
             }
@@ -286,9 +333,18 @@ struct TriTriContactData {
 
               // Intersect the two triangles and then unproject the vertices of 
               // the construction.
+              SPDLOG_DEBUG(drake::log(), "Intersecting triangle: {}", tA_3d);
+              SPDLOG_DEBUG(drake::log(), "and triangle: {}", tB_3d);
               int num_intersections = tA_2d.Intersect(tB_2d, &isects[0]);
-              for (int i = 0; i < num_intersections; ++i)
+              for (int i = 0; i < num_intersections; ++i) {
                 points->push_back(Unproject(normal, P, offset, isects[i]));
+                SPDLOG_DEBUG(drake::log(), "Face/face contact: point {}",
+                             points->back().transpose());
+              }
+              if (num_intersections == 0) {
+                SPDLOG_DEBUG(drake::log(),
+                             "Face/face contact: no intersection");
+              }
 
               return offA - offB;
             }

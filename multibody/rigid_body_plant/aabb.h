@@ -21,13 +21,26 @@ class AABB {
       minp_[i] = min(min(t.a()[i], t.b()[i]), t.c()[i]);
       maxp_[i] = max(max(t.a()[i], t.b()[i]), t.c()[i]);
     }
+    Expand();
   }
 
-  const Vector3<T>& lower_bounds() const { return minp_; } 
+  const Vector3<T>& lower_bounds() const { return minp_; }
   Vector3<T>& lower_bounds() { return minp_; } 
   const Vector3<T>& upper_bounds() const { return maxp_; }
   Vector3<T>& upper_bounds() { return maxp_; }
 
+  T CalcDistance(const AABB<T>& a) const {
+    using std::min;
+    if (Intersects(a))
+      return 0;
+    Vector3<T> axes_dist;
+    for (int i = 0; i < 3; ++i) {
+      axes_dist[i] = min(a.minp_[i] - maxp_[i], minp_[i] - a.maxp_[i]);
+      DRAKE_DEMAND(axes_dist[i] > 0);
+    }
+
+    return axes_dist.norm();
+  }
 
   bool Intersects(const AABB<T>& a) const {
     for (int i = 0; i < 3; ++i) {
@@ -38,6 +51,14 @@ class AABB {
   }
 
  private:
+  // This function acts to expand the AABB such that the pass through problem
+  // is eliminated for bounding boxes
+  // TODO: Expand this using velocities.
+  void Expand() {
+    minp_ -= Vector3<T>::Ones() * 1e-4;
+    maxp_ += Vector3<T>::Ones() * 1e-4;
+  }
+
   /// The lower and upper corners of the AABB.
   Vector3<T> minp_, maxp_;
 };

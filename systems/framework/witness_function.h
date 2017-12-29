@@ -88,7 +88,7 @@ enum class WitnessFunctionDirection {
 template <class T>
 class WitnessFunction {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(WitnessFunction)
+//  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(WitnessFunction)
 
   virtual ~WitnessFunction() {}
 

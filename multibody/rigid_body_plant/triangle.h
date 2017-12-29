@@ -206,5 +206,19 @@ class Triangle3 {
   const Vector3<T>* c_{nullptr};
 };
 
+template <class T>
+std::ostream& operator<<(std::ostream& o, const Triangle2<T>& t) {
+  o << t.a().transpose() << ", " << t.b().transpose() << ", " <<
+      t.c().transpose();
+  return o;
+}
+
+template <class T>
+std::ostream& operator<<(std::ostream& o, const Triangle3<T>& t) {
+  o << t.a().transpose() << ", " << t.b().transpose() << ", " <<
+    t.c().transpose();
+  return o;
+}
+
 }  // multibody
 }  // drake

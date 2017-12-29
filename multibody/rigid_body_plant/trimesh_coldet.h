@@ -27,8 +27,9 @@ class TrimeshColdet {
   void CalcIntersections(
                  const Trimesh<T>& mA,
                  const Trimesh<T>& mB,
-                 const std::vector<std::pair<int, int>>& pairs_to_check,
-                 T threshold,
+                 const Isometry3<T>& poseA,
+                 const Isometry3<T>& poseB,
+                 const std::vector<std::pair<int, int>>& triangle_indices,
                  std::vector<TriTriContactData<T>>* contacts) const;
   void UpdateAABBs(const Trimesh<T>& mesh, const Isometry3<T>& wTm);
   void UpdateBroadPhaseStructs();

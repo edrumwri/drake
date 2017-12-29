@@ -10,6 +10,7 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
+#include "drake/multibody/rigid_body_plant/euclidean_distance_witness.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
 #include "drake/multibody/rigid_body_plant/trimesh_coldet.h"
@@ -399,6 +400,8 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class EuclideanDistanceWitnessFunction;
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
+  friend class PolygonalContactTest_TriangleStationary_Test;
+  friend class PolygonalContactTest_BigTriangleStationary_Test;
   friend class PolygonalContactTest_BigTriangleSliding_Test;
   friend class PolygonalContactTest_BigTriangleMovingUpward_Test;
   std::vector<multibody::collision::Element*> GetElements() const;
@@ -547,6 +550,11 @@ class RigidBodyPlant : public LeafSystem<T> {
     // to joint limit violations.
     T signed_distance{0};
   };
+
+  // Typedefs for abstract state variables.
+  typedef std::vector<std::vector<std::shared_ptr<
+      multibody::EuclideanDistanceWitnessFunction<T>>>>
+      EuclideanDistanceWitnessArray;
 };
 
 }  // namespace systems

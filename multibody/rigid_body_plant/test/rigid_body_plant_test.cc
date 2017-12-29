@@ -588,35 +588,26 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
 
 class PolygonalContactTest : public ::testing::Test {
  protected:
-  void SetUp() {
-    // Step size is arbitrarily chosen.
-    const double step_size = 1e-1;
-
+  void CreateRBPlant(double step_size, const std::string& terrain_filename) {
     // Read in the box.
-    auto tree = std::make_unique<RigidBodyTree<double>>();
+    auto tree = std::make_unique<RigidBodyTree<double>> ();
     AddModelInstancesFromSdfFile(
         FindResourceOrThrow(
             "drake/multibody/rigid_body_plant/test/box.sdf"),
         kQuaternion, nullptr /* weld to frame */, tree.get());
 
     // Add the triangle terrain.
-    AddBigTriangleTerrainToWorld(tree.get());
+    AddBigTriangleTerrainToWorld(tree.get(), terrain_filename);
 
     // Create the plant.
     plant_ = std::make_unique<RigidBodyPlant<double>>(move(tree), step_size);
 
     // Create the context.
     context_ = plant_->CreateDefaultContext();
-
-    // Set the initial velocity for the box to move horizontally, and make the
-    // box not contact the plane. 
-    VectorX<double> x = plant_->get_state_vector(*context_);
-    x[11] = 1.0;
-    x[2] = 1e-8;
-    plant_->set_state_vector(&context_->get_mutable_state(), x);
   }
 
-  void AddBigTriangleTerrainToWorld(RigidBodyTreed* tree) {
+  void AddBigTriangleTerrainToWorld(RigidBodyTreed* tree,
+                                    const std::string& terrain_filename) {
     const double edge_length = 10000;
     const double box_depth = 1e-4;  // Only used for visualization.
     const DrakeShapes::Box box_geom(Eigen::Vector3d(edge_length, edge_length,
@@ -635,7 +626,7 @@ class PolygonalContactTest : public ::testing::Test {
 
     // The triangle terrain is almost as easy.
     const DrakeShapes::Mesh mesh_geom("",
-        FindResourceOrThrow("drake/multibody/rigid_body_plant/test/plane.obj"));
+        FindResourceOrThrow(terrain_filename));
     tree->addCollisionElement(
         multibody::collision::Element(mesh_geom, T_element_to_link, &world),
         world, "terrain");
@@ -646,7 +637,15 @@ class PolygonalContactTest : public ::testing::Test {
   std::unique_ptr<Context<double>> context_;
 };
 
-TEST_F(PolygonalContactTest, BigTriangleSliding) {
+TEST_F(PolygonalContactTest, TriangleStationary) {
+  // Create the plant.
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/single_tri.obj");
+
+  // Set the initial state.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1e-2;
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
   // Set the contact material.
   const double stiffness = 1e12;
   const double dissipation = 0;
@@ -662,11 +661,72 @@ TEST_F(PolygonalContactTest, BigTriangleSliding) {
 
   // Verify that the box has essentially remained on the ground plane. Note
   // that the expected position after 1s with no constraints is -g/2 m.
-  const auto x = plant_->get_state_vector(context);
+  x = plant_->get_state_vector(context);
   const double tol = 2e-6;
   EXPECT_NEAR(x[2], 0, tol);
 }
 
+// A secondary stationary test, now with a big triangle.
+TEST_F(PolygonalContactTest, BigTriangleStationary) {
+  // Create the plant.
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/plane.obj");
+
+  // Set the initial state.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1e-2;
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Set the contact material.
+  const double stiffness = 1e12;
+  const double dissipation = 0;
+  const double mu_static = 0, mu_dynamic = 0;
+  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+  plant_->compliant_contact_model_->set_default_material(material);
+
+  // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
+
+  // Verify that the box has essentially remained on the ground plane. Note
+  // that the expected position after 1s with no constraints is -g/2 m.
+  x = plant_->get_state_vector(context);
+  const double tol = 2e-6;
+  EXPECT_NEAR(x[2], 0, tol);
+}
+
+TEST_F(PolygonalContactTest, BigTriangleSliding) {
+  // Create the plant.
+  CreateRBPlant(0.1, "drake/multibody/rigid_body_plant/test/plane.obj");
+
+  // Set the initial state.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1e-2;
+  x[11] = 1.0;
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Set the contact material.
+  const double stiffness = 1e12;
+  const double dissipation = 0;
+  const double mu_static = 0, mu_dynamic = 0;
+  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+  plant_->compliant_contact_model_->set_default_material(material);
+
+  // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
+
+  // Verify that the box has essentially remained on the ground plane. Note
+  // that the expected position after 1s with no constraints is -g/2 m.
+  x = plant_->get_state_vector(context);
+  const double tol = 2e-6;
+  EXPECT_NEAR(x[2], 0, tol);
+}
+
+/*
 TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
   // Set the contact material.
   const double stiffness = 1e12;
@@ -694,7 +754,7 @@ TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
   const double tol = 2e-6;
   EXPECT_NEAR(x[2], 0, tol);
 }
-
+*/
 
 // Test fixture class for checking data used for time stepping. This test
 // uses a sphere resting on a fixed ground plane to determine contact Jacobians;

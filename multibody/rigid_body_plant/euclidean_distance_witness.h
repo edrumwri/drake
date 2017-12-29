@@ -1,5 +1,6 @@
 #pragma once
 
+#include "drake/common/sorted_pair.h"
 #include "drake/multibody/collision/element.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant_witness_function.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
@@ -16,7 +17,7 @@ namespace multibody {
 // as to pass the broad phase collision detection check. 
 template <class T>
 class EuclideanDistanceWitnessFunction :
-    public RigidBodyPlantWitnessFunction<T>,  public systems::AbstractValues {
+    public RigidBodyPlantWitnessFunction<T> {
  public:
   EuclideanDistanceWitnessFunction(
       const systems::RigidBodyPlant <T>& rb_plant,
@@ -29,8 +30,30 @@ class EuclideanDistanceWitnessFunction :
     return RigidBodyPlantWitnessFunction<T>::kEuclideanDistance; 
  }
 
+  EuclideanDistanceWitnessFunction(
+      const EuclideanDistanceWitnessFunction<T>& e) :
+    RigidBodyPlantWitnessFunction<T>(
+        this->get_plant(),
+        systems::WitnessFunctionDirection::kPositiveThenNonPositive) {
+    operator=(e);
+  }
+
+  EuclideanDistanceWitnessFunction& operator=(
+      const EuclideanDistanceWitnessFunction<T>& e) {
+    elementA_ = e.elementA_;
+    elementB_ = e.elementB_;
+    meshA_ = e.meshA_;
+    meshB_ = e.meshB_;
+    return *this;
+  }
+
   multibody::collision::Element* get_element_A() const { return elementA_; }
   multibody::collision::Element* get_element_B() const { return elementB_; }
+
+  /// Gets the vector of closest triangles determined during the last witness
+  /// function evaluation.
+  const std::vector<std::pair<int, int>>& get_last_closest_tris() const {
+    return closest_triangles_; };
 
  private:
   T DoEvaluate(const systems::Context<T>& context) const override; 
@@ -42,6 +65,9 @@ class EuclideanDistanceWitnessFunction :
   // The two elements for which the distance will be computed.
   multibody::collision::Element* elementA_{nullptr};
   multibody::collision::Element* elementB_{nullptr};
+
+  // The vector of closest triangles from the last witness function evaluation.
+  mutable std::vector<std::pair<int, int>> closest_triangles_;
 };
 
 }  // namespace multibody 
