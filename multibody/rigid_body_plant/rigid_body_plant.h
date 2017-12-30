@@ -401,6 +401,7 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class RigidBodyPlantTimeSteppingDataTest_NormalJacobian_Test;
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
   friend class PolygonalContactTest_TriangleStationary_Test;
+  friend class PolygonalContactTest_TriangleSliding_Test;
   friend class PolygonalContactTest_BigTriangleStationary_Test;
   friend class PolygonalContactTest_BigTriangleSliding_Test;
   friend class PolygonalContactTest_BigTriangleMovingUpward_Test;

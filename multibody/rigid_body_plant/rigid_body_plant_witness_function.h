@@ -24,8 +24,13 @@ class RigidBodyPlantWitnessFunction : public systems::AbstractValues,
 
   /// The types of witness function.
   enum WitnessType {
-      /// The signed distance for a contact from the half-space.
-      kEuclideanDistance,
+    /// The Euclidean distance between all pairs of triangles not already
+    /// designated as contacting.
+    kEuclideanDistance,
+
+    /// A witness that can determine when two contacting triangles separate
+    /// tangentially (and should no longer be designated as contacting).
+    kTangentialSeparation,
   };
 
   /// Gets the type of witness function. 

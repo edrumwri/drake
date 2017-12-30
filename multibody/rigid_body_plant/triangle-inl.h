@@ -5,8 +5,379 @@
 /// Most users should only include that file, not this one.
 /// For background, see http://drake.mit.edu/cxx_inl.html.
 
+#include "triangle.h"
 namespace drake {
 namespace multibody {
+
+// Applies the separating axis theorem to points and axes.
+template <class T>
+template <class ForwardIterator, class RandomAccessIterator1,
+    class RandomAccessIterator2>
+T Triangle2<T>::ApplySeparatingAxisTheorem(
+    ForwardIterator axes_begin, ForwardIterator axes_end,
+    RandomAccessIterator1 points_A_begin, RandomAccessIterator1 points_A_end,
+    RandomAccessIterator1 points_B_begin, RandomAccessIterator1 points_B_end,
+    RandomAccessIterator2 projs_A_begin, RandomAccessIterator2 projs_B_begin) {
+  using std::max;
+  using std::min;
+
+  // Get the number of points.
+  const int num_points_A = std::distance(points_A_begin, points_A_end);
+  const int num_points_B = std::distance(points_B_begin, points_B_end);
+
+  // Set the separation to infinity initially.
+  T separation = -std::numeric_limits<double>::infinity();
+
+  // Determine the minimum overlap / maximum separation.
+  for (auto axis = axes_begin; axis != axes_end; ++axis) {
+    // Project all points from A.
+    auto proj = projs_A_begin;
+    auto point = points_A_begin;
+    for (point = points_A_begin, proj = projs_A_begin; point != points_A_end; ++point)
+      *proj++ = axis->dot(*point);
+
+    // Project all points from B.
+    for (point = points_B_begin, proj = projs_B_begin; point != points_B_end; ++point)
+      *proj++ = axis->dot(*point);
+
+    // Sort the projections.
+    std::sort(projs_A_begin, projs_A_begin + num_points_A);
+    std::sort(projs_B_begin, projs_B_begin + num_points_B);
+
+    // Determine the greater distance.
+    const T dist1 = projs_B_begin[0] - projs_A_begin[num_points_A - 1];
+    const T dist2 = projs_A_begin[0] - projs_B_begin[num_points_B - 1];
+    const T dist = max(dist1, dist2);
+    separation = max(separation, dist);
+  }
+
+  DRAKE_DEMAND(separation <= 0);
+  return separation;
+}
+
+// Applies the separating axis theorem to two line segments.
+template <class T>
+T Triangle2<T>::ApplySeparatingAxisTheorem(
+    const std::pair<Vector2<T>, Vector2<T>>& seg1,
+    const std::pair<Vector2<T>, Vector2<T>>& seg2) {
+  // Construct a 90 degree rotation matrix.
+  Eigen::Rotation2D<T> R(M_PI_2);
+
+  // Determine the candidate axes.
+  const int num_axes = 4;
+  Vector2<T> axes[num_axes];
+  axes[0] = seg1.second - seg1.first;
+  axes[1] = seg2.second - seg2.first;
+  axes[2] = R * axes[0];
+  axes[3] = R * axes[1];
+
+  // Normalize all axes.
+  for (int i = 0; i < num_axes; ++i)
+    axes[i].normalize();
+
+  // Determine the set of points.
+  const int num_points_A = 2;
+  const int num_points_B = 2;
+  const Vector2<T> pointsA[num_points_A] = { seg1.first, seg1.second };
+  const Vector2<T> pointsB[num_points_B] = { seg2.first, seg2.second };
+  T proj_A[num_points_A];
+  T proj_B[num_points_B];
+
+  return ApplySeparatingAxisTheorem(axes, axes + num_axes, pointsA,
+                                    pointsA + num_points_A, pointsB,
+                                    pointsB + num_points_B, proj_A, proj_B);
+}
+
+// Applies the separating axis theorem to the triangle and a line segment.
+template <class T>
+T Triangle2<T>::ApplySeparatingAxisTheorem(
+    const std::pair<Vector2<T>, Vector2<T>>& seg) const {
+  // Construct a 90 degree rotation matrix.
+  Eigen::Rotation2D<T> R(M_PI_2);
+
+  // Determine the candidate axes.
+  const int num_axes = 8;
+  Vector2<T> axes[num_axes];
+  axes[0] = seg.second - seg.first;
+  axes[1] = b() - a();
+  axes[2] = c() - b();
+  axes[3] = a() - c();
+  for (int i = 0; i < 4; ++i)
+    axes[i+4] = R * axes[i];
+
+  // Normalize all axes.
+  for (int i = 0; i < num_axes; ++i)
+    axes[i].normalize();
+
+  // Determine the set of points.
+  const int num_points_A = 3;
+  const int num_points_B = 2;
+  const Vector2<T> pointsA[num_points_A] = { a(), b(), c() };
+  const Vector2<T> pointsB[num_points_B] = { seg.first, seg.second };
+  T proj_A[num_points_A];
+  T proj_B[num_points_B];
+
+  return ApplySeparatingAxisTheorem(axes, axes + num_axes, pointsA,
+                                    pointsA + num_points_A, pointsB,
+                                    pointsB + num_points_B, proj_A, proj_B);
+}
+
+// Applies the separating axis theorem to two triangles.
+template <class T>
+T Triangle2<T>::ApplySeparatingAxisTheorem(const Triangle2<T>& t) const {
+  // Construct a 90 degree rotation matrix.
+  Eigen::Rotation2D<T> R(M_PI_2);
+
+  // Determine the candidate axes.
+  const int num_axes = 12;
+  Vector2<T> axes[num_axes];
+  axes[0] = b() - a();
+  axes[1] = c() - b();
+  axes[2] = a() - c();
+  axes[3] = t.b() - t.a();
+  axes[4] = t.c() - t.b();
+  axes[5] = t.a() - t.c();
+  for (int i = 0; i < 6; ++i)
+    axes[i+6] = R * axes[i];
+
+  // Normalize all axes.
+  for (int i = 0; i < num_axes; ++i)
+    axes[i].normalize();
+
+  // Determine the set of points.
+  const int num_points_A = 3;
+  const int num_points_B = 3;
+  const Vector2<T> pointsA[num_points_A] = { a(), b(), c() };
+  const Vector2<T> pointsB[num_points_B] = { t.a(), t.b(), t.c() };
+  T proj_A[num_points_A];
+  T proj_B[num_points_B];
+
+  return ApplySeparatingAxisTheorem(axes, axes + num_axes, pointsA,
+                                    pointsA + num_points_A, pointsB,
+                                    pointsB + num_points_B, proj_A, proj_B);
+}
+
+// Computes the signed distance between this triangle and the given point.
+template <class T>
+T Triangle2<T>::CalcSignedDistance(const Vector2<T>& p) const {
+  using std::min;
+  using std::sqrt;
+
+  if (PointInside(p)) {
+    // Instantiate line segments.
+    const auto ab = std::make_pair(a(), b());
+    const auto bc = std::make_pair(b(), c());
+    const auto ca = std::make_pair(c(), a());
+
+    // Calculate the square distance from each line segment.
+    Vector2<T> dummy;
+    const T ab_dist = CalcSquareDistance(ab, p, &dummy);
+    const T bc_dist = CalcSquareDistance(bc, p, &dummy);
+    const T ca_dist = CalcSquareDistance(ca, p, &dummy);
+
+    return -sqrt(min(ab_dist, min(bc_dist, ca_dist)));
+  } else {
+    const Vector3<T> a_3d(a()[0], a()[1], 0);
+    const Vector3<T> b_3d(b()[0], b()[1], 0);
+    const Vector3<T> c_3d(c()[0], c()[1], 0);
+    const Triangle3<T> t(&a_3d, &b_3d, &c_3d);
+    const Vector3<T> p_3d(p[0], p[1], 0);
+    Vector3<T> dummy;
+    return sqrt(t.CalcSquareDistance(p_3d, &dummy));
+  }
+}
+
+// Computes distance between a point and a line segment in 2D.
+template <class T>
+T Triangle2<T>::CalcSquareDistance(const std::pair<Vector2<T>, Vector2<T>>& seg,
+                                   const Vector2<T>& point,
+                                   Vector2<T>* closest_point_on_seg) const {
+  const auto v = seg.second - seg.first;
+  const auto w = point - seg.first;
+  const T c1 = w.dot(v);
+  if (c1 <= 0) {
+    *closest_point_on_seg = seg.first;
+    return w.squaredNorm();
+  }
+
+  const T c2 = v.dot(v);
+  if (c2 <= c1) {
+    *closest_point_on_seg = seg.second;
+    return (point - seg.second).squaredNorm();
+  }
+
+  const T t = c1 / c2;
+  *closest_point_on_seg = seg.first + v * t;
+  return (*closest_point_on_seg - point).squaredNorm();
+}
+
+// Computes closest points between two line segments in 2D.
+template <class T>
+T Triangle2<T>::CalcClosestPoints(
+    const std::pair<Vector2<T>, Vector2<T>>& seg1,
+    const std::pair<Vector2<T>, Vector2<T>>& seg2,
+    Vector2<T>* p1,
+    Vector2<T>* p2) {
+  using std::abs;
+
+  DRAKE_DEMAND(p1 && p2);
+
+  // TODO: Compute a proper zero tolerance.
+  const double zero_tol = std::numeric_limits<double>::epsilon();
+
+  const auto u = seg1.second - seg1.first;
+  const auto v = seg2.second - seg2.first;
+  const auto w = seg1.first - seg2.first;
+  const T a = u.dot(u);
+  const T b = u.dot(v);
+  const T c = v.dot(v);
+  const T d = u.dot(w);
+  const T e = v.dot(w);
+  const T det = a*c - b*b;
+
+  T s_denom = det, t_denom = det;
+  T s_num, t_num;
+  if (abs(det) < zero_tol) {
+    // The lines are effectively parallel; force using the endpoint on seg1
+    // to prevent possible division by zero later.
+    s_num = 0;
+    s_denom = 1;
+    t_num = e;
+    t_denom = c;
+  } else {
+    // Get the closest points on the infinite lines.
+    s_num = (b*e - c*d);
+    t_num = (a*e - b*d);
+
+    // Clip s, if necessary.
+    if (s_num < 0) {
+      s_num = 0;
+      t_num = e;
+      t_denom = c;
+    } else {
+      if (s_num > s_denom) {
+        s_num = s_denom;
+        t_denom = e + b;
+        t_denom = c;
+      }
+    }
+
+    // Clip t, if necessary.
+    if (t_num < 0) {
+      t_num = 0;
+      if (-d < 0) {
+        s_num = 0;
+      } else {
+        if (-d > a) {
+          s_num = s_denom;
+        } else {
+          s_num = -d;
+          s_denom = a;
+        }
+      }
+    } else {
+      if (t_num > t_denom) {
+        t_num = t_denom;
+        if (-d + b < 0) {
+          s_num = 0;
+        } else {
+          if (-d + b > a) {
+            s_num = s_denom;
+          } else {
+            s_num = -d + b;
+            s_denom = a;
+          }
+        }
+      }
+    }
+  }
+
+  // Do the division to get s and t.
+  const T s = (abs(s_num) < zero_tol) ? 0 : s_num / s_denom;
+  const T t = (abs(t_num) < zero_tol) ? 0 : t_num / t_denom;
+
+  // Compute p1 and p2.
+  *p1 = seg1.first + u * s;
+  *p2 = seg2.first + v * t;
+
+  return (*p1 - *p2).norm();
+}
+
+// Computes the signed distance between this triangle and the given segment.
+template <class T>
+T Triangle2<T>::CalcSignedDistance(
+    const std::pair<Vector2<T>, Vector2<T>>& seg) const {
+  using std::sqrt;
+
+  // TODO: Use a properly computed threshold.
+  const T zero_tol = std::numeric_limits<double>::epsilon();
+
+  // Compute the location between this triangle and the line segment.
+  Vector2<T> isect0, isect1;
+  SegTriIntersectType isect_type = Intersect(seg, zero_tol, &isect0, &isect1);
+  switch (isect_type) {
+    // All of these cases are kissing intersections.
+    case SegTriIntersectType::kSegTriVertex:
+    case SegTriIntersectType::kSegTriEdge:
+    case SegTriIntersectType::kSegTriEdgeOverlap:
+      return 0;
+
+    // The segment is fully inside the triangle. Use the separating axis
+    // theorem to determine the signed distance.
+    case SegTriIntersectType::kSegTriInside:  {
+      return ApplySeparatingAxisTheorem(seg);
+    }
+
+    case SegTriIntersectType::kSegTriNoIntersect:  {
+      // Compute the square distance between the line segment and the triangle.
+      const Vector3<T> a_3d(a()[0], a()[1], 0);
+      const Vector3<T> b_3d(b()[0], b()[1], 0);
+      const Vector3<T> c_3d(c()[0], c()[1], 0);
+      const Triangle3<T> t(&a_3d, &b_3d, &c_3d);
+      const Vector3<T> p1_3d(seg.first[0], seg.first[1], 0);
+      const Vector3<T> p2_3d(seg.second[0], seg.second[1], 0);
+      Vector3<T> dummy1, dummy2;
+      return sqrt(t.CalcSquareDistance(std::make_pair(p1_3d, p2_3d),
+                                       &dummy1, &dummy2));
+    }
+
+    // The segment is fully inside the triangle. Use the separating axis theorem
+    // to determine the signed distance.
+    case SegTriIntersectType::kSegTriPlanarIntersect:
+      return ApplySeparatingAxisTheorem(seg);
+
+    default:
+      DRAKE_ABORT();
+  }
+}
+
+// Computes the signed distance between this triangle and the given triangle.
+template <class T>
+T Triangle2<T>::CalcSignedDistance(
+    const Triangle2<T>& t) const {
+  using std::sqrt;
+
+  // Intersect the triangles.
+  Vector2<T> isects[6];
+  int num_intersections = Intersect(t, &isects[0]);
+
+  // If the intersection is empty, the triangles are disjoint. Return the
+  // Euclidean distance between the triangles.
+  if (num_intersections == 0) {
+    const Vector3 <T> a_3d(a()[0], a()[1], 0);
+    const Vector3 <T> b_3d(b()[0], b()[1], 0);
+    const Vector3 <T> c_3d(c()[0], c()[1], 0);
+    const Vector3 <T> t_a_3d(t.a()[0], t.a()[1], 0);
+    const Vector3 <T> t_b_3d(t.b()[0], t.b()[1], 0);
+    const Vector3 <T> t_c_3d(t.c()[0], t.c()[1], 0);
+    const Triangle3<T> this_3d(&a_3d, &b_3d, &c_3d);
+    const Triangle3<T> t_3d(&t_a_3d, &t_b_3d, &t_c_3d);
+    Vector3 <T> dummy1, dummy2;
+    return sqrt(this_3d.CalcSquareDistance(t_3d, &dummy1, &dummy2));
+  } else {
+    return ApplySeparatingAxisTheorem(t);
+  }
+}
 
 // Partial template specializations on three dimensional triangles follow.
 template <class T>
@@ -744,97 +1115,94 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
   } else {
     if (qe1 == kRight) {
       if (pe1 == kOn) {
-        const Vector2<T> dir = e1.second - e1.first;
+        const Vector2 <T> dir = e1.second - e1.first;
         T t = DetermineLineParam(e1.first, dir, p);
         SegLocationType feat = DetermineSegLocation(t);
-        *isect = e1.first + dir*t;
+        *isect = e1.first + dir * t;
         if (feat == kSegOrigin || feat == kSegEndpoint) {
           return kSegTriVertex;
         } else {
           if (feat == kSegInterior)
             return kSegTriEdge;
         }
-      }
-    } else {
-      // p *should* be to the left of e1; see whether p is on a vertex, an
-      // edge, or inside the triangle 
-      PolygonLocationType ploc = GetLocation(p);
-      if (ploc == kPolygonOnVertex) {
-        *isect2 = p;
-        return kSegTriVertex;
       } else {
-        if (ploc == kPolygonOnEdge) {
+        // p *should* be to the left of e1; see whether p is on a vertex, an
+        // edge, or inside the triangle
+        PolygonLocationType ploc = GetLocation(p);
+        if (ploc == kPolygonOnVertex) {
           *isect2 = p;
-          return kSegTriEdge;
+          return kSegTriVertex;
         } else {
-          if (ploc == kPolygonInside) {
-            // Intersect seg vs. e1.
-            SegSegIntersectType type = IntersectSegs(seg, e1, isect, isect2);
+          if (ploc == kPolygonOnEdge) {
             *isect2 = p;
-            std::swap(*isect, *isect2);
-            switch (type) {
-              case kSegSegIntersect:  
-                return kSegTriPlanarIntersect;
+            return kSegTriEdge;
+          } else {
+            if (ploc == kPolygonInside) {
+              // Intersect seg vs. e1.
+              SegSegIntersectType type = IntersectSegs(seg, e1, isect, isect2);
+              *isect2 = p;
+              std::swap(*isect, *isect2);
+              switch (type) {
+                case kSegSegIntersect:return kSegTriPlanarIntersect;
 
-              case kSegSegNoIntersect:
-                break; 
+                case kSegSegNoIntersect:break;
 
-              // None of these should occur, so we'll return the points
-              // of intersection and fudge the type. 
-              case kSegSegVertex:  
-              case kSegSegEdge:
-                return kSegTriPlanarIntersect;
+                  // None of these should occur, so we'll return the points
+                  // of intersection and fudge the type.
+                case kSegSegVertex:
+                case kSegSegEdge:return kSegTriPlanarIntersect;
+              }
             }
           }
         }
-      }  
+      }
     }
   }
 
   // check for edge or vertex intersection with edge #2
   if (pe2 == kRight) {
     if (qe2 == kOn) {
-      const Vector2<T> dir = e2.second - e2.first;
+      const Vector2 <T> dir = e2.second - e2.first;
       T t = DetermineLineParam(e2.first, dir, q);
       SegLocationType feat = DetermineSegLocation(t);
-      *isect = e2.first + dir*t;
+      *isect = e2.first + dir * t;
       if (feat == kSegOrigin || feat == kSegEndpoint) {
         return kSegTriVertex;
       } else {
         if (feat == kSegInterior) {
           return kSegTriEdge;
+        }
+      }
+    } else {
+      // q *should* be to the left of e2; see whether q is on a vertex, an
+      // edge, or inside the triangle
+      PolygonLocationType qloc = GetLocation(q);
+      if (qloc == kPolygonOnVertex) {
+        *isect2 = q;
+        return kSegTriVertex;
+      } else {
+        if (qloc == kPolygonOnEdge) {
+          *isect2 = q;
+          return kSegTriEdge;
         } else {
-          // q *should* be to the left of e2; see whether q is on a vertex, an
-          // edge, or inside the triangle 
-          PolygonLocationType qloc = GetLocation(q);
-          if (qloc == kPolygonOnVertex) {
+          if (qloc == kPolygonInside) {
+            // intersect seg vs. e2
+            SegSegIntersectType type =
+                IntersectSegs(seg, e2, isect, isect2);
             *isect2 = q;
-            return kSegTriVertex;
-          } else {
-            if (qloc == kPolygonOnEdge) {
-              *isect2 = q;
-              return kSegTriEdge;
-            } else {
-              if (qloc == kPolygonInside) {
-                // intersect seg vs. e2
-                SegSegIntersectType type =
-                    IntersectSegs(seg, e2, isect, isect2);
-                *isect2 = q;
-                std::swap(*isect, *isect2);
-                switch (type) {
-                  case kSegSegIntersect:  
-                    return kSegTriPlanarIntersect;
+            std::swap(*isect, *isect2);
+            switch (type) {
+              case kSegSegIntersect:
+                return kSegTriPlanarIntersect;
 
-                  case kSegSegNoIntersect:
-                    break; 
+              case kSegSegNoIntersect:
+                break;
 
-                  // None of these should occur, so we'll return the points
-                  // of intersection and fudge the type. 
-                  case kSegSegVertex:  
-                  case kSegSegEdge:
-                    return kSegTriPlanarIntersect;
-                }
-              }
+                // None of these should occur, so we'll return the points
+                // of intersection and fudge the type.
+              case kSegSegVertex:
+              case kSegSegEdge:
+                return kSegTriPlanarIntersect;
             }
           }
         }
@@ -843,50 +1211,47 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
   } else {
     if (qe2 == kRight) {
       if (pe2 == kOn) {
-        const Vector2<T> dir = e2.second - e2.first;
+        const Vector2 <T> dir = e2.second - e2.first;
         T t = DetermineLineParam(e2.first, dir, p);
         SegLocationType feat = DetermineSegLocation(t);
-        *isect = e2.first + dir*t;
+        *isect = e2.first + dir * t;
         if (feat == kSegOrigin || feat == kSegEndpoint) {
           return kSegTriVertex;
         } else {
           if (feat == kSegInterior)
             return kSegTriEdge;
         }
-      }
-    } else {
-      // p *should* be to the left of e2; see whether p is on a vertex, an
-      // edge, or inside the triangle 
-      PolygonLocationType ploc = GetLocation(p);
-      if (ploc == kPolygonOnVertex) {
-        *isect2 = p;
-        return kSegTriVertex;
       } else {
-        if (ploc == kPolygonOnEdge) {
+        // p *should* be to the left of e2; see whether p is on a vertex, an
+        // edge, or inside the triangle
+        PolygonLocationType ploc = GetLocation(p);
+        if (ploc == kPolygonOnVertex) {
           *isect2 = p;
-          return kSegTriEdge;
+          return kSegTriVertex;
         } else {
-          if (ploc == kPolygonInside) {
-            // Intersect seg vs. e2.
-            SegSegIntersectType type = IntersectSegs(seg, e2, isect, isect2);
+          if (ploc == kPolygonOnEdge) {
             *isect2 = p;
-            std::swap(*isect, *isect2);
-            switch (type) {
-              case kSegSegIntersect:  
-                return kSegTriPlanarIntersect;
+            return kSegTriEdge;
+          } else {
+            if (ploc == kPolygonInside) {
+              // Intersect seg vs. e2.
+              SegSegIntersectType type = IntersectSegs(seg, e2, isect, isect2);
+              *isect2 = p;
+              std::swap(*isect, *isect2);
+              switch (type) {
+                case kSegSegIntersect:return kSegTriPlanarIntersect;
 
-              case kSegSegNoIntersect:
-                return kSegTriEdge;
+                case kSegSegNoIntersect:return kSegTriEdge;
 
-              // None of these should occur, so we'll return the points
-              // of intersection and fudge the type 
-              case kSegSegVertex:  
-              case kSegSegEdge:
-                return kSegTriPlanarIntersect;
+                  // None of these should occur, so we'll return the points
+                  // of intersection and fudge the type
+                case kSegSegVertex:
+                case kSegSegEdge:return kSegTriPlanarIntersect;
+              }
             }
           }
         }
-      }      
+      }
     }
   }
 
@@ -940,46 +1305,43 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
   } else {
     if (qe3 == kRight) {
       if (pe3 == kOn) {
-        const Vector2<T> dir = e3.second - e3.first;
+        const Vector2 <T> dir = e3.second - e3.first;
         T t = DetermineLineParam(e3.first, dir, p);
         SegLocationType feat = DetermineSegLocation(t);
-        *isect = e3.first + dir*t;
-         if (feat == kSegOrigin || feat == kSegEndpoint) {
-           return kSegTriVertex;
-         } else {
-           if (feat == kSegInterior)
-             return kSegTriEdge;
-         }
-      }
-    } else {
-      // p *should* be to the left of e3; see whether p is on a vertex, an
-      // edge, or inside the triangle 
-      PolygonLocationType ploc = GetLocation(p);
-      if (ploc == kPolygonOnVertex) {
-        *isect2 = p;
-        return kSegTriVertex;
-      } else {
-        if (ploc == kPolygonOnEdge) {
-          *isect2 = p;
-          return kSegTriEdge;
+        *isect = e3.first + dir * t;
+        if (feat == kSegOrigin || feat == kSegEndpoint) {
+          return kSegTriVertex;
         } else {
-          if (ploc == kPolygonInside) {
-            // intersect seg vs. e3
-            SegSegIntersectType type = IntersectSegs(seg, e3, isect, isect2);
+          if (feat == kSegInterior)
+            return kSegTriEdge;
+        }
+      } else {
+        // p *should* be to the left of e3; see whether p is on a vertex, an
+        // edge, or inside the triangle
+        PolygonLocationType ploc = GetLocation(p);
+        if (ploc == kPolygonOnVertex) {
+          *isect2 = p;
+          return kSegTriVertex;
+        } else {
+          if (ploc == kPolygonOnEdge) {
             *isect2 = p;
-            std::swap(*isect, *isect2);
-            switch (type) {
-              case kSegSegIntersect:  
-                return kSegTriPlanarIntersect;
+            return kSegTriEdge;
+          } else {
+            if (ploc == kPolygonInside) {
+              // intersect seg vs. e3
+              SegSegIntersectType type = IntersectSegs(seg, e3, isect, isect2);
+              *isect2 = p;
+              std::swap(*isect, *isect2);
+              switch (type) {
+                case kSegSegIntersect:return kSegTriPlanarIntersect;
 
-              case kSegSegNoIntersect:
-                return kSegTriEdge;
+                case kSegSegNoIntersect:return kSegTriEdge;
 
-              // None of these should occur, so we'll return the points
-              // of intersection and fudge the type. 
-              case kSegSegVertex:  
-              case kSegSegEdge:
-                return kSegTriPlanarIntersect;
+                  // None of these should occur, so we'll return the points
+                  // of intersection and fudge the type.
+                case kSegSegVertex:
+                case kSegSegEdge:return kSegTriPlanarIntersect;
+              }
             }
           }
         }

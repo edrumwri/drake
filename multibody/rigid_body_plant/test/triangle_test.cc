@@ -12,9 +12,10 @@ class Triangle3Test : public ::testing::Test {
 
 // Tests the ability to load an instance of a URDF model into a RigidBodyPlant.
 TEST_F(Triangle3Test, CalcNormalTest) {
-  Triangle3<double> t(Vector3<double>(10, 0, 0),
-                      Vector3<double>(10, 1, 0),
-                      Vector3<double>(0, 1, 0));
+  const Vector3<double> a(10, 0, 0);
+  const Vector3<double> b(10, 1, 0);
+  const Vector3<double> c(0, 1, 0);
+  Triangle3<double> t(&a, &b, &c);
   Vector3<double> normal = t.CalcNormal();
 
   EXPECT_NEAR(normal[0], 0, tol_);
@@ -25,9 +26,10 @@ TEST_F(Triangle3Test, CalcNormalTest) {
 // Checks that the distance from a triangle to a line works properly when the
 // line is parallel to the triangle.
 TEST_F(Triangle3Test, CalcLineSquareDistanceParallel) {
-  Triangle3<double> t(Vector3<double>(1, 0, 0),
-                      Vector3<double>(1, 1, 0),
-                      Vector3<double>(0, 1, 0));
+  const Vector3<double> a(1, 0, 0);
+  const Vector3<double> b(1, 1, 0);
+  const Vector3<double> c(0, 1, 0);
+  Triangle3<double> t(&a, &b, &c);
   Vector3<double> origin(0, -1, 0);
   Vector3<double> dir(1, 0, 0);
   Vector3<double> closest_point_on_line, closest_point_on_tri;
@@ -45,9 +47,10 @@ TEST_F(Triangle3Test, CalcLineSquareDistanceParallel) {
 // Checks that the distance from a triangle to a line works properly when the
 // line intersects the triangle.
 TEST_F(Triangle3Test, CalcLineSquareDistanceIntersects) {
-  Triangle3<double> t(Vector3<double>(1, 0, 0),
-                      Vector3<double>(1, 1, 0),
-                      Vector3<double>(0, 1, 0));
+  const Vector3<double> a(1, 0, 0);
+  const Vector3<double> b(1, 1, 0);
+  const Vector3<double> c(0, 1, 0);
+  Triangle3<double> t(&a, &b, &c);
   Vector3<double> origin(0, 0, 0);
   Vector3<double> dir(0, -1, 0);
   Vector3<double> closest_point_on_line, closest_point_on_tri;
@@ -131,6 +134,83 @@ class Triangle2Test : public ::testing::Test {
   const double tol_ = 10 * std::numeric_limits<double>::epsilon();
 };
 
+// Tests the CalcSignedDistance() function (triangle / single point version).
+TEST_F(Triangle2Test, PointTriCalcSignedDistance) {
+  const double sqrt_34 = std::sqrt(0.75);
+  const Vector2<double> a(0, 0), b(1, 0), c(0.5, sqrt_34);
+  const Triangle2<double> t(a, b, c);
+
+  // Test one point inside and one point outside.
+  const Vector2<double> q1(0.5, -1);
+  const Vector2<double> q2(0.5, .1);
+
+  EXPECT_NEAR(t.CalcSignedDistance(q1), 1, tol_);
+  EXPECT_NEAR(t.CalcSignedDistance(q2), -.1, tol_);
+}
+
+// Tests the CalcSignedDistance() function (triangle / line segment version).
+TEST_F(Triangle2Test, SegTriCalcSignedDistance) {
+  const double sqrt_34 = std::sqrt(0.75);
+  const Vector2<double> a(0, 0), b(1, 0), c(0.5, sqrt_34);
+  const Triangle2<double> t(a, b, c);
+
+  // Test the vertex case.
+  EXPECT_NEAR(t.CalcSignedDistance(
+    std::make_pair(Vector2<double>(0, 0), Vector2<double>(0, 1))), 0, tol_);
+
+  // Test the edge case.
+  EXPECT_NEAR(t.CalcSignedDistance(
+    std::make_pair(Vector2<double>(0, -1), Vector2<double>(0, 1))), 0, tol_);
+
+  // Test the edge overlap case.
+  EXPECT_NEAR(t.CalcSignedDistance(
+    std::make_pair(Vector2<double>(.2, 0), Vector2<double>(.5, 0))), 0, tol_);
+
+  // Test the proper interior case.
+  EXPECT_NEAR(t.CalcSignedDistance(std::make_pair(
+    Vector2<double>(.49, .2), Vector2<double>(.51, .2))), -.2, tol_);
+
+  // Test the fully outside case.
+  EXPECT_NEAR(t.CalcSignedDistance(
+    std::make_pair(Vector2<double>(.2, -1), Vector2<double>(.5, -1))), 1, tol_);
+
+  // Test the "planar intersect" case.
+  EXPECT_NEAR(t.CalcSignedDistance(std::make_pair(
+    Vector2<double>(.5, .1), Vector2<double>(.5, -1))), -.1, tol_);
+}
+
+// Tests the CalcSignedDistance() function (triangle / triangle version).
+TEST_F(Triangle2Test, TriTriCalcSignedDistance) {
+  const double sqrt_34 = std::sqrt(0.75);
+  const Vector2<double> a(0, 0), b(1, 0), c(0.5, sqrt_34);
+  const Triangle2<double> t1(a, b, c);
+
+  // Test intersecting triangles.
+  EXPECT_NEAR(t1.CalcSignedDistance(t1), -std::sqrt(3)/2, tol_);
+}
+
+// Tests the CalcSignedDistance() function (line segment / segment version).
+TEST_F(Triangle2Test, SegSegCalcSignedDistance) {
+  // Test the intersecting case.
+  auto seg1 = std::make_pair(Vector2<double>(0, 0), Vector2<double>(0, 1));
+  auto seg2 = std::make_pair(Vector2<double>(-1, .25), Vector2<double>(1, .25));
+  EXPECT_NEAR(Triangle2<double>::ApplySeparatingAxisTheorem(seg1, seg2), -.25,
+      tol_);
+}
+
+TEST_F(Triangle2Test, SegLocation) {
+  EXPECT_EQ(Triangle2<double>::DetermineSegLocation(0.0),
+      Triangle2<double>::kSegOrigin);
+  EXPECT_EQ(Triangle2<double>::DetermineSegLocation(1.0),
+      Triangle2<double>::kSegEndpoint);
+  EXPECT_EQ(Triangle2<double>::DetermineSegLocation(0.5),
+      Triangle2<double>::kSegInterior);
+  EXPECT_EQ(Triangle2<double>::DetermineSegLocation(-1.0),
+      Triangle2<double>::kSegExterior);
+  EXPECT_EQ(Triangle2<double>::DetermineSegLocation(2.0),
+      Triangle2<double>::kSegExterior);
+}
+
 // Tests the IsBetween() function.
 TEST_F(Triangle2Test, IsBetween) {
   // Set segment endpoints along the x-axis.
@@ -189,10 +269,6 @@ TEST_F(Triangle2Test, CalcAreaSign) {
             Triangle2<double>::kRight);
   EXPECT_EQ(Triangle2<double>::CalcAreaSign(p1, p2, q3, tol),
             Triangle2<double>::kLeft);
-}
-
-TEST_F(Triangle2Test, SegLocation) {
-
 }
 
 TEST_F(Triangle2Test, SegTriIntersection) {

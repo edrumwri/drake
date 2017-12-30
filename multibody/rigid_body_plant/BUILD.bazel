@@ -129,6 +129,7 @@ drake_cc_library(
         "kinematics_results.h",
         "rigid_body_plant.h",
         "rigid_body_plant_witness_function.h",
+        "tangential_separation_witness.h",
     ],
     deps = [
         ":compliant_contact_model",

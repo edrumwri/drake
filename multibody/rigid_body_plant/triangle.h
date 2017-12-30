@@ -86,6 +86,9 @@ class Triangle2 {
     }
   }
 
+  T CalcSignedDistance(const Triangle2<T>& t) const;
+  T CalcSignedDistance(const std::pair<Vector2<T>, Vector2<T>>& seg) const;
+  T CalcSignedDistance(const Vector2<T>& p) const;
   int Intersect(const Triangle2& t, Vector2<T>* intersections) const;
   bool PointInside(const Vector2<T>& point) const;
   PolygonLocationType GetLocation(const Vector2<T>& point) const;
@@ -96,6 +99,9 @@ class Triangle2 {
       const std::pair<Vector2<T>, Vector2<T>>& seg1,
       const std::pair<Vector2<T>, Vector2<T>>& seg2,
       Vector2<T>* isect, Vector2<T>* isect2);
+  static T ApplySeparatingAxisTheorem(
+      const std::pair<Vector2<T>, Vector2<T>>& seg1,
+      const std::pair<Vector2<T>, Vector2<T>>& seg2);
 
  private:
   friend class Triangle2Test_IsBetween_Test;
@@ -107,7 +113,24 @@ class Triangle2 {
   friend class Triangle2Test_ParallelSegSegIntersection_Test;
   friend class Triangle2Test_TriTriIntersection_Test;
 
-  static int Advance(int a, int* aa, bool inside, const Vector2<T>& p, Vector2<T>* intersections, int* num_intersections);
+  template <class ForwardIterator, class RandomAccessIterator1,
+      class RandomAccessIterator2>
+  static T ApplySeparatingAxisTheorem(
+      ForwardIterator axes_begin, ForwardIterator axes_end,
+      RandomAccessIterator1 points_A_begin, RandomAccessIterator1 points_A_end,
+      RandomAccessIterator1 points_B_begin, RandomAccessIterator1 points_B_end,
+      RandomAccessIterator2 projs_A_begin, RandomAccessIterator2 projs_B_begin);
+  T ApplySeparatingAxisTheorem(const std::pair<Vector2<T>, Vector2<T>>& seg)
+      const;
+  T ApplySeparatingAxisTheorem(const Triangle2<T>& t) const;
+  T CalcSquareDistance(const std::pair<Vector2<T>, Vector2<T>>& seg,
+                       const Vector2<T>& point,
+                       Vector2<T>* closest_point_on_seg) const;
+  static T CalcClosestPoints(const std::pair<Vector2<T>, Vector2<T>>& seg1,
+                             const std::pair<Vector2<T>, Vector2<T>>& seg2,
+                             Vector2<T>* p1, Vector2<T>* p2);
+  static int Advance(int a, int* aa, bool inside, const Vector2<T>& p,
+                     Vector2<T>* intersections, int* num_intersections);
   bool ccw() const;
   static bool IsBetween(
       const Vector2<T>& a, const Vector2<T>& b, const Vector2<T>& c);

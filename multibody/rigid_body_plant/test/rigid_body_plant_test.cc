@@ -633,6 +633,15 @@ class PolygonalContactTest : public ::testing::Test {
     tree->compile();
   }
 
+  // Sets the contact material.
+  void SetContactMaterial(CompliantContactModel<double>* model) {
+    const double stiffness = 1e12;
+    const double dissipation = 0;
+    const double mu_static = 0, mu_dynamic = 0;
+    CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
+    model->set_default_material(material);
+  }
+
   std::unique_ptr<RigidBodyPlant<double>> plant_;
   std::unique_ptr<Context<double>> context_;
 };
@@ -647,11 +656,7 @@ TEST_F(PolygonalContactTest, TriangleStationary) {
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
   // Set the contact material.
-  const double stiffness = 1e12;
-  const double dissipation = 0;
-  const double mu_static = 0, mu_dynamic = 0;
-  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-  plant_->compliant_contact_model_->set_default_material(material);
+  SetContactMaterial(plant_->compliant_contact_model_.get());
 
   // Simulate the box forward by one second.
   const double target_time = 1.0;
@@ -666,6 +671,29 @@ TEST_F(PolygonalContactTest, TriangleStationary) {
   EXPECT_NEAR(x[2], 0, tol);
 }
 
+// Verifies that the box is not in contact after some time.
+TEST_F(PolygonalContactTest, TriangleSliding) {
+  // Create the plant.
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/single_tri.obj");
+
+  // Set the initial state.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1e-3;  // Some initial vertical separation is necessary.
+  x[11] = 1.0;  // Translation velocity of 1.0 m/s.
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Set the contact material.
+  SetContactMaterial(plant_->compliant_contact_model_.get());
+
+  // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
+
+  // Verify that the box is no longer in contact.
+}
+
 // A secondary stationary test, now with a big triangle.
 TEST_F(PolygonalContactTest, BigTriangleStationary) {
   // Create the plant.
@@ -677,11 +705,7 @@ TEST_F(PolygonalContactTest, BigTriangleStationary) {
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
   // Set the contact material.
-  const double stiffness = 1e12;
-  const double dissipation = 0;
-  const double mu_static = 0, mu_dynamic = 0;
-  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-  plant_->compliant_contact_model_->set_default_material(material);
+  SetContactMaterial(plant_->compliant_contact_model_.get());
 
   // Simulate the box forward by one second.
   const double target_time = 1.0;
