@@ -89,6 +89,9 @@ class Triangle2 {
   T CalcSignedDistance(const Triangle2<T>& t) const;
   T CalcSignedDistance(const std::pair<Vector2<T>, Vector2<T>>& seg) const;
   T CalcSignedDistance(const Vector2<T>& p) const;
+  static T CalcSignedDistance(
+      const std::pair<Vector2<T>, Vector2<T>>& seg1,
+      const std::pair<Vector2<T>, Vector2<T>>& seg2);
   int Intersect(const Triangle2& t, Vector2<T>* intersections) const;
   bool PointInside(const Vector2<T>& point) const;
   PolygonLocationType GetLocation(const Vector2<T>& point) const;

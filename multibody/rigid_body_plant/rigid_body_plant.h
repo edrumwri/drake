@@ -12,6 +12,7 @@
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/euclidean_distance_witness.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
+#include "drake/multibody/rigid_body_plant/tangential_separation_witness.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
 #include "drake/multibody/rigid_body_plant/trimesh_coldet.h"
 #include "drake/multibody/rigid_body_tree.h"
@@ -20,11 +21,26 @@
 namespace drake {
 
 namespace multibody {
-    template <class T>
-    class EuclideanDistanceWitnessFunction;
+template <class T>
+class EuclideanDistanceWitnessFunction;
+
+template <class T>
+class TangentialSeparationWitnessFunction;
 };
 
 namespace systems {
+
+/// The abstract state indices.
+/// NOTE: The ordering of abstract values here reflects the ordering used in
+/// RigidBodyPlant::AllocateAbstractState(). If this ordering is changed, that
+/// ordering must be changed.
+enum AbstractStateIndices {
+  kContactFeatureMap,
+
+  kEuclideanDistanceWitnessVector,
+
+  kTangentialSeparationWitnessVector
+};
 
 /// This class provides a System interface around a multibody dynamics model
 /// of the world represented by a RigidBodyTree.
@@ -556,6 +572,8 @@ class RigidBodyPlant : public LeafSystem<T> {
   typedef std::vector<std::vector<std::shared_ptr<
       multibody::EuclideanDistanceWitnessFunction<T>>>>
       EuclideanDistanceWitnessArray;
+  typedef std::vector<multibody::TangentialSeparationWitnessFunction<T>>
+      TangentialSeparationWitnessArray;
 };
 
 }  // namespace systems

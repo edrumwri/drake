@@ -194,7 +194,12 @@ TEST_F(Triangle2Test, SegSegCalcSignedDistance) {
   // Test the intersecting case.
   auto seg1 = std::make_pair(Vector2<double>(0, 0), Vector2<double>(0, 1));
   auto seg2 = std::make_pair(Vector2<double>(-1, .25), Vector2<double>(1, .25));
-  EXPECT_NEAR(Triangle2<double>::ApplySeparatingAxisTheorem(seg1, seg2), -.25,
+  EXPECT_NEAR(Triangle2<double>::CalcSignedDistance(seg1, seg2), -.25,
+      tol_);
+
+  // Test the non-intersecting case.
+  auto seg3 = std::make_pair(Vector2<double>(-2, 0), Vector2<double>(-1, 0));
+  EXPECT_NEAR(Triangle2<double>::CalcSignedDistance(seg1, seg3), 1,
       tol_);
 }
 

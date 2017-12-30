@@ -22,10 +22,14 @@ struct TriTriContactData {
   const collision::Element* idB;  // The identifier for geometry B.
   FeatureType typeA;              // The feature in contact on geometry A.
   FeatureType typeB;              // The feature in contact on geometry B.
-  void* feature_A_id;             // Identifier of the feature on geometry A.
-  void* feature_B_id;             // Identifier of the feature on geometry B.
   const Triangle3<T>* tA;         // The triangle on geometry A.
   const Triangle3<T>* tB;         // The triangle on geometry B.
+
+  // Feature identifiers. For a face, the feature ID will be null. Otherwise,
+  // the ID will hold the vertex ID or edge ID (an integer type, stored as a
+  // long to keep the compiler happy), as appropriate.
+  void* feature_A_id{nullptr};
+  void* feature_B_id{nullptr};
 
   /// Determines whether the type of contact is degenerate.
   bool is_degenerate() const {

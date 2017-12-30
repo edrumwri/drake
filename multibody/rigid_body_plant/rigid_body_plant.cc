@@ -29,6 +29,8 @@ using drake::multibody::collision::Element;
 using drake::multibody::collision::ElementId;
 using drake::multibody::EuclideanDistanceWitnessFunction;
 using drake::multibody::RigidBodyPlantWitnessFunction;
+using drake::multibody::TangentialSeparationWitnessFunction;
+using drake::multibody::Triangle3;
 using drake::multibody::TriTriContactData;
 using drake::multibody::Trimesh;
 using drake::sorted_pair;
@@ -1048,8 +1050,9 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
   // TODO: Consider only pairs of bodies that pass a broad phase check first.
 
   // Get Euclidean witness functions.
-  auto& euclidean_distance_witnesses = context.get_abstract_state().
-      get_value(1).template GetValue<EuclideanDistanceWitnessArray>();
+  const auto& euclidean_distance_witnesses = context.get_abstract_state().
+      get_value(kEuclideanDistanceWitnessVector).
+      template GetValue<EuclideanDistanceWitnessArray>();
 
   // Get the elements with triangle meshes.
   const auto elms = GetElements();
@@ -1061,6 +1064,15 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
         witness_functions->push_back(euclidean_distance_witnesses[i][j].get());
     }
   }
+
+  // Get tangential separation witnesses.
+  const auto& tangential_separation_witnesses = context.get_abstract_state().
+      get_value(kTangentialSeparationWitnessVector).
+      template GetValue<TangentialSeparationWitnessArray>();
+
+  // Add the witness functions.
+  for (int i = 0; i < tangential_separation_witnesses.size(); ++i)
+    witness_functions->push_back(&tangential_separation_witnesses[i]);
 }
 
 // Steps time stepping systems forward in time from t0.
@@ -1160,8 +1172,15 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
 
   // Get the triangle/triangle feature data from the abstract state.
   auto& contacting_features = state->get_mutable_abstract_state().
-      get_mutable_value(0).template GetMutableValue<std::map<sorted_pair<
+      get_mutable_value(kContactFeatureMap).template GetMutableValue<std::map<sorted_pair<
       Element*>, std::vector<TriTriContactData<T>>>>();
+
+  // Get the separating witness function vector from the abstract state.
+  auto& tangential_separation_witness_vector = state->
+      get_mutable_abstract_state().
+      get_mutable_value(kTangentialSeparationWitnessVector).
+      template GetMutableValue<
+      std::vector<TangentialSeparationWitnessFunction<T>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1171,6 +1190,9 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   VectorX<T> q = x.topRows(nq);
   VectorX<T> v = x.bottomRows(nv);
   auto kinematics_cache = tree.doKinematics(q, v);
+
+  // Indices for tangential separation witnesses to be removed.
+  std::vector<int> tangential_separation_removal_indices;
 
   // Loop through all elements whose witness functions have triggered.
   std::map<Element*, Isometry3<T>> poses;
@@ -1205,7 +1227,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         const std::vector<std::pair<int, int>>&
             closest_pairs = euclidean_dist_witness->get_last_closest_tris();
 
-        // TODO: Only enable when spdlog level is debug
+        // Add a tangential separation witness function for each closest pair.
         for (const auto& closest_pair : closest_pairs) {
           const auto& tA = mA.triangle(closest_pair.first);
           const auto& tB = mB.triangle(closest_pair.second);
@@ -1215,6 +1237,11 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
               tA.a().transpose(), tA.b().transpose(), tA.c().transpose());
           SPDLOG_DEBUG(drake::log(), " Second tri: {}, {}, {}",
               tB.a().transpose(), tB.b().transpose(), tB.c().transpose());
+
+          // Create a tangential separation witness.
+          tangential_separation_witness_vector.push_back(
+              TangentialSeparationWitnessFunction<T>(*this, elmA, elmB,
+              closest_pair.first, closest_pair.second));
         }
 
         // Compute the intersections.
@@ -1228,9 +1255,55 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
           contacting_features_vector[j].idA = elmA;
           contacting_features_vector[j].idB = elmB;
         }
+
         break;
       }
+
+      case RigidBodyPlantWitnessFunction<T>::kTangentialSeparation:  {
+        // Get the index of the tangential separation witness (for later
+        // removal).
+        for (int i = 0; i < tangential_separation_witness_vector.size(); ++i) {
+          if (witness == &tangential_separation_witness_vector[i]) {
+            tangential_separation_removal_indices.push_back(i);
+            break;
+          }
+        }
+
+        // Get the contact data vector corresponding to the elements.
+        auto tangential_witness_function =
+            static_cast<TangentialSeparationWitnessFunction<T>*>(witness);
+        auto elementA = tangential_witness_function->get_element_A();
+        auto elementB = tangential_witness_function->get_element_B();
+        auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
+            elementA, elementB));
+        DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
+        auto& tri_tri_data_vector = tri_tri_vector_iter->second;
+
+        // Remove the corresponding triangles from the contact features vector.
+        const Triangle3<T>& tA = tangential_witness_function->get_triangle_A();
+        const Triangle3<T>& tB = tangential_witness_function->get_triangle_B();
+        auto sorted_tris = make_sorted_pair(&tA, &tB);
+        for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
+          auto candidate_pair = make_sorted_pair(
+              tri_tri_data_vector[i].tA, tri_tri_data_vector[i].tB);
+          if (candidate_pair == sorted_tris) {
+            tri_tri_data_vector[i] = tri_tri_data_vector.back();
+            tri_tri_data_vector.pop_back();
+            break;
+          }
+        }
+      }
     }
+  }
+
+  // Remove tangential separation witnesses.
+  std::sort(tangential_separation_removal_indices.begin(),
+            tangential_separation_removal_indices.end());
+  for (auto i = tangential_separation_removal_indices.rbegin();
+       i != tangential_separation_removal_indices.rend(); ++i) {
+    tangential_separation_witness_vector[*i] =
+        tangential_separation_witness_vector.back();
+    tangential_separation_witness_vector.pop_back();
   }
 }
 
@@ -1242,9 +1315,9 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   DRAKE_DEMAND(contacts->empty());
 
   // Get contact features from the context.
-  auto& contacting_features = context.get_abstract_state().get_value(0).template
-      GetValue<std::map<sorted_pair<Element*>,
-      std::vector<TriTriContactData<T>>>>();
+  auto& contacting_features = context.get_abstract_state().
+      get_value(kContactFeatureMap).template GetValue<
+      std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1765,6 +1838,10 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
     // Do not set any bodies as being in contact by default.
     std::vector<std::unique_ptr<AbstractValue>> abstract_data;
 
+    // NOTE: The ordering of abstract values here reflects the ordering of
+    // AbstractStateIndices enumerations. If this ordering is changed, that
+    // ordering must be changed.
+
     // Create a mapping of element pairs to contact data.
     abstract_data.push_back(std::make_unique<Value<
       std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>>());
@@ -1793,6 +1870,11 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
         }
       }
     }
+
+    // Create a vector of tangential separation witnesses.
+    abstract_data.push_back(
+        std::make_unique<Value<TangentialSeparationWitnessArray>>());
+
     return std::make_unique<AbstractValues>(std::move(abstract_data));
   } else {
     return std::make_unique<AbstractValues>();

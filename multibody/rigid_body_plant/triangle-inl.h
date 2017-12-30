@@ -51,8 +51,15 @@ T Triangle2<T>::ApplySeparatingAxisTheorem(
     separation = max(separation, dist);
   }
 
-  DRAKE_DEMAND(separation <= 0);
   return separation;
+}
+
+// Computes the signed distance between two line segments.
+template <class T>
+T Triangle2<T>::CalcSignedDistance(
+    const std::pair<Vector2<T>, Vector2<T>>& seg1,
+    const std::pair<Vector2<T>, Vector2<T>>& seg2) {
+  return ApplySeparatingAxisTheorem(seg1, seg2);
 }
 
 // Applies the separating axis theorem to two line segments.
@@ -1305,7 +1312,7 @@ typename Triangle2<T>::SegTriIntersectType Triangle2<T>::Intersect(
   } else {
     if (qe3 == kRight) {
       if (pe3 == kOn) {
-        const Vector2 <T> dir = e3.second - e3.first;
+        const Vector2<T> dir = e3.second - e3.first;
         T t = DetermineLineParam(e3.first, dir, p);
         SegLocationType feat = DetermineSegLocation(t);
         *isect = e3.first + dir * t;
