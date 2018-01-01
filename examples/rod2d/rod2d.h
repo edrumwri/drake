@@ -9,7 +9,6 @@
 #include "drake/multibody/constraint/constraint_solver.h"
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/rendering/pose_vector.h"
 
 namespace drake {
 namespace examples {

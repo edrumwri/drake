@@ -316,6 +316,9 @@ T Triangle2<T>::CalcSignedDistance(
     const std::pair<Vector2<T>, Vector2<T>>& seg) const {
   using std::sqrt;
 
+  return ApplySeparatingAxisTheorem(seg);
+/*
+
   // TODO: Use a properly computed threshold.
   const T zero_tol = std::numeric_limits<double>::epsilon();
 
@@ -356,6 +359,7 @@ T Triangle2<T>::CalcSignedDistance(
     default:
       DRAKE_ABORT();
   }
+  */
 }
 
 // Computes the signed distance between this triangle and the given triangle.

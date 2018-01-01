@@ -156,6 +156,18 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   ~RigidBodyPlant() override;
 
+  /// Gets the length of the interval used for witness function time isolation.
+  optional<T> get_witness_time_isolation() const { return
+        witness_time_isolation_;
+  }
+
+  /// Sets the length of the interval used for witness function time isolation
+  /// (including, optionally, no isolation at all- denoted by an empty optional
+  /// setting).
+  void set_witness_time_isolation(const optional<T>& witness_time_isolation) {
+    witness_time_isolation_ = witness_time_isolation;
+  }
+
   /// Sets the parameters of the compliance _model_. To set material parameters,
   /// use the CompliantMaterial instance associated with the collision element.
   void set_contact_model_parameters(
@@ -418,6 +430,7 @@ class RigidBodyPlant : public LeafSystem<T> {
   friend class RigidBodyPlantTimeSteppingDataTest_TangentJacobian_Test;
   friend class PolygonalContactTest_TriangleStationary_Test;
   friend class PolygonalContactTest_TriangleSliding_Test;
+  friend class PolygonalContactTest_BigTriangleEdgeToFace_Test;
   friend class PolygonalContactTest_BigTriangleStationary_Test;
   friend class PolygonalContactTest_BigTriangleSliding_Test;
   friend class PolygonalContactTest_BigTriangleMovingUpward_Test;
@@ -505,6 +518,9 @@ class RigidBodyPlant : public LeafSystem<T> {
   // Temporary data used for isolating witness function triggers.
   mutable std::unique_ptr<DiscreteValues<T>> discrete_update_temporary_;
   mutable std::unique_ptr<Context<T>> context_clone_;
+
+  // Optional variable for storing witness time isolation.
+  optional<T> witness_time_isolation_;
 
   // Object that performs all constraint computations.
   multibody::constraint::ConstraintSolver<T> constraint_solver_;

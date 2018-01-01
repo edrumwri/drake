@@ -33,13 +33,14 @@ class EuclideanDistanceWitnessFunction :
   EuclideanDistanceWitnessFunction(
       const EuclideanDistanceWitnessFunction<T>& e) :
     RigidBodyPlantWitnessFunction<T>(
-        this->get_plant(),
+        e.get_plant(),
         systems::WitnessFunctionDirection::kPositiveThenNonPositive) {
     operator=(e);
   }
 
   EuclideanDistanceWitnessFunction& operator=(
       const EuclideanDistanceWitnessFunction<T>& e) {
+    this->set_name(e.get_name());
     elementA_ = e.elementA_;
     elementB_ = e.elementB_;
     meshA_ = e.meshA_;

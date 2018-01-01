@@ -169,7 +169,7 @@ void TrimeshColdet<T>::UpdateBroadPhaseStructs() {
 // Does broad phase collision detection between the triangles from two meshes
 // using already-updated AABBs.
 // @param[out] to_check On return, contains pairs of triangles for which the
-//             corresponding leaf bounding volumes are intersecting. 
+//             corresponding leaf bounding volumes are intersecting.
 // @pre UpdateBroadPhaseStructs() was called immediately prior to calling this
 //      function. TODO: Update this wording.
 template <class T>
@@ -308,11 +308,11 @@ T TrimeshColdet<T>::CalcMinDistance(
     const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
     const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
     const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
-    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);  
-    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);  
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
     // Get the distance between the two triangles.
-    T tri_distance = tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB); 
+    T tri_distance = tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
 
     // See whether the distance is below the minimum.
     distance = std::min(tri_distance, distance);
@@ -393,7 +393,7 @@ Vector2<T> TrimeshColdet<T>::ProjectTo2d(
   // Compute the orthonormal basis.
   Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
   Vector3<T> v1 = R.col(1);
-  Vector3<T> v2 = R.col(2); 
+  Vector3<T> v2 = R.col(2);
 
   // Construct a 2 x 3 projection matrix from the two vectors in the basis.
   Eigen::Matrix<T, 2, 3> P;
@@ -429,7 +429,7 @@ Vector3<T> TrimeshColdet<T>::ReverseProject(
   // Compute the orthonormal basis.
   Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
   Vector3<T> v1 = R.col(1);
-  Vector3<T> v2 = R.col(2); 
+  Vector3<T> v2 = R.col(2);
 
   // Construct the reverse projection matrix.
   Matrix3<T> rP;
@@ -469,22 +469,28 @@ void TrimeshColdet<T>::CalcIntersections(
   // Get the distance between each pair of triangles.
   for (int i = 0; i < closest_triangles.size(); ++i) {
     // Get the two triangles.
-    const Vector3<T> vAa = poseA * mA.triangle(closest_triangles[i].first).a();
-    const Vector3<T> vAb = poseA * mA.triangle(closest_triangles[i].first).b();
-    const Vector3<T> vAc = poseA * mA.triangle(closest_triangles[i].first).c();
-    const Vector3<T> vBa = poseB * mB.triangle(closest_triangles[i].second).a();
-    const Vector3<T> vBb = poseB * mB.triangle(closest_triangles[i].second).b();
-    const Vector3<T> vBc = poseB * mB.triangle(closest_triangles[i].second).c();
-    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);  
+    const Vector3 <T> vAa = poseA * mA.triangle(closest_triangles[i].first).a();
+    const Vector3 <T> vAb = poseA * mA.triangle(closest_triangles[i].first).b();
+    const Vector3 <T> vAc = poseA * mA.triangle(closest_triangles[i].first).c();
+    const Vector3 <T>
+        vBa = poseB * mB.triangle(closest_triangles[i].second).a();
+    const Vector3 <T>
+        vBb = poseB * mB.triangle(closest_triangles[i].second).b();
+    const Vector3 <T>
+        vBc = poseB * mB.triangle(closest_triangles[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
     const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
     // Compute closest points.
-    Vector3<T> closest_on_tA, closest_on_tB;
+    Vector3 <T> closest_on_tA, closest_on_tB;
     tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
 
     // Compute the surface normal such that it points toward A.
-    Vector3<T> normal = closest_on_tA - closest_on_tB;
+    Vector3 <T> normal = closest_on_tA - closest_on_tB;
     normal.normalize();
+
+    // Get the projection matrix.
+    const auto P = math::Determine3dTo2dProjectionMatrix(normal);
 
     // Determine the offset for the plane parallel and halfway between the
     // two planes passing through the closest points.
@@ -495,7 +501,7 @@ void TrimeshColdet<T>::CalcIntersections(
     // Project all points from a triangle to the plane. Stores a point
     // if it is within tolerance.
     auto project_and_store = [&normal, offset](
-        const Triangle3<T>& t, std::vector<int>* p) {
+        const Triangle3 <T>& t, std::vector<int>* p) {
       const T d_a = abs(t.a().dot(normal) - offset);
       const T d_b = abs(t.b().dot(normal) - offset);
       const T d_c = abs(t.c().dot(normal) - offset);
@@ -529,80 +535,159 @@ void TrimeshColdet<T>::CalcIntersections(
     contacts->back().tB = &mB.triangle(closest_triangles[i].second);
 
     switch (pA.size()) {
-      case 1:
-        contacts->back().typeA = FeatureType::kVertex;
+      case 1:contacts->back().typeA = FeatureType::kVertex;
         contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
         switch (pB.size()) {
-          case 1:
-            SPDLOG_DEBUG(drake::log(), "Vertex/vertex contact determined");
+          case 1:SPDLOG_DEBUG(drake::log(), "Vertex/vertex contact determined");
             contacts->back().typeB = FeatureType::kVertex;
             contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
             break;
 
-          case 2:
-            SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
+          case 2:SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
             contacts->back().typeB = FeatureType::kEdge;
             contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
             break;
 
-          case 3:
+          case 3: {
             SPDLOG_DEBUG(drake::log(), "Vertex/face contact determined");
-            contacts->back().typeB = FeatureType::kFace;
-            break;
+            const Vector2 <T> v_2d = P * tA.get_vertex(pA[0]);
+            const Triangle2 <T> t_2d = tB.ProjectTo2d(P);
 
-          default:
-            DRAKE_ABORT();
+            // If the signed tangential distance from the vertex to the face is
+            // non-negative, reclassify the contact as vertex/vertex.
+            if (t_2d.CalcSignedDistance(v_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+
+          default:DRAKE_ABORT();
         }
         break;
 
-      case 2:
-        contacts->back().typeA = FeatureType::kEdge;
+      case 2:contacts->back().typeA = FeatureType::kEdge;
         contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
         switch (pB.size()) {
-          case 1:
-            SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
+          case 1:SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
             contacts->back().typeB = FeatureType::kVertex;
             contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
             break;
 
-          case 2:
+          case 2: {
             SPDLOG_DEBUG(drake::log(), "Edge/edge contact determined");
-            contacts->back().typeB = FeatureType::kEdge;
-            contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
+            // If the signed tangential distance between the edges is
+            // non-negative, reclassify the contact as vertex/vertex.
+            const Vector2 <T> vAa_2d = P * tA.get_vertex(pA.front());
+            const Vector2 <T> vAb_2d = P * tA.get_vertex(pA.back());
+            const Vector2 <T> vBa_2d = P * tB.get_vertex(pB.front());
+            const Vector2 <T> vBb_2d = P * tB.get_vertex(pB.back());
+            const auto ea_2d = std::make_pair(vAa_2d, vAb_2d);
+            const auto eb_2d = std::make_pair(vBa_2d, vBb_2d);
+            if (Triangle2<T>::CalcSignedDistance(ea_2d, eb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kEdge;
+              contacts->back().feature_B_id =
+                  GetEdgeIndex(pB.front(), pB.back());
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
             break;
+          }
 
-          case 3:
+          case 3: {
             SPDLOG_DEBUG(drake::log(), "Edge/face contact determined");
-            contacts->back().typeB = FeatureType::kFace;
+            // If the signed tangential distance between the edge and the face
+            // is non-negative, reclassify the contact as vertex/vertex.
+            const Vector2 <T> vAa_2d = P * tA.get_vertex(pA.front());
+            const Vector2 <T> vAb_2d = P * tA.get_vertex(pA.back());
+            const auto ea_2d = std::make_pair(vAa_2d, vAb_2d);
+            const Triangle2 <T> t_2d = tB.ProjectTo2d(P);
+            if (t_2d.CalcSignedDistance(ea_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
             break;
+          }
         }
         break;
 
-      case 3:
+      case 3: {
         contacts->back().typeA = FeatureType::kFace;
+        const Triangle2<T> t_2d = tA.ProjectTo2d(P);
         switch (pB.size()) {
-          case 1:
+          case 1: {
             SPDLOG_DEBUG(drake::log(), "Vertex/face contact determined");
+            const Vector2 <T> v_2d = P * tB.get_vertex(pB[0]);
+
+            // If the signed tangential distance from the vertex to the face is
+            // non-negative, reclassify the contact as vertex/vertex.
             contacts->back().typeB = FeatureType::kVertex;
             contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            if (t_2d.CalcSignedDistance(v_2d) >= 0) {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+            }
             break;
+          }
 
-          case 2:
+          case 2: {
             SPDLOG_DEBUG(drake::log(), "Edge/face contact determined");
-            contacts->back().typeB = FeatureType::kEdge;
-            contacts->back().feature_B_id = GetEdgeIndex(
-                pB.front(), pB.back());
+            // If the signed tangential distance between the edge and the face
+            // is non-negative, reclassify the contact as vertex/edge. That's
+            // not precisely true, but will treat the contact as degenerate.
+            const Vector2 <T> vBa_2d = P * tB.get_vertex(pB.front());
+            const Vector2 <T> vBb_2d = P * tB.get_vertex(pB.back());
+            const auto eb_2d = std::make_pair(vBa_2d, vBb_2d);
+            if (t_2d.CalcSignedDistance(eb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kEdge;
+              contacts->back().feature_B_id = GetEdgeIndex(
+                  pB.front(), pB.back());
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
             break;
+          }
 
-          case 3:
+          case 3: {
+            // If the signed tangential distance between the two faces
+            // is non-negative, reclassify the contact as vertex/edge. That's
+            // not precisely true, but will treat the contact as degenerate.
             SPDLOG_DEBUG(drake::log(), "Face/face contact determined");
-            contacts->back().typeB = FeatureType::kFace;
+            const Triangle2<T> tb_2d = tB.ProjectTo2d(P);
+            if (t_2d.CalcSignedDistance(tb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
             break;
+          }
         }
         break;
+      }
 
       default:
-          DRAKE_ABORT();  // Should never get here.
+        DRAKE_ABORT();  // Should never get here.
     }
   }
 }

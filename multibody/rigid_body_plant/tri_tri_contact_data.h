@@ -115,6 +115,8 @@ struct TriTriContactData {
         const T offA = normal.dot(v);
         const T offB = normal.dot(t.a());
         T offset = 0.5 * (offA + offB);
+        SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                     normal.transpose(), offset);
 
         // Project the vertex and the triangle to the contact plane. 
         const Vector2<T> v_2d = P * v;
@@ -147,7 +149,9 @@ struct TriTriContactData {
           // Determine the contact plane.
           const T offA = normal.dot(edgeA.first);
           const T offB = normal.dot(edgeB.first);
-          T offset = 0.5 * (offA + offB); 
+          T offset = 0.5 * (offA + offB);
+          SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                       normal.transpose(), offset);
 
           // Project each edge to 2D.
           auto eA_2d = std::make_pair(P * edgeA.first, P * edgeA.second);
@@ -202,7 +206,9 @@ struct TriTriContactData {
           // Determine the contact plane.
           const T offA = normal.dot(edge.first);
           const T offB = normal.dot(t.a());
-          T offset = 0.5 * (offA + offB); 
+          T offset = 0.5 * (offA + offB);
+          SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                       normal.transpose(), offset);
 
           // Intersect the triangle with the line segment.
           typename Triangle2<T>::SegTriIntersectType intersect_type =
@@ -251,7 +257,9 @@ struct TriTriContactData {
           // Determine the contact plane.
           const T offA = normal.dot(t.a());
           const T offB = normal.dot(v);
-          T offset = 0.5 * (offA + offB); 
+          T offset = 0.5 * (offA + offB);
+          SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                       normal.transpose(), offset);
 
           // Project the vertex and the triangle to the contact plane. 
           const Vector2<T> v_2d = P * v;
@@ -283,7 +291,9 @@ struct TriTriContactData {
             // Determine the contact plane.
             const T offA = normal.dot(t.a());
             const T offB = normal.dot(edge.first);
-            T offset = 0.5 * (offA + offB); 
+            T offset = 0.5 * (offA + offB);
+            SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                         normal.transpose(), offset);
 
             // Intersect the triangle with the line segment.
             typename Triangle2<T>::SegTriIntersectType intersect_type =
@@ -333,7 +343,9 @@ struct TriTriContactData {
               // Determine the contact plane.
               const T offA = normal.dot(tA_3d.a());
               const T offB = normal.dot(tB_3d.a());
-              T offset = 0.5 * (offA + offB); 
+              T offset = 0.5 * (offA + offB);
+              SPDLOG_DEBUG(drake::log(), "Contact plane: normal({}) offset: {}",
+                           normal.transpose(), offset);
 
               // Intersect the two triangles and then unproject the vertices of 
               // the construction.

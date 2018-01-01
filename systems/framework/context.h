@@ -65,7 +65,7 @@ class Context {
   }
 
   /// Sets the time of the last discrete update.
-  void set_last_discrete_update_time(const T& time_sec) {
+  virtual void set_last_discrete_update_time(const T& time_sec) {
     get_mutable_step_info()->last_discrete_update_time_sec = time_sec;
   } 
 

@@ -53,7 +53,7 @@ class AABB {
  private:
   // This function acts to expand the AABB such that the pass through problem
   // is eliminated for bounding boxes
-  // TODO: Expand this using velocities.
+  // TODO: This should not be necesary!
   void Expand() {
     minp_ -= Vector3<T>::Ones() * 1e-4;
     maxp_ += Vector3<T>::Ones() * 1e-4;

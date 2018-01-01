@@ -588,12 +588,12 @@ GTEST_TEST(rigid_body_plant_test, BasicTimeSteppingTest) {
 
 class PolygonalContactTest : public ::testing::Test {
  protected:
-  void CreateRBPlant(double step_size, const std::string& terrain_filename) {
-    // Read in the box.
+  void CreateRBPlant(double step_size, const std::string& sdf_filename,
+                     const std::string& terrain_filename) {
+    // Read in the dynamic object.
     auto tree = std::make_unique<RigidBodyTree<double>> ();
     AddModelInstancesFromSdfFile(
-        FindResourceOrThrow(
-            "drake/multibody/rigid_body_plant/test/box.sdf"),
+        FindResourceOrThrow(sdf_filename),
         kQuaternion, nullptr /* weld to frame */, tree.get());
 
     // Add the triangle terrain.
@@ -634,12 +634,14 @@ class PolygonalContactTest : public ::testing::Test {
   }
 
   // Sets the contact material.
-  void SetContactMaterial(CompliantContactModel<double>* model) {
-    const double stiffness = 1e12;
-    const double dissipation = 0;
-    const double mu_static = 0, mu_dynamic = 0;
-    CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-    model->set_default_material(material);
+  void SetNearlyRigidContactMaterial() {
+    const double kYoungsModulus = 1e12;
+    const double kDissipation = 0;
+    const double kMuStatic = 0, kMuDynamic = 0;
+    CompliantMaterial material;
+    material.set_youngs_modulus(kYoungsModulus).set_dissipation(kDissipation).
+        set_friction(kMuStatic, kMuDynamic);
+    plant_->set_default_compliant_material(material);
   }
 
   std::unique_ptr<RigidBodyPlant<double>> plant_;
@@ -648,56 +650,70 @@ class PolygonalContactTest : public ::testing::Test {
 
 TEST_F(PolygonalContactTest, TriangleStationary) {
   // Create the plant.
-  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/single_tri.obj");
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/tetrahedron.sdf",
+      "drake/multibody/rigid_body_plant/test/single_tri.obj");
 
-  // Set the initial state.
+  // Set the witness time isolation to 1e-4 (arbitrarily).
+  plant_->set_witness_time_isolation(1e-4);
+
+// Set the initial state.
   VectorX<double> x = plant_->get_state_vector(*context_);
   x[2] = 1e-2;
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
   // Set the contact material.
-  SetContactMaterial(plant_->compliant_contact_model_.get());
+  SetNearlyRigidContactMaterial();
 
-  // Simulate the box forward by one second.
+  // Simulate the tetrahedron forward by one second.
   const double target_time = 1.0;
   Simulator<double> simulator(*plant_, std::move(context_));
   Context<double>& context = simulator.get_mutable_context();
   simulator.StepTo(target_time);
 
-  // Verify that the box has essentially remained on the ground plane. Note
+  // Verify that the tetrahedron has essentially remained on the ground plane. Note
   // that the expected position after 1s with no constraints is -g/2 m.
   x = plant_->get_state_vector(context);
   const double tol = 2e-6;
   EXPECT_NEAR(x[2], 0, tol);
 }
 
-// Verifies that the box is not in contact after some time.
+// Verifies that the tetrahedron is able to slide off of a single triangle.
 TEST_F(PolygonalContactTest, TriangleSliding) {
   // Create the plant.
-  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/single_tri.obj");
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/tetrahedron.sdf",
+      "drake/multibody/rigid_body_plant/test/single_tri.obj");
+
+  // Use a somewhat arbitrary isolation tolerance of 1e-2.
+  plant_->set_witness_time_isolation(1e-2);
 
   // Set the initial state.
   VectorX<double> x = plant_->get_state_vector(*context_);
   x[2] = 1e-3;  // Some initial vertical separation is necessary.
-  x[11] = 1.0;  // Translation velocity of 1.0 m/s.
+  x[11] = 10.0;  // Translation velocity of 1.0 m/s.
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
   // Set the contact material.
-  SetContactMaterial(plant_->compliant_contact_model_.get());
+  SetNearlyRigidContactMaterial();
 
-  // Simulate the box forward by one second.
+  // Simulate the tetrahedron forward by one second.
   const double target_time = 1.0;
   Simulator<double> simulator(*plant_, std::move(context_));
   Context<double>& context = simulator.get_mutable_context();
   simulator.StepTo(target_time);
 
-  // Verify that the box is no longer in contact.
+  // Verify that the tetrahedron has fallen.
+  x = plant_->get_state_vector(context);
+  EXPECT_LT(x[2], -1);
 }
 
 // A secondary stationary test, now with a big triangle.
 TEST_F(PolygonalContactTest, BigTriangleStationary) {
   // Create the plant.
-  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/plane.obj");
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/box.sdf",
+      "drake/multibody/rigid_body_plant/test/plane.obj");
+
+  // Set the witness time isolation to 1e-4 (arbitrarily).
+  plant_->set_witness_time_isolation(1e-4);
 
   // Set the initial state.
   VectorX<double> x = plant_->get_state_vector(*context_);
@@ -705,7 +721,7 @@ TEST_F(PolygonalContactTest, BigTriangleStationary) {
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
   // Set the contact material.
-  SetContactMaterial(plant_->compliant_contact_model_.get());
+  SetNearlyRigidContactMaterial();
 
   // Simulate the box forward by one second.
   const double target_time = 1.0;
@@ -722,7 +738,8 @@ TEST_F(PolygonalContactTest, BigTriangleStationary) {
 
 TEST_F(PolygonalContactTest, BigTriangleSliding) {
   // Create the plant.
-  CreateRBPlant(0.1, "drake/multibody/rigid_body_plant/test/plane.obj");
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/box.sdf",
+      "drake/multibody/rigid_body_plant/test/plane.obj");
 
   // Set the initial state.
   VectorX<double> x = plant_->get_state_vector(*context_);
@@ -730,12 +747,8 @@ TEST_F(PolygonalContactTest, BigTriangleSliding) {
   x[11] = 1.0;
   plant_->set_state_vector(&context_->get_mutable_state(), x);
 
-  // Set the contact material.
-  const double stiffness = 1e12;
-  const double dissipation = 0;
-  const double mu_static = 0, mu_dynamic = 0;
-  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-  plant_->compliant_contact_model_->set_default_material(material);
+ // Set the contact material.
+  SetNearlyRigidContactMaterial();
 
   // Simulate the box forward by one second.
   const double target_time = 1.0;
@@ -750,14 +763,46 @@ TEST_F(PolygonalContactTest, BigTriangleSliding) {
   EXPECT_NEAR(x[2], 0, tol);
 }
 
+// Tests the transition from edge/face contact to face/face contact.
+TEST_F(PolygonalContactTest, BigTriangleEdgeToFace) {
+  // Create the plant.
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/box.sdf",
+      "drake/multibody/rigid_body_plant/test/plane.obj");
+
+  // Set the initial state.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1;
+  Eigen::AngleAxis<double> aa(M_PI_4, Vector3<double>::UnitX());
+  Eigen::Quaterniond q(aa);
+  x[3] = q.w();
+  x[4] = q.x();
+  x[5] = q.y();
+  x[6] = q.z();
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Set the contact material.
+  SetNearlyRigidContactMaterial();
+
+  // Simulate the box forward by one second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time);
+
+  // The box should have an identity orientation and be resting on the plane.
+  x = plant_->get_state_vector(context);
+  const double tol = 2e-6;
+  EXPECT_NEAR(x[2], 0, tol);
+  EXPECT_NEAR(x[3], 1, tol);
+  EXPECT_NEAR(x[4], 0, tol);
+  EXPECT_NEAR(x[5], 0, tol);
+  EXPECT_NEAR(x[6], 0, tol);
+}
+
 /*
 TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
   // Set the contact material.
-  const double stiffness = 1e12;
-  const double dissipation = 0;
-  const double mu_static = 0, mu_dynamic = 0;
-  CompliantMaterial material(stiffness, dissipation, mu_static, mu_dynamic);
-  plant_->compliant_contact_model_->set_default_material(material);
+  SetNearlyRigidContactMaterial();
 
   // Set the initial velocity for the box to move upward, and make the
   // box not contact the plane. 

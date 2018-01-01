@@ -956,9 +956,12 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
 
   // Evaluate the witness functions.
   VectorX<T> w0(witness_functions.size());
-  for (size_t i = 0; i < witness_functions.size(); ++i)
+  for (size_t i = 0; i < witness_functions.size(); ++i) {
     w0[i] = this->EvaluateWitness(*context_clone_, *witness_functions[i]);
-
+    SPDLOG_DEBUG(drake::log(), "{} at t = {}: {}",
+                 witness_functions[i]->get_name(), context.get_time(), w0[i]);
+  }
+/*
   // Verify that no Euclidean distance witnesses are initially non-positive.
   for (int i = 0; i < witness_functions.size(); ++i) {
     auto rb_witness = static_cast<const RigidBodyPlantWitnessFunction<T>*>(
@@ -966,18 +969,21 @@ void RigidBodyPlant<T>::DoCalcNextUpdateTime(
     DRAKE_DEMAND(rb_witness->get_witness_function_type() !=
         RigidBodyPlantWitnessFunction<T>::kEuclideanDistance || w0[i] > 0);
   }
-
+*/
   // Attempt to do time stepping using the standard step size and the cloned
   // context.
   const T& t0 = context.get_time();
   auto x0 = get_state_vector(context);
-  T t_des = t0 + timestep_;
+  T t_des = t0 + (timestep_ - std::numeric_limits<double>::epsilon());
   StepForward(t0, x0, t_des, context_clone_.get());
 
   // Evaluate the witness functions again.
   VectorX<T> wf(witness_functions.size());
-  for (size_t i = 0; i < witness_functions.size(); ++i)
+  for (size_t i = 0; i < witness_functions.size(); ++i) {
     wf[i] = this->EvaluateWitness(*context_clone_, *witness_functions[i]);
+    SPDLOG_DEBUG(drake::log(), "{} at t = {}: {}",
+                 witness_functions[i]->get_name(), t_des, wf[i]);
+  }
 
   SPDLOG_DEBUG(drake::log(), "Witness evaluations at t={}: {}", t0,
                w0.transpose());
@@ -1021,7 +1027,7 @@ std::vector<Element*> RigidBodyPlant<T>::GetElements() const {
   auto bodies = tree_->FindModelInstanceBodies(0);
   for (size_t i = 0; i < bodies.size(); ++i) {
     // Iterate over all elements for body i.
-    for (auto elm_iter = bodies[i]->collision_elements_begin(); 
+    for (auto elm_iter = bodies[i]->collision_elements_begin();
           elm_iter != bodies[i]->collision_elements_end(); ++elm_iter) {
       const auto& geometry = (*elm_iter)->getGeometry();
       if (geometry.hasFaces())
@@ -1030,9 +1036,9 @@ std::vector<Element*> RigidBodyPlant<T>::GetElements() const {
   }
 
   // Add the world element.
-  for (auto elm_iter = tree_->world().collision_elements_begin(); 
+  for (auto elm_iter = tree_->world().collision_elements_begin();
        elm_iter != tree_->world().collision_elements_end(); ++elm_iter) {
-     elements.push_back(*elm_iter);     
+     elements.push_back(*elm_iter);
   }
 
   return elements;
@@ -1108,15 +1114,13 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
   context_clone_->set_time(context.get_time());
   context_clone_->get_mutable_state().CopyFrom(context.get_state());
 
-  // TODO: Get the witness isolation interval length.
-  const optional<T> witness_iso_len = 1e-4;
-//  const optional<T> witness_iso_len = GetCurrentWitnessTimeIsolation();
+  // Get the witness isolation interval length.
+  const optional<T> witness_iso_len = get_witness_time_isolation();
 
   // Check whether witness functions *are* to be isolated. If not, the witnesses
   // that were triggered on entry will be the set that is returned.
-  const T inf = std::numeric_limits<double>::infinity();
   if (!witness_iso_len)
-    return inf;
+    return tf;
 
   // Loop until the isolation window is sufficiently small.
   SPDLOG_DEBUG(drake::log(),
@@ -1135,8 +1139,8 @@ T RigidBodyPlant<T>::IsolateWitnessTriggers(
     bool trigger = false;
     for (size_t i = 0; i < witnesses.size(); ++i) {
       wc[i] = this->EvaluateWitness(*context_clone_, *witnesses[i]);
-      SPDLOG_DEBUG(drake::log(), "Witness function evaluations: {}, {}",
-                   w0[i], wc[i]);
+      SPDLOG_DEBUG(drake::log(), "{} evaluations at t = {}, {}: {}, {}",
+          witnesses[i]->get_name(), a, c, w0[i], wc[i]);
       if (witnesses[i]->should_trigger(w0[i], wc[i]))
         trigger = true;
     }
@@ -1227,7 +1231,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         const std::vector<std::pair<int, int>>&
             closest_pairs = euclidean_dist_witness->get_last_closest_tris();
 
-        // Add a tangential separation witness function for each closest pair.
+        // TODO: Only enable this when SPDLOG_DEBUG activated.
         for (const auto& closest_pair : closest_pairs) {
           const auto& tA = mA.triangle(closest_pair.first);
           const auto& tB = mB.triangle(closest_pair.second);
@@ -1237,23 +1241,35 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
               tA.a().transpose(), tA.b().transpose(), tA.c().transpose());
           SPDLOG_DEBUG(drake::log(), " Second tri: {}, {}, {}",
               tB.a().transpose(), tB.b().transpose(), tB.c().transpose());
-
-          // Create a tangential separation witness.
-          tangential_separation_witness_vector.push_back(
-              TangentialSeparationWitnessFunction<T>(*this, elmA, elmB,
-              closest_pair.first, closest_pair.second));
-        }
+          }
 
         // Compute the intersections.
         auto& contacting_features_vector = contacting_features[
             make_sorted_pair(elmA, elmB)];
+        const int old_size = contacting_features_vector.size();
         collision_detection_.CalcIntersections(
             mA, mB, wTA, wTB, closest_pairs, &contacting_features_vector);
 
         // Update contacting features with elements.
-        for (size_t j = 0; j < contacting_features_vector.size(); ++j) {
-          contacting_features_vector[j].idA = elmA;
-          contacting_features_vector[j].idB = elmB;
+        for (int j = 0; j < closest_pairs.size(); ++j) {
+          // Get the appropriate triangle/triangle contact data.
+          auto& tri_tri_data = contacting_features_vector[j + old_size];
+
+          // Set the elements.
+          tri_tri_data.idA = elmA;
+          tri_tri_data.idB = elmB;
+
+          // If the contact type is degenerate, keep looping.
+          if (tri_tri_data.is_degenerate())
+            continue;
+
+          // Create a tangential separation witness for the non-degenerate pair.
+          tangential_separation_witness_vector.push_back(
+              TangentialSeparationWitnessFunction<T>(*this, elmA, elmB,
+              closest_pairs[j].first, closest_pairs[j].second));
+
+          SPDLOG_DEBUG(drake::log(), "Added tangential separation witness for "
+              "pair {}, {}", closest_pairs[j].first, closest_pairs[j].second);
         }
 
         break;
@@ -1262,16 +1278,20 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
       case RigidBodyPlantWitnessFunction<T>::kTangentialSeparation:  {
         // Get the index of the tangential separation witness (for later
         // removal).
+        auto tangential_witness_function =
+            static_cast<TangentialSeparationWitnessFunction<T>*>(witness);
+        bool added_one = false;
         for (int i = 0; i < tangential_separation_witness_vector.size(); ++i) {
-          if (witness == &tangential_separation_witness_vector[i]) {
+          if (*tangential_witness_function ==
+              tangential_separation_witness_vector[i]) {
             tangential_separation_removal_indices.push_back(i);
+            added_one = true;
             break;
           }
         }
+        DRAKE_DEMAND(added_one);
 
         // Get the contact data vector corresponding to the elements.
-        auto tangential_witness_function =
-            static_cast<TangentialSeparationWitnessFunction<T>*>(witness);
         auto elementA = tangential_witness_function->get_element_A();
         auto elementB = tangential_witness_function->get_element_B();
         auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
@@ -1292,6 +1312,8 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
             break;
           }
         }
+
+        break;
       }
     }
   }
@@ -1301,6 +1323,10 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
             tangential_separation_removal_indices.end());
   for (auto i = tangential_separation_removal_indices.rbegin();
        i != tangential_separation_removal_indices.rend(); ++i) {
+    SPDLOG_DEBUG(drake::log(), "Removed tangential separation witness for "
+        "pair {}, {}",
+        tangential_separation_witness_vector[*i].get_triangle_A_index(),
+        tangential_separation_witness_vector[*i].get_triangle_B_index());
     tangential_separation_witness_vector[*i] =
         tangential_separation_witness_vector.back();
     tangential_separation_witness_vector.pop_back();
@@ -1390,6 +1416,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
   if (dt == 0.0)
     dt = timestep_;
 
+  SPDLOG_DEBUG(drake::log(), "Variable update stepping forward by {}", dt);
   VectorX<T> u = this->EvaluateActuatorInputs(context);
 
   const int nq = this->get_num_positions();
@@ -1454,6 +1481,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdates(
     const double cfm = 1.0 / denom;
     const double erp = (dt * stiffness) / denom;
     data.gammaN[i] = cfm;
+    SPDLOG_DEBUG(drake::log(), "Contact distance: {}", contacts[i].distance);
     data.kN[i] = erp * contacts[i].distance / dt;
   }
 

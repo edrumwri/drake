@@ -18,6 +18,7 @@ EuclideanDistanceWitnessFunction<T>::EuclideanDistanceWitnessFunction(
         systems::WitnessFunctionDirection::kPositiveThenNonPositive),
     elementA_(elementA),
     elementB_(elementB) {
+  this->set_name("EuclideanDistanceWitness");
   meshA_ = &this->get_plant().GetMesh(elementA_);
   meshB_ = &this->get_plant().GetMesh(elementB_);
 }
@@ -48,6 +49,7 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
 
   // Update the AABB pose.
   // TODO: Do this only once for each element, over all distance functions.
+  SPDLOG_DEBUG(drake::log(), "State (as seen by Euclidean witness): {}", x);
   this->get_plant().get_collision_detection().UpdateAABBs(*meshA_, wTA);
   this->get_plant().get_collision_detection().UpdateAABBs(*meshB_, wTB);
 
@@ -99,9 +101,9 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
     }
   }
 
-  // Return the default distance.
+  // Return no contact.
   if (to_check.empty())
-    return 100.0;
+    return std::numeric_limits<double>::infinity();
 
   // Compute the distances between pairs of triangles.
   std::vector<std::pair<std::pair<int, int>, T>> distances;
@@ -119,7 +121,7 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
   }
   DRAKE_DEMAND(!closest_triangles_.empty());
 
-  // Subtract the distance by some epsilon.
+  // Subtract the distance by some epsilon. TODO: Record why we do this.
   return min_distance - signed_distance_epsilon;
 }
 

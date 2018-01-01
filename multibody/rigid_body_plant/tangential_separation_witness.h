@@ -9,6 +9,7 @@
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
+#include "rigid_body_plant_witness_function.h"
 
 namespace drake {
 namespace multibody {
@@ -22,8 +23,14 @@ class TangentialSeparationWitnessFunction :
       const systems::RigidBodyPlant<T>& rb_plant,
       multibody::collision::Element* elementA,
       multibody::collision::Element* elementB,
-      int triA,
-      int triB);
+      int triA, int triB) :
+      RigidBodyPlantWitnessFunction<T>(rb_plant,
+          systems::WitnessFunctionDirection::kNegativeThenNonNegative),
+      triA_(triA), triB_(triB), elementA_(elementA), elementB_(elementB) {
+    this->set_name("TangentialSeparationWitness");
+    meshA_ = &this->get_plant().GetMesh(elementA_);
+    meshB_ = &this->get_plant().GetMesh(elementB_);
+  }
 
   /// Gets the type of witness function.
   typename RigidBodyPlantWitnessFunction<T>::WitnessType
@@ -34,13 +41,14 @@ class TangentialSeparationWitnessFunction :
   TangentialSeparationWitnessFunction(
       const TangentialSeparationWitnessFunction<T>& e) :
     RigidBodyPlantWitnessFunction<T>(
-        this->get_plant(),
-        systems::WitnessFunctionDirection::kPositiveThenNonPositive) {
+        e.get_plant(),
+        systems::WitnessFunctionDirection::kNegativeThenNonNegative) {
     operator=(e);
   }
 
   TangentialSeparationWitnessFunction& operator=(
       const TangentialSeparationWitnessFunction<T>& e) {
+    this->set_name(e.get_name());
     elementA_ = e.elementA_;
     elementB_ = e.elementB_;
     meshA_ = e.meshA_;
@@ -48,6 +56,14 @@ class TangentialSeparationWitnessFunction :
     triA_ = e.triA_;
     triB_ = e.triB_;
     return *this;
+  }
+
+  bool operator==(const TangentialSeparationWitnessFunction<T>& w) const {
+    return (elementA_ == w.elementA_ &&
+            elementB_ == w.elementB_ &&
+            triA_ == w.triA_ &&
+            triB_ == w.triB_ &&
+            &this->get_plant() == &w.get_plant());
   }
 
   const Triangle3<T>& get_triangle_A() const { return meshA_->triangle(triA_); }
