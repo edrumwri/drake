@@ -648,6 +648,41 @@ class PolygonalContactTest : public ::testing::Test {
   std::unique_ptr<Context<double>> context_;
 };
 
+TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
+  // Create the plant.
+  CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/box.sdf",
+      "drake/multibody/rigid_body_plant/test/plane.obj");
+
+  // Set the contact material.
+  SetNearlyRigidContactMaterial();
+
+  // Set the box to be prepared to contact the plane.
+  VectorX<double> x = plant_->get_state_vector(*context_);
+  x[2] = 1e-2;
+  plant_->set_state_vector(&context_->get_mutable_state(), x);
+
+  // Simulate the box forward by one half second.
+  const double target_time = 1.0;
+  Simulator<double> simulator(*plant_, std::move(context_));
+  Context<double>& context = simulator.get_mutable_context();
+  simulator.StepTo(target_time / 2);
+
+  // Now alter the velocity so that the box moves upward and step forward
+  // again;
+  x = plant_->get_state_vector(context);
+  x[12] = 100.0;
+  plant_->set_state_vector(&context.get_mutable_state(), x);
+  simulator.StepTo(target_time);
+
+  // Get the triangle/triangle feature data from the abstract state.
+  const auto& contacting_features = context.get_state().get_abstract_state().
+      get_value(kContactFeatureMap).
+      template GetValue<std::map<sorted_pair<multibody::collision::Element*>,
+      std::vector<multibody::TriTriContactData<double>>>>();
+  ASSERT_EQ(contacting_features.size(), 1);
+  EXPECT_EQ(contacting_features.begin()->second.size(), 0);
+}
+
 TEST_F(PolygonalContactTest, TriangleStationary) {
   // Create the plant.
   CreateRBPlant(1e-1, "drake/multibody/rigid_body_plant/test/tetrahedron.sdf",
@@ -798,32 +833,6 @@ TEST_F(PolygonalContactTest, BigTriangleEdgeToFace) {
   EXPECT_NEAR(x[5], 0, tol);
   EXPECT_NEAR(x[6], 0, tol);
 }
-
-/*
-TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
-  // Set the contact material.
-  SetNearlyRigidContactMaterial();
-
-  // Set the initial velocity for the box to move upward, and make the
-  // box not contact the plane. 
-  VectorX<double> x = plant_->get_state_vector(*context_);
-  x[12] = 100.0;
-  x[2] = 1e-10;
-  plant_->set_state_vector(&context_->get_mutable_state(), x);
-
-  // Simulate the box forward by one second.
-  const double target_time = 1.0;
-  Simulator<double> simulator(*plant_, std::move(context_));
-  Context<double>& context = simulator.get_mutable_context();
-  simulator.StepTo(target_time);
-
-  // Verify that the box has essentially remained on the ground plane. Note
-  // that the expected position after 1s with no constraints is -g/2 m.
-  x = plant_->get_state_vector(context);
-  const double tol = 2e-6;
-  EXPECT_NEAR(x[2], 0, tol);
-}
-*/
 
 // Test fixture class for checking data used for time stepping. This test
 // uses a sphere resting on a fixed ground plane to determine contact Jacobians;

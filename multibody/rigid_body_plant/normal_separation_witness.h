@@ -52,15 +52,18 @@ class NormalSeparationWitnessFunction :
   /// Gets the contact data that this witness function uses.
   const TriTriContactData<T>& get_contact_data() const { return contact_data_; }
 
+  bool operator==(const NormalSeparationWitnessFunction<T>& w) const {
+    return (contact_data_ == w.contact_data_ &&
+        &this->get_plant() == &w.get_plant());
+  }
+
  private:
   T DoEvaluate(const systems::Context<T>& context) const override {
-    using std::min;
-
     // Get the vertices corresponding to the features in contact.
     const int max_vertices = 3;
     Vector3<T> verticesA[max_vertices], verticesB[max_vertices];
-    const int num_A_vertices = contact_data_.get_A_vertices(&verticesA[0]);
-    const int num_B_vertices = contact_data_.get_B_vertices(&verticesB[0]);
+    const int num_A_vertices = contact_data_.GetVerticesFromA(&verticesA[0]);
+    const int num_B_vertices = contact_data_.GetVerticesFromB(&verticesB[0]);
 
     // Get the two rigid body poses.
     const systems::RigidBodyPlant<T>& plant = this->get_plant();
@@ -94,10 +97,7 @@ class NormalSeparationWitnessFunction :
     // projection of A.
     std::sort(projA, projA + num_A_vertices);
     std::sort(projB, projB + num_B_vertices);
-    const T offset = 0.5 * (projB[num_B_vertices-1] + projA[0]);
-
-    // Return the minimum signed distance.
-    return min(projA[0], projB[0]) - offset;
+    return 0.5 * (projB[num_B_vertices-1] + projA[0]);
   }
 
   // The contact data used to evaluate the witness function.

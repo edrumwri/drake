@@ -28,6 +28,7 @@ using std::vector;
 using drake::multibody::collision::Element;
 using drake::multibody::collision::ElementId;
 using drake::multibody::EuclideanDistanceWitnessFunction;
+using drake::multibody::NormalSeparationWitnessFunction;
 using drake::multibody::RigidBodyPlantWitnessFunction;
 using drake::multibody::TangentialSeparationWitnessFunction;
 using drake::multibody::Triangle3;
@@ -1071,6 +1072,15 @@ void RigidBodyPlant<T>::DoGetWitnessFunctions(const Context<T>& context,
     }
   }
 
+  // Get normal separation witnesses.
+  const auto& normal_separation_witnesses = context.get_abstract_state().
+      get_value(kNormalSeparationWitnessVector).
+      template GetValue<NormalSeparationWitnessArray>();
+
+  // Add the witness functions.
+  for (int i = 0; i < normal_separation_witnesses.size(); ++i)
+    witness_functions->push_back(&normal_separation_witnesses[i]);
+
   // Get tangential separation witnesses.
   const auto& tangential_separation_witnesses = context.get_abstract_state().
       get_value(kTangentialSeparationWitnessVector).
@@ -1179,7 +1189,14 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
       get_mutable_value(kContactFeatureMap).template GetMutableValue<std::map<sorted_pair<
       Element*>, std::vector<TriTriContactData<T>>>>();
 
-  // Get the separating witness function vector from the abstract state.
+  // Get the normal separating witness vector from the abstract state.
+  auto& normal_separation_witness_vector = state->
+      get_mutable_abstract_state().
+      get_mutable_value(kNormalSeparationWitnessVector).
+      template GetMutableValue<
+  std::vector<NormalSeparationWitnessFunction<T>>>();
+
+  // Get the tangential separating witness vector from the abstract state.
   auto& tangential_separation_witness_vector = state->
       get_mutable_abstract_state().
       get_mutable_value(kTangentialSeparationWitnessVector).
@@ -1196,6 +1213,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   auto kinematics_cache = tree.doKinematics(q, v);
 
   // Indices for tangential separation witnesses to be removed.
+  std::vector<int> normal_separation_removal_indices;
   std::vector<int> tangential_separation_removal_indices;
 
   // Loop through all elements whose witness functions have triggered.
@@ -1263,13 +1281,53 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
           if (tri_tri_data.is_degenerate())
             continue;
 
+          // Create a normal separation witness for the non-degenerate pair.
+          normal_separation_witness_vector.push_back(
+              NormalSeparationWitnessFunction<T>(*this, tri_tri_data));
+
           // Create a tangential separation witness for the non-degenerate pair.
           tangential_separation_witness_vector.push_back(
               TangentialSeparationWitnessFunction<T>(*this, elmA, elmB,
               closest_pairs[j].first, closest_pairs[j].second));
 
-          SPDLOG_DEBUG(drake::log(), "Added tangential separation witness for "
-              "pair {}, {}", closest_pairs[j].first, closest_pairs[j].second);
+          SPDLOG_DEBUG(drake::log(), "Added normal and tangential separation "
+              "witnesses for pair {}, {}", closest_pairs[j].first,
+              closest_pairs[j].second);
+        }
+
+        break;
+      }
+
+      case RigidBodyPlantWitnessFunction<T>::kNormalSeparation:  {
+        auto normal_witness_function =
+            static_cast<NormalSeparationWitnessFunction<T>*>(witness);
+        bool added_one = false;
+        for (int i = 0; i < normal_separation_witness_vector.size(); ++i) {
+          if (*normal_witness_function ==
+              normal_separation_witness_vector[i]) {
+            normal_separation_removal_indices.push_back(i);
+            added_one = true;
+            break;
+          }
+        }
+        DRAKE_DEMAND(added_one);
+
+        // Get the contact data from the witness.
+        const auto& contact_data = normal_witness_function->get_contact_data();
+        Element* elementA = const_cast<Element*>(contact_data.idA);
+        Element* elementB = const_cast<Element*>(contact_data.idB);
+        auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
+            elementA, elementB));
+        DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
+        auto& tri_tri_data_vector = tri_tri_vector_iter->second;
+
+        // Remove the corresponding triangles from the contact features vector.
+        for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
+          if (tri_tri_data_vector[i] == contact_data) {
+            tri_tri_data_vector[i] = tri_tri_data_vector.back();
+            tri_tri_data_vector.pop_back();
+            break;
+          }
         }
 
         break;
@@ -1318,9 +1376,22 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
     }
   }
 
-  // Remove tangential separation witnesses.
+  // Sort normal and tangential indices to be removed.
+  std::sort(normal_separation_removal_indices.begin(),
+            normal_separation_removal_indices.end());
   std::sort(tangential_separation_removal_indices.begin(),
             tangential_separation_removal_indices.end());
+
+  // Remove normal separation witnesses.
+  for (auto i = normal_separation_removal_indices.rbegin();
+       i != normal_separation_removal_indices.rend(); ++i) {
+    SPDLOG_DEBUG(drake::log(), "Removed normal separation witness");
+    normal_separation_witness_vector[*i] =
+        normal_separation_witness_vector.back();
+    normal_separation_witness_vector.pop_back();
+  }
+
+  // Remove tangential separation witnesses.
   for (auto i = tangential_separation_removal_indices.rbegin();
        i != tangential_separation_removal_indices.rend(); ++i) {
     SPDLOG_DEBUG(drake::log(), "Removed tangential separation witness for "

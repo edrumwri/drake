@@ -32,13 +32,25 @@ struct TriTriContactData {
   void* feature_B_id{nullptr};
 
   /// Gets the vertices involved in contact from A, expressed in A's frame.
-  int get_A_vertices(Vector3<T>* array) const {
-    return 0;
+  int GetVerticesFromA(Vector3<T>* array) const {
+    return GetVertices(*tA, typeA, feature_A_id, array);
   }
 
   /// Gets the vertices involved in contact from B, expressed in B's frame.
-  int get_B_vertices(Vector3<T>* array) const {
-    return 0;
+  int GetVerticesFromB(Vector3<T>* array) const {
+    return GetVertices(*tB, typeB, feature_B_id, array);
+  }
+
+  /// Determines whether two contact data objects are equal.
+  bool operator==(const TriTriContactData<T>& t) const {
+    // Check the "forward" object.
+    if (idA == t.idA && idB == t.idB && typeA == t.typeA && typeB == t.typeB &&
+        tA == t.tA && tB == t.tB)
+      return true;
+
+    // Check the mirror copy.
+    return (idA == t.idB && idB == t.idA && typeA == t.typeB && typeB == t.typeA
+        && tA == t.tB && tB == t.tA);
   }
 
   /// Determines whether the type of contact is degenerate.
@@ -379,6 +391,43 @@ struct TriTriContactData {
     }
 
  private:
+  /// Gets the vertices involved in a contact, generic method.
+  int GetVertices(const Triangle3<T>& triangle, FeatureType type,
+                  void* feature_id, Vector3<T>* array) const {
+    switch (type) {
+      case FeatureType::kVertex:
+        array[0] = triangle.get_vertex(reinterpret_cast<long>(feature_id));
+        return 1;
+
+      case FeatureType::kEdge:
+        switch (reinterpret_cast<long>(feature_id)) {
+          case 0:
+            array[0] = triangle.a();
+            array[1] = triangle.b();
+            break;
+
+          case 1:
+            array[0] = triangle.b();
+            array[1] = triangle.c();
+            break;
+
+          case 2:
+            array[0] = triangle.c();
+            array[1] = triangle.a();
+            break;
+        }
+        return 2;
+
+      case FeatureType::kFace:
+        array[0] = triangle.a();
+        array[1] = triangle.b();
+        array[2] = triangle.c();
+        return 3;
+
+      default:DRAKE_ABORT();
+    }
+  }
+
   static Vector3<T> Unproject(
       const Vector3<T>& normal,
       const Eigen::Matrix<T, 2, 3>& P, T offset, const Vector2<T>& p) {
