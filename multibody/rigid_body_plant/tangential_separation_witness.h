@@ -9,7 +9,6 @@
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/event.h"
 #include "drake/systems/framework/witness_function.h"
-#include "rigid_body_plant_witness_function.h"
 
 namespace drake {
 namespace multibody {
@@ -21,15 +20,11 @@ class TangentialSeparationWitnessFunction :
  public:
   TangentialSeparationWitnessFunction(
       const systems::RigidBodyPlant<T>& rb_plant,
-      multibody::collision::Element* elementA,
-      multibody::collision::Element* elementB,
-      int triA, int triB) :
+      const TriTriContactData<T>& contact_data) :
       RigidBodyPlantWitnessFunction<T>(rb_plant,
           systems::WitnessFunctionDirection::kNegativeThenNonNegative),
-      triA_(triA), triB_(triB), elementA_(elementA), elementB_(elementB) {
+      contact_data_(contact_data) {
     this->set_name("TangentialSeparationWitness");
-    meshA_ = &this->get_plant().GetMesh(elementA_);
-    meshB_ = &this->get_plant().GetMesh(elementB_);
   }
 
   /// Gets the type of witness function.
@@ -49,37 +44,23 @@ class TangentialSeparationWitnessFunction :
   TangentialSeparationWitnessFunction& operator=(
       const TangentialSeparationWitnessFunction<T>& e) {
     this->set_name(e.get_name());
-    elementA_ = e.elementA_;
-    elementB_ = e.elementB_;
-    meshA_ = e.meshA_;
-    meshB_ = e.meshB_;
-    triA_ = e.triA_;
-    triB_ = e.triB_;
+    contact_data_ = e.contact_data_;
     return *this;
   }
 
   bool operator==(const TangentialSeparationWitnessFunction<T>& w) const {
-    return (elementA_ == w.elementA_ &&
-            elementB_ == w.elementB_ &&
-            triA_ == w.triA_ &&
-            triB_ == w.triB_ &&
+    return (contact_data_ == w.contact_data_ &&
             &this->get_plant() == &w.get_plant());
   }
 
-  const Triangle3<T>& get_triangle_A() const { return meshA_->triangle(triA_); }
-  const Triangle3<T>& get_triangle_B() const { return meshB_->triangle(triB_); }
-  int get_triangle_A_index() const { return triA_; }
-  int get_triangle_B_index() const { return triB_; }
-  multibody::collision::Element* get_mesh_A() const { return meshA_; }
-  multibody::collision::Element* get_mesh_B() const { return meshB_; }
-  multibody::collision::Element* get_element_A() const { return elementA_; }
-  multibody::collision::Element* get_element_B() const { return elementB_; }
+  /// Gets the contact data that this witness function uses.
+  const TriTriContactData<T>& get_contact_data() const { return contact_data_; }
 
  private:
   T DoEvaluate(const systems::Context<T>& context) const override {
     // Get the two rigid bodies.
-    const auto& rbA = *elementA_->get_body();
-    const auto& rbB = *elementB_->get_body();
+    const auto& rbA = *contact_data_.idA->get_body();
+    const auto& rbB = *contact_data_.idB->get_body();
 
     // Compute the transforms for the RigidBody objects.
     const auto& tree = this->get_plant().get_rigid_body_tree();
@@ -92,30 +73,7 @@ class TangentialSeparationWitnessFunction :
     auto wTA = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbA);
     auto wTB = tree.CalcBodyPoseInWorldFrame(kinematics_cache, rbB);
 
-    // Get the contact data.
-    const auto& contacting_features = context.get_state().get_abstract_state().
-        get_value(0).template GetValue<std::map<sorted_pair<
-        multibody::collision::Element*>, std::vector<TriTriContactData<T>>>>();
-    auto contacting_features_map_iter = contacting_features.find(
-        make_sorted_pair(elementA_, elementB_));
-    DRAKE_DEMAND(contacting_features_map_iter != contacting_features.end());
-    const auto& tri_tri_data_vector = contacting_features_map_iter->second;
-
-    // Get the two triangles.
-    const Triangle3<T>& tA = meshA_->triangle(triA_);
-    const Triangle3<T>& tB = meshB_->triangle(triB_);
-    auto sorted_tris = make_sorted_pair(&tA, &tB);
-
-    // Look for the triangle pair.
-    for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
-      auto candidate_pair = make_sorted_pair(
-          tri_tri_data_vector[i].tA, tri_tri_data_vector[i].tB);
-      if (candidate_pair == sorted_tris)
-        return CalcSignedDistance(tri_tri_data_vector[i], wTA, wTB);
-    }
-
-    // Should never get here.
-    DRAKE_ABORT();
+    return CalcSignedDistance(contact_data_, wTA, wTB);
   }
 
   T CalcSignedDistance(const TriTriContactData<T>& tri_tri_data,
@@ -134,8 +92,8 @@ class TangentialSeparationWitnessFunction :
     auto feature_B_id = tri_tri_data.feature_B_id;
 
     // Get the two untransformed triangles.
-    const auto tA = &meshA_->triangle(triA_);
-    const auto tB = &meshB_->triangle(triB_);
+    const auto tA = tri_tri_data.tA;
+    const auto tB = tri_tri_data.tB;
 
     switch (typeA) {
       case FeatureType::kVertex:  {
@@ -267,17 +225,8 @@ class TangentialSeparationWitnessFunction :
     DRAKE_ABORT();
   }
 
-  // The triangle index from element A.
-  int triA_{-1};
-  int triB_{-1};
-
-  // The two triangle meshes.
-  const multibody::Trimesh<T>* meshA_{nullptr};
-  const multibody::Trimesh<T>* meshB_{nullptr};
-
-  // The two elements for which the distance will be computed.
-  multibody::collision::Element* elementA_{nullptr};
-  multibody::collision::Element* elementB_{nullptr};
+  // The contact data being tracked.
+  TriTriContactData<T> contact_data_;
 };
 
 }  // namespace multibody 

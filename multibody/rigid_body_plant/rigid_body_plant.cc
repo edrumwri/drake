@@ -1287,8 +1287,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
 
           // Create a tangential separation witness for the non-degenerate pair.
           tangential_separation_witness_vector.push_back(
-              TangentialSeparationWitnessFunction<T>(*this, elmA, elmB,
-              closest_pairs[j].first, closest_pairs[j].second));
+              TangentialSeparationWitnessFunction<T>(*this, tri_tri_data));
 
           SPDLOG_DEBUG(drake::log(), "Added normal and tangential separation "
               "witnesses for pair {}, {}", closest_pairs[j].first,
@@ -1349,22 +1348,19 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         }
         DRAKE_DEMAND(added_one);
 
-        // Get the contact data vector corresponding to the elements.
-        auto elementA = tangential_witness_function->get_element_A();
-        auto elementB = tangential_witness_function->get_element_B();
+        // Get the contact data from the witness.
+        const auto& contact_data = tangential_witness_function->
+            get_contact_data();
+        Element* elementA = const_cast<Element*>(contact_data.idA);
+        Element* elementB = const_cast<Element*>(contact_data.idB);
         auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
             elementA, elementB));
         DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
         auto& tri_tri_data_vector = tri_tri_vector_iter->second;
 
         // Remove the corresponding triangles from the contact features vector.
-        const Triangle3<T>& tA = tangential_witness_function->get_triangle_A();
-        const Triangle3<T>& tB = tangential_witness_function->get_triangle_B();
-        auto sorted_tris = make_sorted_pair(&tA, &tB);
         for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
-          auto candidate_pair = make_sorted_pair(
-              tri_tri_data_vector[i].tA, tri_tri_data_vector[i].tB);
-          if (candidate_pair == sorted_tris) {
+          if (tri_tri_data_vector[i] == contact_data) {
             tri_tri_data_vector[i] = tri_tri_data_vector.back();
             tri_tri_data_vector.pop_back();
             break;
@@ -1394,10 +1390,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   // Remove tangential separation witnesses.
   for (auto i = tangential_separation_removal_indices.rbegin();
        i != tangential_separation_removal_indices.rend(); ++i) {
-    SPDLOG_DEBUG(drake::log(), "Removed tangential separation witness for "
-        "pair {}, {}",
-        tangential_separation_witness_vector[*i].get_triangle_A_index(),
-        tangential_separation_witness_vector[*i].get_triangle_B_index());
+    SPDLOG_DEBUG(drake::log(), "Removed tangential separation witness");
     tangential_separation_witness_vector[*i] =
         tangential_separation_witness_vector.back();
     tangential_separation_witness_vector.pop_back();
