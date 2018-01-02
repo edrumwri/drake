@@ -152,6 +152,7 @@ drake_cc_library(
         "euclidean_distance_witness.h",
         "euclidean_distance_witness-inl.h",
         "kinematics_results.h",
+        "normal_separation_witness.h",
         "rigid_body_plant.h",
         "rigid_body_plant_witness_function.h",
         "tangential_separation_witness.h",

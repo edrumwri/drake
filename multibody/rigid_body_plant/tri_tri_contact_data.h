@@ -31,6 +31,16 @@ struct TriTriContactData {
   void* feature_A_id{nullptr};
   void* feature_B_id{nullptr};
 
+  /// Gets the vertices involved in contact from A, expressed in A's frame.
+  int get_A_vertices(Vector3<T>* array) const {
+    return 0;
+  }
+
+  /// Gets the vertices involved in contact from B, expressed in B's frame.
+  int get_B_vertices(Vector3<T>* array) const {
+    return 0;
+  }
+
   /// Determines whether the type of contact is degenerate.
   bool is_degenerate() const {
     if (typeA == FeatureType::kVertex && typeB == FeatureType::kVertex)

@@ -12,6 +12,7 @@
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/euclidean_distance_witness.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
+#include "drake/multibody/rigid_body_plant/normal_separation_witness.h"
 #include "drake/multibody/rigid_body_plant/tangential_separation_witness.h"
 #include "drake/multibody/rigid_body_plant/trimesh.h"
 #include "drake/multibody/rigid_body_plant/trimesh_coldet.h"
@@ -23,6 +24,9 @@ namespace drake {
 namespace multibody {
 template <class T>
 class EuclideanDistanceWitnessFunction;
+
+template <class T>
+class NormalSeparationWitnessFunction;
 
 template <class T>
 class TangentialSeparationWitnessFunction;
@@ -38,6 +42,8 @@ enum AbstractStateIndices {
   kContactFeatureMap,
 
   kEuclideanDistanceWitnessVector,
+
+  kNormalSeparationWitnessVector,
 
   kTangentialSeparationWitnessVector
 };
@@ -590,6 +596,8 @@ class RigidBodyPlant : public LeafSystem<T> {
       EuclideanDistanceWitnessArray;
   typedef std::vector<multibody::TangentialSeparationWitnessFunction<T>>
       TangentialSeparationWitnessArray;
+  typedef std::vector<multibody::NormalSeparationWitnessFunction<T>>
+      NormalSeparationWitnessArray;
 };
 
 }  // namespace systems

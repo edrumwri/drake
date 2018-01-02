@@ -28,6 +28,11 @@ class RigidBodyPlantWitnessFunction : public systems::AbstractValues,
     /// designated as contacting.
     kEuclideanDistance,
 
+    /// A witness that can determine when two contacting features separate
+    /// in the normal direction and should no longer be designated as
+    /// contacting.
+    kNormalSeparation,
+
     /// A witness that can determine when two contacting triangles separate
     /// tangentially (and should no longer be designated as contacting).
     kTangentialSeparation,

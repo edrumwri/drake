@@ -63,7 +63,7 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
   this->get_plant().get_collision_detection().DoBroadPhase(*meshA_, *meshB_,
                                                            &to_check);
 
-  // TODO: Enable this only SPDLOG_DEBUG is enabled.
+  // TODO: Enable this only when SPDLOG_DEBUG is enabled.
   SPDLOG_DEBUG(drake::log(), "Pairs to check after broad phase");
   for (int i = 0; i < to_check.size(); ++i) {
     SPDLOG_DEBUG(drake::log(), " -- {}, {}", to_check[i].first,

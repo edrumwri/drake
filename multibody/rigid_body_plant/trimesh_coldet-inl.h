@@ -458,35 +458,27 @@ void TrimeshColdet<T>::CalcIntersections(
 
   DRAKE_DEMAND(contacts);
 
-  // Get iterators to the two poses for the triangle meshes.
-  const auto& poses_iter_mA = poses_.find(&mA);
-  const auto& poses_iter_mB = poses_.find(&mB);
-
-  // Verify that the meshes were found.
-  if (poses_iter_mA == poses_.end() || poses_iter_mB == poses_.end())
-    throw std::logic_error("Mesh was not found in the pose map.");
-
   // Get the distance between each pair of triangles.
   for (int i = 0; i < closest_triangles.size(); ++i) {
     // Get the two triangles.
-    const Vector3 <T> vAa = poseA * mA.triangle(closest_triangles[i].first).a();
-    const Vector3 <T> vAb = poseA * mA.triangle(closest_triangles[i].first).b();
-    const Vector3 <T> vAc = poseA * mA.triangle(closest_triangles[i].first).c();
-    const Vector3 <T>
+    const Vector3<T> vAa = poseA * mA.triangle(closest_triangles[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(closest_triangles[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(closest_triangles[i].first).c();
+    const Vector3<T>
         vBa = poseB * mB.triangle(closest_triangles[i].second).a();
-    const Vector3 <T>
+    const Vector3<T>
         vBb = poseB * mB.triangle(closest_triangles[i].second).b();
-    const Vector3 <T>
+    const Vector3<T>
         vBc = poseB * mB.triangle(closest_triangles[i].second).c();
     const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
     const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
     // Compute closest points.
-    Vector3 <T> closest_on_tA, closest_on_tB;
+    Vector3<T> closest_on_tA, closest_on_tB;
     tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
 
     // Compute the surface normal such that it points toward A.
-    Vector3 <T> normal = closest_on_tA - closest_on_tB;
+    Vector3<T> normal = closest_on_tA - closest_on_tB;
     normal.normalize();
 
     // Get the projection matrix.
@@ -501,7 +493,7 @@ void TrimeshColdet<T>::CalcIntersections(
     // Project all points from a triangle to the plane. Stores a point
     // if it is within tolerance.
     auto project_and_store = [&normal, offset](
-        const Triangle3 <T>& t, std::vector<int>* p) {
+        const Triangle3<T>& t, std::vector<int>* p) {
       const T d_a = abs(t.a().dot(normal) - offset);
       const T d_b = abs(t.b().dot(normal) - offset);
       const T d_c = abs(t.c().dot(normal) - offset);

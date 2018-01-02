@@ -1899,6 +1899,10 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
       }
     }
 
+    // Create a vector of normal separation witnesses.
+    abstract_data.push_back(
+        std::make_unique<Value<NormalSeparationWitnessArray>>());
+
     // Create a vector of tangential separation witnesses.
     abstract_data.push_back(
         std::make_unique<Value<TangentialSeparationWitnessArray>>());
