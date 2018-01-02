@@ -1213,8 +1213,9 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   auto kinematics_cache = tree.doKinematics(q, v);
 
   // Indices for tangential separation witnesses to be removed.
-  std::vector<int> normal_separation_removal_indices;
-  std::vector<int> tangential_separation_removal_indices;
+  std::set<sorted_pair<Element*>> removed_contacts;
+  std::set<int> normal_separation_removal_indices;
+  std::set<int> tangential_separation_removal_indices;
 
   // Loop through all elements whose witness functions have triggered.
   std::map<Element*, Isometry3<T>> poses;
@@ -1297,86 +1298,71 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         break;
       }
 
-      case RigidBodyPlantWitnessFunction<T>::kNormalSeparation:  {
-        auto normal_witness_function =
-            static_cast<NormalSeparationWitnessFunction<T>*>(witness);
+      case RigidBodyPlantWitnessFunction<T>::kNormalSeparation:
+      case RigidBodyPlantWitnessFunction<T>::kTangentialSeparation: {
+        // Get the contact data.
+        const TriTriContactData<T>* contact_data = nullptr;
+        if (witness->get_witness_function_type() ==
+            RigidBodyPlantWitnessFunction<T>::kNormalSeparation) {
+          auto normal_witness_function =
+              static_cast<NormalSeparationWitnessFunction<T>*>(witness);
+          contact_data = &normal_witness_function->get_contact_data();
+        } else {
+          auto tangential_witness_function =
+              static_cast<TangentialSeparationWitnessFunction<T>*>(witness);
+          contact_data = &tangential_witness_function->get_contact_data();
+        }
+
+        // Mark the normal separation witness for removal.
         bool added_one = false;
         for (int i = 0; i < normal_separation_witness_vector.size(); ++i) {
-          if (*normal_witness_function ==
-              normal_separation_witness_vector[i]) {
-            normal_separation_removal_indices.push_back(i);
+          if (normal_separation_witness_vector[i].get_contact_data() ==
+              *contact_data) {
+            normal_separation_removal_indices.insert(i);
             added_one = true;
             break;
           }
         }
         DRAKE_DEMAND(added_one);
 
-        // Get the contact data from the witness.
-        const auto& contact_data = normal_witness_function->get_contact_data();
-        Element* elementA = const_cast<Element*>(contact_data.idA);
-        Element* elementB = const_cast<Element*>(contact_data.idB);
-        auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
-            elementA, elementB));
-        DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
-        auto& tri_tri_data_vector = tri_tri_vector_iter->second;
-
-        // Remove the corresponding triangles from the contact features vector.
-        for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
-          if (tri_tri_data_vector[i] == contact_data) {
-            tri_tri_data_vector[i] = tri_tri_data_vector.back();
-            tri_tri_data_vector.pop_back();
-            break;
-          }
-        }
-
-        break;
-      }
-
-      case RigidBodyPlantWitnessFunction<T>::kTangentialSeparation:  {
-        // Get the index of the tangential separation witness (for later
-        // removal).
-        auto tangential_witness_function =
-            static_cast<TangentialSeparationWitnessFunction<T>*>(witness);
-        bool added_one = false;
+        // Mark the tangential separation witness for removal.
+        added_one = false;
         for (int i = 0; i < tangential_separation_witness_vector.size(); ++i) {
-          if (*tangential_witness_function ==
-              tangential_separation_witness_vector[i]) {
-            tangential_separation_removal_indices.push_back(i);
+          if (tangential_separation_witness_vector[i].get_contact_data() ==
+              *contact_data) {
+            tangential_separation_removal_indices.insert(i);
             added_one = true;
             break;
           }
         }
         DRAKE_DEMAND(added_one);
 
-        // Get the contact data from the witness.
-        const auto& contact_data = tangential_witness_function->
-            get_contact_data();
-        Element* elementA = const_cast<Element*>(contact_data.idA);
-        Element* elementB = const_cast<Element*>(contact_data.idB);
-        auto tri_tri_vector_iter = contacting_features.find(make_sorted_pair(
-            elementA, elementB));
-        DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
-        auto& tri_tri_data_vector = tri_tri_vector_iter->second;
+        // Get the contact data from the witness, unless it's already been
+        // removed (from another witness triggering).
+        Element* elementA = const_cast<Element*>(contact_data->idA);
+        Element* elementB = const_cast<Element*>(contact_data->idB);
+        auto elements = make_sorted_pair(elementA, elementB);
+        if (removed_contacts.find(elements) == removed_contacts.end()) {
+          auto tri_tri_vector_iter = contacting_features.find(elements);
+          DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
+          auto& tri_tri_data_vector = tri_tri_vector_iter->second;
 
-        // Remove the corresponding triangles from the contact features vector.
-        for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
-          if (tri_tri_data_vector[i] == contact_data) {
-            tri_tri_data_vector[i] = tri_tri_data_vector.back();
-            tri_tri_data_vector.pop_back();
-            break;
+          // Remove the corresponding tris from the contact features vector.
+          for (int i = 0; i < tri_tri_data_vector.size(); ++i) {
+            if (tri_tri_data_vector[i] == *contact_data) {
+              tri_tri_data_vector[i] = tri_tri_data_vector.back();
+              tri_tri_data_vector.pop_back();
+              break;
+            }
           }
-        }
 
-        break;
+          break;
+        } else {
+          removed_contacts.insert(elements);
+        }
       }
     }
   }
-
-  // Sort normal and tangential indices to be removed.
-  std::sort(normal_separation_removal_indices.begin(),
-            normal_separation_removal_indices.end());
-  std::sort(tangential_separation_removal_indices.begin(),
-            tangential_separation_removal_indices.end());
 
   // Remove normal separation witnesses.
   for (auto i = normal_separation_removal_indices.rbegin();
