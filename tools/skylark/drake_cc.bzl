@@ -1,5 +1,11 @@
 # -*- python -*-
 
+load(
+    "//tools/skylark:6996.bzl",
+    "adjust_label_for_drake_hoist",
+    "adjust_labels_for_drake_hoist",
+)
+
 # Keep CXX_FLAGS, CLANG_FLAGS, and GCC_FLAGS in sync with CMAKE_CXX_FLAGS in
 # matlab/cmake/flags.cmake.
 
@@ -121,7 +127,7 @@ def installed_headers_for_dep(dep):
         last_slash = dep.rindex("/")
         libname = dep[last_slash + 1:]
         result = dep + ":" + libname + suffix
-    return result
+    return adjust_label_for_drake_hoist(result)
 
 def installed_headers_for_drake_deps(deps):
     """Filters `deps` to find drake labels (i.e., discard third_party labels),
@@ -219,6 +225,84 @@ def drake_transitive_installed_hdrs_filegroup(name, deps = [], **kwargs):
         **kwargs
     )
 
+def _raw_drake_cc_library(
+        name,
+        hdrs = [],
+        srcs = [],  # Cannot list any headers here.
+        data = [],
+        deps = [],
+        declare_installed_headers = 0,
+        install_hdrs_exclude = [],
+        **kwargs):
+    """Creates a rule to declare a C++ library.  Uses Drake's include_prefix and
+    checks the deps blacklist.  If declare_installed_headers is true, also adds
+    a drake_installed_headers() target.  (This should be set if and only if the
+    caller is drake_cc_library.)
+    """
+    data = adjust_labels_for_drake_hoist(data)
+    deps = adjust_labels_for_drake_hoist(deps)
+    _check_library_deps_blacklist(name, deps)
+    _, private_hdrs = _prune_private_hdrs(srcs)
+    if private_hdrs:
+        fail("private_hdrs = " + private_hdrs)
+    if native.package_name().startswith("drake"):
+        strip_include_prefix = None
+        include_prefix = None
+    else:
+        # Require include paths like "drake/foo/bar.h", not "foo/bar.h".
+        strip_include_prefix = "/"
+        include_prefix = "drake"
+    native.cc_library(
+        name = name,
+        hdrs = hdrs,
+        srcs = srcs,
+        deps = deps,
+        data = data,
+        strip_include_prefix = strip_include_prefix,
+        include_prefix = include_prefix,
+        **kwargs)
+    if declare_installed_headers:
+        drake_installed_headers(
+            name = name + ".installed_headers",
+            hdrs = hdrs,
+            hdrs_exclude = install_hdrs_exclude,
+            deps = installed_headers_for_drake_deps(deps),
+            tags = ["nolint"],
+            visibility = ["//visibility:public"],
+        )
+
+def _maybe_add_pruned_private_hdrs_dep(
+        base_name,
+        srcs,
+        deps,
+        **kwargs):
+    """Given some srcs, prunes any header files into a separate cc_library, and
+    appends that new library to deps, returning new_srcs (sans headers) and
+    new_deps.  The separate cc_library is private with linkstatic = 1.
+
+    We use this helper in all drake_cc_{library,binary,test) because when we
+    want to fiddle with include paths, we *must* have all header files listed
+    as hdrs; the include_prefix does not apply to srcs.
+    """
+    new_srcs, private_hdrs = _prune_private_hdrs(srcs)
+    if private_hdrs:
+        name = "_" + base_name + "_private_headers_impl"
+        kwargs.pop('linkshared', '')
+        kwargs.pop('linkstatic', '')
+        kwargs.pop('visibility', '')
+        _raw_drake_cc_library(
+            name = name,
+            hdrs = private_hdrs,
+            srcs = [],
+            deps = deps,
+            linkstatic = 1,
+            visibility = ["//visibility:private"],
+            **kwargs)
+        new_deps = deps + [":" + name]
+    else:
+        new_deps = deps
+    return new_srcs, new_deps
+
 def drake_cc_library(
         name,
         hdrs = [],
@@ -240,39 +324,30 @@ def drake_cc_library(
     of Drake).  In other words, all of Drake's C++ libraries must be declared
     using the drake_cc_library macro.
     """
-    _, private_hdrs = _prune_private_hdrs(srcs)
-    _check_library_deps_blacklist(name, deps)
-    if native.package_name().startswith("drake"):
-        strip_include_prefix = None
-        include_prefix = None
-    else:
-        # Require include paths like "drake/foo/bar.h", not "foo/bar.h".
-        strip_include_prefix = "/"
-        include_prefix = "drake"
-    native.cc_library(
-        name = name,
-        hdrs = hdrs,
-        srcs = srcs,
-        deps = deps,
-        copts = _platform_copts(copts, gcc_copts),
-        linkstatic = linkstatic,
-        strip_include_prefix = strip_include_prefix,
-        include_prefix = include_prefix,
-        **kwargs)
+    new_copts = _platform_copts(copts, gcc_copts)
     # We install private_hdrs by default, because Bazel's visibility denotes
     # whether headers can be *directly* included when using cc_library; it does
     # not precisely relate to which headers should appear in the install tree.
     # For example, common/symbolic.h is the only public-visibility header for
     # its cc_library, but we also need to install all of its child headers that
     # it includes, such as common/symbolic_expression.h.
-    drake_installed_headers(
-        name = name + ".installed_headers",
-        hdrs = hdrs + private_hdrs,
-        hdrs_exclude = install_hdrs_exclude,
-        deps = installed_headers_for_drake_deps(deps),
-        tags = ["nolint"],
-        visibility = ["//visibility:public"],
-    )
+    new_srcs, new_deps = _maybe_add_pruned_private_hdrs_dep(
+        base_name = name,
+        srcs = srcs,
+        deps = deps,
+        copts = new_copts,
+        declare_installed_headers = 1,
+        **kwargs)
+    _raw_drake_cc_library(
+        name = name,
+        hdrs = hdrs,
+        srcs = new_srcs,
+        deps = new_deps,
+        copts = new_copts,
+        linkstatic = linkstatic,
+        declare_installed_headers = 1,
+        install_hdrs_exclude = install_hdrs_exclude,
+        **kwargs)
 
 def drake_cc_binary(
         name,
@@ -280,7 +355,9 @@ def drake_cc_binary(
         data = [],
         deps = [],
         copts = [],
+        linkopts = [],
         gcc_copts = [],
+        linkshared = 0,
         linkstatic = 1,
         testonly = 0,
         add_test_rule = 0,
@@ -300,14 +377,41 @@ def drake_cc_binary(
     tests. The smoke-test will be named <name>_test. You may override cc_test
     defaults using test_rule_args=["-f", "--bar=42"] or test_rule_size="baz".
     """
+    data = adjust_labels_for_drake_hoist(data)
+    deps = adjust_labels_for_drake_hoist(deps)
+    new_copts = _platform_copts(copts, gcc_copts)
+    new_srcs, new_deps = _maybe_add_pruned_private_hdrs_dep(
+        base_name = name,
+        srcs = srcs,
+        deps = deps,
+        copts = new_copts,
+        testonly = testonly,
+        **kwargs)
+    if linkshared == 1:
+        # On Linux, we need to disable "new" dtags in the linker so that we use
+        # RPATH instead of RUNPATH.  When doing runtime linking, RPATH is
+        # checked *before* LD_LIBRARY_PATH, which is important to avoid using
+        # the MATLAB versions of certain libraries (protobuf).  macOS doesn't
+        # understand this flag, so it is conditional on Linux only.  Note that
+        # the string we use for rpath here doesn't actually matter; it will be
+        # replaced during installation later.
+        linkopts = select({
+            "//tools/cc_toolchain:apple": linkopts,
+            "//conditions:default": linkopts + [
+                "-Wl,-rpath=/usr/lib/x86_64-linux-gnu -Wl,--disable-new-dtags",
+            ],
+        })
+
     native.cc_binary(
         name = name,
-        srcs = srcs,
+        srcs = new_srcs,
         data = data,
-        deps = deps,
-        copts = _platform_copts(copts, gcc_copts),
+        deps = new_deps,
+        copts = new_copts,
         testonly = testonly,
+        linkshared = linkshared,
         linkstatic = linkstatic,
+        linkopts = linkopts,
         **kwargs)
 
     # Also generate the OS X debug symbol file for this binary.
@@ -328,13 +432,13 @@ def drake_cc_binary(
     if add_test_rule:
         drake_cc_test(
             name = name + "_test",
-            srcs = srcs,
+            srcs = new_srcs,
             data = data + test_rule_data,
-            deps = deps,
+            deps = new_deps,
             copts = copts,
+            gcc_copts = gcc_copts,
             size = test_rule_size,
             flaky = test_rule_flaky,
-            testonly = testonly,
             linkstatic = linkstatic,
             args = test_rule_args,
             **kwargs)
@@ -343,6 +447,8 @@ def drake_cc_test(
         name,
         size = None,
         srcs = [],
+        data = [],
+        deps = [],
         copts = [],
         gcc_copts = [],
         disable_in_compilation_mode_dbg = False,
@@ -352,27 +458,40 @@ def drake_cc_test(
 
     By default, sets size="small" because that indicates a unit test.
     By default, sets name="test/${name}.cc" per Drake's filename convention.
+    Unconditionally forces testonly=1.
 
     If disable_in_compilation_mode_dbg is True, the srcs will be suppressed
     in debug-mode builds, so the test will trivially pass. This option should
     be used only rarely, and the reason should always be documented.
     """
+    data = adjust_labels_for_drake_hoist(data)
+    deps = adjust_labels_for_drake_hoist(deps)
     if size == None:
         size = "small"
     if not srcs:
         srcs = ["test/%s.cc" % name]
+    kwargs['testonly'] = 1
+    new_copts = _platform_copts(copts, gcc_copts, cc_test = 1)
+    new_srcs, new_deps = _maybe_add_pruned_private_hdrs_dep(
+        base_name = name,
+        srcs = srcs,
+        deps = deps,
+        copts = new_copts,
+        **kwargs)
     if disable_in_compilation_mode_dbg:
         # Remove the test declarations from the test in debug mode.
         # TODO(david-german-tri): Actually suppress the test rule.
-        srcs = select({
+        new_srcs = select({
             "//tools/cc_toolchain:debug": [],
-            "//conditions:default": srcs,
+            "//conditions:default": new_srcs,
         })
     native.cc_test(
         name = name,
         size = size,
-        srcs = srcs,
-        copts = _platform_copts(copts, gcc_copts, cc_test = 1),
+        srcs = new_srcs,
+        data = data,
+        deps = new_deps,
+        copts = new_copts,
         **kwargs)
 
     # Also generate the OS X debug symbol file for this test.
@@ -381,7 +500,7 @@ def drake_cc_test(
         srcs = [":" + name],
         outs = [name + ".dSYM"],
         output_to_bindir = 1,
-        testonly = 1,
+        testonly = kwargs['testonly'],
         tags = ["dsym"],
         visibility = ["//visibility:private"],
         cmd = _dsym_command(name),
@@ -404,10 +523,59 @@ def drake_cc_googletest(
     be used only rarely, and the reason should always be documented.
     """
     if use_default_main:
-        deps += ["//drake/common/test_utilities:drake_cc_googletest_main"]
+        deps = deps + adjust_labels_for_drake_hoist([
+            "//drake/common/test_utilities:drake_cc_googletest_main",
+        ])
     else:
-        deps += ["@gtest//:without_main"]
+        deps = deps + ["@gtest//:without_main"]
     drake_cc_test(
         name = name,
         deps = deps,
+        **kwargs)
+
+def drake_example_cc_binary(
+        srcs = [],
+        deps = [],
+        **kwargs):
+    """Creates a rule to declare a C++ binary using `libdrake.so`.
+
+    This rule is a wrapper around `drake_cc_binary()`. It adds `libdrake.so`
+    and `drake_lcmtypes_headers` as dependencies to the target.
+
+    This allows the creation of examples for drake that depend on `libdrake.so`
+    which let the process discover the location of drake resources at runtime
+    based on the location of `libdrake.so` which is loaded by the process.
+
+    This macro will fail-fast if there is ODR violation. This happens if this
+    macro adds dependendies (`deps` or `srcs`) that are already part of
+    libdrake.so or drake_lcmtypes_headers.
+    """
+    if not native.package_name().startswith("examples"):
+        fail("`drake_example_cc_binary()` macro should only be used in examples \
+            subdirectory.")
+    # This verifies that there is no ODR violation. Targets that are part of
+    # libdrake should not be included a second time. Only targets that are in
+    # //examples (historically //drake/examples) or in the workspace can be
+    # added as dependencies. By extension, this makes sure that
+    # //tools/install/libdrake:drake_shared_library is not added as a
+    # dependency a second time.
+    for dep in deps:
+        if not (dep.startswith('@') or
+                dep.startswith(':') or
+                dep.startswith('//examples') or
+                dep.startswith('//drake/examples')):
+            fail("Dependency used in `drake_example_cc_binary()` macro should\
+                not already be part of libdrake.so: %s" % dep)
+    # This makes sure that //tools/install/libdrake:libdrake.so and
+    # //lcmtypes:drake_lcmtypes_headers are not added to srcs a second time.
+    if ("//tools/install/libdrake:libdrake.so" in srcs or
+            "//lcmtypes:drake_lcmtypes_headers"in srcs):
+        fail("//tools/install/libdrake:libdrake.so and \
+            //lcmtypes:drake_lcmtypes_headers are already included in \
+            `drake_example_cc_binary()` macro")
+    drake_cc_binary(
+        srcs = srcs +
+        ["//tools/install/libdrake:libdrake.so",
+         "//lcmtypes:drake_lcmtypes_headers"],
+        deps = deps + ["//tools/install/libdrake:drake_shared_library"],
         **kwargs)
