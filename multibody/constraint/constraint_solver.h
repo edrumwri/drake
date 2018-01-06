@@ -94,12 +94,15 @@ class ConstraintSolver {
   ///           ComputeGeneralizedForceFromConstraintForces() and
   ///           CalcContactForcesInContactFrames(). `cf` will be resized as
   ///           necessary.
+  /// @param[out] Lambda If non-null, the tangent accelerations at the
+  ///                    non-sliding contacts will be stored here on return.
   /// @pre Constraint data has been computed.
   /// @throws a std::runtime_error if the constraint forces cannot be computed
   ///         (due to, e.g., an "inconsistent" rigid contact configuration).
   /// @throws a std::logic_error if `cf` is null.
   void SolveConstraintProblem(const ConstraintAccelProblemData<T>& problem_data,
-                              VectorX<T>* cf) const;
+                              VectorX<T>* cf,
+                              VectorX<T>* Lambda = nullptr) const;
 
   /// Solves the appropriate impact problem at the velocity level.
   /// @param problem_data The data used to compute the impulsive constraint
@@ -723,7 +726,8 @@ void ConstraintSolver<T>::FormAndSolveConstraintLCP(
 template <typename T>
 void ConstraintSolver<T>::SolveConstraintProblem(
     const ConstraintAccelProblemData<T>& problem_data,
-    VectorX<T>* cf) const {
+    VectorX<T>* cf,
+    VectorX<T>* Lambda) const {
   using std::max;
   using std::abs;
 
@@ -839,6 +843,10 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   const auto fN = cf->segment(0, num_contacts);
   const auto fF = cf->segment(num_contacts, num_spanning_vectors);
   const auto fL = cf->segment(num_contacts + num_spanning_vectors, num_limits);
+
+  // Set Lambda, if desired.
+  if (Lambda)
+    *Lambda = cf->tail(num_non_sliding);
 
   // Determine the accelerations and the bilateral constraint forces.
   //     Au + Xv + a = 0

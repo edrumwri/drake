@@ -3,6 +3,7 @@
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <fstream>
 
 #include <gflags/gflags.h>
 
@@ -20,6 +21,7 @@
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
 #include "drake/systems/lcm/serializer.h"
+#include "drake/systems/primitives/signal_logger.h"
 #include "drake/systems/rendering/drake_visualizer_client.h"
 #include "drake/systems/rendering/pose_aggregator.h"
 #include "drake/systems/rendering/pose_bundle_to_draw_message.h"
@@ -27,6 +29,7 @@
 using Rod2D = drake::examples::rod2d::Rod2D<double>;
 using drake::examples::rod2d::Rod2dStateVector;
 using drake::lcm::DrakeLcm;
+using drake::systems::SignalLogger;
 using drake::systems::BasicVector;
 using drake::systems::Context;
 using drake::systems::lcm::LcmPublisherSystem;
@@ -44,19 +47,25 @@ using drake::systems::RungeKutta3Integrator;
 DEFINE_string(simulation_type, "timestepping",
               "Type of simulation, valid values are "
               "'pDAE', 'timestepping','compliant'");
-DEFINE_double(dt, 1e-2, "Integration step size");
+DEFINE_double(dt, 1e-2, "Integration step size (for time stepping simulation, "
+              "maximum simulation step size otherwise)");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
 DEFINE_double(sim_duration, 5, "Simulation duration in virtual seconds");
 DEFINE_double(accuracy, 1e-5,
               "Requested simulation accuracy (ignored for time stepping)");
 DEFINE_string(state, "0 0 0 0 0 0", "Six dimensional, space delimited vector "
                      "of initial conditions.");
-DEFINE_double(mu_c, 0.1, "Coefficient of Coulomb friction");
-DEFINE_double(mu_s, 0.1, "Coefficient of static friction");
-DEFINE_bool(output_state, false, "Whether to output time and state to "
-            "state.output");
-DEFINE_bool(output_force, false, "Whether to output time and contact forces "
-           "to force.output");
+DEFINE_double(mu_c, Rod2D::get_default_mu(), "Coefficient of Coulomb "
+                                                     "friction");
+DEFINE_double(mu_s, Rod2D::get_default_mu(), "Coefficient of static "
+                                                     "friction");
+DEFINE_bool(output_state, false, "Log state to state.output?");
+DEFINE_bool(output_force, false, "Log contact force to state.force?");
+DEFINE_double(stiffness, Rod2D::get_default_stiffness(), "Plane "
+                                                                 "stiffness");
+DEFINE_double(
+    dissipation, Rod2D::get_default_dissipation(), "Contact "
+                                                           "dissipation (s/m)");
 
 int main(int argc, char* argv[]) {
   // Parse any flags.
@@ -101,9 +110,11 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
-  // Set the friction coefficients.
+  // Set material parameters. 
   rod->set_mu_coulomb(FLAGS_mu_c);
   rod->set_mu_static(FLAGS_mu_s);
+  rod->set_stiffness(FLAGS_stiffness);
+  rod->set_dissipation(FLAGS_dissipation);
 
   // Create the rod visualization.
   DrakeShapes::VisualElement rod_vis(
@@ -135,6 +146,23 @@ int main(int argc, char* argv[]) {
   builder.Connect(rod->pose_output(), aggregator->AddSingleInput("rod", 0));
   builder.Connect(*aggregator, *converter);
   builder.Connect(*converter, *publisher);
+
+  // Hook up the state logger, if desired. 
+  SignalLogger<double>* state_logger = nullptr;
+  SignalLogger<double>* force_logger = nullptr;
+  if (FLAGS_output_state) {
+    const int state_dim = 6;
+    state_logger = builder.template AddSystem<SignalLogger<double>>(state_dim);
+    builder.Connect(rod->state_output(), state_logger->get_input_port());
+  }
+  if (FLAGS_output_force) {
+    const int force_dim = 3; 
+    force_logger = builder.template AddSystem<SignalLogger<double>>(force_dim);
+    builder.Connect(
+        rod->contact_force_output(), force_logger->get_input_port());
+  }
+
+  // Build the diagram.
   auto diagram = builder.Build();
 
   // Make no external forces act on the rod.
@@ -148,9 +176,6 @@ int main(int argc, char* argv[]) {
   rod_context.FixInputPort(0, std::move(ext_input));
 
 /*
-  // TODO: To implement this, we also need to set the mode variables
-  appropriately.
-
   // Set the initial state.
   const int state_dim = 6;
   std::istringstream iss(FLAGS_state);
@@ -158,7 +183,7 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < state_dim; ++i)
     iss >> initial_state[i];
   Rod2dStateVector<double>& rod_state =
-      rod->get_mutable_state(&rod_context);
+      rod->get_mutable_state(&rod_context.get_mutable_continuous_state());
   rod_state.SetFromVector(initial_state);
 */
   // Set up the integrator.
@@ -182,4 +207,23 @@ int main(int argc, char* argv[]) {
     const double t = simulator.get_context().get_time();
     simulator.StepTo(std::min(t + 1, FLAGS_sim_duration));
   }
+
+  // Output the results.
+  if (state_logger) {
+    const auto t = state_logger->sample_times();
+    const auto x = state_logger->data(); 
+    std::ofstream out("state.output");
+    for (int i = 0; i < t.size(); ++i)
+      out << t[i] << " " << x.col(i).transpose() << std::endl;
+    out.close();
+  }
+  if (force_logger) {
+    const auto t = force_logger->sample_times();
+    const auto x = force_logger->data(); 
+    std::ofstream out("force.output");
+    for (int i = 0; i < t.size(); ++i)
+      out << t[i] << " " << x.col(i).transpose() << std::endl;
+    out.close();
+  }
 }
+

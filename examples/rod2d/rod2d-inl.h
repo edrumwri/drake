@@ -56,6 +56,8 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
   state_output_port_ = &this->DeclareVectorOutputPort(
       systems::BasicVector<T>(6), &Rod2D::CopyStateOut);
   pose_output_port_ = &this->DeclareVectorOutputPort(&Rod2D::CopyPoseOut);
+  contact_force_output_port_ = &this->DeclareVectorOutputPort(
+      systems::BasicVector<T>(3), &Rod2D::ComputeAndCopyContactForceOut);
 
   // Create the contact candidates.
   SetContactCandidates();
@@ -934,6 +936,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // Indicate there are no impacts.
   bool impacting = false;
 
+  // Indicate that sliding, not-sliding, and separating states do not need to
+  // be redetermined. Note that redetermination requires solving a
+  // complementarity problem.
+  bool redetermine_modes = false;
+
   // The vector of contacts to be removed from the force set.
   std::vector<int> contacts_to_remove;
 
@@ -994,6 +1001,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Add the contact.
         AddContactToForceCalculationSet(contact_index, context, state);
 
+        // Redetermine the modes.
+        redetermine_modes = true;
+
         break;
       }
 
@@ -1017,6 +1027,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         if (v[1] <= 0) {
           // Add the contact.
           AddContactToForceCalculationSet(contact_index, context, state);
+
+          // Modes must now be redetermined.
+          redetermine_modes = true;
         } else {
           GetNormalVelWitness(contact_index, *state)->set_enabled(true);
         }
@@ -1048,6 +1061,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         GetStickingFrictionForceSlackWitness(contact_index, *state)->
             set_enabled(false);
         
+        // Modes must now be redetermined.
+        redetermine_modes = true;
+
         break;
       }
 
@@ -1072,6 +1088,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
               ->set_enabled(true);
           GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
           GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+
+          // Modes must now be redetermined.
+          redetermine_modes = true;
         }
         break;
       }
@@ -1088,6 +1107,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Mark the contact as transitioning.
         contacts[contact_array_index].sliding_type =
             multibody::constraint::SlidingModeType::kTransitioning;
+
+        // Modes must now be redetermined.
+        redetermine_modes = true;
 
         break;
       }
@@ -1165,10 +1187,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         }
       } 
     }
-
-    // Now redetermine the acceleration level active set.
-    DetermineContactModes(context, state);
   }
+
+  // Now redetermine the acceleration level active set.
+  if (impacting || redetermine_modes)
+    DetermineContactModes(context, state);
 }
 
 // Redetermines the modes used for contacts at the acceleration level.
@@ -1190,39 +1213,21 @@ void Rod2D<T>::DetermineContactModes(
   VectorX<T> cf;
   multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
 
-  // Determine the new generalized acceleration. Complementarity solver
-  // *must* be used.
-  VectorX<T> ga;
+  // Determine the residual tangential accelerations for sticking contacts,
+  // and determine which contacts have no forces applied. The complementarity
+  // solver *must* be used.
+  VectorX<T> Lambda;
   CalcConstraintProblemData(context, *state, &problem_data);
   problem_data.use_complementarity_problem_solver = true;
-  solver_.SolveConstraintProblem(problem_data, &cf);
-  solver_.ComputeGeneralizedAcceleration(problem_data, cf, &ga);
+  solver_.SolveConstraintProblem(problem_data, &cf, &Lambda);
 
   // Get some arrays that will be used repeatedly.
-  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
   const std::vector<int>& non_sliding_contacts =
       problem_data.non_sliding_contacts;
   DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
                               non_sliding_contacts.end()));
-  const int num_sliding = sliding_contacts.size();
-  const int num_non_sliding = non_sliding_contacts.size();
-  const int nc = num_sliding + num_non_sliding;
-  const int k = get_num_tangent_directions_per_contact();
-  const int r = k / 2;
 
-  // The point of contact is x + R * u, so its velocity is
-  // xdot + Rdot * u * thetadot, and its acceleration is
-  // xddot + Rddot * u * thetadot + Rdot * u * thetaddot.
-  const auto q = context.get_continuous_state().get_generalized_position().
-      CopyToVector();
-  const auto v = context.get_continuous_state().get_generalized_velocity().
-      CopyToVector();
-  const Vector2<T> xddot = ga.segment(0, 2);
-  const T& theta = q[2];
-  const T& thetadot = v[2];
-  const T& thetaddot = ga[2];
-  const Matrix2<T> Rdot = GetRotationMatrixDerivative(theta, thetadot);
-  const Matrix2<T> Rddot = GetRotationMatrix2ndDerivative(theta, thetaddot);
+  // Examine contact forces and residual accelerations.
   std::vector<int> contacts_to_remove;
   for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
     // Get the index in the contact array.
@@ -1248,21 +1253,18 @@ void Rod2D<T>::DetermineContactModes(
       GetNegSlidingWitness(i, *state)->set_enabled(false);
     } else {
       // The contact is active. If the contact is not sliding, see whether
-      // it needs to transition to sliding.
+      // it needs to transition to sliding. Do this by examining whether the
+      // tangential acceleration is clearly non-zero.
       if (contacts[contact_array_index].sliding_type ==
           multibody::constraint::SlidingModeType::kNotSliding) {
-        // Determine the amount of frictional force slack.
         const int non_sliding_index = std::distance(
           non_sliding_contacts.begin(),
           std::lower_bound(non_sliding_contacts.begin(),
                            non_sliding_contacts.end(),
                            contact_array_index));
-        const auto fN = cf[contact_array_index];
-        const auto fF = cf.segment(nc + non_sliding_index * r, r).
-            template lpNorm<1>();
 
         // TODO: Need a more numerically robust scheme.
-        if (problem_data.mu_non_sliding[non_sliding_index] * fN - fF <
+        if (Lambda[non_sliding_index] > 
             10 * std::numeric_limits<double>::epsilon()) {
           SPDLOG_DEBUG(drake::log(), "Setting contact to 'transitioning'");
           contacts[contact_array_index].sliding_type =
@@ -1423,6 +1425,67 @@ void Rod2D<T>::DoGetWitnessFunctions(const systems::Context<T>& context,
   }
 }
 
+template <class T>
+void Rod2D<T>::ComputeAndCopyContactForceOut(
+    const systems::Context<T>& context,
+    systems::BasicVector<T>* contact_force_port_value) const {
+  switch (simulation_type_) {
+    case Rod2D<T>::SimulationType::kCompliant:  {
+      const Vector3<T> Fc_Ro_W = CalcCompliantContactForces(context);
+      contact_force_port_value->SetFromVector(Fc_Ro_W);
+      break;
+    }
+
+    case Rod2D<T>::SimulationType::kPiecewiseDAE:  {
+      // TODO(edrumwri): Cache this whole computation ASAP. 
+      // Construct the problem data.
+      const int ngc = 3;   // Number of generalized coordinates / velocities.
+      multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngc);
+      CalcConstraintProblemData(context, context.get_state(), &problem_data);
+
+      // Solve the constraint problem.
+      VectorX<T> cf;
+      solver_.SolveConstraintProblem(problem_data, &cf);
+
+      // Compute the generalized force and set 'contact_force'.
+      VectorX<T> gf;
+      solver_.ComputeGeneralizedForceFromConstraintForces(
+          problem_data, cf, &gf);
+      contact_force_port_value->SetFromVector(gf);
+      break;
+    }
+
+    case Rod2D<T>::SimulationType::kTimeStepping:  {
+      // TODO(edrumwri): Cache this computation ASAP. 
+      // Must solve the time stepping problem and then compute the non-impulsive
+      // contact forces.
+      // Get the configuration and velocity variables.
+      const systems::BasicVector<T>& state = context.get_discrete_state(0);
+      const auto& q = state.get_value().template segment<3>(0);
+      Vector3<T> v = state.get_value().template segment<3>(3);
+
+      // Get the external forces.
+      const Vector3<T> fext = ComputeExternalForces(context);
+
+      // Construct the problem data.
+      const int ngc = 3;      // Number of generalized coords / velocities.
+      multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+
+      // Compute time stepping problem data.
+      v += dt_ * (GetInverseInertiaMatrix() * fext);
+      ComputeTimeSteppingProblemData(q, v, &problem_data);
+
+      // Solve the impact problem and compute the generalized impulse (gj).
+      VectorX<T> cf, gj;
+      solver_.SolveImpactProblem(problem_data, &cf);
+      solver_.ComputeGeneralizedImpulseFromConstraintImpulses(
+          problem_data, cf, &gj);
+      contact_force_port_value->SetFromVector(gj / dt_);
+      break;
+    }
+  }
+}
+
 template <typename T>
 void Rod2D<T>::CopyStateOut(const systems::Context<T>& context,
                             systems::BasicVector<T>* state_port_value) const {
@@ -1443,31 +1506,18 @@ void Rod2D<T>::CopyPoseOut(
   ConvertStateToPose(state, pose_port_value);
 }
 
-/// Integrates the Rod 2D example forward in time using a
-/// half-explicit time stepping scheme.
 template <class T>
-void Rod2D<T>::DoCalcDiscreteVariableUpdates(
-    const systems::Context<T>& context,
-    const std::vector<const systems::DiscreteUpdateEvent<T>*>&,
-    systems::DiscreteValues<T>* discrete_state) const {
-  using std::sin;
-  using std::cos;
-
-  // Determine ERP and CFM.
-  const double erp = get_erp();
-  const double cfm = get_cfm();
-
-  // Get the necessary state variables.
-  const systems::BasicVector<T>& state = context.get_discrete_state(0);
-  const auto& q = state.get_value().template segment<3>(0);
-  Vector3<T> v = state.get_value().template segment<3>(3);
+void Rod2D<T>::ComputeTimeSteppingProblemData(
+    const Vector3<T>& q,
+    const Vector3<T>& v,
+    multibody::constraint::ConstraintVelProblemData<T>* problem_data) const {
   const T& x = q(0);
   const T& y = q(1);
   const T& theta = q(2);
 
-  // Construct the problem data.
-  const int ngc = 3;      // Number of generalized coords / velocities.
-  multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+  // Determine ERP and CFM.
+  const double erp = get_erp();
+  const double cfm = get_cfm();
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
@@ -1491,7 +1541,8 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // N = | 0 1 n2 |    F = | 1 0 f2 |
   // where n1, n2/f1, f2 are the moment arm induced by applying the
   // force at the given contact point along the normal/tangent direction.
-  Eigen::Matrix<T, nc, ngc> N, F;
+  auto& N = N_;
+  auto& F = F_;
   N(0, 0) = N(1, 0) = 0;
   N(0, 1) = N(1, 1) = 1;
   N(0, 2) = (left[0]  - x);
@@ -1502,48 +1553,73 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   F(1, 2) = -(right[1] - y);
 
   // Set the number of tangent directions.
-  problem_data.r = { 1, 1 };
+  problem_data->r = { 1, 1 };
 
   // Get the total number of tangent directions.
   const int nr = std::accumulate(
-      problem_data.r.begin(), problem_data.r.end(), 0);
+      problem_data->r.begin(), problem_data->r.end(), 0);
 
   // Set the coefficients of friction.
-  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
+  problem_data->mu.setOnes(nc) *= get_mu_coulomb();
 
   // Set up the operators.
-  problem_data.N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N * vv;
   };
-  problem_data.N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N.transpose() * vv;
   };
-  problem_data.F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F.transpose() * vv;
   };
-  problem_data.F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F * vv;
   };
-  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+  problem_data->solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
     return GetInverseInertiaMatrix() * mm;
   };
 
   // Update the generalized velocity vector with discretized external forces
   // (expressed in the world frame).
-  const Vector3<T> fext = ComputeExternalForces(context);
-  v += dt_ * problem_data.solve_inertia(fext);
-  problem_data.Mv = GetInertiaMatrix() * v;
+  problem_data->Mv = GetInertiaMatrix() * v;
 
   // Set stabilization parameters.
-  problem_data.kN.resize(nc);
-  problem_data.kN[0] = erp * left[1] / dt_;
-  problem_data.kN[1] = erp * right[1] / dt_;
-  problem_data.kF.setZero(nr);
+  problem_data->kN.resize(nc);
+  problem_data->kN[0] = erp * left[1] / dt_;
+  problem_data->kN[1] = erp * right[1] / dt_;
+  problem_data->kF.setZero(nr);
 
   // Set regularization parameters.
-  problem_data.gammaN.setOnes(nc) *= cfm;
-  problem_data.gammaF.setOnes(nr) *= cfm;
-  problem_data.gammaE.setOnes(nc) *= cfm;
+  problem_data->gammaN.setOnes(nc) *= cfm;
+  problem_data->gammaF.setOnes(nr) *= cfm;
+  problem_data->gammaE.setOnes(nc) *= cfm;
+}
+
+/// Integrates the Rod 2D example forward in time using a
+/// half-explicit time stepping scheme.
+template <class T>
+void Rod2D<T>::DoCalcDiscreteVariableUpdates(
+    const systems::Context<T>& context,
+    const std::vector<const systems::DiscreteUpdateEvent<T>*>&,
+    systems::DiscreteValues<T>* discrete_state) const {
+  using std::sin;
+  using std::cos;
+
+  // Get the configuration and velocity variables.
+  const systems::BasicVector<T>& state = context.get_discrete_state(0);
+  const auto& q = state.get_value().template segment<3>(0);
+  Vector3<T> v = state.get_value().template segment<3>(3);
+
+  // Construct the problem data.
+  const int ngc = 3;      // Number of generalized coords / velocities.
+  multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+
+  // Get the external forces and update v.
+  const Vector3<T> fext = ComputeExternalForces(context);
+  v += dt_ * (GetInverseInertiaMatrix() * fext);
+
+  // Compute time stepping problem data.
+  ComputeTimeSteppingProblemData(q, v, &problem_data);
 
   // Solve the constraint problem.
   VectorX<T> cf;
