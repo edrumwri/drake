@@ -6,9 +6,8 @@ load(
     "drake_cc_googletest",
     "drake_cc_library",
 )
-load("//tools/workspace/gurobi:gurobi.bzl", "gurobi_test_tags")
+load("//tools/skylark:test_tags.bzl", "gurobi_test_tags", "mosek_test_tags")
 load("//tools/lint:lint.bzl", "add_lint_tests")
-load("//tools/workspace/mosek:mosek.bzl", "mosek_test_tags")
 load("//tools/skylark:6996.bzl", "adjust_labels_for_drake_hoist")
 
 package(default_visibility = ["//visibility:public"])
@@ -294,6 +293,16 @@ drake_cc_library(
     deps = [
         ":constraint",
         ":cost",
+    ],
+)
+
+drake_cc_library(
+    name = "generic_trivial_constraint",
+    testonly = 1,
+    srcs = [],
+    hdrs = ["test/generic_trivial_constraints.h"],
+    deps = [
+        ":constraint",
     ],
 )
 
@@ -845,6 +854,7 @@ drake_cc_googletest(
         "test/mathematical_program_test.cc",
     ],
     deps = [
+        ":generic_trivial_constraint",
         ":generic_trivial_cost",
         ":mathematical_program",
         ":mathematical_program_test_util",
@@ -894,6 +904,21 @@ drake_cc_googletest(
         ":quadratic_program_examples",
         ":second_order_cone_program_examples",
         ":semidefinite_program_examples",
+    ],
+)
+
+drake_cc_googletest(
+    name = "nlopt_solver_test",
+    srcs = [
+        "test/nlopt_solver_test.cc",
+    ],
+    deps = [
+        ":linear_program_examples",
+        ":mathematical_program",
+        ":mathematical_program_test_util",
+        ":optimization_examples",
+        ":quadratic_program_examples",
+        "//drake/common/test_utilities:eigen_matrix_compare",
     ],
 )
 

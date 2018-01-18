@@ -50,6 +50,25 @@ class RotationMatrix {
 #endif
   }
 
+  /// Creates a %RotationMatrix templatized on a scalar type U from a
+  /// %RotationMatrix templatized on scalar type T.  For example,
+  /// ```
+  /// RotationMatrix<double> source = RotationMatrix<double>::Identity();
+  /// RotationMatrix<AutoDiffXd> foo = source.cast<AutoDiffXd>();
+  /// ```
+  /// @tparam U Scalar type on which the returned %RotationMatrix is templated.
+  /// @note `RotationMatrix<From>::cast<To>()` creates a new
+  /// `RotationMatrix<To>` from a `RotationMatrix<From>` but only if
+  /// type `To` is constructible from type `From`.
+  /// This cast method works in accordance with Eigen's cast method for Eigen's
+  /// %Matrix3 that underlies this %RotationMatrix.  For example, Eigen
+  /// currently allows cast from type double to AutoDiffXd, but not vice-versa.
+  template <typename U>
+  RotationMatrix<U> cast() const {
+    const Matrix3<U> m = R_AB_.template cast<U>();
+    return RotationMatrix<U>(m, true);
+  }
+
   /// Sets `this` %RotationMatrix from a Matrix3.
   /// @param[in] R an allegedly valid rotation matrix.
   /// @throws exception std::logic_error in debug builds if R fails IsValid(R).
@@ -58,19 +77,27 @@ class RotationMatrix {
     SetUnchecked(R);
   }
 
-  /// @returns a 3x3 identity %RotationMatrix.
-  static RotationMatrix<T> MakeIdentity() { return RotationMatrix(); }
+  /// Returns the 3x3 identity %RotationMatrix.
+  /// @returns the 3x3 identity %RotationMatrix.
+  // @internal This method's name was chosen to mimic Eigen's Identity().
+  static const RotationMatrix<T>& Identity() {
+    static const never_destroyed<RotationMatrix<T>> kIdentity;
+    return kIdentity.access();
+  }
 
+  /// Calculates R_BA = R_AB⁻¹, the inverse (transpose) of this %RotationMatrix.
   /// @retval R_BA = R_AB⁻¹, the inverse (transpose) of this %RotationMatrix.
   /// @note For a valid rotation matrix R_BA = R_AB⁻¹ = R_ABᵀ.
+  // @internal This method's name was chosen to mimic Eigen's inverse().
   RotationMatrix<T> inverse() const {
     return RotationMatrix<T>(R_AB_.transpose());
   }
 
+  /// Returns the Matrix3 underlying a %RotationMatrix.
   /// @returns the Matrix3 underlying a %RotationMatrix.
   const Matrix3<T>& matrix() const { return R_AB_; }
 
-  /// Operator to multiply `this` rotation matrix `R_AB` by `other` rotation
+  /// In-place multiply of `this` rotation matrix `R_AB` by `other` rotation
   /// matrix `R_BC`.  On return, `this` is set to equal `R_AB * R_BC`.
   /// @param[in] other %RotationMatrix that post-multiplies `this`.
   /// @returns `this` rotation matrix which has been multiplied by `other`.
@@ -81,7 +108,7 @@ class RotationMatrix {
     return *this;
   }
 
-  /// Operator to multiply `this` rotation matrix `R_AB` by `other` rotation
+  /// Calculates `this` rotation matrix `R_AB` multiplied by `other` rotation
   /// matrix `R_BC`, returning the composition `R_AB * R_BC`.
   /// @param[in] other %RotationMatrix that post-multiplies `this`.
   /// @returns rotation matrix that results from `this` multiplied by `other`.
@@ -91,7 +118,7 @@ class RotationMatrix {
     return RotationMatrix<T>(matrix() * other.matrix(), true);
   }
 
-  /// Operator to multiply `this` rotation matrix R by an arbitrary Vector3.
+  /// Calculates `this` rotation matrix R multiplied by an arbitrary Vector3.
   /// @param[in] v 3x1 vector that post-multiplies `this`.
   /// @returns 3x1 vector that results from `R * v`.
   Vector3<T> operator*(const Vector3<T>& v) const {
@@ -154,6 +181,18 @@ class RotationMatrix {
   /// @returns `true` if `this` is a valid rotation matrix.
   bool IsValid() const { return IsValid(matrix()); }
 
+  /// Returns `true` if `this` is exactly equal to the identity matrix.
+  /// @returns `true` if `this` is exactly equal to the identity matrix.
+  bool IsExactlyIdentity() const { return matrix() == Matrix3<T>::Identity(); }
+
+  /// Returns true if `this` is within tolerance of the identity matrix.
+  /// @returns `true` if `this` is equal to the identity matrix to within the
+  /// threshold of get_internal_tolerance_for_orthonormality().
+  bool IsIdentityToInternalTolerance() const {
+    return IsNearlyEqualTo(matrix(), Matrix3<T>::Identity(),
+                           get_internal_tolerance_for_orthonormality());
+  }
+
   /// Compares each element of `this` to the corresponding element of `other`
   /// to check if they are the same to within a specified `tolerance`.
   /// @param[in] other %RotationMatrix to compare to `this`.
@@ -178,6 +217,7 @@ class RotationMatrix {
   /// @returns proper orthonormal matrix R that is close to M.
   /// @throws exception std::logic_error if M fails IsValid(M).
   // @internal This function is not generated for symbolic Expression.
+  // @internal This function's name is referenced in Doxygen documentation.
   template <typename S = T>
   static typename std::enable_if<is_numeric<S>::value, RotationMatrix<S>>::type
   ProjectToRotationMatrix(const Matrix3<S>& M) {
@@ -186,6 +226,7 @@ class RotationMatrix {
     return RotationMatrix<S>(M_orthonormalized, true);
   }
 
+  /// Returns an internal tolerance that checks rotation matrix orthonormality.
   /// @returns internal tolerance (small multiplier of double-precision epsilon)
   /// used to check whether or not a rotation matrix is orthonormal.
   /// @note The tolerance is chosen by developers to ensure a reasonably
@@ -196,6 +237,13 @@ class RotationMatrix {
   }
 
  private:
+  // Make RotationMatrix<U> templatized on any typename U be a friend of a
+  // %RotationMatrix templatized on any other typename T.
+  // This is needed for the method RotationMatrix<T>::cast<U>() to be able to
+  // use the necessary private constructor.
+  template <typename U>
+  friend class RotationMatrix;
+
   // Declares the allowable tolerance (small multiplier of double-precision
   // epsilon) used to check whether or not a rotation matrix is orthonormal.
   static constexpr double kInternalToleranceForOrthonormality_{

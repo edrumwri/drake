@@ -76,10 +76,10 @@ T EuclideanDistanceWitnessFunction<T>::DoEvaluate(
 
   // Remove pairs of triangles that are already in contact.
   auto& contacting_features = context.get_abstract_state().get_value(0).template
-      GetValue<std::map<sorted_pair<multibody::collision::Element*>,
+      GetValue<std::map<SortedPair<multibody::collision::Element*>,
       std::vector<TriTriContactData<T>>>>();
   auto tri_tri_contact_iterator = contacting_features.find(
-      make_sorted_pair(elementA_, elementB_));
+      MakeSortedPair(elementA_, elementB_));
   if (tri_tri_contact_iterator != contacting_features.end()) {
     auto& tri_tri_contact_data = tri_tri_contact_iterator->second;
 

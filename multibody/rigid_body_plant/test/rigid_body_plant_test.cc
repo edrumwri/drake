@@ -677,7 +677,7 @@ TEST_F(PolygonalContactTest, BigTriangleMovingUpward) {
   // Get the triangle/triangle feature data from the abstract state.
   const auto& contacting_features = context.get_state().get_abstract_state().
       get_value(kContactFeatureMap).
-      template GetValue<std::map<sorted_pair<multibody::collision::Element*>,
+      template GetValue<std::map<SortedPair<multibody::collision::Element*>,
       std::vector<multibody::TriTriContactData<double>>>>();
   ASSERT_EQ(contacting_features.size(), 1);
   EXPECT_EQ(contacting_features.begin()->second.size(), 0);

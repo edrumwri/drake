@@ -5,47 +5,163 @@
 /// Most users should only include that file, not this one.
 /// For background, see http://drake.mit.edu/cxx_inl.html.
 
+#include "trimesh_coldet.h"
 namespace drake {
 namespace multibody {
+
+// Adds a mesh to the collision detector.
+template <class T>
+void TrimeshColdet<T>::AddMesh(const Trimesh<T>* mesh) {
+  // Add the pose.
+  poses_[mesh];
+
+  // Get the vector of bounding structures corresponding to this triangle mesh.
+  auto& bs_vec = bounds_[mesh];
+
+  // Create three sorting axis vectors, if necessary.
+  const int num_3d_basis_vecs = 3;
+  bs_vec.resize(num_3d_basis_vecs);
+  for (int i = 0; i < num_3d_basis_vecs; ++i)
+    bs_vec[i].axis = Vector3<T>::Unit(i);
+
+  // Create an AABB around each triangle.
+  for (size_t i = 0; i < mesh->num_triangles(); ++i) {
+    // Create the AABB.
+    aabbs_.push_back(std::make_unique<AABB<T>>(mesh->triangle(i)));
+
+    // Create BoundingStruct objects: two for each AABB over each axis.
+    for (int j = 0; j < num_3d_basis_vecs; ++j) {
+      auto& bounds_vec = bs_vec[j].bound_struct_vector;
+      // Create the lower bound.
+      bounds_vec.push_back(
+          std::make_pair(0, BoundsStruct()));
+      bounds_vec.back().second.end = false;
+      bounds_vec.back().second.aabb = aabbs_.back().get();
+      bounds_vec.back().second.tri = i;
+      bounds_vec.back().second.mesh = mesh;
+      bounds_vec.back().first = aabbs_.back()->lower_bounds().dot(
+          bs_vec[j].axis);
+
+      // Create the upper bound.
+      bounds_vec.push_back(
+          std::make_pair(0, BoundsStruct()));
+      bounds_vec.back().second.end = true;
+      bounds_vec.back().second.aabb = aabbs_.back().get();
+      bounds_vec.back().second.tri = i;
+      bounds_vec.back().second.mesh = mesh;
+      bounds_vec.back().first = aabbs_.back()->upper_bounds().dot(
+          bs_vec[j].axis);
+    }
+  }
+}
+
+// Gets the index of an edge from a triangle.
+template <class T>
+void* TrimeshColdet<T>::GetEdgeIndex(int vert_index0, int vert_index1) {
+  switch (vert_index0) {
+    case 0:
+      if (vert_index1 == 1) {
+        return reinterpret_cast<void*>(0);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 2);
+        return reinterpret_cast<void*>(2);
+      }
+      break;
+
+    case 1:
+      if (vert_index1 == 0) {
+        return reinterpret_cast<void*>(0);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 2);
+        return reinterpret_cast<void*>(1);
+      }
+      break;
+
+    case 2:
+      if (vert_index1 == 0) {
+        return reinterpret_cast<void*>(2);
+      } else {
+        DRAKE_DEMAND(vert_index1 == 1);
+        return reinterpret_cast<void*>(1);
+      }
+      break;
+
+    default:
+      DRAKE_ABORT();
+  }
+}
 
 /// Updates all axis-aligned bounding boxes corresponding to `mesh`.
 template <class T>
 void TrimeshColdet<T>::UpdateAABBs(
     const Trimesh<T>& mesh, const Isometry3<T>& wTm) {
+  // Update the pose in the map.
+  auto poses_iter = poses_.find(&mesh);
+  DRAKE_DEMAND(poses_iter != poses_.end());
+  poses_iter->second = wTm;
+
+  // Update each AABB corresponding to this mesh.
+  SPDLOG_DEBUG(drake::log(), "Updating AABBs for mesh {} with transform {}",
+               (void*) &mesh, wTm.matrix());
+  auto trimesh_bs_iter = bounds_.find(&mesh);
+  DRAKE_DEMAND(trimesh_bs_iter != bounds_.end());
+  const std::vector<BoundsStructsVectorPlusAxis>& bs = trimesh_bs_iter->second;
+  for (int i = 0; i < bs.size(); ++i) {
+    const std::vector<std::pair<T, BoundsStruct>>& bs_vec =
+        bs[i].bound_struct_vector;
+    SPDLOG_DEBUG(drake::log(), "{} bounding structure objects found over this"
+                     " axis", bs_vec.size());
+    for (int j = 0; j < bs_vec.size(); ++j) {
+      // Get the requisite triangle in the mesh, transform it, and reconstruct
+      // the AABB around it.
+      const Triangle3<T>& tri = mesh.triangle(bs_vec[j].second.tri);
+      AABB<T>& aabb = *bs_vec[j].second.aabb;
+      const Vector3<T> v1 = wTm * tri.a();
+      const Vector3<T> v2 = wTm * tri.b();
+      const Vector3<T> v3 = wTm * tri.c();
+      SPDLOG_DEBUG(drake::log(), "Untransformed triangle vertices: {}, {}, {}",
+                   tri.a(), tri.b(), tri.c());
+      SPDLOG_DEBUG(drake::log(), "Transformed triangle vertices: {}, {}, {}",
+                   v1, v2, v3);
+      aabb = AABB<T>(Triangle3<T>(&v1, &v2, &v3));
+      SPDLOG_DEBUG(drake::log(), "AABB lower bound: {}", aabb.lower_bounds());
+      SPDLOG_DEBUG(drake::log(), "AABB upper bound: {}", aabb.upper_bounds());
+    }
+  }
 }
 
 /// Sorts data structures for broad-phase collision detection.
 /// @pre All AABBs have already been updated.
 template <class T>
 void TrimeshColdet<T>::UpdateBroadPhaseStructs() {
-  for (int i = 0; i < bounds_.size(); ++i) {
-    // Get the bounding structures for the i'th axis.
-    auto& vec_axis_pair = bounds_[i];
+  for (auto& bounds_iter : bounds_) {
+    // Loop over each axis.
+    for (int i = 0; i < bounds_iter.second.size(); ++i) {
+      // Get the i'th axis.
+      const Vector3<T>& axis = bounds_iter.second[i].axis;
 
-    // Get the i'th axis.
-    const Vector3<T>& axis = vec_axis_pair.second;
+      // Get the vector.
+      auto& vec = bounds_iter.second[i].bound_struct_vector;
 
-    // Get the vector.
-    auto& vec = vec_axis_pair.first;
+      // Update the bounds data using the corresponding AABBs.
+      for (int j = 0; j < vec.size(); ++j) {
+        // Get the axis-aligned bounding box.
+        const AABB<T>& aabb = *vec[j].second.aabb;
 
-    // Update the bounds data using the corresponding AABBs.
-    for (int j = 0; j < static_cast<int>(vec.size()); ++j) {
-      // Get the axis-aligned bounding box.
-      const AABB<T>& aabb = *vec[j].aabb;
+        // Update the bound.
+        const Vector3<T>& bound = (vec[j].second.end) ? aabb.upper_bounds() :
+                                                        aabb.lower_bounds();
+        vec[j].first = axis.dot(bound);
+      }
 
-      // Update the bound.
-      const Vector3<T>& bound = (vec[j].second.end) ? aabb.upper_bounds() : 
-                                                      aabb.lower_bounds();
-      vec[j].first = axis.dot(bound);
-    }
+      // Do an insertion sort of each vector.
+      for (auto it = vec.begin(); it != vec.end(); ++it) {
+        // Search the upper bound for the first element greater than *it.
+        auto const insertion_point = std::upper_bound(vec.begin(), it, *it);
 
-    // Do an insertion sort of each vector.
-    for (auto it = vec.begin(); it != vec.end(); ++it) {
-      // Search the upper bound for the first element greater than *it.
-      auto const insertion_point = std::upper_bound(vec.begin(), it, *it);
-      
-      // Shift the unsorted part.
-      std::rotate(insertion_point, it, it + 1);
+        // Shift the unsorted part.
+        std::rotate(insertion_point, it, it + 1);
+      }
     }
   }
 }
@@ -53,71 +169,119 @@ void TrimeshColdet<T>::UpdateBroadPhaseStructs() {
 // Does broad phase collision detection between the triangles from two meshes
 // using already-updated AABBs.
 // @param[out] to_check On return, contains pairs of triangles for which the
-//             corresponding leaf bounding volumes are intersecting. 
+//             corresponding leaf bounding volumes are intersecting.
 // @pre UpdateBroadPhaseStructs() was called immediately prior to calling this
 //      function. TODO: Update this wording.
 template <class T>
 void TrimeshColdet<T>::DoBroadPhase(
     const Trimesh<T>& mA, const Trimesh<T>& mB,
     std::vector<std::pair<int, int>>* to_check) const {
-  DRAKE_DEMAND(to_check);
-  to_check->clear();
+  DRAKE_DEMAND(to_check && to_check->empty());
 
   // Prepare to store overlaps for pairs.
   std::set<std::pair<int, int>> overlaps;
 
+  // Get the bounds struct plus axis for each mesh.
+  DRAKE_ASSERT(bounds_.find(&mA) != bounds_.end());
+  DRAKE_ASSERT(bounds_.find(&mB) != bounds_.end());
+  const auto& bs_vec_plus_axis_A = bounds_.find(&mA)->second;
+  const auto& bs_vec_plus_axis_B = bounds_.find(&mB)->second;
+  DRAKE_DEMAND(bs_vec_plus_axis_A.size() == bs_vec_plus_axis_B.size());
+
   // Iterate over each bounds vector.
-  for (int i = 0; i < bounds_.size(); ++i)
-    UpdateOverlaps(i, &overlaps);
+  for (int i = 0; i < bs_vec_plus_axis_A.size(); ++i) {
+    UpdateOverlaps(i, bs_vec_plus_axis_A, bs_vec_plus_axis_B, &mA, &mB,
+                   &overlaps);
+  }
 
   // Update to_check.
-  std::copy(overlaps.begin(), overlaps.end(), std::back_inserter(*to_check)); 
+  std::copy(overlaps.begin(), overlaps.end(), std::back_inserter(*to_check));
 }
 
 template <class T>
 void TrimeshColdet<T>::UpdateOverlaps(
     int bounds_index,
+    const std::vector<BoundsStructsVectorPlusAxis>& bs_vec_plus_axis_A,
+    const std::vector<BoundsStructsVectorPlusAxis>& bs_vec_plus_axis_B,
+    const Trimesh<T>* mesh_A,
+    const Trimesh<T>* mesh_B,
     std::set<std::pair<int, int>>* overlaps) const {
-  // The set of active bounds.
-  std::vector<int> active_bounds;
+  // The sets of active bounds.
+  std::set<int> active_bounds_A, active_bounds_B;
 
   // Make a new set of overlaps.
   std::set<std::pair<int, int>> new_overlaps;
 
-  for (int j = 0; j < bounds_[bounds_index].first.size(); ++j) {
-    // Eliminate from the active bounds if at the end of a bound.
-    auto bound_info = bounds_[bounds_index].first[j];
-    if (bound_info.end) {
-      assert(active_bounds.find(bound_info.tri) != active_bounds.end());
-      active_bounds.erase(bound_info.tri);
-    } else {
-      // Encountered a new bound. 
-      for (const auto& tri : active_bounds) {
-        new_overlaps.insert(std::min(tri, bound_info.tri),
-                            std::max(tri, bound_info.tri));
+  // Get the vectors out.
+  const auto& bounds_vector_A = bs_vec_plus_axis_A[bounds_index].
+      bound_struct_vector;
+  const auto& bounds_vector_B = bs_vec_plus_axis_B[bounds_index].
+      bound_struct_vector;
 
-      // Add the triangle to the active set.
-      active_bounds.insert(bound_info.tri);
+  // Vectors must be sorted.
+  DRAKE_ASSERT(std::is_sorted(bounds_vector_A.begin(), bounds_vector_A.end()));
+  DRAKE_ASSERT(std::is_sorted(bounds_vector_B.begin(), bounds_vector_B.end()));
+
+  // Merge the vector of bounds structs into a vector.
+  std::vector<std::pair<T, BoundsStruct>> bounds_vector;
+  std::merge(bounds_vector_A.begin(), bounds_vector_A.end(),
+             bounds_vector_B.begin(), bounds_vector_B.end(),
+             std::back_inserter(bounds_vector));
+
+  // Do the sweep and prune.
+  for (int j = 0; j < bounds_vector.size(); ++j) {
+    // Eliminate from the active bounds if at the end of a bound.
+    const BoundsStruct& bs = bounds_vector[j].second;
+    if (bs.end) {
+      if (bs.mesh == mesh_A) {
+        assert(active_bounds_A.find(bs.tri) !=
+            active_bounds_A.end());
+        active_bounds_A.erase(bs.tri);
+      } else {
+        assert(active_bounds_B.find(bs.tri) !=
+            active_bounds_B.end());
+        active_bounds_B.erase(bs.tri);
+      }
+    } else {
+      // Encountered a new bound.
+      if (bs.mesh == mesh_A) {
+        // Record overlaps.
+        for (const auto& tri : active_bounds_B)
+          new_overlaps.emplace(bs.tri, tri);
+
+        // Add the triangle to the active set for A.
+        active_bounds_A.insert(bs.tri);
+      } else {
+        for (const auto& tri : active_bounds_A)
+          new_overlaps.emplace(tri, bs.tri);
+
+        // Add the triangle to the active set for B.
+        active_bounds_B.insert(bs.tri);
+      }
     }
   }
 
   // Intersect with the old overlaps: only ones that are in both sets are
-  // retained.
-  std::vector<std::pair<int, int>> intersected_overlaps;
-  std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
-                        overlaps->begin(), overlaps->end(),
-                        std::back_inserter(intersected_overlaps); 
+  // retained. We only do this if the bounds index is not the first one.
+  if (bounds_index > 0) {
+    std::vector<std::pair<int, int>> intersected_overlaps;
+    std::set_intersection(new_overlaps.begin(), new_overlaps.end(),
+                          overlaps->begin(), overlaps->end(),
+                          std::back_inserter(intersected_overlaps));
 
-  // Update overlaps. 
-  overlaps->clear();
-  overlaps->insert(intersected_overlaps.begin(), intersected_overlaps.end());
+    // Update overlaps.
+    overlaps->clear();
+    overlaps->insert(intersected_overlaps.begin(), intersected_overlaps.end());
+  } else {
+    *overlaps = new_overlaps;
+  }
 }
 
 template <class T>
-T TrimeshColdet<T>::CalcDistance(
+T TrimeshColdet<T>::CalcMinDistance(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
-    const std::set<std::pair<int, int>>& candidate_tris) const {
+    const std::vector<std::pair<int, int>>& candidate_tris) const {
   // TODO: Use the distance between the two AABBs as the default
   // non-intersecting distance.
   T distance = 100.0;
@@ -138,34 +302,40 @@ T TrimeshColdet<T>::CalcDistance(
   for (int i = 0; i < candidate_tris.size(); ++i) {
     // Get the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
-    const auto tA = mA.get_triangle(candidate_tris[i].first).transform(poseA);
-    const auto tB = mB.get_triangle(candidate_tris[i].second).transform(poseB);
+    const Vector3<T> vAa = poseA * mA.triangle(candidate_tris[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(candidate_tris[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(candidate_tris[i].first).c();
+    const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
+    const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
+    const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
     // Get the distance between the two triangles.
-    T tri_distance = tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB); 
+    T tri_distance = tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
 
     // See whether the distance is below the minimum.
     distance = std::min(tri_distance, distance);
+    if (distance == T(0))
+      return distance;
   }
 
   return distance;
 }
 
-/// @note aborts if `contacts` is null or not empty on entry.
-/// @pre There exists some positive distance between any two triangles not
-///      already designated as being intersecting.
 template <class T>
-void TrimeshColdet<T>::CalcIntersections(
+T TrimeshColdet<T>::CalcDistances(
     const Trimesh<T>& mA,
     const Trimesh<T>& mB,
-    const std::set<std::pair<int, int>>& candidate_tris,
-    std::vector<multibody::collision::PointPair>* contacts) const {
-  using std::sqrt;
+    const std::vector<std::pair<int, int>>& candidate_tris,
+    std::vector<std::pair<std::pair<int, int>, T>>* distances) const {
+  using std::min;
 
-  DRAKE_DEMAND(contact_data && contact_data->empty());
+  DRAKE_DEMAND(distances && distances->empty());
 
-  // TODO: Set the intersecting threshold in a principled manner.
-  const double intersecting_threshold = 1e-8;
+  // TODO: Use the distance between the two AABBs over both trimeshes as the
+  // default non-intersecting distance.
+  T min_distance = 100.0;
 
   // Get iterators to the two poses for the triangle meshes.
   const auto& poses_iter_mA = poses_.find(&mA);
@@ -179,56 +349,341 @@ void TrimeshColdet<T>::CalcIntersections(
   const Isometry3<T>& poseA = poses_iter_mA->second;
   const Isometry3<T>& poseB = poses_iter_mB->second;
 
- // TODO: it seems like we also need to store contact data for (a) the IDs of
-  // the triangles newly determined to be in contact, (b) contact points in the
-  // body frames, (c) features of the triangles (both so we can track which
-  // features are in contact, and which features aren't).
-
   // Get the distance between each pair of triangles.
   for (int i = 0; i < candidate_tris.size(); ++i) {
-    // See whether the triangle is in the pairs to ignore.
-    if (pairs_to_ignore.find(candidate_tris[i]) != pairs_to_ignore.end())
-      continue;
-
     // Get the two triangles.
-    const auto tA = mA.get_triangle(candidate_tris[i].first).transform(poseA);
-    const auto tB = mB.get_triangle(candidate_tris[i].second).transform(poseB);
+    const Vector3<T> vAa = poseA * mA.triangle(candidate_tris[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(candidate_tris[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(candidate_tris[i].first).c();
+    const Vector3<T> vBa = poseB * mB.triangle(candidate_tris[i].second).a();
+    const Vector3<T> vBb = poseB * mB.triangle(candidate_tris[i].second).b();
+    const Vector3<T> vBc = poseB * mB.triangle(candidate_tris[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
 
     // Get the distance between the two triangles.
     Vector3<T> closest_on_tA, closest_on_tB;
-    T tri_distance = sqrt(tA.CalcSquareDistance(
-        tB, &closest_on_tA, &closest_on_tB)); 
+    T tri_sq_dist = tA.CalcSquareDistance(tB, &closest_on_tA,
+                                          &closest_on_tB);
 
-    // See whether the distance is sufficiently small.
-    if (tri_distance < intersecting_threshold) {
-      // Verify that the distance isn't *too* small.
-      DRAKE_DEMAND(tri_distance > 0);
+    // TODO: Fix CalcSquareDistance()
+    tri_sq_dist = (closest_on_tA - closest_on_tB).squaredNorm();
+    DRAKE_DEMAND(tri_sq_dist >= 0);
+    distances->push_back(std::make_pair(candidate_tris[i],
+        sqrt(tri_sq_dist)));
 
-      // Create a new contact.
-      contacts->push_back(multibody::collision::PointPair());  
+    SPDLOG_DEBUG(drake::log(), "Euclidean distance: {} between",
+        distances->back().second);
+    SPDLOG_DEBUG(drake::log(), "  triangle {} : {}", candidate_tris[i].first,
+        tA);
+    SPDLOG_DEBUG(drake::log(), "  and triangle {} : {}",
+        candidate_tris[i].second, tB);
 
-      // Set the closest points.
-      contacts->back().ptA = poseA.inverse() * closest_on_tA;
-      contacts->back().ptB = poseB.inverse() * closest_on_tB;
-
-      // Set the normal such that it points toward A.
-      Vector3<T> normal = closest_on_tA - closest_on_tB;
-      normal.normalize();
-      contacts->back().normal = normal;
-
-      // Determine the offset for the plane parallel and halfway between the
-      // two planes passing through the closest points.
-      const T offsetA = normal.dot(closest_on_tA);
-      const T offsetB = normal.dot(closest_on_tB);
-      const T offset = (offsetA + offsetB) / 2.0;
-
-      // Project all points that are within the given tolerance of the offset
-      // to the contact plane.
-
-      //  
-    }
+    // See whether the distance is below the minimum.
+    min_distance = min(distances->back().second, min_distance);
   }
 
-  return distance;
+  return min_distance;
 }
+
+// Projects a point to 2D given a normal.
+template <class T>
+Vector2<T> TrimeshColdet<T>::ProjectTo2d(
+    const Vector3<T>& point, const Vector3<T>& normal) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2);
+
+  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
+  Eigen::Matrix<T, 2, 3> P;
+  P.row(0) = v1;
+  P.row(1) = v2;
+
+  return P * point;
+}
+
+// Projects an edge to 2D given a normal.
+template <class T>
+std::pair<Vector2<T>, Vector2<T>> TrimeshColdet<T>::ProjectTo2d(
+    const std::pair<Vector3<T>, Vector3<T>>& edge, const Vector3<T>& normal) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2);
+
+  // Construct a 2 x 3 projection matrix from the two vectors in the basis.
+  Eigen::Matrix<T, 2, 3> P;
+  P.row(0) = v1;
+  P.row(1) = v2;
+
+  return std::make_pair(P * edge.first, P * edge.second);
+}
+
+// Projects a point from 2D back to 3D given a normal and offset.
+template <class T>
+Vector3<T> TrimeshColdet<T>::ReverseProject(
+    const Vector2<T>& p,
+    const Vector3<T>& normal,
+    T offset) {
+  // Compute the orthonormal basis.
+  Matrix3<T> R = math::ComputeBasisFromAxis(0, normal);
+  Vector3<T> v1 = R.col(1);
+  Vector3<T> v2 = R.col(2);
+
+  // Construct the reverse projection matrix.
+  Matrix3<T> rP;
+  rP.col(0) = v1;
+  rP.col(1) = v2;
+  rP.col(2) = normal;
+
+  return rP * Vector3<T>(p[0], p[1], offset);
+}
+
+/// @note aborts if `contacts` is null on entry.
+/// @pre There exists some positive distance between any two triangles not
+///      already designated as being intersecting.
+template <class T>
+void TrimeshColdet<T>::CalcIntersections(
+    const Trimesh<T>& mA,
+    const Trimesh<T>& mB,
+    const Isometry3<T>& poseA,
+    const Isometry3<T>& poseB,
+    const std::vector<std::pair<int, int>>& closest_triangles,
+    std::vector<TriTriContactData<T>>* contacts) const {
+  using std::sqrt;
+  using std::abs;
+  using std::min;
+  using std::max;
+
+  DRAKE_DEMAND(contacts);
+
+  // Get the distance between each pair of triangles.
+  for (int i = 0; i < closest_triangles.size(); ++i) {
+    // Get the two triangles.
+    const Vector3<T> vAa = poseA * mA.triangle(closest_triangles[i].first).a();
+    const Vector3<T> vAb = poseA * mA.triangle(closest_triangles[i].first).b();
+    const Vector3<T> vAc = poseA * mA.triangle(closest_triangles[i].first).c();
+    const Vector3<T>
+        vBa = poseB * mB.triangle(closest_triangles[i].second).a();
+    const Vector3<T>
+        vBb = poseB * mB.triangle(closest_triangles[i].second).b();
+    const Vector3<T>
+        vBc = poseB * mB.triangle(closest_triangles[i].second).c();
+    const auto tA = Triangle3<T>(&vAa, &vAb, &vAc);
+    const auto tB = Triangle3<T>(&vBa, &vBb, &vBc);
+
+    // Compute closest points.
+    Vector3<T> closest_on_tA, closest_on_tB;
+    tA.CalcSquareDistance(tB, &closest_on_tA, &closest_on_tB);
+
+    // Compute the surface normal such that it points toward A.
+    Vector3<T> normal = closest_on_tA - closest_on_tB;
+    normal.normalize();
+
+    // Get the projection matrix.
+    const auto P = math::Determine3dTo2dProjectionMatrix(normal);
+
+    // Determine the offset for the plane parallel and halfway between the
+    // two planes passing through the closest points.
+    const T offsetA = normal.dot(closest_on_tA);
+    const T offsetB = normal.dot(closest_on_tB);
+    const T offset = (offsetA + offsetB) / 2.0;
+
+    // Project all points from a triangle to the plane. Stores a point
+    // if it is within tolerance.
+    auto project_and_store = [&normal, offset](
+        const Triangle3<T>& t, std::vector<int>* p) {
+      const T d_a = abs(t.a().dot(normal) - offset);
+      const T d_b = abs(t.b().dot(normal) - offset);
+      const T d_c = abs(t.c().dot(normal) - offset);
+      const T vertex_mag = max(t.a().norm(), max(t.b().norm(), t.c().norm()));
+
+      // Set the threshold using the knowledge that at least one point should
+      // be on the contact plane. We expand the threshold by 1%, scaled by
+      // the magnitude of each vertex.
+      const T threshold = min(d_a, min(d_b, d_c)) * 1.01 * vertex_mag;
+
+      if (d_a < threshold)
+        p->push_back(0);
+      if (d_b < threshold)
+        p->push_back(1);
+      if (d_c < threshold)
+        p->push_back(2);
+    };
+
+    // Project all points from both triangles to the plane, storing indices
+    // of points that lie within the tolerance away.
+    std::vector<int> pA, pB;
+    project_and_store(tA, &pA);
+    project_and_store(tB, &pB);
+
+    // Look for errors.
+    DRAKE_DEMAND(pA.size() > 0 && pB.size() > 0);
+
+    // Store generic information.
+    contacts->push_back(TriTriContactData<T>());
+    contacts->back().tA = &mA.triangle(closest_triangles[i].first);
+    contacts->back().tB = &mB.triangle(closest_triangles[i].second);
+
+    switch (pA.size()) {
+      case 1:contacts->back().typeA = FeatureType::kVertex;
+        contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+        switch (pB.size()) {
+          case 1:SPDLOG_DEBUG(drake::log(), "Vertex/vertex contact determined");
+            contacts->back().typeB = FeatureType::kVertex;
+            contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            break;
+
+          case 2:SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
+            contacts->back().typeB = FeatureType::kEdge;
+            contacts->back().feature_B_id = GetEdgeIndex(pB.front(), pB.back());
+            break;
+
+          case 3: {
+            SPDLOG_DEBUG(drake::log(), "Vertex/face contact determined");
+            const Vector2 <T> v_2d = P * tA.get_vertex(pA[0]);
+            const Triangle2 <T> t_2d = tB.ProjectTo2d(P);
+
+            // If the signed tangential distance from the vertex to the face is
+            // non-negative, reclassify the contact as vertex/vertex.
+            if (t_2d.CalcSignedDistance(v_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+
+          default:DRAKE_ABORT();
+        }
+        break;
+
+      case 2:contacts->back().typeA = FeatureType::kEdge;
+        contacts->back().feature_A_id = GetEdgeIndex(pA.front(), pA.back());
+        switch (pB.size()) {
+          case 1:SPDLOG_DEBUG(drake::log(), "Vertex/edge contact determined");
+            contacts->back().typeB = FeatureType::kVertex;
+            contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            break;
+
+          case 2: {
+            SPDLOG_DEBUG(drake::log(), "Edge/edge contact determined");
+            // If the signed tangential distance between the edges is
+            // non-negative, reclassify the contact as vertex/vertex.
+            const Vector2 <T> vAa_2d = P * tA.get_vertex(pA.front());
+            const Vector2 <T> vAb_2d = P * tA.get_vertex(pA.back());
+            const Vector2 <T> vBa_2d = P * tB.get_vertex(pB.front());
+            const Vector2 <T> vBb_2d = P * tB.get_vertex(pB.back());
+            const auto ea_2d = std::make_pair(vAa_2d, vAb_2d);
+            const auto eb_2d = std::make_pair(vBa_2d, vBb_2d);
+            if (Triangle2<T>::CalcSignedDistance(ea_2d, eb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kEdge;
+              contacts->back().feature_B_id =
+                  GetEdgeIndex(pB.front(), pB.back());
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+
+          case 3: {
+            SPDLOG_DEBUG(drake::log(), "Edge/face contact determined");
+            // If the signed tangential distance between the edge and the face
+            // is non-negative, reclassify the contact as vertex/vertex.
+            const Vector2 <T> vAa_2d = P * tA.get_vertex(pA.front());
+            const Vector2 <T> vAb_2d = P * tA.get_vertex(pA.back());
+            const auto ea_2d = std::make_pair(vAa_2d, vAb_2d);
+            const Triangle2 <T> t_2d = tB.ProjectTo2d(P);
+            if (t_2d.CalcSignedDistance(ea_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+        }
+        break;
+
+      case 3: {
+        contacts->back().typeA = FeatureType::kFace;
+        const Triangle2<T> t_2d = tA.ProjectTo2d(P);
+        switch (pB.size()) {
+          case 1: {
+            SPDLOG_DEBUG(drake::log(), "Vertex/face contact determined");
+            const Vector2 <T> v_2d = P * tB.get_vertex(pB[0]);
+
+            // If the signed tangential distance from the vertex to the face is
+            // non-negative, reclassify the contact as vertex/vertex.
+            contacts->back().typeB = FeatureType::kVertex;
+            contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            if (t_2d.CalcSignedDistance(v_2d) >= 0) {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+            }
+            break;
+          }
+
+          case 2: {
+            SPDLOG_DEBUG(drake::log(), "Edge/face contact determined");
+            // If the signed tangential distance between the edge and the face
+            // is non-negative, reclassify the contact as vertex/edge. That's
+            // not precisely true, but will treat the contact as degenerate.
+            const Vector2 <T> vBa_2d = P * tB.get_vertex(pB.front());
+            const Vector2 <T> vBb_2d = P * tB.get_vertex(pB.back());
+            const auto eb_2d = std::make_pair(vBa_2d, vBb_2d);
+            if (t_2d.CalcSignedDistance(eb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kEdge;
+              contacts->back().feature_B_id = GetEdgeIndex(
+                  pB.front(), pB.back());
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+
+          case 3: {
+            // If the signed tangential distance between the two faces
+            // is non-negative, reclassify the contact as vertex/edge. That's
+            // not precisely true, but will treat the contact as degenerate.
+            SPDLOG_DEBUG(drake::log(), "Face/face contact determined");
+            const Triangle2<T> tb_2d = tB.ProjectTo2d(P);
+            if (t_2d.CalcSignedDistance(tb_2d) < 0) {
+              contacts->back().typeB = FeatureType::kFace;
+            } else {
+              SPDLOG_DEBUG(drake::log(), "-- but reclassifying as vert/vert");
+              contacts->back().typeA = FeatureType::kVertex;
+              contacts->back().feature_A_id = reinterpret_cast<void*>(pA[0]);
+              contacts->back().typeB = FeatureType::kVertex;
+              contacts->back().feature_B_id = reinterpret_cast<void*>(pB[0]);
+            }
+            break;
+          }
+        }
+        break;
+      }
+
+      default:
+        DRAKE_ABORT();  // Should never get here.
+    }
+  }
+}
+
+}  // namespace multibody
+}  // namespace drake
 

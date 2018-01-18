@@ -6,10 +6,18 @@ set -euo pipefail
 
 die () {
     echo "$@" 1>&2
+    trap : EXIT  # Disable line number reporting; the "$@" message is enough.
     exit 1
 }
 
+at_exit () {
+    echo "${me} has experienced an error on line ${LINENO}" \
+        "while running the command ${BASH_COMMAND}"
+}
+
 me="The Drake prerequisite set-up script"
+
+trap at_exit EXIT
 
 [[ "${EUID}" -eq 0 ]] || die "${me} must run as root. Please use sudo."
 
@@ -48,7 +56,6 @@ apt install --no-install-recommends $(tr '\n' ' ' <<EOF
 bash-completion
 binutils
 bison
-chrpath
 clang-4.0
 clang-format-4.0
 cmake
@@ -72,6 +79,7 @@ libboost-all-dev
 libbz2-dev
 libexpat1-dev
 libfreetype6-dev
+libgflags-dev
 libglib2.0-dev
 libglu1-mesa-dev
 libhdf5-dev
@@ -85,6 +93,7 @@ libnlopt-dev
 libogg-dev
 libpng-dev
 libprotobuf-dev
+libqt5multimedia5
 libqt5opengl5-dev
 libqt5x11extras5-dev
 libtheora-dev
@@ -97,7 +106,6 @@ libxt-dev
 libyaml-cpp-dev
 lldb-4.0
 make
-mesa-common-dev
 openjdk-8-jdk
 patchelf
 patchutils
@@ -187,4 +195,5 @@ if [ -L /usr/lib/ccache/bazel ]; then
   apt purge ccache-bazel-wrapper
 fi
 
+trap : EXIT  # Disable exit reporting.
 echo "install_prereqs: success"

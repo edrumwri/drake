@@ -2,7 +2,8 @@
 
 namespace drake {
 
-// Template instantiation.
-template struct sorted_pair<double>;
+// Some template instantiations.
+template struct SortedPair<double>;
+template struct SortedPair<int>;
 
 }  // namespace drake

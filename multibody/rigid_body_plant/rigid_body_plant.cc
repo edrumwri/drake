@@ -34,7 +34,7 @@ using drake::multibody::TangentialSeparationWitnessFunction;
 using drake::multibody::Triangle3;
 using drake::multibody::TriTriContactData;
 using drake::multibody::Trimesh;
-using drake::sorted_pair;
+using drake::SortedPair;
 
 namespace drake {
 namespace systems {
@@ -1186,7 +1186,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
 
   // Get the triangle/triangle feature data from the abstract state.
   auto& contacting_features = state->get_mutable_abstract_state().
-      get_mutable_value(kContactFeatureMap).template GetMutableValue<std::map<sorted_pair<
+      get_mutable_value(kContactFeatureMap).template GetMutableValue<std::map<SortedPair<
       Element*>, std::vector<TriTriContactData<T>>>>();
 
   // Get the normal separating witness vector from the abstract state.
@@ -1213,7 +1213,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
   auto kinematics_cache = tree.doKinematics(q, v);
 
   // Indices for tangential separation witnesses to be removed.
-  std::set<sorted_pair<Element*>> removed_contacts;
+  std::set<SortedPair<Element*>> removed_contacts;
   std::set<int> normal_separation_removal_indices;
   std::set<int> tangential_separation_removal_indices;
 
@@ -1264,7 +1264,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
 
         // Compute the intersections.
         auto& contacting_features_vector = contacting_features[
-            make_sorted_pair(elmA, elmB)];
+            MakeSortedPair(elmA, elmB)];
         const int old_size = contacting_features_vector.size();
         collision_detection_.CalcIntersections(
             mA, mB, wTA, wTB, closest_pairs, &contacting_features_vector);
@@ -1341,7 +1341,7 @@ void RigidBodyPlant<T>::DoCalcUnrestrictedUpdate(const Context<T>& context,
         // removed (from another witness triggering).
         Element* elementA = const_cast<Element*>(contact_data->idA);
         Element* elementB = const_cast<Element*>(contact_data->idB);
-        auto elements = make_sorted_pair(elementA, elementB);
+        auto elements = MakeSortedPair(elementA, elementB);
         if (removed_contacts.find(elements) == removed_contacts.end()) {
           auto tri_tri_vector_iter = contacting_features.find(elements);
           DRAKE_DEMAND(tri_tri_vector_iter != contacting_features.end());
@@ -1393,7 +1393,7 @@ void RigidBodyPlant<T>::DetermineContacts(const Context<T>& context,
   // Get contact features from the context.
   auto& contacting_features = context.get_abstract_state().
       get_value(kContactFeatureMap).template GetValue<
-      std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>();
+      std::map<SortedPair<Element*>, std::vector<TriTriContactData<T>>>>();
 
   // Build a kinematics cache.
   const auto& tree = this->get_rigid_body_tree();
@@ -1922,7 +1922,7 @@ std::unique_ptr<AbstractValues> RigidBodyPlant<T>::AllocateAbstractState()
 
     // Create a mapping of element pairs to contact data.
     abstract_data.push_back(std::make_unique<Value<
-      std::map<sorted_pair<Element*>, std::vector<TriTriContactData<T>>>>>());
+      std::map<SortedPair<Element*>, std::vector<TriTriContactData<T>>>>>());
 
     // Create a vector of Euclidean distance witnesses.
     abstract_data.push_back(

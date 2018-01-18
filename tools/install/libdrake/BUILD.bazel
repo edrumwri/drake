@@ -124,6 +124,8 @@ cc_library(
         ":mosek_deps",
         ":vtk_deps",
         "@bullet//:BulletCollision",
+        "@ignition_math",
+        "@ignition_rndf",
         "@lcm",
         "@libprotobuf",
         "@scs//:scsdir",
