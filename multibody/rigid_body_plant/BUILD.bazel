@@ -55,6 +55,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "project_3d_to_2d",
+    srcs = ["project_3d_to_2d.cc"],
+    hdrs = ["project_3d_to_2d.h"],
+    deps = [
+        "//drake/common",
+        "//drake/math:orthonormal_basis",
+    ],
+)
+
+drake_cc_library(
     name = "rigid_body_plant",
     srcs = [
         "kinematics_results.cc",
@@ -146,6 +156,13 @@ drake_cc_library(
         "//drake/lcmtypes:viewer",
         "//drake/multibody:rigid_body_tree",
         "//drake/systems/lcm",
+    ],
+)
+
+drake_cc_googletest(
+    name = "project_3d_to_2d_test",
+    deps = [
+        ":project_3d_to_2d",
     ],
 )
 
