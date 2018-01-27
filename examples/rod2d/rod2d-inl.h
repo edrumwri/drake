@@ -56,6 +56,8 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
   state_output_port_ = &this->DeclareVectorOutputPort(
       systems::BasicVector<T>(6), &Rod2D::CopyStateOut);
   pose_output_port_ = &this->DeclareVectorOutputPort(&Rod2D::CopyPoseOut);
+  contact_force_output_port_ = &this->DeclareVectorOutputPort(
+    systems::BasicVector<T>(3), &Rod2D::ComputeAndCopyContactForceOut);
 }
 
 // Computes the external forces on the rod.
@@ -515,24 +517,55 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
     const systems::Context<T>& context,
     const std::vector<const systems::DiscreteUpdateEvent<T>*>&,
     systems::DiscreteValues<T>* discrete_state) const {
-  using std::sin;
-  using std::cos;
-
-  // Determine ERP and CFM.
-  const double erp = get_erp();
-  const double cfm = get_cfm();
-
-  // Get the necessary state variables.
+  // Get the configuration and velocity variables.
   const systems::BasicVector<T>& state = context.get_discrete_state(0);
   const auto& q = state.get_value().template segment<3>(0);
   Vector3<T> v = state.get_value().template segment<3>(3);
-  const T& x = q(0);
-  const T& y = q(1);
-  const T& theta = q(2);
 
   // Construct the problem data.
   const int ngc = 3;      // Number of generalized coords / velocities.
   multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+
+  // Get the external forces and update v.
+  const Vector3<T> fext = ComputeExternalForces(context);
+  v += dt_ * (GetInverseInertiaMatrix() * fext);
+
+  // Compute time stepping problem data.
+  ComputeTimeSteppingProblemData(q, v, &problem_data);
+
+  // Solve the constraint problem.
+  VectorX<T> cf;
+  solver_.SolveImpactProblem(problem_data, &cf);
+
+  // Compute the updated velocity.
+  VectorX<T> delta_v;
+  solver_.ComputeGeneralizedVelocityChange(problem_data, cf, &delta_v);
+
+  // Compute the new velocity. Note that external forces have already been
+  // incorporated into v.
+  VectorX<T> vplus = v + delta_v;
+
+  // Compute the new position using an "explicit" update.
+  VectorX<T> qplus = q + vplus * dt_;
+
+  // Set the new discrete state.
+  systems::BasicVector<T>& new_state = discrete_state->get_mutable_vector(0);
+  new_state.get_mutable_value().segment(0, 3) = qplus;
+  new_state.get_mutable_value().segment(3, 3) = vplus;
+}
+
+template <class T>
+void Rod2D<T>::ComputeTimeSteppingProblemData(
+    const Vector3<T>& q,
+    const Vector3<T>& v,
+    multibody::constraint::ConstraintVelProblemData<T>* problem_data) const {
+  const T& x = q(0);
+  const T& y = q(1);
+  const T& theta = q(2);
+
+  // Determine ERP and CFM.
+  const double erp = get_erp();
+  const double cfm = get_cfm();
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
@@ -556,7 +589,8 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   // N = | 0 1 n2 |    F = | 1 0 f2 |
   // where n1, n2/f1, f2 are the moment arm induced by applying the
   // force at the given contact point along the normal/tangent direction.
-  Eigen::Matrix<T, nc, ngc> N, F;
+  auto& N = N_;
+  auto& F = F_;
   N(0, 0) = N(1, 0) = 0;
   N(0, 1) = N(1, 1) = 1;
   N(0, 2) = (left[0]  - x);
@@ -567,68 +601,46 @@ void Rod2D<T>::DoCalcDiscreteVariableUpdates(
   F(1, 2) = -(right[1] - y);
 
   // Set the number of tangent directions.
-  problem_data.r = { 1, 1 };
+  problem_data->r = { 1, 1 };
 
   // Get the total number of tangent directions.
   const int nr = std::accumulate(
-      problem_data.r.begin(), problem_data.r.end(), 0);
+      problem_data->r.begin(), problem_data->r.end(), 0);
 
   // Set the coefficients of friction.
-  problem_data.mu.setOnes(nc) *= get_mu_coulomb();
+  problem_data->mu.setOnes(nc) *= get_mu_coulomb();
 
   // Set up the operators.
-  problem_data.N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N * vv;
   };
-  problem_data.N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->N_transpose_mult = [&N](const VectorX<T>& vv) -> VectorX<T> {
     return N.transpose() * vv;
   };
-  problem_data.F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_transpose_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F.transpose() * vv;
   };
-  problem_data.F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
+  problem_data->F_mult = [&F](const VectorX<T>& vv) -> VectorX<T> {
     return F * vv;
   };
-  problem_data.solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
+  problem_data->solve_inertia = [this](const MatrixX<T>& mm) -> MatrixX<T> {
     return GetInverseInertiaMatrix() * mm;
   };
 
   // Update the generalized velocity vector with discretized external forces
   // (expressed in the world frame).
-  const Vector3<T> fext = ComputeExternalForces(context);
-  v += dt_ * problem_data.solve_inertia(fext);
-  problem_data.Mv = GetInertiaMatrix() * v;
+  problem_data->Mv = GetInertiaMatrix() * v;
 
   // Set stabilization parameters.
-  problem_data.kN.resize(nc);
-  problem_data.kN[0] = erp * left[1] / dt_;
-  problem_data.kN[1] = erp * right[1] / dt_;
-  problem_data.kF.setZero(nr);
+  problem_data->kN.resize(nc);
+  problem_data->kN[0] = erp * left[1] / dt_;
+  problem_data->kN[1] = erp * right[1] / dt_;
+  problem_data->kF.setZero(nr);
 
   // Set regularization parameters.
-  problem_data.gammaN.setOnes(nc) *= cfm;
-  problem_data.gammaF.setOnes(nr) *= cfm;
-  problem_data.gammaE.setOnes(nc) *= cfm;
-
-  // Solve the constraint problem.
-  VectorX<T> cf;
-  solver_.SolveImpactProblem(problem_data, &cf);
-
-  // Compute the updated velocity.
-  VectorX<T> delta_v;
-  solver_.ComputeGeneralizedVelocityChange(problem_data, cf, &delta_v);
-
-  // Compute the new velocity. Note that external forces have already been
-  // incorporated into v.
-  VectorX<T> vplus = v + delta_v;
-
-  // Compute the new position using an "explicit" update.
-  VectorX<T> qplus = q + vplus * dt_;
-
-  // Set the new discrete state.
-  systems::BasicVector<T>& new_state = discrete_state->get_mutable_vector(0);
-  new_state.get_mutable_value().segment(0, 3) = qplus;
-  new_state.get_mutable_value().segment(3, 3) = vplus;
+  problem_data->gammaN.setOnes(nc) *= cfm;
+  problem_data->gammaF.setOnes(nr) *= cfm;
+  problem_data->gammaE.setOnes(nc) *= cfm;
 }
 
 // Computes the impulses such that the vertical velocity at the contact point
@@ -1006,6 +1018,53 @@ void Rod2D<T>::CalcAccelerationsCompliantContactAndBallistic(
   ds.SetAtIndex(3, F_Ro_W[0]/mass_);
   ds.SetAtIndex(4, F_Ro_W[1]/mass_);
   ds.SetAtIndex(5, F_Ro_W[2]/J_);
+}
+
+template <class T>
+void Rod2D<T>::ComputeAndCopyContactForceOut(
+    const systems::Context<T>& context,
+    systems::BasicVector<T>* contact_force_port_value) const {
+  switch (simulation_type_) {
+    case Rod2D<T>::SimulationType::kCompliant:  {
+      const Vector3<T> Fc_Ro_W = CalcCompliantContactForces(context);
+      contact_force_port_value->SetFromVector(Fc_Ro_W);
+      break;
+    }
+
+    case Rod2D<T>::SimulationType::kPiecewiseDAE:
+      // TODO(edrumwri): Implement this.
+      DRAKE_ABORT();
+      break;
+
+    case Rod2D<T>::SimulationType::kTimeStepping:  {
+      // TODO(edrumwri): Cache this computation ASAP.
+      // Must solve the time stepping problem and then compute the non-impulsive
+      // contact forces.
+      // Get the configuration and velocity variables.
+      const systems::BasicVector<T>& state = context.get_discrete_state(0);
+      const auto& q = state.get_value().template segment<3>(0);
+      Vector3<T> v = state.get_value().template segment<3>(3);
+
+      // Get the external forces.
+      const Vector3<T> fext = ComputeExternalForces(context);
+
+      // Construct the problem data.
+      const int ngc = 3;      // Number of generalized coords / velocities.
+      multibody::constraint::ConstraintVelProblemData<T> problem_data(ngc);
+
+      // Compute time stepping problem data.
+      v += dt_ * (GetInverseInertiaMatrix() * fext);
+      ComputeTimeSteppingProblemData(q, v, &problem_data);
+
+      // Solve the impact problem and compute the generalized impulse (gj).
+      VectorX<T> cf, gj;
+      solver_.SolveImpactProblem(problem_data, &cf);
+      solver_.ComputeGeneralizedImpulseFromConstraintImpulses(
+          problem_data, cf, &gj);
+      contact_force_port_value->SetFromVector(gj / dt_);
+      break;
+    }
+  }
 }
 
 template <typename T>

@@ -300,8 +300,15 @@ TEST_F(Rod2DDAETest, Output) {
   std::unique_ptr<SystemOutput<double>> output =
       dut_->AllocateOutput(*context_);
   dut_->CalcOutput(*context_, output.get());
+
+  // Check the state output.
   for (int i = 0; i < xc.size(); ++i)
     EXPECT_EQ(xc[i], output->get_vector_data(0)->get_value()(i));
+
+  // Check the pose output.
+
+  // Check the contact force output.
+  
 }
 
 // Verifies that setting dut to an impacting state actually results in an

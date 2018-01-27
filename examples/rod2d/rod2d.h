@@ -402,6 +402,16 @@ class Rod2D : public systems::LeafSystem<T> {
     return *pose_output_port_;
   }
 
+  /// Returns the 6D state output of this rod.
+  const systems::OutputPort<T>& state_output() const {
+    return *state_output_port_;
+  }
+
+  /// Returns the 3D generalized contact force acting on this rod.
+  const systems::OutputPort<T>& contact_force_output() const {
+    return *contact_force_output_port_;
+  }
+
   /// Utility method for determining the World frame location of one of three
   /// points on the rod whose origin is Ro. Let r be the half-length of the rod.
   /// Define point P = Ro+k*r where k = { -1, 0, 1 }. This returns p_WP.
@@ -484,6 +494,13 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DDAETest;
   friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
 
+  void ComputeTimeSteppingProblemData(
+    const Vector3<T>& q,
+    const Vector3<T>& v,
+    multibody::constraint::ConstraintVelProblemData<T>* problem_data) const;
+  void ComputeAndCopyContactForceOut(
+      const systems::Context<T>& context,
+      systems::BasicVector<T>* output) const;
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
                             const Vector2<T>& dir) const;
@@ -573,9 +590,13 @@ class Rod2D : public systems::LeafSystem<T> {
   // Characteristic deformation is 1mm for a 1m (unit length) rod half-length.
   double kCharacteristicDeformation{1e-3};
 
+  // Temporary matrices used in time stepping computation.
+  mutable Eigen::Matrix<T, 2, 3> N_, F_;
+
   // Output ports.
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
+  const systems::OutputPort<T>* contact_force_output_port_{nullptr};
 };
 
 }  // namespace rod2d
