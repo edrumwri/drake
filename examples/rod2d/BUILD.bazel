@@ -37,7 +37,7 @@ drake_cc_binary(
         "//drake/systems/rendering:drake_visualizer_client",
         "//drake/systems/rendering:pose_aggregator",
         "//drake/systems/rendering:pose_bundle_to_draw_message",
-        "@com_github_gflags_gflags//:gflags",
+        "@gflags",
     ],
 )
 
@@ -75,8 +75,9 @@ drake_cc_googletest(
         "//drake/common:essential",
         "//drake/common/test_utilities:eigen_matrix_compare",
         "//drake/multibody/constraint:constraint_solver",
+        "//drake/systems/framework:diagram",
+        "//drake/systems/framework:diagram_builder",
         "//drake/systems/analysis",
-        "//drake/systems/framework",
     ],
 )
 

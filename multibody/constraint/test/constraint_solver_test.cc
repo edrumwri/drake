@@ -195,7 +195,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     contacts.insert(contacts.end(), contacts_dup.begin(), contacts_dup.end());
 
     // Get the contact tangent velocities.
-    rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Compute the problem data.
     rod_->CalcConstraintProblemData(*context_, contacts, tangent_vels, data);
@@ -1067,7 +1068,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     std::vector<Vector2d> contacts;
     std::vector<double> tangent_vels;
     rod_->GetContactPoints(*context_, &contacts);
-    rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Construct the contact frame(s).
     std::vector<Matrix2<double>> frames;
@@ -1160,7 +1162,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     std::vector<Vector2d> contacts;
     std::vector<double> tangent_vels;
     rod_->GetContactPoints(*context_, &contacts);
-    rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Construct the contact frame(s).
     std::vector<Matrix2<double>> frames;
@@ -1413,7 +1416,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     std::vector<Vector2d> contacts;
     std::vector<double> tangent_vels;
     rod_->GetContactPoints(*context_, &contacts);
-    rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Modify the tangent velocity on the left contact to effect a sliding
     // contact. This modification can be imagined as the left end of the rod
@@ -1462,7 +1466,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     std::vector<Vector2d> contacts;
     std::vector<double> tangent_vels;
     rod_->GetContactPoints(*context_, &contacts);
-    rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+    rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+        contacts, &tangent_vels);
 
     // Compute the constraint problem data.
     rod_->CalcConstraintProblemData(
@@ -1786,7 +1791,8 @@ TEST_P(Constraint2DSolverTest, ContactLimitCrossTermVel) {
   std::vector<Vector2d> contacts;
   std::vector<double> tangent_vels;
   rod_->GetContactPoints(*context_, &contacts);
-  rod_->GetContactPointsTangentVelocities(*context_, contacts, &tangent_vels);
+  rod_->GetContactPointsTangentVelocities(*context_, context_->get_state(),
+      contacts, &tangent_vels);
 
   // Compute the constraint problem data.
   rod_->CalcImpactProblemData(
