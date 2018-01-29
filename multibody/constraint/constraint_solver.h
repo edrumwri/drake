@@ -1711,6 +1711,7 @@ void ConstraintSolver<T>::FormImpactingConstraintLCP(
       Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
   MM->block(nc + nk, nc + nk, nc, nc) +=
       Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaE);
+MM->block(nc + nk, nc + nk, nc, nc).setZero();
   MM->block(nc * 2 + nk, nc * 2 + nk, nl, nl) +=
       Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaL);
 

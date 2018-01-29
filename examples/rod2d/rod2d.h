@@ -151,14 +151,17 @@ States: planar position (state indices 0 and 1) and orientation (state
         scalar angular velocity (state index 5) in units of m, radians,
         m/s, and rad/s, respectively. Orientation is measured counter-
         clockwise with respect to the x-axis. For simulations using the
-        piecewise DAE formulation, one abstract state variable
-        (of type Rod2D::Mode) is used to identify which dynamic mode
-        the system is in (e.g., ballistic, contacting at one point and
-        sliding, etc.) and one abstract state variable (of type int) is used
-        to determine which endpoint(s) of the rod contact the halfspace
-        (k=-1 indicates the left endpoint Rl, k=+1 indicates the right
-        endpoint Rr, and k=0 indicates that both endpoints of the rod are
-        contacting the halfspace).
+        piecewise DAE formulation, eight abstract state variables are used,
+        each of which is denoted by the AbstractIndices struct. The first
+        abstract index corresponds to a vector of PointContact types and
+        correspond to the points of contact used in force calculations. The
+        remaining abstract index corresponds to vectors of pointers of
+        witness functions, each of which is responsible for detecting when
+        certain mode changes occur. The subset of these witness functions that
+        are active at a point in time explicitly indicate the state of the
+        system. For example, if the only witness functions active are the signed
+        distance functions for both rod endpoints, the rod is moving
+        ballistically.
 
 Outputs: Output Port 0 corresponds to the state vector; Output Port 1
          corresponds to a PoseVector giving the 3D pose of the rod in the world
@@ -203,6 +206,13 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kTimeStepping or @p dt is not zero and simulation_type is
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
+
+  /// Initializes the abstract state variables using the continuous state of
+  /// the system. Throws std::logic_error() if the simulation type is not
+  /// kPiecewiseDAE. Aborts if `xa` is null.
+  void InitializeAbstractStateFromContinuousState(
+    double sliding_velocity_threshold,
+    systems::State<T>* xc) const;
 
   /// Gets default value for stiffness.
   static constexpr double get_default_stiffness() { return 10000; }
@@ -555,17 +565,20 @@ class Rod2D : public systems::LeafSystem<T> {
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
   /// Puts the rod's state into a ballistic mode.
+  /// @pre the continuous state is such that neither endpoint is
+  ///      contacting the halfspace.
   void SetBallisticMode(systems::State<T>* state) const;
 
-  /// Puts the rod's state into a mode with the left endpoint contacting.
-  /// @pre the state is such that the right endpoint is not contacting the
-  ///      halfspace.
-  void SetLeftEndpointContacting(systems::State<T>* state, bool sliding) const;
+  /// Puts the rod's state into a mode with a single endpoint contacting.
+  /// @pre the continuous state is such that the other endpoint is not
+  ///      contacting the halfspace.
+  void SetOneEndpointContacting(
+      int index, systems::State<T>* state, bool sliding) const;
 
   /// Puts the rod's state into a mode with both endpoints contacting.
   void SetBothEndpointsContacting(
       systems::State<T>* state,
-      multibody::constraint::SlidingModeType sliding_type) const;
+      bool sliding) const;
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -702,6 +715,12 @@ class Rod2D : public systems::LeafSystem<T> {
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::State<T>& state,
+      int index) const;
   Vector2<T> CalcContactVelocity(
       const systems::Context<T>& context,
       int index) const;
@@ -784,6 +803,12 @@ class Rod2D : public systems::LeafSystem<T> {
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
   const systems::OutputPort<T>* contact_force_output_port_{nullptr};
+
+  // IDs for the two contact points in the piecewise DAE system.
+  enum ContactPointIDs {
+    kLeft = 0,
+    kRight = 1,
+  };
 
   // Abstract state variable constants.
   enum AbstractIndices {

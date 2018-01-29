@@ -190,7 +190,12 @@ int main(int argc, char* argv[]) {
 
     // If this is the piecewise DAE system, make an educated guess as to the
     // proper initial mode.
-
+    // TODO(edrumwri): Make the stiction tolerance a settable parameter.
+    if (FLAGS_simulation_type == "pDAE") {
+      const double stiction_tolerance = 1e-6;
+      rod->InitializeAbstractStateFromContinuousState(
+          stiction_tolerance, &rod_context.get_mutable_state());
+    }
   }
 
   // Set up the integrator.
