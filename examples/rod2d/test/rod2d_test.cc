@@ -455,7 +455,9 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), &context_->get_mutable_state(),
+      SlidingModeType::kNotSliding);
 
   // Calculate the derivatives.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -476,7 +478,9 @@ TEST_F(Rod2DDAETest, ConsistentDerivativesContacting) {
   // and try again. Derivatives should be exactly the same because no frictional
   // force can be applied.
   xc[3] = -1.0;
-  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), true);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), &context_->get_mutable_state(),
+      SlidingModeType::kSliding);
 
   dut_->set_mu_coulomb(0.0);
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
@@ -516,7 +520,9 @@ TEST_F(Rod2DDAETest, DerivativesContactingAndSticking) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), &context_->get_mutable_state(),
+      SlidingModeType::kNotSliding);
 
   // Coulomb friction will not be used.
   dut_->set_mu_coulomb(0.0);
@@ -663,6 +669,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
   const double half_len = dut_->get_rod_half_length();
   const double r22 = std::sqrt(2) / 2;
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
+  State<double>* state = &context_->get_mutable_state();
 
   // Set the coefficient of friction to zero (triggering the case on the
   // edge of the friction cone).
@@ -676,7 +683,8 @@ TEST_F(Rod2DDAETest, NoSliding) {
   xc[3] = 0.0;
   xc[4] = 0.0;
   xc[5] = 0.0;
-  dut_->SetLeftEndpointContacting(&context_->get_mutable_state(), false);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // Verify no impact.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
@@ -1008,7 +1016,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   // Set the state such that the velocity is zero 
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
-  dut_->SetBothEndpointsContacting(state, SlidingModeType::kNotSliding);
+  dut_->SetBothEndpointsContacting(state, SlidingModeType::kTransitioning);
   dut_->DetermineContactModes(*context_, state);
 
   // Verify that the both contacts are still in the set of force calculations. 
@@ -1149,12 +1157,12 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
 
   // Set the state such that the vertical velocity is upward and not sliding
   // (and the contact mode is set appropriately).
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
   xc[4] = 1e-5;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
@@ -1231,12 +1239,12 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
 
   // Set the state such that the vertical velocity is upward and not sliding
   // (and the contact mode is set appropriately).
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
   xc[4] = 10000;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
@@ -1310,12 +1318,12 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
 
   // Set the state such that the velocity is zero (not separating, not sliding)
   // (and the contact mode is set appropriately.
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
   xc[4] = 10000;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
@@ -1394,11 +1402,11 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1461,11 +1469,11 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(
+      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1531,11 +1539,11 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
-  const bool sliding = false;
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
-  dut_->SetLeftEndpointContacting(state, sliding);
+  dut_->SetOneEndpointContacting(dut_->get_left_endpoint_index(), state,
+      SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);

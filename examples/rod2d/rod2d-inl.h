@@ -64,159 +64,186 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
 }
 
 template <class T>
+void Rod2D<T>::InitializeAbstractStateFromContinuousState(
+    double sliding_velocity_threshold,
+    systems::State<T>* state) const {
+  using std::abs;
+
+  if (simulation_type_ != Rod2D<T>::SimulationType::kPiecewiseDAE)
+    throw std::logic_error("Simulation type is not kPiecewiseDAE");
+
+  // Find both endpoint locations.
+  const Vector2<T> left = CalcContactLocationInWorldFrame(*state, kLeft);
+  const Vector2<T> right = CalcContactLocationInWorldFrame(*state, kRight);
+
+  if (left[1] <= 0) {
+    const Vector2<T> left_vel = CalcContactVelocity(*state, kLeft);
+    const multibody::constraint::SlidingModeType sliding = 
+        ((abs(left_vel[0]) > sliding_velocity_threshold)) ? 
+        multibody::constraint::SlidingModeType::kSliding :
+        multibody::constraint::SlidingModeType::kNotSliding;
+    if (right[1] <= 0) {
+      SetBothEndpointsContacting(state, sliding);
+    } else {
+      SetOneEndpointContacting(kLeft, state, sliding);
+    }
+  } else {
+    if (right[1] <= 0) {
+      const Vector2<T> right_vel = CalcContactVelocity(*state, kRight);
+      const multibody::constraint::SlidingModeType sliding = 
+          ((abs(right_vel[0]) > sliding_velocity_threshold)) ? 
+          multibody::constraint::SlidingModeType::kSliding :
+          multibody::constraint::SlidingModeType::kNotSliding;
+      SetOneEndpointContacting(kRight, state, sliding);
+    } else {
+      SetBallisticMode(state); 
+    }
+  }
+} 
+
+template <class T>
 void Rod2D<T>::SetBallisticMode(systems::State<T>* state) const {
   // Remove all contacts from force calculations.
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.clear();
 
-  // Set constants for contact indices.
-  const int left_endpoint_id = 0;
-  const int right_endpoint_id = 1;
-
   // Disable all witness functions except the signed distance one.
-  GetSignedDistanceWitness(left_endpoint_id, *state)->set_enabled(true);
-  GetSignedDistanceWitness(right_endpoint_id, *state)->set_enabled(true);
-  GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalVelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
+  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
+  GetNormalVelWitness(kLeft, *state)->set_enabled(false);
+  GetNormalVelWitness(kRight, *state)->set_enabled(false);
+  GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
+  GetNormalAccelWitness(kRight, *state)->set_enabled(false);
+  GetPosSlidingWitness(kLeft, *state)->set_enabled(false);
+  GetPosSlidingWitness(kRight, *state)->set_enabled(false);
+  GetNegSlidingWitness(kLeft, *state)->set_enabled(false);
+  GetNegSlidingWitness(kRight, *state)->set_enabled(false);
+  GetNormalForceWitness(kLeft, *state)->set_enabled(false);
+  GetNormalForceWitness(kRight, *state)->set_enabled(false);
+  GetStickingFrictionForceSlackWitness(kLeft, *state)->
       set_enabled(false);
-  GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+  GetStickingFrictionForceSlackWitness(kRight, *state)->
       set_enabled(false);
 }
 
 template <class T>
-void Rod2D<T>::SetLeftEndpointContacting(
+void Rod2D<T>::SetOneEndpointContacting(
+    int index,
     systems::State<T>* state,
-    bool sliding) const {
-  // TODO: Verify that the right endpoint is not at/below the ground plane.
-
-  // Set constants for contact indices.
-  const int left_endpoint_id = 0;
-  const int right_endpoint_id = 1;
-
-  // Set the left contact to sliding property appropriately. 
+    multibody::constraint::SlidingModeType sliding_type) const {
+  // Set the contact to sliding property appropriately. 
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.resize(1);
-  contacts.front().sliding_type = (sliding) ?
-  multibody::constraint::SlidingModeType::kSliding :
-  multibody::constraint::SlidingModeType::kNotSliding;
-  contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
+  contacts.front().sliding_type = sliding_type; 
+  contacts.front().id = reinterpret_cast<void*>(index);
 
   // The signed distance witnesses should always be enabled.
-  GetSignedDistanceWitness(left_endpoint_id, *state)->set_enabled(true);
-  GetSignedDistanceWitness(right_endpoint_id, *state)->set_enabled(true);
+  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
+  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
+
+  // Get the other index.
+  DRAKE_DEMAND(index == 0 || index == 1);
+  const int other = (index == 0) ? 1 : 0;
 
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
-  if (sliding) {
+  if (sliding_type == multibody::constraint::SlidingModeType::kSliding) {
     // Enable these witnesses.
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+    GetPosSlidingWitness(index, *state)->set_enabled(true);
+    GetNegSlidingWitness(index, *state)->set_enabled(true);
 
     // Disable these witnesses.
-    GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+    GetStickingFrictionForceSlackWitness(index, *state)->
         set_enabled(false);
   } else {
     // Enable these witnesses.
-    GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+    GetStickingFrictionForceSlackWitness(index, *state)->
         set_enabled(true);
 
     // Disable these witnesses. Note that the sliding witnesses are disabled
     // at this time- they have to be enabled when the sticking friction
     // witness is triggered.
-    GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-    GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
+    GetPosSlidingWitness(index, *state)->set_enabled(false);
+    GetNegSlidingWitness(index, *state)->set_enabled(false);
   }
 
   // Disable all witness functions (except the signed distance one) for the
   // right endpoint.
-  GetNormalVelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+  GetNormalVelWitness(other, *state)->set_enabled(false);
+  GetNormalAccelWitness(other, *state)->set_enabled(false);
+  GetPosSlidingWitness(other, *state)->set_enabled(false);
+  GetNegSlidingWitness(other, *state)->set_enabled(false);
+  GetNormalForceWitness(other, *state)->set_enabled(false);
+  GetStickingFrictionForceSlackWitness(other, *state)->
       set_enabled(false);
 
   // The following witnesses will be disabled by default. 
-  GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
+  GetNormalVelWitness(index, *state)->set_enabled(false);
+  GetNormalAccelWitness(index, *state)->set_enabled(false);
 
   // We need to enable the normal force witness.
-  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(true);
+  GetNormalForceWitness(index, *state)->set_enabled(true);
 }
 
 template <class T>
 void Rod2D<T>::SetBothEndpointsContacting(
     systems::State<T>* state,
     multibody::constraint::SlidingModeType sliding_type) const {
-  // Set constants for contact indices.
-  const int left_endpoint_id = 0;
-  const int right_endpoint_id = 1;
-
   // Set the contacts to sliding property appropriately. 
   std::vector<multibody::constraint::PointContact>& contacts =
       get_contacts_used_in_force_calculations(state);
   contacts.resize(2);
   contacts.front().sliding_type = sliding_type;
   contacts.back().sliding_type = sliding_type;
-  contacts.front().id = reinterpret_cast<void*>(left_endpoint_id);
-  contacts.back().id = reinterpret_cast<void*>(right_endpoint_id);
+  contacts.front().id = reinterpret_cast<void*>(kLeft);
+  contacts.back().id = reinterpret_cast<void*>(kRight);
 
   // The signed distance witnesses should always be enabled.
-  GetSignedDistanceWitness(left_endpoint_id, *state)->set_enabled(true);
-  GetSignedDistanceWitness(right_endpoint_id, *state)->set_enabled(true);
+  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
+  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
 
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
   switch (sliding_type) {
     case multibody::constraint::SlidingModeType::kSliding:
       // Enable these witnesses.
-      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
-      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
+      GetPosSlidingWitness(kRight, *state)->set_enabled(true);
+      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
+      GetNegSlidingWitness(kRight, *state)->set_enabled(true);
 
       // Disable these witnesses.
-      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kLeft, *state)->
           set_enabled(false);
-      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kRight, *state)->
           set_enabled(false);
       break;
 
     case multibody::constraint::SlidingModeType::kNotSliding:
       // Enable these witnesses.
-      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kLeft, *state)->
           set_enabled(true);
-      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kRight, *state)->
           set_enabled(true);
 
       // Disable these witnesses.
-      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
+      GetPosSlidingWitness(kLeft, *state)->set_enabled(false);
+      GetPosSlidingWitness(kRight, *state)->set_enabled(false);
+      GetNegSlidingWitness(kLeft, *state)->set_enabled(false);
+      GetNegSlidingWitness(kRight, *state)->set_enabled(false);
       break;
 
     case multibody::constraint::SlidingModeType::kTransitioning:
       // Enable these witnesses.
-      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
-      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
+      GetPosSlidingWitness(kRight, *state)->set_enabled(true);
+      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
+      GetNegSlidingWitness(kRight, *state)->set_enabled(true);
 
       // Disable these witnesses.
-      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kLeft, *state)->
           set_enabled(false);
-      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kRight, *state)->
           set_enabled(false);
       break;
 
@@ -225,14 +252,14 @@ void Rod2D<T>::SetBothEndpointsContacting(
   }
 
   // Enable the normal force witnesses. 
-  GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(true);
-  GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(true);
+  GetNormalForceWitness(kLeft, *state)->set_enabled(true);
+  GetNormalForceWitness(kRight, *state)->set_enabled(true);
 
   // The following witnesses will be disabled by default. 
-  GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalVelWitness(right_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
-  GetNormalAccelWitness(right_endpoint_id, *state)->set_enabled(false);
+  GetNormalVelWitness(kLeft, *state)->set_enabled(false);
+  GetNormalVelWitness(kRight, *state)->set_enabled(false);
+  GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
+  GetNormalAccelWitness(kRight, *state)->set_enabled(false);
 }
 
 // Computes the external forces on the rod.
@@ -1294,7 +1321,28 @@ void Rod2D<T>::AddContactToForceCalculationSet(
   }
 }
 
-// Calculates the velocity at a point of contact.
+// Gets the location of a point of contact in the world frame.
+template <class T>
+Vector2<T> Rod2D<T>::CalcContactLocationInWorldFrame(
+    const systems::Context<T>& context,
+    int index) const {
+  return CalcContactLocationInWorldFrame(context.get_state(), index);
+}
+
+template <class T>
+Vector2<T> Rod2D<T>::CalcContactLocationInWorldFrame(
+    const systems::State<T>& state,
+    int index) const {
+  // The point of contact is x + R * u.
+  const auto q = state.get_continuous_state().get_generalized_position().
+      CopyToVector();
+  const Vector2<T> x = q.segment(0, 2);
+  const T& theta = q[2];
+  const Eigen::Rotation2D<T> R(theta);
+  return x + R * contact_candidates_[index];
+}
+
+// Calculates the velocity at a point of contact in the contact frame.
 template <class T>
 Vector2<T> Rod2D<T>::CalcContactVelocity(
     const systems::Context<T>& context,
@@ -1302,12 +1350,11 @@ Vector2<T> Rod2D<T>::CalcContactVelocity(
   return CalcContactVelocity(context.get_state(), index);
 }
 
-// Calculates the velocity at a point of contact.
+// Calculates the velocity at a point of contact in the contact frame.
 template <class T>
 Vector2<T> Rod2D<T>::CalcContactVelocity(
     const systems::State<T>& state,
     int index) const {
-
   // The point of contact is x + R * u, so its velocity is
   // xdot + Rdot * u * thetadot.
   const auto q = state.get_continuous_state().get_generalized_position().
@@ -1988,27 +2035,26 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       contacts.front().id = reinterpret_cast<void*>(0);
 
       // Enable both signed distance witnesses.
-      const int left_endpoint_id = 0, right_endpoint_id = 1;
-      GetSignedDistanceWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetSignedDistanceWitness(right_endpoint_id, *state)->set_enabled(true);
+      GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
+      GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
 
       // Enable the normal force witness and the sliding witnesses for the
       // left (sliding) contact.
-      GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetPosSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
-      GetNegSlidingWitness(left_endpoint_id, *state)->set_enabled(true);
+      GetNormalForceWitness(kLeft, *state)->set_enabled(true);
+      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
+      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
 
       // Disable all other witness functions.
-      GetNormalVelWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetNormalVelWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetNormalAccelWitness(left_endpoint_id, *state)->set_enabled(false);
-      GetNormalAccelWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetPosSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetNegSlidingWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetNormalForceWitness(right_endpoint_id, *state)->set_enabled(false);
-      GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
+      GetNormalVelWitness(kLeft, *state)->set_enabled(false);
+      GetNormalVelWitness(kRight, *state)->set_enabled(false);
+      GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
+      GetNormalAccelWitness(kRight, *state)->set_enabled(false);
+      GetPosSlidingWitness(kRight, *state)->set_enabled(false);
+      GetNegSlidingWitness(kRight, *state)->set_enabled(false);
+      GetNormalForceWitness(kRight, *state)->set_enabled(false);
+      GetStickingFrictionForceSlackWitness(kLeft, *state)->
           set_enabled(false);
-      GetStickingFrictionForceSlackWitness(right_endpoint_id, *state)->
+      GetStickingFrictionForceSlackWitness(kRight, *state)->
           set_enabled(false);
     }
   }

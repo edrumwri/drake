@@ -175,17 +175,29 @@ int main(int argc, char* argv[]) {
   ext_input->SetAtIndex(2, 0.0);
   rod_context.FixInputPort(0, std::move(ext_input));
 
-/*
   // Set the initial state.
   const int state_dim = 6;
   std::istringstream iss(FLAGS_state);
   Eigen::VectorXd initial_state(state_dim);
   for (int i = 0; i < state_dim; ++i)
     iss >> initial_state[i];
-  Rod2dStateVector<double>& rod_state =
-      rod->get_mutable_state(&rod_context.get_mutable_continuous_state());
-  rod_state.SetFromVector(initial_state);
-*/
+  if (FLAGS_simulation_type == "timestepping") {
+    rod_context.get_mutable_discrete_state(0).SetFromVector(initial_state);
+  } else {
+    Rod2dStateVector<double>& rod_state =
+        rod->get_mutable_state(&rod_context.get_mutable_continuous_state());
+    rod_state.SetFromVector(initial_state);
+
+    // If this is the piecewise DAE system, make an educated guess as to the
+    // proper initial mode.
+    // TODO(edrumwri): Make the stiction tolerance a settable parameter.
+    if (FLAGS_simulation_type == "pDAE") {
+      const double stiction_tolerance = 1e-6;
+      rod->InitializeAbstractStateFromContinuousState(
+          stiction_tolerance, &rod_context.get_mutable_state());
+    }
+  }
+
   // Set up the integrator.
   Simulator<double> simulator(*diagram, std::move(context));
   if (FLAGS_simulation_type == "compliant") {

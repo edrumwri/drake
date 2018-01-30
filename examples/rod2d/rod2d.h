@@ -150,7 +150,18 @@ States: planar position (state indices 0 and 1) and orientation (state
         index 2), and planar linear velocity (state indices 3 and 4) and
         scalar angular velocity (state index 5) in units of m, radians,
         m/s, and rad/s, respectively. Orientation is measured counter-
-        clockwise with respect to the x-axis. 
+        clockwise with respect to the x-axis. For simulations using the
+        piecewise DAE formulation, eight abstract state variables are used,
+        each of which is denoted by the AbstractIndices struct. The first
+        abstract index corresponds to a vector of PointContact types and
+        correspond to the points of contact used in force calculations. The
+        remaining abstract index corresponds to vectors of pointers of
+        witness functions, each of which is responsible for detecting when
+        certain mode changes occur. The subset of these witness functions that
+        are active at a point in time explicitly indicate the state of the
+        system. For example, if the only witness functions active are the signed
+        distance functions for both rod endpoints, the rod is moving
+        ballistically.
 
 Outputs: Output Port 0 corresponds to the state vector; Output Port 1
          corresponds to a PoseVector giving the 3D pose of the rod in the world
@@ -335,6 +346,8 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_mu_coulomb() const { return mu_; }
 
   /// Sets the coefficient of dynamic (sliding) Coulomb friction.
+  // TODO(edrumwri): This function is now dangerous, b/c it allows the rod
+  // friction to get mismatched with the rigid contact friction. Fix this.
   void set_mu_coulomb(double mu) { mu_ = mu; }
 
   /// Gets the mass of the rod.
@@ -572,12 +585,16 @@ class Rod2D : public systems::LeafSystem<T> {
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
   /// Puts the rod's state into a ballistic mode.
+  /// @pre the continuous state is such that neither endpoint is
+  ///      contacting the halfspace.
   void SetBallisticMode(systems::State<T>* state) const;
 
-  /// Puts the rod's state into a mode with the left endpoint contacting.
-  /// @pre the state is such that the right endpoint is not contacting the
-  ///      halfspace.
-  void SetLeftEndpointContacting(systems::State<T>* state, bool sliding) const;
+  /// Puts the rod's state into a mode with a single endpoint contacting.
+  /// @pre the continuous state is such that the other endpoint is not
+  ///      contacting the halfspace.
+  void SetOneEndpointContacting(
+      int index, systems::State<T>* state,
+      multibody::constraint::SlidingModeType sliding_type) const;
 
   /// Puts the rod's state into a mode with both endpoints contacting.
   void SetBothEndpointsContacting(
@@ -718,6 +735,13 @@ class Rod2D : public systems::LeafSystem<T> {
   // edges in the polygonalization of the friction cone. In 2D, both tangent
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::State<T>& state,
+      int index) const;
   Vector2<T> CalcContactVelocity(
       const systems::Context<T>& context,
       int index) const;
@@ -732,41 +756,13 @@ class Rod2D : public systems::LeafSystem<T> {
       int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
-  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Matrix3<T> GetInverseInertiaMatrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
-  void CalcTwoContactSlidingForces(const systems::Context<T>& context,
-                                    Vector2<T>* fN, Vector2<T>* fF) const;
-  Vector2<T> CalcStickingImpactImpulse(const systems::Context<T>& context)
-    const;
-  Vector2<T> CalcFConeImpactImpulse(const systems::Context<T>& context) const;
   void CalcAccelerationsCompliantContactAndBallistic(
                                   const systems::Context<T>& context,
                                   systems::ContinuousState<T>* derivatives)
                                     const;
-  void CalcAccelerationsBallistic(const systems::Context<T>& context,
-                                  systems::ContinuousState<T>* derivatives)
-                                    const;
-  void CalcAccelerationsTwoContact(const systems::Context<T>& context,
-                                   systems::ContinuousState<T>* derivatives)
-                                     const;
-  void CalcAccelerationsOneContactNoSliding(
-      const systems::Context<T>& context,
-      systems::ContinuousState<T>* derivatives) const;
-  void CalcAccelerationsOneContactSliding(
-      const systems::Context<T>& context,
-      systems::ContinuousState<T>* derivatives) const;
-  void SetAccelerations(const systems::Context<T>& context,
-                        const T& fN, const T& fF,
-                        const Vector2<T>& c,
-                        systems::VectorBase<T>* const f) const;
-  void SetAccelerations(const systems::Context<T>& context,
-                        const Vector2<T>& fN, const Vector2<T>& fF,
-                        const Vector2<T>& c1, const Vector2<T>& c2,
-                        systems::VectorBase<T>* const f) const;
-  Vector2<T> CalcStickingContactForces(
-      const systems::Context<T>& context) const;
 
   // 2D cross product returns a scalar. This is the z component of the 3D
   // cross product [ax ay 0] × [bx by 0]; the x,y components are zero.
@@ -800,12 +796,13 @@ class Rod2D : public systems::LeafSystem<T> {
 
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
-  double dt_{0.};           // Integration step-size for time stepping approach.
-  double mass_{1.};         // The mass of the rod (kg).
-  double half_length_{1.};  // The length of the rod (m).
-  double mu_{1000.};        // The (dynamic) coefficient of friction.
-  double g_{-9.81};         // The acceleration due to gravity (in y direction).
-  double J_{1.};            // The moment of the inertia of the rod.
+  double dt_{0.};               // Integration step-size for time stepping
+                                // approach.
+  double mass_{1.};             // The mass of the rod (kg).
+  double half_length_{1.};      // The length of the rod (m).
+  double mu_{get_default_mu()}; // The (dynamic) coefficient of friction.
+  double g_{-9.81};             // Acceleration due to gravity (in y direction).
+  double J_{1.};                // The moment of the inertia of the rod.
 
   // Compliant contact parameters.
   double stiffness_{get_default_stiffness()};      // Normal stiffness of the
@@ -827,6 +824,12 @@ class Rod2D : public systems::LeafSystem<T> {
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
   const systems::OutputPort<T>* contact_force_output_port_{nullptr};
+
+  // IDs for the two contact points in the piecewise DAE system.
+  enum ContactPointIDs {
+    kLeft = 0,
+    kRight = 1,
+  };
 
   // Abstract state variable constants.
   enum AbstractIndices {
