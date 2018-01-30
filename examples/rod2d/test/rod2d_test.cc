@@ -695,6 +695,7 @@ TEST_F(Rod2DDAETest, NoSliding) {
 
 // Test multiple (two-point) contact configurations.
 TEST_F(Rod2DDAETest, MultiPoint) {
+  State<double>& mutable_state = context_->get_mutable_state();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
 
   // Set the rod to a horizontal, two-contact configuration.
@@ -704,8 +705,7 @@ TEST_F(Rod2DDAETest, MultiPoint) {
 
   // Set the velocity on the rod such that it is moving horizontally.
   xc[3] = 1.0;
-  dut_->SetBothEndpointsContacting(
-      &context_->get_mutable_state(), SlidingModeType::kSliding);
+  dut_->SetBothEndpointsContacting(&mutable_state, SlidingModeType::kSliding);
   EXPECT_FALSE(dut_->IsImpacting(*context_));  // Verify no impact.
 
   // Set the coefficient of friction to zero.
@@ -745,21 +745,11 @@ TEST_F(Rod2DDAETest, MultiPoint) {
   ext_input->SetAtIndex(2, 0.0);
   context_->FixInputPort(0, std::move(ext_input));
   dut_->SetBothEndpointsContacting(
-      &context_->get_mutable_state(), SlidingModeType::kNotSliding);
+      &mutable_state, SlidingModeType::kNotSliding);
 
   // Verify that the linear and angular acceleration are still zero.
   dut_->CalcTimeDerivatives(*context_, derivatives_.get());
   EXPECT_NEAR((*derivatives_)[3], 0, tol);
-  EXPECT_NEAR((*derivatives_)[4], 0, tol);
-  EXPECT_NEAR((*derivatives_)[5], 0, tol);
-
-  // Set the coefficient of friction to zero. Now the force should result
-  // in the rod being pushed to the right *after redetermining the active set*.
-  dut_->set_mu_coulomb(0.0);
-  dut_->set_mu_static(0.0);
-  dut_->DetermineContactModes(*context_, &context_->get_mutable_state());
-  dut_->CalcTimeDerivatives(*context_, derivatives_.get());
-  EXPECT_NEAR((*derivatives_)[3], fX/dut_->get_rod_mass(), tol);
   EXPECT_NEAR((*derivatives_)[4], 0, tol);
   EXPECT_NEAR((*derivatives_)[5], 0, tol);
 }
@@ -854,95 +844,6 @@ TEST_F(Rod2DDAETest, BallisticNoImpact) {
   // Verify that no impact occurs.
   EXPECT_FALSE(dut_->IsImpacting(*context_));
 }
-
-// TODO: Check the new witness functions.
-/*
-// Checks the witness function for calculating the signed distance.
-TEST_F(Rod2DDAETest, SignedDistWitness) {
-  // Rod initially touches the half-space in a kissing configuration and is
-  // oriented at a 45 degree angle; check that the signed distance is zero.
-  const double tol = 10*std::numeric_limits<double>::epsilon();
-  EXPECT_NEAR(dut_->CalcSignedDistance(*context_), 0.0, tol);
-
-  // Set the rod to a non-contacting configuration and check that the signed
-  // distance is positive.
-  SetBallisticState();
-  EXPECT_GT(dut_->CalcSignedDistance(*context_), 0);
-
-  // Set the rod to an interpenetrating configuration and check that the
-  // signed distance is negative.
-  SetInterpenetratingConfig();
-  EXPECT_LT(dut_->CalcSignedDistance(*context_), 0);
-}
-
-// Evaluates the witness function for when the rod should separate from the
-// half-space.
-TEST_F(Rod2DDAETest, SeparationWitness) {
-  // Set the rod to an upward configuration so that accelerations are simple
-  // to predict.
-  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
-
-  // Configuration has the rod on its side. Vertical velocity is still zero.
-  xc[0] = 0.0;
-  xc[1] = dut_->get_rod_half_length();
-  xc[2] = M_PI_2;
-
-  // Ensure that witness is negative.
-  EXPECT_LT(dut_->CalcNormalAccelWithoutContactForces(*context_), 0);
-
-  // Now add a large upward force and verify that the witness is positive.
-  const double flarge_up = 100.0;
-  std::unique_ptr<BasicVector<double>> ext_input =
-      std::make_unique<BasicVector<double>>(3);
-  ext_input->SetAtIndex(0, 0.0);
-  ext_input->SetAtIndex(1, flarge_up);
-  ext_input->SetAtIndex(2, 0.0);
-  context_->FixInputPort(0, std::move(ext_input));
-  EXPECT_GT(dut_->CalcNormalAccelWithoutContactForces(*context_), 0);
-}
-
-// Evaluates the witness function for sliding velocity direction changes.
-TEST_F(Rod2DDAETest, VelocityChangesWitness) {
-  // Verify that the sliding velocity before the Painleve configuration is
-  // negative.
-  EXPECT_LT(dut_->CalcSlidingDot(*context_), 0);
-
-  // Switch to the mirrored Painleve configuration.
-  SetSecondInitialConfig();
-
-  // Verify that the sliding velocity before the second Painleve configuration
-  // is positive.
-  EXPECT_GT(dut_->CalcSlidingDot(*context_), 0);
-}
-
-// Checks the witness for transition from sticking to sliding.
-TEST_F(Rod2DDAETest, StickingSlidingWitness) {
-  // Put the rod into an upright configuration with no tangent velocity and
-  // some horizontal force.
-  const double half_len = dut_->get_rod_half_length();
-  ContinuousState<double>& xc = context_->get_mutable_continuous_state();
-  xc[0] = 0.0;       // com horizontal position
-  xc[1] = half_len;  // com vertical position
-  xc[2] = M_PI_2;    // rod rotation
-  std::unique_ptr<BasicVector<double>> ext_input =
-      std::make_unique<BasicVector<double>>(3);
-  ext_input->SetAtIndex(0, 1.0);
-  ext_input->SetAtIndex(1, 0.0);
-  ext_input->SetAtIndex(2, 0.0);
-  context_->FixInputPort(0, std::move(ext_input));
-
-  // Verify that the "slack" is positive.
-  const double inf = std::numeric_limits<double>::infinity();
-  dut_->set_mu_coulomb(inf);
-  EXPECT_GT(dut_->CalcStickingFrictionForceSlack(*context_), 0);
-
-  // Set the coefficient of friction to zero.
-  dut_->set_mu_coulomb(0.0);
-
-  // Verify that the "slack" is negative.
-  EXPECT_LT(dut_->CalcStickingFrictionForceSlack(*context_), 0);
-}
-*/
 
 // Verifies that the rigid contact problem data has reasonable values when the
 // rod is in a ballistic state.

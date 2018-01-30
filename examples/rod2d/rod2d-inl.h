@@ -270,37 +270,6 @@ const std::vector<multibody::constraint::PointContact>&
       template GetValue<std::vector<multibody::constraint::PointContact>>();
 }
 
-/*
-template <class T>
-T Rod2D<T>::CalcSignedDistance(const systems::Context<T>& context) const {
-  using std::sin;
-  using std::cos;
-  using std::min;
-
-  // Verify the system is simulated using piecewise DAE.
-  DRAKE_DEMAND(get_simulation_type() ==
-      Rod2D<T>::SimulationType::kPiecewiseDAE);
-
-  // Get the necessary parts of the state.
-  const systems::VectorBase<T>& state = context.get_continuous_state_vector();
-  const T& x = state.GetAtIndex(0);
-  const T& y = state.GetAtIndex(1);
-  const T& theta = state.GetAtIndex(2);
-
-  // Get the two rod endpoints.
-  const T ctheta = cos(theta);
-  const T stheta = sin(theta);
-  int k1 = 1;
-  int k2 = -1;
-  const Vector2<T> ep1 = CalcRodEndpoint(x, y, k1, ctheta, stheta,
-                                         get_rod_half_length());
-  const Vector2<T> ep2 = CalcRodEndpoint(x, y, k2, ctheta, stheta,
-                                         get_rod_half_length());
-
-  return min(ep1[1], ep2[1]);
-}
-*/
-
 template <class T>
 Vector2<T> Rod2D<T>::CalcRodEndpoint(const T& x, const T& y, int k,
                                      const T& ctheta, const T& stheta,

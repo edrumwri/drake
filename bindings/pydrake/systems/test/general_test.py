@@ -20,6 +20,7 @@ from pydrake.systems.primitives import (
     Adder,
     ConstantVectorSource,
     Integrator,
+    SignalLogger,
     )
 
 
@@ -39,6 +40,8 @@ class TestGeneral(unittest.TestCase):
         # Create simulator with basic constructor.
         simulator = Simulator(system)
         simulator.Initialize()
+        simulator.set_target_realtime_rate(0)
+        simulator.set_publish_every_time_step(True)
         self.assertTrue(simulator.get_context() is
                         simulator.get_mutable_context())
         check_output(simulator.get_context())
@@ -135,6 +138,32 @@ class TestGeneral(unittest.TestCase):
                            xc_initial)
             print("xc[t = {}] = {}".format(t, xc))
             self.assertTrue(np.allclose(xc, xc_expected))
+
+    def test_signal_logger(self):
+        # Log the output of a simple diagram containing a constant
+        # source and an integrator.
+        builder = DiagramBuilder()
+        kValue = 2.4
+        source = builder.AddSystem(ConstantVectorSource([kValue]))
+        kSize = 1
+        integrator = builder.AddSystem(Integrator(kSize))
+        logger = builder.AddSystem(SignalLogger(kSize))
+        builder.Connect(source.get_output_port(0),
+                        integrator.get_input_port(0))
+        builder.Connect(integrator.get_output_port(0),
+                        logger.get_input_port(0))
+
+        diagram = builder.Build()
+        simulator = Simulator(diagram)
+
+        simulator.StepTo(1)
+
+        t = logger.sample_times()
+        x = logger.data()
+
+        self.assertTrue(t.shape[0] > 2)
+        self.assertTrue(t.shape[0] == x.shape[1])
+        self.assertAlmostEqual(x[0, -1], t[-1]*kValue, places=2)
 
 
 if __name__ == '__main__':

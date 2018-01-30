@@ -4,6 +4,7 @@ load("@drake//tools/install:install.bzl", "install")
 load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
     "//tools:drake.bzl",
+    "drake_cc_googletest",
     "drake_cc_library",
 )
 load(
@@ -14,7 +15,7 @@ load(
 load(
     "//tools/skylark:pybind.bzl",
     "drake_pybind_library",
-    "get_drake_pybind_installs",
+    "get_drake_py_installs",
     "get_pybind_package_info",
 )
 load(
@@ -27,28 +28,18 @@ package(default_visibility = adjust_labels_for_drake_hoist([
     "//drake/bindings/pydrake:__subpackages__",
 ]))
 
-# N.B. Any common headers should be shared via a HEADER ONLY library.
-
-# Target Naming Conventions:
-# `*_py`
-#   A Python library (can be pure Python or pybind)
-#   Files: `*.py`, `*_py.cc`
-# `*_pybind`
-#   A C++ library for adding pybind-specific utilities to be consumed by C++.
-#   Files: `*_pybind.{h,cc}`
-
 # This determines how `PYTHONPATH` is configured, and how to install the
 # bindings.
 PACKAGE_INFO = get_pybind_package_info(
     base_package = adjust_label_for_drake_hoist("//drake/bindings"),
 )
 
-# This is a pure-python, standalone library.
-# Keep this away from `common_py` to simplify test dependencies.
-drake_py_library(
-    name = "util_py",
-    srcs = ["util.py"],
-    imports = PACKAGE_INFO.py_imports,
+drake_cc_library(
+    name = "pydrake_pybind",
+    hdrs = ["pydrake_pybind.h"],
+    # NOTE: We must violate IWYU and not list any Drake libraries in "deps"
+    # here because we do not want these dependencies violating ODR (at both
+    # development and install time).
 )
 
 drake_pybind_library(
@@ -56,7 +47,7 @@ drake_pybind_library(
     cc_srcs = ["common_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        ":util_py",
+        "//bindings/pydrake/util:module_shim_py",
     ],
     py_srcs = [
         "__init__.py",
@@ -64,12 +55,9 @@ drake_pybind_library(
     ],
 )
 
-# TODO(eric.cousineau): Ensure that this is not installed.
 drake_cc_library(
     name = "autodiff_types_pybind",
     hdrs = ["autodiff_types_pybind.h"],
-    # NOTE: We must violate IWYU and not list "autodiff" in "deps" here because
-    # we do not want these dependencies leaking in at install time.
 )
 
 drake_pybind_library(
@@ -132,32 +120,40 @@ drake_pybind_library(
     py_srcs = ["symbolic.py"],
 )
 
-PYBIND_LIBRARIES = adjust_labels_for_drake_hoist([
+# Alias sub-package.
+alias(
+    name = "util_py",
+    actual = "//bindings/pydrake/util",
+)
+
+PY_LIBRARIES_WITH_INSTALL = adjust_labels_for_drake_hoist([
     ":autodiffutils_py",
     ":common_py",
     ":parsers_py",
     ":rbtree_py",
     ":symbolic_py",
+    "//drake/bindings/pydrake/examples",
+    "//drake/bindings/pydrake/multibody",
     "//drake/bindings/pydrake/solvers",
     "//drake/bindings/pydrake/systems",
+    "//drake/bindings/pydrake/third_party",
+    "//drake/bindings/pydrake/util",
 ])
 
-PY_LIBRARIES = [
-    ":util_py",
-]
+PY_LIBRARIES = []
 
 install(
     name = "install",
     targets = PY_LIBRARIES,
     py_dest = PACKAGE_INFO.py_dest,
     visibility = ["//visibility:public"],
-    deps = get_drake_pybind_installs(PYBIND_LIBRARIES),
+    deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
 drake_py_library(
     name = "pydrake",
     visibility = ["//visibility:public"],
-    deps = PYBIND_LIBRARIES + PY_LIBRARIES,
+    deps = PY_LIBRARIES_WITH_INSTALL + PY_LIBRARIES,
 )
 
 # Test ODR (One Definition Rule).
@@ -204,8 +200,7 @@ drake_py_test(
 # `//:install` is run in this test to verify that once installed
 # pydrake still works. This test is implemented in a separate file from
 # common_test to be able to remove files in the sandbox without
-# interfering with other tests. This test fails when bazel is run with
-# `no_everything` because `libgurobi70.so` is not found [Issue #7283].
+# interfering with other tests.
 drake_py_test(
     name = "common_install_test",
     size = "medium",
@@ -214,7 +209,6 @@ drake_py_test(
     srcs = ["test/common_install_test.py"],
     data = ["//:install"],
     main = "test/common_install_test.py",
-    tags = ["no_everything"],
     deps = [
         ":pydrake",
         "//tools/install:install_test_helper",
@@ -256,31 +250,15 @@ drake_py_test(
 )
 
 drake_py_test(
-    name = "urdf_parser_test",
+    name = "parsers_test",
     size = "small",
-    srcs = ["test/test_urdf_parser.py"],
-    data = ["//drake/examples/pr2:models"],
-    main = "test/test_urdf_parser.py",
+    srcs = ["test/parsers_test.py"],
+    data = [
+        "//drake/examples/acrobot:models",
+        "//drake/examples/pr2:models",
+    ],
+    main = "test/parsers_test.py",
     deps = [":rbtree_py"],
-)
-
-drake_py_library(
-    name = "module_shim_example",
-    testonly = 1,
-    srcs = [
-        "test/module_shim_example/__init__.py",
-        "test/module_shim_example/sub_module.py",
-    ],
-    imports = ["test"],
-    deps = [":util_py"],
-)
-
-drake_py_test(
-    name = "module_shim_test",
-    srcs = ["test/module_shim_test.py"],
-    deps = [
-        ":module_shim_example",
-    ],
 )
 
 drake_py_test(

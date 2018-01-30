@@ -136,6 +136,9 @@ drake_cc_library(
 drake_cc_library(
     name = "hash",
     hdrs = ["hash.h"],
+    deps = [
+        ":essential",
+    ],
 )
 
 drake_cc_library(
@@ -231,6 +234,30 @@ drake_cc_library(
 
 DRAKE_RESOURCE_SENTINEL = adjust_label_for_drake_hoist(
     "//drake:.drake-find_resource-sentinel",
+)
+
+drake_cc_library(
+    name = "is_less_than_comparable",
+    hdrs = [
+        "is_less_than_comparable.h",
+    ],
+    deps = [
+        ":unused",
+    ],
+)
+
+drake_cc_library(
+    name = "sorted_pair",
+    srcs = [
+        "sorted_pair.cc",
+    ],
+    hdrs = [
+        "sorted_pair.h",
+    ],
+    deps = [
+        ":hash",
+        ":is_less_than_comparable",
+    ],
 )
 
 drake_cc_library(
@@ -343,6 +370,7 @@ drake_cc_library(
     hdrs = ["type_safe_index.h"],
     deps = [
         ":essential",
+        ":hash",
         ":nice_type_name",
     ],
 )
@@ -390,11 +418,10 @@ install(
     name = "install",
     targets = [":resource_tool"],
     # TODO(jwnimmer-tri) The install rule should offer more specific options
-    # for putting programs into libexec and including the workspace and/or
-    # package name in the installed path.  For now, we'll just specify it
-    # manually.
-    runtime_dest = "libexec/drake/drake/common",
-    data_dest = "share/drake/drake",
+    # for programs not in bin/, and including the workspace and/or package name
+    # in the installed path.  For now, we'll just specify it manually.
+    runtime_dest = "share/drake/common",
+    data_dest = "share/drake",
     guess_data = "WORKSPACE",
     allowed_externals = [DRAKE_RESOURCE_SENTINEL],
 )
@@ -599,6 +626,20 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "is_less_than_comparable_test",
+    deps = [
+        ":is_less_than_comparable",
+    ],
+)
+
+drake_cc_googletest(
+    name = "sorted_pair_test",
+    deps = [
+        ":sorted_pair",
+    ],
+)
+
+drake_cc_googletest(
     name = "extract_double_test",
     deps = [
         ":essential",
@@ -612,6 +653,7 @@ drake_cc_googletest(
         "test/find_resource_test_data.txt",
     ],
     deps = [
+        ":drake_path",
         ":find_resource",
     ],
 )

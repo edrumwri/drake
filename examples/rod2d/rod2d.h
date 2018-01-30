@@ -150,15 +150,7 @@ States: planar position (state indices 0 and 1) and orientation (state
         index 2), and planar linear velocity (state indices 3 and 4) and
         scalar angular velocity (state index 5) in units of m, radians,
         m/s, and rad/s, respectively. Orientation is measured counter-
-        clockwise with respect to the x-axis. For simulations using the
-        piecewise DAE formulation, one abstract state variable
-        (of type Rod2D::Mode) is used to identify which dynamic mode
-        the system is in (e.g., ballistic, contacting at one point and
-        sliding, etc.) and one abstract state variable (of type int) is used
-        to determine which endpoint(s) of the rod contact the halfspace
-        (k=-1 indicates the left endpoint Rl, k=+1 indicates the right
-        endpoint Rr, and k=0 indicates that both endpoints of the rod are
-        contacting the halfspace).
+        clockwise with respect to the x-axis. 
 
 Outputs: Output Port 0 corresponds to the state vector; Output Port 1
          corresponds to a PoseVector giving the 3D pose of the rod in the world
@@ -203,6 +195,13 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         kTimeStepping or @p dt is not zero and simulation_type is
   ///         kPiecewiseDAE or kCompliant.
   explicit Rod2D(SimulationType simulation_type, double dt);
+
+  /// Initializes the abstract state variables using the continuous state of
+  /// the system. Throws std::logic_error() if the simulation type is not
+  /// kPiecewiseDAE. Aborts if `xa` is null.
+  void InitializeAbstractStateFromContinuousState(
+    double sliding_velocity_threshold,
+    systems::State<T>* xc) const;
 
   /// Gets default value for stiffness.
   static constexpr double get_default_stiffness() { return 10000; }
@@ -336,8 +335,6 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_mu_coulomb() const { return mu_; }
 
   /// Sets the coefficient of dynamic (sliding) Coulomb friction.
-  // TODO(edrumwri): This function is now dangerous, b/c it allows the rod
-  // friction to get mismatched with the rigid contact friction. Fix this.
   void set_mu_coulomb(double mu) { mu_ = mu; }
 
   /// Gets the mass of the rod.
@@ -721,7 +718,6 @@ class Rod2D : public systems::LeafSystem<T> {
   // edges in the polygonalization of the friction cone. In 2D, both tangent
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
-  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Vector2<T> CalcContactVelocity(
       const systems::Context<T>& context,
       int index) const;
@@ -736,13 +732,41 @@ class Rod2D : public systems::LeafSystem<T> {
       int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Matrix3<T> GetInverseInertiaMatrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
+  void CalcTwoContactSlidingForces(const systems::Context<T>& context,
+                                    Vector2<T>* fN, Vector2<T>* fF) const;
+  Vector2<T> CalcStickingImpactImpulse(const systems::Context<T>& context)
+    const;
+  Vector2<T> CalcFConeImpactImpulse(const systems::Context<T>& context) const;
   void CalcAccelerationsCompliantContactAndBallistic(
                                   const systems::Context<T>& context,
                                   systems::ContinuousState<T>* derivatives)
                                     const;
+  void CalcAccelerationsBallistic(const systems::Context<T>& context,
+                                  systems::ContinuousState<T>* derivatives)
+                                    const;
+  void CalcAccelerationsTwoContact(const systems::Context<T>& context,
+                                   systems::ContinuousState<T>* derivatives)
+                                     const;
+  void CalcAccelerationsOneContactNoSliding(
+      const systems::Context<T>& context,
+      systems::ContinuousState<T>* derivatives) const;
+  void CalcAccelerationsOneContactSliding(
+      const systems::Context<T>& context,
+      systems::ContinuousState<T>* derivatives) const;
+  void SetAccelerations(const systems::Context<T>& context,
+                        const T& fN, const T& fF,
+                        const Vector2<T>& c,
+                        systems::VectorBase<T>* const f) const;
+  void SetAccelerations(const systems::Context<T>& context,
+                        const Vector2<T>& fN, const Vector2<T>& fF,
+                        const Vector2<T>& c1, const Vector2<T>& c2,
+                        systems::VectorBase<T>* const f) const;
+  Vector2<T> CalcStickingContactForces(
+      const systems::Context<T>& context) const;
 
   // 2D cross product returns a scalar. This is the z component of the 3D
   // cross product [ax ay 0] × [bx by 0]; the x,y components are zero.
@@ -776,13 +800,12 @@ class Rod2D : public systems::LeafSystem<T> {
 
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
-  double dt_{0.};               // Integration step-size for time stepping
-                                // approach.
-  double mass_{1.};             // The mass of the rod (kg).
-  double half_length_{1.};      // The length of the rod (m).
-  double mu_{get_default_mu()}; // The (dynamic) coefficient of friction.
-  double g_{-9.81};             // Acceleration due to gravity (in y direction).
-  double J_{1.};                // The moment of the inertia of the rod.
+  double dt_{0.};           // Integration step-size for time stepping approach.
+  double mass_{1.};         // The mass of the rod (kg).
+  double half_length_{1.};  // The length of the rod (m).
+  double mu_{1000.};        // The (dynamic) coefficient of friction.
+  double g_{-9.81};         // The acceleration due to gravity (in y direction).
+  double J_{1.};            // The moment of the inertia of the rod.
 
   // Compliant contact parameters.
   double stiffness_{get_default_stiffness()};      // Normal stiffness of the

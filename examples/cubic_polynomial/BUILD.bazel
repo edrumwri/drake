@@ -2,7 +2,7 @@
 
 load("//tools:drake.bzl", "drake_cc_binary")
 load("//tools/lint:lint.bzl", "add_lint_tests")
-load("//tools/workspace/mosek:mosek.bzl", "mosek_test_tags")
+load("//tools/skylark:test_tags.bzl", "mosek_test_tags")
 
 drake_cc_binary(
     name = "region_of_attraction",
@@ -11,6 +11,19 @@ drake_cc_binary(
     tags = mosek_test_tags(),
     deps = [
         "//drake/solvers:mathematical_program",
+        "//drake/systems/framework:vector_system",
+    ],
+)
+
+drake_cc_binary(
+    name = "backward_reachability",
+    srcs = ["backward_reachability.cc"],
+    add_test_rule = 1,
+    tags = mosek_test_tags(),
+    deps = [
+        "//drake/common/proto:call_python",
+        "//drake/solvers:mathematical_program",
+        "//drake/solvers:mosek_solver",
         "//drake/systems/framework:vector_system",
     ],
 )
