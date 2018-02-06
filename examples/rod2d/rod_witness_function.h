@@ -18,7 +18,7 @@ class Rod2D;
 
 /// All witness functions for the 2D Rod inherit from this one. 
 template <class T>
-class RodWitnessFunction : public systems::AbstractValues, public systems::WitnessFunction<T> {
+class RodWitnessFunction : public systems::WitnessFunction<T> {
  public:
   RodWitnessFunction(const Rod2D<T>* rod,
                      systems::WitnessFunctionDirection dir,
