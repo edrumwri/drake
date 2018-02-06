@@ -1955,38 +1955,38 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
      
       switch (i) {
         case kSignedDistanceWitnessAbstractIndex:
-          witnesses.push_back(new SignedDistanceWitness<T>(this, 0));
-          witnesses.push_back(new SignedDistanceWitness<T>(this, 1));
+          witnesses.push_back(new SignedDistanceWitness<T>(*this, 0));
+          witnesses.push_back(new SignedDistanceWitness<T>(*this, 1));
           break;
 
         case kNormalAccelWitnessAbstractIndex:
-          witnesses.push_back(new NormalAccelWitness<T>(this, 0));
-          witnesses.push_back(new NormalAccelWitness<T>(this, 1));
+          witnesses.push_back(new NormalAccelWitness<T>(*this, 0));
+          witnesses.push_back(new NormalAccelWitness<T>(*this, 1));
           break;
 
         case kNormalVelWitnessAbstractIndex:
-          witnesses.push_back(new NormalVelWitness<T>(this, 0));
-          witnesses.push_back(new NormalVelWitness<T>(this, 1));
+          witnesses.push_back(new NormalVelWitness<T>(*this, 0));
+          witnesses.push_back(new NormalVelWitness<T>(*this, 1));
           break;
 
         case kStickingFrictionForceSlackWitnessAbstractIndex:
-          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(this, 0));
-          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(this, 1));
+          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(*this, 0));
+          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(*this, 1));
           break;
 
         case kNormalForceWitnessAbstractIndex:
-          witnesses.push_back(new NormalForceWitness<T>(this, 0));
-          witnesses.push_back(new NormalForceWitness<T>(this, 1));
+          witnesses.push_back(new NormalForceWitness<T>(*this, 0));
+          witnesses.push_back(new NormalForceWitness<T>(*this, 1));
           break;
 
         case kNegSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, false, slip_tol));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, false, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(*this, 0, false, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(*this, 1, false, slip_tol));
           break;
 
         case kPosSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, true, slip_tol));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, true, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(*this, 0, true, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(*this, 1, true, slip_tol));
           break;
       }
     }

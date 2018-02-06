@@ -20,10 +20,10 @@ class Rod2D;
 template <class T>
 class RodWitnessFunction : public systems::WitnessFunction<T> {
  public:
-  RodWitnessFunction(const Rod2D<T>* rod,
+  RodWitnessFunction(const Rod2D<T>& rod,
                      systems::WitnessFunctionDirection dir,
                      int contact_index) :
-      systems::WitnessFunction<T>(*rod, dir),
+      systems::WitnessFunction<T>(rod, dir),
       rod_(rod),
       contact_index_(contact_index) {
     event_ = std::make_unique<systems::UnrestrictedUpdateEvent<T>>(
@@ -38,7 +38,7 @@ class RodWitnessFunction : public systems::WitnessFunction<T> {
   void set_enabled(bool flag) { enabled_ = flag; }
 
   /// Gets the rod.
-  const Rod2D<T>& get_rod() const { return *rod_; } 
+  const Rod2D<T>& get_rod() const { return rod_; }
 
   /// Gets the index of the contact candidate for this witness function.
   int get_contact_index() const { return contact_index_; }
@@ -77,8 +77,8 @@ class RodWitnessFunction : public systems::WitnessFunction<T> {
   /// Unique pointer to the event.
   std::unique_ptr<systems::UnrestrictedUpdateEvent<T>> event_;
 
-  /// Pointer to the rod system.
-  const Rod2D<T>* rod_;
+  /// Reference to the rod system.
+  const Rod2D<T>& rod_;
 
   /// Index of the contact point that this witness function applies to.
   int contact_index_{-1};
