@@ -1194,6 +1194,8 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 template <class T>
 void Rod2D<T>::DetermineContactModes(
     const systems::Context<T>& context, systems::State<T>* state) const {
+  using std::abs;
+
   SPDLOG_DEBUG(drake::log(), "Redetermining contact modes");
 
   // Get the vector of contacts.
@@ -1222,6 +1224,18 @@ void Rod2D<T>::DetermineContactModes(
       problem_data.non_sliding_contacts;
   DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
                               non_sliding_contacts.end()));
+
+  // Determine number of contacts.
+  const int num_sliding_contacts = std::accumulate(
+      problem_data.sliding_contacts.begin(),
+      problem_data.sliding_contacts.end(), 0);
+  const int num_non_sliding_contacts = std::accumulate(
+      problem_data.non_sliding_contacts.begin(),
+      problem_data.non_sliding_contacts.end(), 0);
+  const int num_contacts = num_sliding_contacts + num_non_sliding_contacts; 
+
+  // Set the zero tolerance.
+  const double zero_tol = 10 * std::numeric_limits<double>::epsilon();
 
   // Examine contact forces and residual accelerations.
   std::vector<int> contacts_to_remove;
@@ -1260,8 +1274,11 @@ void Rod2D<T>::DetermineContactModes(
                            contact_array_index));
 
         // TODO: Need a more numerically robust scheme.
-        if (Lambda[non_sliding_index] > 
-            10 * std::numeric_limits<double>::epsilon()) {
+        const T friction_force_slack = 
+            problem_data.mu_non_sliding[non_sliding_index] *
+            cf[non_sliding_index] - cf[num_contacts + non_sliding_index];
+        if (abs(friction_force_slack) < zero_tol ||
+            Lambda[non_sliding_index] > zero_tol) {
           SPDLOG_DEBUG(drake::log(), "Setting contact to 'transitioning'");
           contacts[contact_array_index].sliding_type =
               multibody::constraint::SlidingModeType::kTransitioning;
