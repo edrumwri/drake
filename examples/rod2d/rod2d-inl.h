@@ -917,6 +917,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>& events,
     systems::State<T>* state) const {
   using std::abs;
+  SPDLOG_DEBUG(drake::log(), "Performing 'unrestricted' update");
 
   // Get the current configuration of the system.
   const VectorX<T> q = state->get_continuous_state().
@@ -1226,12 +1227,8 @@ void Rod2D<T>::DetermineContactModes(
                               non_sliding_contacts.end()));
 
   // Determine number of contacts.
-  const int num_sliding_contacts = std::accumulate(
-      problem_data.sliding_contacts.begin(),
-      problem_data.sliding_contacts.end(), 0);
-  const int num_non_sliding_contacts = std::accumulate(
-      problem_data.non_sliding_contacts.begin(),
-      problem_data.non_sliding_contacts.end(), 0);
+  const int num_sliding_contacts = problem_data.sliding_contacts.size();
+  const int num_non_sliding_contacts = problem_data.non_sliding_contacts.size();
   const int num_contacts = num_sliding_contacts + num_non_sliding_contacts; 
 
   // Set the zero tolerance.
