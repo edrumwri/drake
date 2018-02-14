@@ -214,6 +214,18 @@ class Rod2D : public systems::LeafSystem<T> {
     double sliding_velocity_threshold,
     systems::State<T>* xc) const;
 
+  /// Gets the numerical threshold for the horizontal velocity at a contact
+  /// endpoint to be considered as not-sliding. Tighter thresholds indicate
+  /// higher accuracy and more computation. The threshold will be determined
+  /// using the context accuracy setting, if available, and will be set to
+  /// 1e-8 otherwise (a setting exponentially halfway to the tightest reasonable
+  /// setting of machine epsilon.
+  double GetSlidingVelocityThreshold(
+      const systems::Context<T>& context) const { 
+    const optional<double>& accuracy = context.get_accuracy();
+    return accuracy ? accuracy.value() : 1e-8;
+  }
+
   /// Gets default value for stiffness.
   static constexpr double get_default_stiffness() { return 10000; }
 

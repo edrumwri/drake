@@ -24,8 +24,7 @@ class SlidingWitness : public RodWitnessFunction<T> {
   SlidingWitness(
       const Rod2D<T>* rod,
       int contact_index,
-      bool pos_direction,
-      double sliding_velocity_threshold) :
+      bool pos_direction) :
       RodWitnessFunction<T>(
           rod,
           systems::WitnessFunctionDirection::kCrossesZero,
@@ -40,7 +39,6 @@ class SlidingWitness : public RodWitnessFunction<T> {
     oss << " (" << contact_index << ")";
     this->set_name(oss.str());
     positive_ = pos_direction;
-    velocity_threshold_ = sliding_velocity_threshold;
   }
 
   typename RodWitnessFunction<T>::WitnessType
@@ -56,14 +54,19 @@ class SlidingWitness : public RodWitnessFunction<T> {
     // Get the rod system.
     const Rod2D<T>& rod = this->get_rod();
 
+    // Get the sliding velocity threshold. 
+    const double sliding_threshold = rod.GetSlidingVelocityThreshold(context); 
+
     // Verify the system is simulated using piecewise DAE.
     DRAKE_DEMAND(rod.get_simulation_type() ==
         Rod2D<T>::SimulationType::kPiecewiseDAE);
 
     // Get the contact information.
     const int contact_index = this->get_contact_index();
+    const int contact_array_index = rod.GetContactArrayIndex(
+        context.get_state(), contact_index);
     const auto& contact = rod.get_contacts_used_in_force_calculations(
-        context.get_state())[contact_index];
+        context.get_state())[contact_array_index];
 
     // Verify rod is undergoing sliding contact at the specified index.
     DRAKE_DEMAND(contact.sliding_type ==
@@ -77,9 +80,9 @@ class SlidingWitness : public RodWitnessFunction<T> {
 
     // Return the tangent velocity.
     if (positive_) {
-      return velocity_threshold_ - pdot[0];
+      return sliding_threshold - pdot[0];
     } else {
-      return -pdot[0] - velocity_threshold_;
+      return -pdot[0] - sliding_threshold;
     }
   }
 
@@ -87,10 +90,6 @@ class SlidingWitness : public RodWitnessFunction<T> {
   // sufficiently positive. Otherwise, it triggers when the sliding velocity
   // is sufficiently negative.
   bool positive_{false};
-
-  // The contact is only to be considered as properly sliding once this
-  // threshold has been met.
-  double velocity_threshold_{10 * std::numeric_limits<double>::epsilon()};
 };
 
 }  // namespace rod2d

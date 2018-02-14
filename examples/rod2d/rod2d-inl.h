@@ -635,12 +635,23 @@ void Rod2D<T>::CalcConstraintProblemData(
     N.row(i) = GetJacobianRow(context, points[i], contact_normal);
   data->N_mult = [N](const VectorX<T>& w) -> VectorX<T> { return N * w; };
 
+  // Compute the amount of interpenetration.
+  VectorX<T> phi(nc);
+  for (size_t i = 0; i < points.size(); ++i)
+    phi[i] = points[i][1];
+
+  // Set the Baumgarte term to effect critical damping.
+  const double omega = (context.get_accuracy()) ?
+      1.0/context.get_accuracy().value() : 100;  // Oscillation frequency.
+  const double alpha = 2 * get_rod_mass() * omega;
+  const double beta = alpha * alpha / (4 * get_rod_mass() * get_rod_mass()); 
+
   // Form Ndot (time derivative of N) and compute Ndot * v.
   MatrixX<T> Ndot(nc, ngc);
   for (int i = 0; i < nc; ++i)
     Ndot.row(i) =  GetJacobianDotRow(context, points[i], contact_normal);
   const Vector3<T> v = GetRodVelocity(context);
-  data->kN = Ndot * v;
+  data->kN = Ndot * v + alpha * N * v + beta * phi;
   data->gammaN.setZero(nc);
 
   // Form the tangent directions contact Jacobian (F), its time derivative
@@ -654,7 +665,7 @@ void Rod2D<T>::CalcConstraintProblemData(
     Fdot.row(i) = GetJacobianDotRow(
         context, points[contact_index], contact_tangent);
   }
-  data->kF = Fdot * v;
+  data->kF = Fdot * v + alpha * F * v;
   data->F_mult = [F](const VectorX<T>& w) -> VectorX<T> { return F * w; };
   data->F_transpose_mult = [F](const VectorX<T>& w) -> VectorX<T> {
     return F.transpose() * w;
@@ -1162,9 +1173,6 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 
             // Disable the normal force witness.
             GetNormalForceWitness(i, *state)->set_enabled(false);
-
-            // Need to process the newly designated element i.
-            --i;
           }
         } else {
           // The contact point should potentially be accounted for in the force
@@ -1282,7 +1290,18 @@ void Rod2D<T>::DetermineContactModes(
           GetPosSlidingWitness(i, *state)->set_enabled(true);
           GetNegSlidingWitness(i, *state)->set_enabled(true);
           GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+        } else {
+        // Contact is not sliding and not transitioning. Enable and disable
+        // proper witnesses.
+        GetPosSlidingWitness(i, *state)->set_enabled(false);
+        GetNegSlidingWitness(i, *state)->set_enabled(false);
+        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
         }
+      } else {
+        // Contact is sliding. Enable and disable proper witnesses.
+        GetPosSlidingWitness(i, *state)->set_enabled(true);
+        GetNegSlidingWitness(i, *state)->set_enabled(true);
+        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
       }
     }
   }
@@ -1426,10 +1445,8 @@ bool Rod2D<T>::IsTangentVelocityZero(const systems::Context<T>& context,
                                      int contact_index) const {
   using std::abs;
 
-  // TODO(edrumwri): Do a proper test that uses integrator tolerances and
-  // distance of the c.o.m. from the contact point to determine a coherent
-  // tolerance.
-  const T tol = 1e-10;
+  // Get the sliding velocity tolerance. 
+  const double tol = GetSlidingVelocityThreshold(context); 
 
   // Test tangent velocity.
   const Vector2<T> pdot = CalcContactVelocity(context, contact_index);
@@ -1947,9 +1964,6 @@ void Rod2D<T>::DoCalcTimeDerivatives(
 template <typename T>
 std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
     const {
-  // TODO: Make the sliding tolerance a function of accuracy.
-  const double slip_tol = 1e-4;
-
   if (simulation_type_ == SimulationType::kPiecewiseDAE) {
     // Piecewise DAE approach needs multiple abstract variables: one vector
     // of contact indices used in force calculations and one vector for each
@@ -1994,13 +2008,13 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
           break;
 
         case kNegSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, false, slip_tol));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, false, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(this, 0, false));
+          witnesses.push_back(new SlidingWitness<T>(this, 1, false));
           break;
 
         case kPosSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, true, slip_tol));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, true, slip_tol));
+          witnesses.push_back(new SlidingWitness<T>(this, 0, true));
+          witnesses.push_back(new SlidingWitness<T>(this, 1, true));
           break;
       }
     }

@@ -776,8 +776,11 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
 
   // Evaluate the witness functions.
   w0_.resize(witness_functions.size());
-  for (size_t i = 0; i < witness_functions.size(); ++i)
-      w0_[i] = system.EvaluateWitness(context, *witness_functions[i]);
+  for (size_t i = 0; i < witness_functions.size(); ++i) {
+    w0_[i] = system.EvaluateWitness(context, *witness_functions[i]);
+    SPDLOG_DEBUG(drake::log(), "Witness function {} evaluates to {} at {}",
+        witness_functions[i]->get_name(), w0_[i], t0);
+  }
 
   // Attempt to integrate. Updates and boundary times are consciously
   // distinguished between. See internal documentation for
@@ -789,8 +792,11 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
 
   // Evaluate the witness functions again.
   wf_.resize(witness_functions.size());
-  for (size_t i =0; i < witness_functions.size(); ++i)
+  for (size_t i =0; i < witness_functions.size(); ++i) {
     wf_[i] = system.EvaluateWitness(context, *witness_functions[i]);
+    SPDLOG_DEBUG(drake::log(), "Witness function {} evaluates to {} at {}",
+        witness_functions[i]->get_name(), wf_[i], tf);
+  }
 
   // See whether a witness function triggered.
   triggered_witnesses_.clear();
