@@ -1222,7 +1222,8 @@ void Rod2D<T>::DetermineContactModes(
 
   // Determine the residual tangential accelerations for sticking contacts,
   // and determine which contacts have no forces applied. The complementarity
-  // solver *must* be used.
+  // solver *must* be used. Note that contact forces have the same ordering
+  // as in contacts.
   VectorX<T> Lambda;
   CalcConstraintProblemData(context, *state, &problem_data);
   problem_data.use_complementarity_problem_solver = true;
@@ -1291,11 +1292,11 @@ void Rod2D<T>::DetermineContactModes(
           GetNegSlidingWitness(i, *state)->set_enabled(true);
           GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
         } else {
-        // Contact is not sliding and not transitioning. Enable and disable
-        // proper witnesses.
-        GetPosSlidingWitness(i, *state)->set_enabled(false);
-        GetNegSlidingWitness(i, *state)->set_enabled(false);
-        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
+          // Contact is not sliding and not transitioning. Enable and disable
+          // proper witnesses.
+          GetPosSlidingWitness(i, *state)->set_enabled(false);
+          GetNegSlidingWitness(i, *state)->set_enabled(false);
+          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
         }
       } else {
         // Contact is sliding. Enable and disable proper witnesses.
