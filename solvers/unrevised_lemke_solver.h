@@ -67,10 +67,6 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   /// @param[in] zero_tol The tolerance for testing against zero. If the
   ///            tolerance is negative (default) the solver will determine a
   ///            generally reasonable tolerance.
-  /// @param[in] piv_tol The tolerance for testing against zero, specifically
-  ///            used for the purpose of finding variables for pivoting. If the
-  ///            tolerance is negative (default) the solver will determine a
-  ///            generally reasonable tolerance.
   /// @returns `true` if the solver **believes** it has computed a solution
   ///          (which it determines by the ability to "pivot out" the
   ///          "artificial" variable (see [Cottle 1992]) and `false` otherwise.
@@ -82,7 +78,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   /// * [Cottle 1992]      R. Cottle, J.-S. Pang, and R. Stone. The Linear
   ///                      Complementarity Problem. Academic Press, 1992.
   bool SolveLcpLemke(const MatrixX<T>& M, const VectorX<T>& q,
-                     VectorX<T>* z, int* num_pivots, const T& piv_tol = T(-1),
+                     VectorX<T>* z, int* num_pivots,
                      const T& zero_tol = T(-1)) const;
 
   /// Lemke's Algorithm for solving LCPs in the matrix class E, which contains
@@ -112,7 +108,6 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   ///                recommended**: it has a predisposition to lead to a failing
   ///                pivoting sequence.
   ///
-  /// @sa SolveLcpFastRegularized()
   /// @sa SolveLcpLemke()
   ///
   /// * [Cottle 1992]      R. Cottle, J.-S. Pang, and R. Stone. The Linear
@@ -121,7 +116,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
                                 const VectorX<T>& q, VectorX<T>* z,
                                 int* num_pivots,
                                 int min_exp = -20, int step_exp = 1,
-                                int max_exp = 1, const T& piv_tol = T(-1),
+                                int max_exp = 1,
                                 const T& zero_tol = T(-1)) const;
 
   bool available() const override { return true; }

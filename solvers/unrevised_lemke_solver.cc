@@ -17,6 +17,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/never_destroyed.h"
 #include "drake/common/text_logging.h"
+#include "drake/common/unused.h"
 
 using drake::log;
 
@@ -460,7 +461,7 @@ void UnrevisedLemkeSolver<T>::LemkePivot(
     // Determine gamma by determining the position of the driving variable
     // in INDEPENDENT W.
     int gamma = 0;
-    for (int i = 0; i < driving_index; ++i) {
+    for (int i = 0; i < static_cast<int>(indep_variables_.size()); ++i) {
       if (!indep_variables_[i].z) {
         if (indep_variables_[i].index < indep_variables_[driving_index].index) 
           ++gamma;
@@ -503,141 +504,6 @@ void UnrevisedLemkeSolver<T>::LemkePivot(
 
   DRAKE_SPDLOG_DEBUG(log(), "M' (driving): {}", M_prime_col->transpose());
 }
-
-/*
-template <typename T>
-void UnrevisedLemkeSolver<T>::LemkePivot(
-    const MatrixX<T>& M,
-    const VectorX<T>& q,
-    const std::vector<LCPVariable>& indep_variables,
-    int driving_index,
-    const std::vector<LCPVariable>& dep_variables,
-    VectorX<T>* M_prime_col,
-    VectorX<T>* q_bar) {
-  DRAKE_DEMAND(q_bar);
-
-  const int n = q.rows();
-  const int kArtificial = n;
-
-  // Verify that each member in the independent and dependent sets is unique.
-  DRAKE_ASSERT(IsEachUnique(indep_variables));
-  DRAKE_ASSERT(IsEachUnique(dep_variables));
-
-  // If the driving index does not correspond to the artificial variable,
-  // M_prime_col must be non-null.
-  if (!indep_variables[driving_index].z ||
-      indep_variables[driving_index].index != kArtificial) {
-    DRAKE_DEMAND(M_prime_col);
-  }
-
-  // Determine sets.
-  std::vector<int> w_vars_in_indep, w_vars_in_dep, z_vars_in_indep,
-      z_vars_in_dep;
-  for (int i = 0; i < indep_variables.size(); ++i) {
-    if (!indep_variables[i].z) {
-      w_vars_in_indep.push_back(indep_variables[i].index);
-    } else {
-      z_vars_in_indep.push_back(indep_variables[i].index);
-    }
-  }
-  for (int i = 0; i < dep_variables.size(); ++i) {
-    if (!dep_variables[i].z) {
-      w_vars_in_dep.push_back(dep_variables[i].index);
-    } else {
-      z_vars_in_dep.push_back(dep_variables[i].index);
-      if (z_vars_in_dep.back() )
-    }
-  }
-
-  // If α is empty, all z are on the right hand side (independent) and all
-  // w are on the left hand side (dependent). If α̅ is empty, all w are on the
-  // right hand side (independent) and all z are on the left hand side
-  // (dependent). Equation (9) from [Cottle 1992] p. 72 shows the dependent
-  // z and w variables on the left hand side and the independent z and w
-  // variables on the right hand side.
-
-  // Mαα comprises the submatrix corresponding to the dependent z variables /
-  // independent w variables. Due to Hongkai's Lemma, there can be at most n
-  // independent w variables, so we don't have to worry about whether we
-  // select using dependent z variables or independent w variables. We
-  // simultaneously determine the set of indices in α̅, which corresponds to
-  // independent z variables and dependent w variables. 
-
-  std::sort(w_vars_in_indep.begin(), w_vars_in_indep.end());
-  std::sort(z_vars_in_indep.begin(), z_vars_in_indep.end());
-  std::sort(w_vars_in_dep.begin(), w_vars_in_dep.end());
-  std::sort(z_vars_in_dep.begin(), z_vars_in_dep.end());
-
-  MatrixX<T> Maa, Mba;
-  SelectSubMatrixPlusCovering(M, w_vars_in_indep, z_vars_in_dep, &Maa);
-  SelectSubMatrixPlusCovering(M, w_vars_in_dep, z_vars_in_dep, &Mba);
-  LinearSolver<T> solver(Maa);
-
-  std::vector<int> alpha_indices, not_alpha_indices;
-  // qα comprises the components of q corresponding to the dependent z
-  // variables. qα̅ comprises the components of q corresponding to the
-  // independent z variables.
-  VectorX<T> q_alpha, q_not_alpha;
-  SelectSubVector(q, w_vars_in_indep, &q_alpha);
-  SelectSubVector(q, w_vars_in_dep, &q_not_alpha);
-  const VectorX<T> q_alpha_prime = -solver.Solve(q_alpha);
-  const VectorX<T> q_not_alpha_prime = q_not_alpha + Mba * q_alpha_prime;
-  q_bar->resize(n);
-  SetSubVector(z_vars_in_dep, q_alpha_prime, q_bar);
-  SetSubVector(w_vars_in_indep, q_not_alpha_prime, q_bar);
-
-//  q_bar->segment(0, alpha_indices.size()) = q_alpha_prime;
-//  q_bar->segment(alpha_indices.size(), not_alpha_indices.size()) =
-//      q_not_alpha_prime;
-
-  // If the driving index corresponds to the artificial variable, no need to
-  // perform an unnecessary calculation.
-  if (indep_variables[driving_index].z &&
-      indep_variables[driving_index].index == kArtificial) {
-    return;
-  }
-
-  // Reform not_alpha_indices, now using the artificial variable.
-//  not_alpha_indices.clear();
-//  for (int i = 0; i < indep_variables.size(); ++i) {
-//    if (indep_variables[i].z)
-//      not_alpha_indices.push_back(indep_variables[i].index);
-//  }
-
-  // There are two possible cases for the driving variable, depending on the
-  // driving variable index. If the index is less than the number of dependent
-  // z variables (i.e., the number of alpha indices), the column should either
-  // be drawn from the two left equations of (11) in [Cottle 1992] p. 72 or the
-  // two right equations. Note that we
-  // do not say that the latter should correspond to one of the dependent w
-  // variables, because we need to be able to include the covering vector.
-  VectorX<T> M_prime_alpha_prime, M_prime_not_alpha_prime;
-
-  // Get the column index, which must wrap around.
-  int col_index = indep_variables[driving_index].index + 1;
-  if (col_index > n)
-    col_index = 0;
-
-  if (!indep_variables[driving_index].z) {
-    // Left two equations.
-    const VectorX<T> unit = VectorX<T>::Unit(alpha_indices.size(), col_index);
-    M_prime_alpha_prime = solver.Solve(unit);
-    M_prime_not_alpha_prime = Mba * M_prime_alpha_prime;
-  } else {
-    // Right two equations.
-    VectorX<T> Mab, Mbb;
-    SelectSubColumnPlusCovering(M, alpha_indices, col_index, &Mab);
-    SelectSubColumnPlusCovering(M, not_alpha_indices, col_index, &Mbb);
-    M_prime_alpha_prime = -solver.Solve(Mab);
-    M_prime_not_alpha_prime = Mbb + Mba * M_prime_alpha_prime;
-  }
-
-  M_prime_col->resize(n);
-  M_prime_col->segment(0, alpha_indices.size()) = M_prime_alpha_prime;
-  M_prime_col->segment(alpha_indices.size(), not_alpha_indices.size()) =
-      M_prime_not_alpha_prime;
-}
-*/
 
 // O(n) method for finding the index of the complement of an LCP variable in
 // a set (strictly speaking, an unsorted vector) of indices. Aborts if the
@@ -682,7 +548,6 @@ template <typename T>
 bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
                                      const VectorX<T>& q, VectorX<T>* z,
                                      int* num_pivots,
-                                     const T& piv_tol,
                                      const T& zero_tol) const {
   using std::max;
   using std::abs;
@@ -692,7 +557,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       "q: {}, ", M, q.transpose());
 
   const int n = q.size();
-  const int max_pivots = std::min(1000, 50 * n);
+  const int max_pivots = std::min(150, 50 * n);
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");
@@ -744,11 +609,15 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       // Compute z and w.
       const T dot = w.dot(*z);
 
-      // If the solution is good, return now, indicating only one pivot
-      // was performed.
-      if (min_z > -zero_tol && min_w > -zero_tol && abs(dot) < 10*n*zero_tol) {
-        ++(*num_pivots);
-        return true;
+      // Verify that the solution has no NaN values.
+      if (z->allFinite()) {
+        // If the solution is good, return now, indicating only one pivot
+        // was performed.
+        if (min_z > -zero_tol && min_w > -zero_tol
+            && abs(dot) < 10 * n * zero_tol) {
+          ++(*num_pivots);
+          return true;
+        }
       }
     }
   }
@@ -798,6 +667,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       oss << ((vars[i].z) ? "z" : "w") << vars[i].index << " ";
     return oss.str();
   };
+  unused(to_string);
   DRAKE_SPDLOG_DEBUG(log(), "Independent set variables: {}",
       to_string(indep_variables_));
   DRAKE_SPDLOG_DEBUG(log(), "Dependent set variables: {}",
@@ -817,8 +687,9 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     T min_ratio = std::numeric_limits<double>::infinity();
     blocking_index = -1;
     for (int i = 0; i < M_prime_col.size(); ++i) {
-      if (M_prime_col[i] < 0) {
+      if (M_prime_col[i] < -mod_zero_tol) {
         const T ratio = -q_prime[i] / M_prime_col[i];
+        DRAKE_SPDLOG_DEBUG(log(), "Index {} ratio: {}", i, ratio);
         if (ratio < min_ratio) {
           min_ratio = ratio;
           blocking_index = i;
@@ -847,6 +718,14 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
       // Compute the permuted q, and convert it into a solution.
       ConstructLemkeSolution(M, q, driving_index, z);
+
+      // Verify that the solution has no NaN values.
+      if (!z->allFinite()) {
+        DRAKE_SPDLOG_DEBUG(log(), "'Solution' found, but it's NaN!");
+        return false;
+      }
+
+      DRAKE_SPDLOG_DEBUG(log(), "Solution found!");
       return true;
     } else {
       // Pivot the blocking variable and the driving variable.
@@ -864,6 +743,8 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   }
 
   // If here, the maximum number of pivots has been exceeded.
+  DRAKE_SPDLOG_DEBUG(log(), "Maximum number of pivots exceeded");
+  std::cerr << "Pivots: " << max_pivots << std::endl;
   z->setZero(n);
   return false;
 }
@@ -873,9 +754,149 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemkeRegularized(const MatrixX<T>& M,
                               const VectorX<T>& q, VectorX<T>* z,
                               int* num_pivots,
                               int min_exp, int step_exp,
-                              int max_exp, const T& piv_tol,
-                              const T& zero_tol) const {
-  DRAKE_ABORT();
+                              int max_exp, const T& zero_tol) const {
+
+  DRAKE_SPDLOG_DEBUG(log(), 
+      "UnrevisedLemkeSolver::SolveLcpLemkeRegularized() entered");
+
+  // Variables that will be reused multiple times, thus hopefully allowing
+  // Eigen to keep from freeing/reallocating memory repeatedly.
+  VectorX<T> wx;
+  MatrixX<T> MM;
+
+  // Reset the number of pivots.
+  *num_pivots = 0;
+
+  // look for fast exit
+  if (q.size() == 0) {
+    z->resize(0);
+    return true;
+  }
+
+  // copy MM
+  MM = M;
+
+  // A discourse on the zero tolerance in the context of regularization:
+  // The zero tolerance is used to determine when an element of w or z is
+  // effectively zero though its floating point value is negative. The question
+  // is whether the regularization process will change the zero tolerance
+  // necessary to solve the problem numerically. In such a case, the infinity
+  // norm of M would be small while the infinity norm of MM (regularized M)
+  // would be large. Consider the case of a symmetric, indefinite matrix with
+  // maximum and minimum eigenvalues of a and -a, respectively. The matrix could
+  // be made positive definite (and thereby guaranteed to possess a solution to
+  // the linear complementarity problem) by adding an identity matrix times
+  // (a+ε) to the LCP matrix, where ε > 0 (its magnitude will depend upon the
+  // magnitude of a). The infinity norm (and hence the zero tolerance) could
+  // then be expected to grow by a factor of approximately two during the
+  // regularization process. In other words, recomputing the zero tolerance
+  // for each regularization update to the LCP matrix appears wasteful. For
+  // this reason, we compute it only once below, but a practical effect is
+  // not discernible at this time.
+
+  // Assign value for zero tolerance, if necessary.
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
+
+  DRAKE_SPDLOG_DEBUG(log(), " zero tolerance: {}", mod_zero_tol);
+
+  // try non-regularized version first
+  int pivots;
+  bool result = SolveLcpLemke(MM, q, z, &pivots, mod_zero_tol);
+  (*num_pivots) += pivots;
+  if (result) {
+    // verify that solution truly is a solution -- check z
+    if (z->minCoeff() >= -mod_zero_tol) {
+      // check w
+      wx = (M * (*z)) + q;
+      if (wx.minCoeff() >= -mod_zero_tol) {
+        // Check element-wise operation of z*wx.
+        wx = z->array() * wx.eval().array();
+        const T wx_min = wx.minCoeff();
+        const T wx_max = wx.maxCoeff();
+
+        if (wx_min >= -mod_zero_tol && wx_max < mod_zero_tol) {
+          DRAKE_SPDLOG_DEBUG(log(),
+                             "  solved with no regularization necessary!");
+          DRAKE_SPDLOG_DEBUG(log(), "  pivots / total pivots: {} / {} ",
+                             pivots, *num_pivots);
+          return true;
+        } else {
+          DRAKE_SPDLOG_DEBUG(log(), "'<w, z> not within tolerance(min value: "
+              "{} max value: {})", wx_min, wx_max);
+        }
+      } else {
+        DRAKE_SPDLOG_DEBUG(log(), "  'w' not solved to desired tolerance"
+            "  minimum w: {}", wx.minCoeff());
+      }
+    } else {
+      DRAKE_SPDLOG_DEBUG(log(), "  'z' not solved to desired tolerance"
+          "  minimum z: {}", z->minCoeff());
+    }
+  } else {
+    DRAKE_SPDLOG_DEBUG(log(), "  solver failed with zero regularization");
+  }
+
+  // start the regularization process
+  int rf = min_exp;
+  while (rf < max_exp) {
+    // setup regularization factor
+    double lambda =
+        std::pow(static_cast<double>(10.0), static_cast<double>(rf));
+
+    DRAKE_SPDLOG_DEBUG(log(),
+        "  trying to solve LCP with regularization factor {} ", lambda);
+
+    // regularize M
+    MM = M;
+    for (unsigned i = 0; i < M.rows(); i++) {
+      MM(i, i) += lambda;
+    }
+
+    // try to solve the LCP
+    result = SolveLcpLemke(MM, q, z, &pivots, mod_zero_tol);
+
+    // update total pivots
+    (*num_pivots) += pivots;
+
+    if (result) {
+      DRAKE_SPDLOG_DEBUG(log(),
+                         "  solved with regularization factor {}", lambda);
+      // verify that solution truly is a solution -- check z
+      if (z->minCoeff() > -mod_zero_tol) {
+        // check w
+        wx = (MM * (*z)) + q;
+        if (wx.minCoeff() > -mod_zero_tol) {
+          // Check element-wise operation of z*wx.
+          wx = z->array() * wx.eval().array();
+          const T wx_min = wx.minCoeff();
+          const T wx_max = wx.maxCoeff();
+
+          if (wx_min > -mod_zero_tol && wx_max < mod_zero_tol) {
+            DRAKE_SPDLOG_DEBUG(log(),
+                "  solved with regularization factor {}", lambda);
+            DRAKE_SPDLOG_DEBUG(log(),
+                "  pivots / total pivots: {} / {} ", pivots, *num_pivots);
+            return true;
+          } else {
+            DRAKE_SPDLOG_DEBUG(log(), "'<w, z> not within tolerance(min value: "
+                "{} max value: {})", wx_min, wx_max);
+          }
+        } else {
+          DRAKE_SPDLOG_DEBUG(log(), "  'w' not solved to desired tolerance"
+              "  minimum w: {}", wx.minCoeff());
+        }
+      } else {
+        DRAKE_SPDLOG_DEBUG(log(), "  'z' not solved to desired tolerance"
+            "  minimum z: {}", z->minCoeff());
+      }
+    }
+
+    // increase rf
+    rf += step_exp;
+  }
+
+  DRAKE_SPDLOG_DEBUG(log(), "  unable to solve given any regularization!");
+
   return true;
 }
 

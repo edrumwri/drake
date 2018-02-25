@@ -16,6 +16,9 @@
 #include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/never_destroyed.h"
+#include "drake/common/text_logging.h"
+
+using drake::log;
 
 namespace drake {
 namespace solvers {
@@ -529,8 +532,8 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
           const T wx_max = wx.maxCoeff();
 
           if (wx_min > -mod_zero_tol && wx_max < mod_zero_tol) {
-            Log() << "  solved with regularization factor: " << lambda
-                  << std::endl;
+            DRAKE_SPDLOG_DEBUG(
+                log(), "solved with regularization factor {}", lambda);
             Log() << "  pivots / total pivots: " << pivots_ << " " << total_piv
                   << std::endl;
             Log() << "MobyLCPSolver::SolveLcpFastRegularized() exited"
@@ -1012,8 +1015,8 @@ bool MobyLCPSolver<T>::SolveLcpLemkeRegularized(const MatrixX<T>& M,
           const T wx_min = wx.minCoeff();
           const T wx_max = wx.maxCoeff();
           if (wx_min > -mod_zero_tol && wx_max < mod_zero_tol) {
-            Log() << "  solved with regularization factor: " << lambda
-                  << std::endl;
+            DRAKE_SPDLOG_DEBUG(
+                log(), "solved with regularization factor {}", lambda);
             Log() << "MobyLCPSolver::SolveLcpLemkeRegularized() exited"
                   << std::endl;
             pivots_ = total_piv;
