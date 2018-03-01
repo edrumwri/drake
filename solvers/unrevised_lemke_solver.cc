@@ -557,7 +557,8 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       "q: {}, ", M, q.transpose());
 
   const int n = q.size();
-  const int max_pivots = std::min(150, 50 * n);
+//  const int max_pivots = std::min(1000, 50 * n);
+  const int max_pivots = std::numeric_limits<int>::max();
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");
@@ -585,6 +586,9 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     return true;
   }
 
+  // Clear the cyling selections.
+  selections_.clear();
+
   // If 'n' is identical to the size of the last problem solved, try using the
   // indices from the last problem solved.
   if (static_cast<size_t>(n) == dep_variables_.size()) {
@@ -609,15 +613,11 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       // Compute z and w.
       const T dot = w.dot(*z);
 
-      // Verify that the solution has no NaN values.
-      if (z->allFinite()) {
-        // If the solution is good, return now, indicating only one pivot
-        // was performed.
-        if (min_z > -zero_tol && min_w > -zero_tol
-            && abs(dot) < 10 * n * zero_tol) {
-          ++(*num_pivots);
-          return true;
-        }
+      // If the solution is good, return now, indicating only one pivot
+      // was performed.
+      if (min_z > -zero_tol && min_w > -zero_tol && abs(dot) < 10*n*zero_tol) {
+        ++(*num_pivots);
+        return true;
       }
     }
   }
@@ -689,7 +689,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     for (int i = 0; i < M_prime_col.size(); ++i) {
       if (M_prime_col[i] < -mod_zero_tol) {
         const T ratio = -q_prime[i] / M_prime_col[i];
-        DRAKE_SPDLOG_DEBUG(log(), "Index {} ratio: {}", i, ratio);
+        DRAKE_SPDLOG_DEBUG(log(), "Ratio for index {}: {}", i, ratio);
         if (ratio < min_ratio) {
           min_ratio = ratio;
           blocking_index = i;
@@ -701,6 +701,33 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       SPDLOG_DEBUG(log(), "driving variable is unblocked- algorithm failed");
       z->setZero(n);
       return false;
+    }
+
+    // Determine all variables within the zero tolerance of the minimum ratio.
+    std::vector<int> blocking_indices;
+    for (int i = 0; i < M_prime_col.size(); ++i) {
+      if (M_prime_col[i] < -mod_zero_tol) {
+        const T ratio = -q_prime[i] / M_prime_col[i];
+        DRAKE_SPDLOG_DEBUG(log(), "Ratio for index {}: {}", i, ratio);
+        if (ratio < min_ratio + mod_zero_tol)
+          blocking_indices.push_back(i);
+      }
+    }
+
+    // If there are multiple blocking variables, replace the blocking index with
+    // the cycling selection. 
+    if (blocking_indices.size() > 1) {
+      auto& index = selections_[indep_variables_];
+
+      // Verify that we have not run out of indices to select, which means that
+      // cycling would be occurring, in spite of cycling prevention.
+      if (index >= static_cast<int>(blocking_indices.size())) {
+        DRAKE_SPDLOG_DEBUG(log(), "Cycling detected- indicating failure.");
+        z->setZero(n);
+        return false;
+      }
+      blocking_index = blocking_indices[index];
+      ++index;
     }
 
     // Get the blocking variable.
@@ -718,14 +745,6 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
       // Compute the permuted q, and convert it into a solution.
       ConstructLemkeSolution(M, q, driving_index, z);
-
-      // Verify that the solution has no NaN values.
-      if (!z->allFinite()) {
-        DRAKE_SPDLOG_DEBUG(log(), "'Solution' found, but it's NaN!");
-        return false;
-      }
-
-      DRAKE_SPDLOG_DEBUG(log(), "Solution found!");
       return true;
     } else {
       // Pivot the blocking variable and the driving variable.
@@ -743,8 +762,6 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   }
 
   // If here, the maximum number of pivots has been exceeded.
-  DRAKE_SPDLOG_DEBUG(log(), "Maximum number of pivots exceeded");
-  std::cerr << "Pivots: " << max_pivots << std::endl;
   z->setZero(n);
   return false;
 }

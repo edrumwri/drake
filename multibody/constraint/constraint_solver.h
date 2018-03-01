@@ -1053,13 +1053,11 @@ void ConstraintSolver<T>::SolveImpactProblem(
   // Get the tolerance for zero used by the LCP solver.
   const T zero_tol = lcp_.ComputeZeroTolerance(MM);
 
+MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
   int num_pivots;
   bool success = lcp_.SolveLcpLemke(MM, qq, &zz, &num_pivots, zero_tol);
-  VectorX<T> ww = MM * zz + qq;
-  const double max_dot = (zz.size() > 0) ?
-                         (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
   // NOTE: This LCP should always be solvable.
   // Check the answer and throw a runtime error if it's no good.
@@ -1070,24 +1068,11 @@ void ConstraintSolver<T>::SolveImpactProblem(
   // num_vars multiplies.
   const int num_vars = qq.size();
   num_pivots = std::max(num_pivots, 1);
-  if (!success ||
-      (zz.size() > 0 &&
-       (zz.minCoeff() < -num_vars * num_pivots * zero_tol ||
-        ww.minCoeff() < -num_vars * num_pivots * zero_tol ||
-        max_dot > max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
-            num_vars * num_pivots * zero_tol))) {
+  if (!success) {
     // Report difficulty
     SPDLOG_DEBUG(drake::log(), "Unable to solve impacting problem LCP without "
         "progressive regularization");
-    SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
-        num_vars * num_pivots * zero_tol);
     SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
-    SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-    SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
-    SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
-      max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
-      num_pivots * zero_tol);
-    SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
 
     // Use progressive regularization to solve.
     const int min_exp = -16;      // Minimum regularization factor: 1e-16.
@@ -1100,18 +1085,18 @@ void ConstraintSolver<T>::SolveImpactProblem(
       throw std::runtime_error("Progressively regularized LCP solve failed.");
     } else {
       num_pivots += secondary_pivots;
-      ww = MM * zz + qq;
     }
   }
+  SPDLOG_DEBUG(drake::log(), "z: {}", zz.transpose());
   SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-  SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
+  SPDLOG_DEBUG(drake::log(), "minimum w: {}", (MM * zz + qq).minCoeff());
   SPDLOG_DEBUG(drake::log(), "z'w: {}",
-               (zz.array() * ww.array()).abs().maxCoeff());
+               (zz.array() * (MM * zz + qq).array()).abs().maxCoeff());
   SPDLOG_DEBUG(drake::log(), "number of pivots: {}", num_pivots);
   if (false) {
     SPDLOG_DEBUG(drake::log(), "Redoing solution with old solver.");
     success = lcp2_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
-    ww = MM * zz + qq;
+    VectorX<T> ww = MM * zz + qq;
     const double max_dot2 = (zz.size() > 0) ?
                            (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
@@ -1162,15 +1147,18 @@ void ConstraintSolver<T>::SolveImpactProblem(
     std::ofstream out_old("pivots.out.old", std::ostream::app);
     out_old << num_pivots2 << std::endl;
     out_old.close();
-    std::ofstream out_new("pivots.out.new", std::ostream::app);
-    out_new << num_pivots << std::endl;
-    out_new.close();
     SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
     SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
     SPDLOG_DEBUG(drake::log(), "z'w: {}",
                  (zz.array() * ww.array()).abs().maxCoeff());
     SPDLOG_DEBUG(drake::log(), "number of pivots: {}", num_pivots);
   }
+  std::ofstream out_new("pivots.out.new", std::ostream::app);
+  out_new << num_pivots << std::endl;
+  out_new.close();
+  std::ofstream out2("pivots.per.n", std::ostream::app);
+  out2 << (static_cast<double>(num_pivots) / qq.rows()) << std::endl;
+  out2.close();
 
   // Alias constraint force segments.
   const auto fN = zz.segment(0, num_contacts);

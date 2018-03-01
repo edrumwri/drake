@@ -989,6 +989,7 @@ RigidBodyTree<T>::ComputeMaximumDepthCollisionPoints(
   vector<drake::multibody::collision::PointPair> contact_points;
   collision_model_->ComputeMaximumDepthCollisionPoints(use_margins,
                                                        &contact_points);
+
   // For each contact pair, map contact point from world frame to each body's
   // frame.
   for (size_t i = 0; i < contact_points.size(); ++i) {
