@@ -81,5 +81,47 @@
     <child link="brick"/>
   </joint>
 
+  <transmission name="slide_x">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="xslide"/>
+    <actuator name="slide_actuator_x">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="slide_y">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="yslide"/>
+    <actuator name="slide_actuator_y">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="slide_z">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="zslide"/>
+    <actuator name="slide_actuator_z">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="rot_x">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="xspin"/>
+    <actuator name="rot_actuator_x">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="rot_y">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="yspin"/>
+    <actuator name="rot_actuator_y">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="rot_z">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="zspin"/>
+    <actuator name="rot_actuator_z">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
 </robot>
 

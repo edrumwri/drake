@@ -52,6 +52,7 @@ const char* kBlockUrdf =
     "drake/examples/elastic/block.urdf";
 }  // namespace
 
+/*
 class ElasticComputation : public VectorSystem<double> {
  public:
   ElasticComputation(RigidBodyTree<double>* tree) {
@@ -164,6 +165,7 @@ class ElasticComputation : public VectorSystem<double> {
   std::vector<Vector3<double>> samples_;
   RigidBodyTree<double>* tree_{nullptr};
 };
+*/
 
 // Simple scenario of two blocks being pushed across a plane.  The first block
 // has zero initial velocity.  The second has a small initial velocity in the
