@@ -21,11 +21,11 @@
 
 /*
 0. Apply pushes.
-1. Add pushes to the vector.
-2. Update the initial state. 
+1. XXX 
+2. XXX 
 3. Fix compile error.
 4. Fix Diagram.
-5. Fix actuator. 
+5. XXX. 
 */
 
 namespace drake {
@@ -38,7 +38,8 @@ using Eigen::Vector3d;
 using std::make_unique;
 
 // The pushes that will be executed, in the body frame of the box. 
-std::vector<Vector3d> pushes = { Vector3d(;
+std::vector<Vector3d> pushes = { Vector3d(-1, 0, 0.5),
+                                 Vector3d(1, .25, 0.5) }; 
 
 // Simulation parameters.
 DEFINE_int32(num_elements, 100, "The number of elastic elements");
@@ -52,6 +53,7 @@ const char* kBlockUrdf =
     "drake/examples/elastic/block.urdf";
 }  // namespace
 
+/*
 class ElasticComputation : public VectorSystem<double> {
  public:
   ElasticComputation(RigidBodyTree<double>* tree) {
@@ -106,6 +108,42 @@ class ElasticComputation : public VectorSystem<double> {
         samples_.emplace_back(x_start + x_inc * i, y_end, z_start + z_inc * j);
       }
     }
+  }
+
+  VectorX<double> ComputePushingForce(
+      const VectorX<double>& q, const VectorX<double>& v,
+      const Vector3<double>& point) const {
+    // Get the kinematics cache.
+    auto kcache = tree_->doKinematics(q, v);
+
+    // Get the transform.
+    const int body_index = 1;
+    const auto wTx = kcache.get_element(body_index).transform_to_world;
+
+    // Get the point in the world frame.
+    const Vector3<double> pw = wTx * point;
+
+    // Get the Jacobian matrix for the downward direction at this point. 
+    const auto J = tree_->
+        transformPointsJacobian(kcache, point, body_index, 0, false);
+
+    // Transform vector from direction to world frame.
+    const int z_axis = 2;
+    const Vector3<double> dir(0, 0, 1);
+    const Matrix3<double> R_WD = math::ComputeBasisFromAxis(z_axis, dir);
+    const auto N = R_WD.transpose() * J;
+
+    // Set the relative frame.
+    Eigen::Isometry3d xTpoint;
+    xTpoint.translation() = point;
+
+    // Compute the wrench at the point. 
+    const auto Nw = tree_->CalcFrameSpatialVelocityJacobianInWorldFrame(
+        kcache, tree_->get_body(body_index), xTpoint, false);    
+
+    // TODO: Compute the spatial force in the proper frame. 
+
+    return f;
   }
 
   VectorX<double> ComputeContactForce(
@@ -164,7 +202,7 @@ class ElasticComputation : public VectorSystem<double> {
   std::vector<Vector3<double>> samples_;
   RigidBodyTree<double>* tree_{nullptr};
 };
-
+*/
 // Simple scenario of two blocks being pushed across a plane.  The first block
 // has zero initial velocity.  The second has a small initial velocity in the
 // pushing direction.
