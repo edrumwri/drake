@@ -109,7 +109,7 @@ template <typename T>
 RigidBodyTree<T>::RigidBodyTree()
     : collision_model_(drake::multibody::collision::newModel()) {
   // Sets the gravity vector.
-  a_grav << 0, 0, 0, 0, 0, -9.81;
+  a_grav << 0, 0, 0, 0, 0, -1e-5;
 
   // Adds the rigid body representing the world. It has model instance ID 0.
   std::unique_ptr<RigidBody<T>> world_body(new RigidBody<T>());

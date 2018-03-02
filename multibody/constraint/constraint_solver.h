@@ -1054,6 +1054,7 @@ void ConstraintSolver<T>::SolveImpactProblem(
   const T zero_tol = lcp_.ComputeZeroTolerance(MM);
 
 MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
+#if 1
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
   int num_pivots;
@@ -1066,9 +1067,18 @@ MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
   // operation), we must compensate for the number of pivoting operations and
   // the problem size. zzᵀww must use a looser tolerance to account for the
   // num_vars multiplies.
-  const int num_vars = qq.size();
+//  const int num_vars = qq.size();
   num_pivots = std::max(num_pivots, 1);
-  if (!success) {
+  VectorX<T> ww = MM * zz + qq;
+//  const double max_dot = (zz.size() > 0) ?
+//                         (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+  if (!success) {/*} ||
+      (zz.size() > 0 &&
+      (zz.minCoeff() < -num_vars * num_pivots * zero_tol ||
+          ww.minCoeff() < -num_vars * num_pivots * zero_tol ||
+          max_dot > max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
+              num_vars * num_pivots * zero_tol))) {*/
+
     // Report difficulty
     SPDLOG_DEBUG(drake::log(), "Unable to solve impacting problem LCP without "
         "progressive regularization");
@@ -1089,15 +1099,24 @@ MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
   }
   SPDLOG_DEBUG(drake::log(), "z: {}", zz.transpose());
   SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-  SPDLOG_DEBUG(drake::log(), "minimum w: {}", (MM * zz + qq).minCoeff());
+  SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
   SPDLOG_DEBUG(drake::log(), "z'w: {}",
-               (zz.array() * (MM * zz + qq).array()).abs().maxCoeff());
+               (zz.array() * ww.array()).abs().maxCoeff());
   SPDLOG_DEBUG(drake::log(), "number of pivots: {}", num_pivots);
-  if (false) {
-    SPDLOG_DEBUG(drake::log(), "Redoing solution with old solver.");
-    success = lcp2_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
+
+  std::ofstream out_new("pivots.out.new", std::ostream::app);
+  out_new << num_pivots << std::endl;
+  out_new.close();
+  std::ofstream out2("pivots.per.n", std::ostream::app);
+  out2 << (static_cast<double>(num_pivots) / qq.rows()) << std::endl;
+  out2.close();
+#else
+    VectorX<T> zz;
+    SPDLOG_DEBUG(drake::log(), "Using old solver.");
+    bool success = lcp2_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
     VectorX<T> ww = MM * zz + qq;
-    const double max_dot2 = (zz.size() > 0) ?
+    const int num_vars = qq.size();
+    const double max_dot = (zz.size() > 0) ?
                            (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
     // NOTE: This LCP should always be solvable.
@@ -1107,26 +1126,26 @@ MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
     // operation), we must compensate for the number of pivoting operations and
     // the problem size. zzᵀww must use a looser tolerance to account for the
     // num_vars multiplies.
-    int num_pivots2 = std::max(lcp2_.get_num_pivots(), 1);
+    int num_pivots = std::max(lcp2_.get_num_pivots(), 1);
     if (!success ||
         (zz.size() > 0 &&
-            (zz.minCoeff() < -num_vars * num_pivots2 * zero_tol ||
-                ww.minCoeff() < -num_vars * num_pivots2 * zero_tol ||
-                max_dot2 > max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
+            (zz.minCoeff() < -num_vars * num_pivots * zero_tol ||
+                ww.minCoeff() < -num_vars * num_pivots * zero_tol ||
+                max_dot > max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
                     num_vars * num_pivots * zero_tol))) {
 
       // Report difficulty
       SPDLOG_DEBUG(drake::log(), "Unable to solve impacting problem LCP without "
           "progressive regularization");
       SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
-                   num_vars * num_pivots2 * zero_tol);
+                   num_vars * num_pivots * zero_tol);
       SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
       SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
       SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
       SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
                    max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
-                       num_pivots2 * zero_tol);
-      SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot2);
+                       num_pivots * zero_tol);
+      SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
 
       // Use progressive regularization to solve.
       const int min_exp = -16;      // Minimum regularization factor: 1e-16.
@@ -1137,28 +1156,20 @@ MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
                                          step_exp, max_exp, -1, zero_tol)) {
         throw std::runtime_error("Progressively regularized LCP solve failed.");
       } else {
-        num_pivots2 += lcp2_.get_num_pivots();
+        num_pivots += lcp2_.get_num_pivots();
         ww = MM * zz + qq;
       }
     }
     SPDLOG_DEBUG(drake::log(), "old solver complete");
-    if (num_pivots2 < num_pivots)
-      SPDLOG_DEBUG(drake::log(), "OLD SOLVER BETTER: {} (old) pivots vs. {} (new)", num_pivots2, num_pivots);
     std::ofstream out_old("pivots.out.old", std::ostream::app);
-    out_old << num_pivots2 << std::endl;
+    out_old << num_pivots << std::endl;
     out_old.close();
     SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
     SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
     SPDLOG_DEBUG(drake::log(), "z'w: {}",
                  (zz.array() * ww.array()).abs().maxCoeff());
     SPDLOG_DEBUG(drake::log(), "number of pivots: {}", num_pivots);
-  }
-  std::ofstream out_new("pivots.out.new", std::ostream::app);
-  out_new << num_pivots << std::endl;
-  out_new.close();
-  std::ofstream out2("pivots.per.n", std::ostream::app);
-  out2 << (static_cast<double>(num_pivots) / qq.rows()) << std::endl;
-  out2.close();
+#endif
 
   // Alias constraint force segments.
   const auto fN = zz.segment(0, num_contacts);
