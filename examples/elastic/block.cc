@@ -17,15 +17,16 @@
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/vector_system.h"
+#include "drake/systems/primitives/adder.h"
 #include "drake/systems/primitives/constant_vector_source.h"
 
 /*
 0. Apply pushes.
-1. Add pushes to the vector.
-2. Update the initial state. 
+1. ---
+2. ---
 3. Fix compile error.
 4. Fix Diagram.
-5. Fix actuator. 
+5. ---
 */
 
 namespace drake {
@@ -38,7 +39,8 @@ using Eigen::Vector3d;
 using std::make_unique;
 
 // The pushes that will be executed, in the body frame of the box. 
-std::vector<Vector3d> pushes = { Vector3d(;
+std::vector<Vector3d> pushes = { Vector3d(-1, 0, 0.5),
+                                 Vector3d(1, .25, 0.5) }; 
 
 // Simulation parameters.
 DEFINE_int32(num_elements, 100, "The number of elastic elements");
@@ -51,6 +53,38 @@ namespace {
 const char* kBlockUrdf =
     "drake/examples/elastic/block.urdf";
 }  // namespace
+
+class PushingInput : public systems::LeafSystem<double> {
+ public:
+  PushingInput(
+      const std::vector<Vector3d>& pushing_forces, double duration_per_push) :
+      pushing_forces_(pushing_forces),
+      duration_per_push_(duration_per_push) {
+  }
+
+  void CopyStateToOutput(const systems::Context<double>& context,
+                         systems::BasicVector<double>* pushing_wrench) const {
+    double sub = duration_per_push_ * 1.5;
+
+    // Find the point to which we advance to.
+    auto iter = pushing_forces_.begin();
+    double t = context.get_time();
+    while (t > sub) {
+      t -= sub;
+      ++iter;
+    }
+
+    // See whether we're pushing, or not.
+    if (t <= duration_per_push_) {
+      // TODO: Convert the contact point into a wrench.
+    } else {
+      pushing_wrench->SetZero();
+    }
+  }
+
+  std::vector<Vector3d> pushing_forces_;
+  double duration_per_push_;
+};
 
 /*
 class ElasticComputation : public VectorSystem<double> {
@@ -107,6 +141,42 @@ class ElasticComputation : public VectorSystem<double> {
         samples_.emplace_back(x_start + x_inc * i, y_end, z_start + z_inc * j);
       }
     }
+  }
+
+  VectorX<double> ComputePushingForce(
+      const VectorX<double>& q, const VectorX<double>& v,
+      const Vector3<double>& point) const {
+    // Get the kinematics cache.
+    auto kcache = tree_->doKinematics(q, v);
+
+    // Get the transform.
+    const int body_index = 1;
+    const auto wTx = kcache.get_element(body_index).transform_to_world;
+
+    // Get the point in the world frame.
+    const Vector3<double> pw = wTx * point;
+
+    // Get the Jacobian matrix for the downward direction at this point. 
+    const auto J = tree_->
+        transformPointsJacobian(kcache, point, body_index, 0, false);
+
+    // Transform vector from direction to world frame.
+    const int z_axis = 2;
+    const Vector3<double> dir(0, 0, 1);
+    const Matrix3<double> R_WD = math::ComputeBasisFromAxis(z_axis, dir);
+    const auto N = R_WD.transpose() * J;
+
+    // Set the relative frame.
+    Eigen::Isometry3d xTpoint;
+    xTpoint.translation() = point;
+
+    // Compute the wrench at the point. 
+    const auto Nw = tree_->CalcFrameSpatialVelocityJacobianInWorldFrame(
+        kcache, tree_->get_body(body_index), xTpoint, false);    
+
+    // TODO: Compute the spatial force in the proper frame. 
+
+    return f;
   }
 
   VectorX<double> ComputeContactForce(
@@ -166,7 +236,6 @@ class ElasticComputation : public VectorSystem<double> {
   RigidBodyTree<double>* tree_{nullptr};
 };
 */
-
 // Simple scenario of two blocks being pushed across a plane.  The first block
 // has zero initial velocity.  The second has a small initial velocity in the
 // pushing direction.
@@ -191,24 +260,27 @@ int main() {
   // LCM communication.
   DrakeLcm lcm;
 
-/*
-  // Pusher
-  VectorXd push_value(1);      // Single actuator.
-  push_value << FLAGS_push;
-  ConstantVectorSource<double>& push_source =
-      *builder.template AddSystem<ConstantVectorSource<double>>(push_value);
-  push_source.set_name("push_source");
-
-  // NOTE: This is *very* fragile.  It is not obvious that input port 0 is
-  // the actuator on the first brick loaded and input port 1 is likewise the
-  // actuator for the second brick.
-  builder.Connect(push_source.get_output_port(), plant.get_input_port(0));
-  builder.Connect(push_source.get_output_port(), plant.get_input_port(1));
-*/
   // Visualizer.
   const auto visualizer_publisher =
       builder.template AddSystem<DrakeVisualizer>(tree, &lcm, true);
   visualizer_publisher->set_name("visualizer_publisher");
+
+  // TODO: Create the elastic foundation system.
+
+  // TODO: Create the pushing input system.
+
+  // Create an adder system, which will add the pushing input and elastic
+  // foundation inputs together.
+  const auto adder = builder.template AddSystem<systems::Adder<double>>(
+      2 /* # of inputs */, 6 /* wrench dimension */
+  );
+
+  // Link the output of the elastic foundation system to the force input of the
+  // RigidBodyPlant and the input of the elastic foundation system to the state
+  // output of the RigidBodyPlant.
+
+  // Link the output of the adder to the input of the RigidBodyPlant.
+  builder.Connect(adder.get_output_port(), plant.actuator_command_input_port());
 
   // Raw state vector to visualizer.
   builder.Connect(plant.state_output_port(),
