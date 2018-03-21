@@ -312,7 +312,6 @@ class ConstraintSolver {
       ProblemData* modified_problem_data) const;
 
   drake::solvers::UnrevisedLemkeSolver<T> lcp_;
-  drake::solvers::MobyLCPSolver<T> lcp2_;
 };
 
 // Given a matrix A of blocks consisting of generalized inertia (M) and the
@@ -688,7 +687,7 @@ void ConstraintSolver<T>::FormAndSolveConstraintLCP(
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
   int num_pivots = -1;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, &num_pivots, zero_tol);
+  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, &num_pivots, -1, zero_tol);
   VectorX<T> ww = MM * zz + qq;
   const double max_dot = (zz.size() > 0) ?
                          (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
@@ -1082,7 +1081,15 @@ MM += MatrixX<T>::Identity(qq.rows(), qq.rows()) * 1e-7;
     // Report difficulty
     SPDLOG_DEBUG(drake::log(), "Unable to solve impacting problem LCP without "
         "progressive regularization");
+    SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
+        num_vars * num_pivots * zero_tol);
     SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
+    SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
+    SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
+    SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
+      max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
+      num_pivots * zero_tol);
+    SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
 
     // Use progressive regularization to solve.
     const int min_exp = -16;      // Minimum regularization factor: 1e-16.
