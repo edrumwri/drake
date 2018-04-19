@@ -181,7 +181,7 @@ class Rod2D : public systems::LeafSystem<T> {
   ~Rod2D() override {}
 
   /// Simulation model and approach for the system.
-  enum class SimulationType {
+  enum class SystemType {
     /// For simulating the system using rigid contact, Coulomb friction, and
     /// piecewise differential algebraic equations.
     kPiecewiseDAE,
@@ -200,10 +200,10 @@ class Rod2D : public systems::LeafSystem<T> {
   /// compliant ordinary differential equation based approach.
   /// @param dt The integration step size. This step size cannot be reset
   ///           after construction.
-  /// @throws std::logic_error if @p dt is not positive and simulation_type is
-  ///         kDiscretized or @p dt is not zero and simulation_type is
+  /// @throws std::logic_error if @p dt is not positive and system_type is
+  ///         kDiscretized or @p dt is not zero and system_type is
   ///         kPiecewiseDAE or kContinuous.
-  explicit Rod2D(SimulationType simulation_type, double dt);
+  explicit Rod2D(SystemType system_type, double dt);
 
   /// Initializes the abstract state variables using the continuous state of
   /// the system. Throws std::logic_error() if the simulation type is not
@@ -470,8 +470,8 @@ class Rod2D : public systems::LeafSystem<T> {
   /// @returns 0 if this is a DAE-based system.
   double get_integration_step_size() const { return dt_; }
 
-  /// Gets the model and simulation type for this system.
-  SimulationType get_simulation_type() const { return simulation_type_; }
+  /// Gets the model and system type for this system.
+  SystemType get_system_type() const { return system_type_; }
 
   /// Return net contact forces as a spatial force F_Ro_W=(fx,fy,τ) where
   /// translational force f_Ro_W=(fx,fy) is applied at the rod origin Ro,
@@ -727,6 +727,36 @@ class Rod2D : public systems::LeafSystem<T> {
   friend class Rod2DCrossValidationSlidingTest;
   friend class Rod2DCrossValidationTest_Interval_Test;
 
+  // A structure indicating which rod witness functions are active for a
+  // single end point of the rod.
+  struct ActiveRodWitnesses {
+    bool signed_distance{false};
+    bool normal_force{false};
+    bool normal_velocity{false};
+    bool normal_acceleration{false};
+    bool positive_sliding{false};
+    bool negative_sliding{false};
+    bool sticking_friction_force_slack{false};
+  };
+
+  T CalcSignedDistance(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalAcceleration(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalVelocity(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalForce(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcStickingFrictionForceSlack(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcSlidingVelocity(
+      const systems::Context<T>& context, int contact_index,
+      bool positive_direction) const;
+  const ActiveRodWitnesses& GetActiveWitnesses(
+      int endpoint_index, const systems::State<T>& state) const;
+  ActiveRodWitnesses& GetActiveWitnesses(
+      int endpoint_index, systems::State<T>* state) const;
+
   // Gets the number of tangent directions used by the LCP formulation. If this
   // problem were 3D, the number of tangent directions would be the number of
   // edges in the polygonalization of the friction cone. In 2D, both tangent
@@ -785,8 +815,8 @@ class Rod2D : public systems::LeafSystem<T> {
   // Solves linear complementarity problems for time stepping.
   solvers::MobyLCPSolver<T> lcp_;
 
-  // The simulation type, unable to be changed after object construction.
-  const SimulationType simulation_type_;
+  // The system type, unable to be changed after object construction.
+  const SystemType system_type_;
 
   // Vectors of candidates for contact.
   std::vector<Vector2<T>> contact_candidates_;
@@ -828,26 +858,6 @@ class Rod2D : public systems::LeafSystem<T> {
     kRight = 1,
   };
 
-  // A structure indicating which rod witness functions are active for a
-  // single end point of the rod.
-  struct ActiveRodWitnesses {
-    bool signed_distance{false};
-    bool normal_force{false};
-    bool normal_velocity{false};
-    bool normal_acceleration{false};
-    bool positive_sliding{false};
-    bool negative_sliding{false};
-    bool sticking_friction_force_slack{false};
-  };
-
-  std::unique_ptr<WitnessFunction<T>> signed_distance_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> normal_force_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> normal_velocity_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> normal_acceleration_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> positive_sliding_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> negative_sliding_witness_[2];
-  std::unique_ptr<WitnessFunction<T>> sticking_friction_force_slack_witness_[2];
-
   // TODO: Update this.
   // Abstract state variable constants.
   enum AbstractIndices {
@@ -871,16 +881,17 @@ class Rod2D : public systems::LeafSystem<T> {
   };
 
   // Witness functions: one for each endpoint.
-  std::unique_ptr<systems::WitnessFunction<T>> normal_accel_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>>
+      normal_acceleration_witnesses_[2];
   std::unique_ptr<systems::WitnessFunction<T>> normal_force_witnesses_[2];
-  std::unique_ptr<systems::WitnessFunction<T>> normal_vel_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> normal_velocity_witnesses_[2];
   std::unique_ptr<systems::WitnessFunction<T>> signed_distance_witnesses_[2];
   std::unique_ptr<systems::WitnessFunction<T>>
-      sticking_friction_forces_slack_witnesses_[2];
+      sticking_friction_force_slack_witnesses_[2];
 
   // Witnesses for detecting sliding along +/- x-axis, respectively.
-  std::unique_ptr<systems::WitnessFunction<T>> pos_sliding_witnesses_[2];
-  std::unique_ptr<systems::WitnessFunction<T>> neg_sliding_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> positive_sliding_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> negative_sliding_witnesses_[2];
 
 };
 

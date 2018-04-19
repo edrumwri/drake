@@ -18,6 +18,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/value.h"
+#include "systems/framework/witness_function.h"
 
 // TODO(edrumwri,sherm1) This code is currently written out mostly in scalars
 // but should be done in 2D vectors instead to make it more compact, easier to
@@ -27,11 +28,11 @@ namespace examples {
 namespace rod2d {
 
 template <typename T>
-Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
-    : simulation_type_(simulation_type), dt_(dt) {
+Rod2D<T>::Rod2D(SystemType simulation_type, double dt)
+    : system_type_(simulation_type), dt_(dt) {
   // Verify that the simulation approach is either piecewise DAE or
   // compliant ODE.
-  if (simulation_type == SimulationType::kDiscretized) {
+  if (simulation_type == SystemType::kDiscretized) {
     if (dt <= 0.0)
       throw std::logic_error(
           "Time stepping approach must be constructed using"
@@ -50,6 +51,13 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
     // Both piecewise DAE and compliant approach require six continuous
     // variables.
     this->DeclareContinuousState(Rod2dStateVector<T>(), 3, 3, 0);  // q, v, z
+
+    // Piecewise DAE approaches must declare witness functions.
+    if (system_type_ == SystemType::kPiecewiseDAE) {
+      signed_distance_witnesses_[0] = this->DeclareWitnessFunction(
+          "signed distance (L)", systems::WitnessFunctionDirection::kCrossesZero,
+      )
+    }
   }
 
   this->DeclareInputPort(systems::kVectorValued, 3);
@@ -69,7 +77,7 @@ void Rod2D<T>::InitializeAbstractStateFromContinuousState(
     systems::State<T>* state) const {
   using std::abs;
 
-  if (simulation_type_ != Rod2D<T>::SimulationType::kPiecewiseDAE)
+  if (system_type_ != Rod2D<T>::SystemType::kPiecewiseDAE)
     throw std::logic_error("Simulation type is not kPiecewiseDAE");
 
   // Find both endpoint locations.
@@ -109,22 +117,20 @@ void Rod2D<T>::SetBallisticMode(systems::State<T>* state) const {
   contacts.clear();
 
   // Disable all witness functions except the signed distance one.
-  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
-  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
-  GetNormalVelWitness(kLeft, *state)->set_enabled(false);
-  GetNormalVelWitness(kRight, *state)->set_enabled(false);
-  GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
-  GetNormalAccelWitness(kRight, *state)->set_enabled(false);
-  GetPosSlidingWitness(kLeft, *state)->set_enabled(false);
-  GetPosSlidingWitness(kRight, *state)->set_enabled(false);
-  GetNegSlidingWitness(kLeft, *state)->set_enabled(false);
-  GetNegSlidingWitness(kRight, *state)->set_enabled(false);
-  GetNormalForceWitness(kLeft, *state)->set_enabled(false);
-  GetNormalForceWitness(kRight, *state)->set_enabled(false);
-  GetStickingFrictionForceSlackWitness(kLeft, *state)->
-      set_enabled(false);
-  GetStickingFrictionForceSlackWitness(kRight, *state)->
-      set_enabled(false);
+  GetActiveWitnesses(kLeft, state).signed_distance = true;
+  GetActiveWitnesses(kRight, state).signed_distance = true;
+  GetActiveWitnesses(kLeft, state).normal_velocity = false;
+  GetActiveWitnesses(kRight, state).normal_velocity = false;
+  GetActiveWitnesses(kLeft, state).normal_acceleration = false;
+  GetActiveWitnesses(kRight, state).normal_acceleration = false;
+  GetActiveWitnesses(kLeft, state).positive_sliding = false;
+  GetActiveWitnesses(kRight, state).positive_sliding = false;
+  GetActiveWitnesses(kLeft, state).negative_sliding = false;
+  GetActiveWitnesses(kRight, state).negative_sliding = false;
+  GetActiveWitnesses(kLeft, state).normal_force = false;
+  GetActiveWitnesses(kRight, state).normal_force = false;
+  GetActiveWitnesses(kLeft, state).sticking_friction_force_slack = false;
+  GetActiveWitnesses(kRight, state).sticking_friction_force_slack = false;
 }
 
 template <class T>
@@ -140,8 +146,8 @@ void Rod2D<T>::SetOneEndpointContacting(
   contacts.front().id = reinterpret_cast<void*>(index);
 
   // The signed distance witnesses should always be enabled.
-  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
-  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
+  GetActiveWitnesses(kLeft, state).signed_distance = true;
+  GetActiveWitnesses(kRight, state).signed_distance = true;
 
   // Get the other index.
   DRAKE_DEMAND(index == 0 || index == 1);
@@ -150,40 +156,37 @@ void Rod2D<T>::SetOneEndpointContacting(
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
   if (sliding_type == multibody::constraint::SlidingModeType::kSliding) {
     // Enable these witnesses.
-    GetPosSlidingWitness(index, *state)->set_enabled(true);
-    GetNegSlidingWitness(index, *state)->set_enabled(true);
+    GetActiveWitnesses(index, state).positive_sliding = true;
+    GetActiveWitnesses(index, state).negative_sliding = true;
 
     // Disable these witnesses.
-    GetStickingFrictionForceSlackWitness(index, *state)->
-        set_enabled(false);
+    GetActiveWitnesses(index, state).sticking_friction_force_slack = false;
   } else {
     // Enable these witnesses.
-    GetStickingFrictionForceSlackWitness(index, *state)->
-        set_enabled(true);
+    GetActiveWitnesses(index, state).sticking_friction_force_slack = true;
 
     // Disable these witnesses. Note that the sliding witnesses are disabled
     // at this time- they have to be enabled when the sticking friction
     // witness is triggered.
-    GetPosSlidingWitness(index, *state)->set_enabled(false);
-    GetNegSlidingWitness(index, *state)->set_enabled(false);
+    GetActiveWitnesses(index, state).positive_sliding = false;
+    GetActiveWitnesses(index, state).negative_sliding = false;
   }
 
   // Disable all witness functions (except the signed distance one) for the
   // right endpoint.
-  GetNormalVelWitness(other, *state)->set_enabled(false);
-  GetNormalAccelWitness(other, *state)->set_enabled(false);
-  GetPosSlidingWitness(other, *state)->set_enabled(false);
-  GetNegSlidingWitness(other, *state)->set_enabled(false);
-  GetNormalForceWitness(other, *state)->set_enabled(false);
-  GetStickingFrictionForceSlackWitness(other, *state)->
-      set_enabled(false);
+  GetActiveWitnesses(other, state).normal_velocity = false;
+  GetActiveWitnesses(other, state).normal_acceleration = false;
+  GetActiveWitnesses(other, state).positive_sliding = false;
+  GetActiveWitnesses(other, state).negative_sliding = false;
+  GetActiveWitnesses(other, state).normal_force = false;
+  GetActiveWitnesses(other, state).sticking_friction_force_slack = false;
 
   // The following witnesses will be disabled by default. 
-  GetNormalVelWitness(index, *state)->set_enabled(false);
-  GetNormalAccelWitness(index, *state)->set_enabled(false);
+  GetActiveWitnesses(index, state).normal_velocity = false;
+  GetActiveWitnesses(index, state).normal_acceleration = false;
 
   // We need to enable the normal force witness.
-  GetNormalForceWitness(index, *state)->set_enabled(true);
+  GetActiveWitnesses(index, state).normal_force = true;
 }
 
 template <class T>
@@ -200,51 +203,45 @@ void Rod2D<T>::SetBothEndpointsContacting(
   contacts.back().id = reinterpret_cast<void*>(kRight);
 
   // The signed distance witnesses should always be enabled.
-  GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
-  GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
+  GetActiveWitnesses(kLeft, state).signed_distance = true;
+  GetActiveWitnesses(kRight, state).signed_distance = true;
 
   // Enable and disable proper witnesses for sliding / non-sliding contact. 
   switch (sliding_type) {
     case multibody::constraint::SlidingModeType::kSliding:
       // Enable these witnesses.
-      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
-      GetPosSlidingWitness(kRight, *state)->set_enabled(true);
-      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
-      GetNegSlidingWitness(kRight, *state)->set_enabled(true);
+      GetActiveWitnesses(kLeft, state).positive_sliding = true;
+      GetActiveWitnesses(kRight, state).positive_sliding = true;
+      GetActiveWitnesses(kLeft, state).negative_sliding = true;
+      GetActiveWitnesses(kRight, state).negative_sliding = true;
 
       // Disable these witnesses.
-      GetStickingFrictionForceSlackWitness(kLeft, *state)->
-          set_enabled(false);
-      GetStickingFrictionForceSlackWitness(kRight, *state)->
-          set_enabled(false);
+      GetActiveWitnesses(kLeft, state).sticking_friction_force_slack = false;
+      GetActiveWitnesses(kRight, state).sticking_friction_force_slack = false;
       break;
 
     case multibody::constraint::SlidingModeType::kNotSliding:
       // Enable these witnesses.
-      GetStickingFrictionForceSlackWitness(kLeft, *state)->
-          set_enabled(true);
-      GetStickingFrictionForceSlackWitness(kRight, *state)->
-          set_enabled(true);
+      GetActiveWitnesses(kLeft, state).sticking_friction_force_slack = true;
+      GetActiveWitnesses(kRight, state).sticking_friction_force_slack = true;
 
       // Disable these witnesses.
-      GetPosSlidingWitness(kLeft, *state)->set_enabled(false);
-      GetPosSlidingWitness(kRight, *state)->set_enabled(false);
-      GetNegSlidingWitness(kLeft, *state)->set_enabled(false);
-      GetNegSlidingWitness(kRight, *state)->set_enabled(false);
+      GetActiveWitnesses(kLeft, state).positive_sliding = false;
+      GetActiveWitnesses(kRight, state).positive_sliding = false;
+      GetActiveWitnesses(kLeft, state).negative_sliding = false;
+      GetActiveWitnesses(kRight, state).negative_sliding = false;
       break;
 
     case multibody::constraint::SlidingModeType::kTransitioning:
       // Enable these witnesses.
-      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
-      GetPosSlidingWitness(kRight, *state)->set_enabled(true);
-      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
-      GetNegSlidingWitness(kRight, *state)->set_enabled(true);
+      GetActiveWitnesses(kLeft, state).positive_sliding = true;
+      GetActiveWitnesses(kRight, state).positive_sliding = true;
+      GetActiveWitnesses(kLeft, state).negative_sliding = true;
+      GetActiveWitnesses(kRight, state).negative_sliding = true;
 
       // Disable these witnesses.
-      GetStickingFrictionForceSlackWitness(kLeft, *state)->
-          set_enabled(false);
-      GetStickingFrictionForceSlackWitness(kRight, *state)->
-          set_enabled(false);
+      GetActiveWitnesses(kLeft, state).sticking_friction_force_slack = false;
+      GetActiveWitnesses(kRight, state).sticking_friction_force_slack = false;
       break;
 
     case multibody::constraint::SlidingModeType::kNotSet:
@@ -252,14 +249,14 @@ void Rod2D<T>::SetBothEndpointsContacting(
   }
 
   // Enable the normal force witnesses. 
-  GetNormalForceWitness(kLeft, *state)->set_enabled(true);
-  GetNormalForceWitness(kRight, *state)->set_enabled(true);
+  GetActiveWitnesses(kLeft, state).normal_force = true;
+  GetActiveWitnesses(kRight, state).normal_force = true;
 
   // The following witnesses will be disabled by default. 
-  GetNormalVelWitness(kLeft, *state)->set_enabled(false);
-  GetNormalVelWitness(kRight, *state)->set_enabled(false);
-  GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
-  GetNormalAccelWitness(kRight, *state)->set_enabled(false);
+  GetActiveWitnesses(kLeft, state).normal_velocity = false;
+  GetActiveWitnesses(kRight, state).normal_velocity = false;
+  GetActiveWitnesses(kLeft, state).normal_acceleration = false;
+  GetActiveWitnesses(kRight, state).normal_acceleration = false;
 }
 
 // Computes the external forces on the rod.
@@ -290,11 +287,187 @@ std::vector<multibody::constraint::PointContact>&
 
 template <class T>
 const std::vector<multibody::constraint::PointContact>&
-    Rod2D<T>::get_contacts_used_in_force_calculations(
+Rod2D<T>::get_contacts_used_in_force_calculations(
     const systems::State<T>& state) const {
   return state.get_abstract_state()
       .get_value(kContactAbstractIndex).
-      template GetValue<std::vector<multibody::constraint::PointContact>>();
+          template GetValue<std::vector<multibody::constraint::PointContact>>();
+}
+
+template <class T>
+const typename Rod2D<T>::ActiveRodWitnesses& Rod2D<T>::GetActiveWitnesses(
+    int endpoint_index,
+    const systems::State<T>& state) const {
+  return state.get_abstract_state()
+      .get_value(kContactAbstractIndex + endpoint_index + 1).
+          template GetValue<typename Rod2D<T>::ActiveRodWitnesses>();
+}
+
+template <class T>
+typename Rod2D<T>::ActiveRodWitnesses& Rod2D<T>::GetActiveWitnesses(
+    int endpoint_index,
+    systems::State<T>* state) const {
+  return state->get_mutable_abstract_state()
+      .get_mutable_value(kContactAbstractIndex + endpoint_index + 1).
+          template GetMutableValue<typename Rod2D<T>::ActiveRodWitnesses>();
+}
+
+template <class T>
+T Rod2D<T>::CalcSignedDistance(
+    const systems::Context<T>& context, int contact_index) const {
+  // Verify the system is modeled as a piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // Get the relevant parts of the state.
+  const Vector3<T> q = context.get_continuous_state().
+      get_generalized_position().CopyToVector();
+
+  // Get the contact candidate in the world frame.
+  const Vector2<T>& u = get_contact_candidate(contact_index);
+  const Vector2<T> p = GetPointInWorldFrame(q, u);
+
+  // Return the vertical location.
+  return p[1];
+}
+
+template <class T>
+T Rod2D<T>::CalcNormalAcceleration(
+    const systems::Context<T>& context, int contact_index) const {
+  // Verify the system is simulated using piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // Return the vertical acceleration at the tracked point.
+  const Vector2<T> vdot = CalcContactAccel(context, contact_index);
+  return vdot[1];
+}
+
+template <class T>
+T Rod2D<T>::CalcNormalForce(
+    const systems::Context<T>& context, int contact_index) const {
+  // Verify the system is simulated using piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // TODO(edrumwri): Speed this up (presumably) using caching.
+
+  // Get the force index of the contact.
+  const int force_index = GetContactArrayIndex(
+      context.get_state(), contact_index);
+  DRAKE_DEMAND(force_index >= 0);
+
+  // Populate problem data and solve the contact problem.
+  const int ngv = 3;  // Number of rod generalized velocities.
+  VectorX<T> cf;
+  multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
+  CalcConstraintProblemData(context, context.get_state(), &problem_data);
+  problem_data.use_complementarity_problem_solver = false;
+  solver_.SolveConstraintProblem(problem_data, &cf);
+
+  // Return the normal force. A negative value means that the force has
+  // become tensile, which violates the compressivity constraint.
+  return cf[force_index];
+}
+
+template <class T>
+T Rod2D<T>::CalcNormalVelocity(
+    const systems::Context<T>& context, int contact_index) const {
+  // Verify the system is simulated using piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // Return the vertical velocity at the tracked point.
+  const Vector2<T> v = CalcContactVelocity(context, contact_index);
+  return v[1];
+}
+
+/// Determines whether the tangent velocity crosses the sliding velocity
+/// threshold. This witness is used for two purposes: (1) it determines when
+/// a contact has moved from non-sliding-to-sliding-transition to proper sliding
+/// and (2) it determines when a contact has moved from sliding to non-sliding.
+template <class T>
+T Rod2D<T>::CalcSlidingVelocity(const systems::Context<T>& context,
+                                int contact_index, bool positive) const {
+  // Get the sliding velocity threshold.
+  const double sliding_threshold = GetSlidingVelocityThreshold(context);
+
+  // Verify the system is simulated using piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // Get the contact information.
+  const int contact_array_index = GetContactArrayIndex(
+      context.get_state(), contact_index);
+  const auto& contact = get_contacts_used_in_force_calculations(
+      context.get_state())[contact_array_index];
+
+  // Verify rod is undergoing sliding contact at the specified index.
+  DRAKE_DEMAND(contact.sliding_type ==
+      multibody::constraint::SlidingModeType::kSliding ||
+      contact.sliding_type ==
+          multibody::constraint::SlidingModeType::kTransitioning);
+
+  // Compute the translational velocity at the point of contact.
+  const Vector2<T> pdot = CalcContactVelocity(context,
+                                              contact_index);
+
+  // Return the tangent velocity.
+  if (positive) {
+    return sliding_threshold - pdot[0];
+  } else {
+    return -pdot[0] - sliding_threshold;
+  }
+}
+
+/// The witness function itself.
+template <class T>
+T Rod2D<T>::CalcStickingFrictionForceSlack(const systems::Context<T>& context,
+                                           int contact_index) const {
+using std::abs;
+
+  // Verify the system is simulated using piecewise DAE.
+  DRAKE_DEMAND(system_type_ == SystemType::kPiecewiseDAE);
+
+  // Get the contact information.
+  const int contact_array_index = GetContactArrayIndex(
+      context.get_state(), contact_index);
+  const auto& contact =
+      get_contacts_used_in_force_calculations(
+        context.get_state())[contact_array_index];
+
+  // Verify rod is not undergoing sliding contact at the specified index.
+  DRAKE_DEMAND(contact.sliding_type ==
+      multibody::constraint::SlidingModeType::kNotSliding);
+
+  // TODO(edrumwri): Speed this up (presumably) using caching.
+
+  // Populate problem data and solve the contact problem.
+  const int ngv = 3;  // Number of rod generalized velocities.
+  VectorX<T> cf;
+  multibody::constraint::ConstraintAccelProblemData<T> problem_data(ngv);
+  CalcConstraintProblemData(context, context.get_state(), &problem_data);
+  solver_.SolveConstraintProblem(problem_data, &cf);
+
+  // Determine the index of this contact in the non-sliding constraint set.
+  const std::vector<int>& sliding_contacts = problem_data.sliding_contacts;
+  const std::vector<int>& non_sliding_contacts =
+      problem_data.non_sliding_contacts;
+  DRAKE_ASSERT(std::is_sorted(non_sliding_contacts.begin(),
+                              non_sliding_contacts.end()));
+  const int non_sliding_index = std::distance(
+      non_sliding_contacts.begin(),
+      std::lower_bound(non_sliding_contacts.begin(),
+                       non_sliding_contacts.end(),
+                       contact_array_index));
+  const int num_sliding = sliding_contacts.size();
+  const int num_non_sliding = non_sliding_contacts.size();
+  const int nc = num_sliding + num_non_sliding;
+  const int k = get_num_tangent_directions_per_contact();
+  const int r = k / 2;
+
+  // Get the normal force and the l1-norm of the frictional force.
+  const auto fN = cf[contact_array_index];
+  const auto fF = cf.segment(nc + non_sliding_index * r, r).template
+      lpNorm<1>();
+
+  // Determine the slack.
+  return problem_data.mu_non_sliding[non_sliding_index] * fN - fF;
 }
 
 template <class T>
@@ -555,8 +728,8 @@ void Rod2D<T>::CalcConstraintProblemData(
         multibody::constraint::SlidingModeType::kTransitioning) {
       tangent_vels[i] = 0.0;
     } else {
-      if (GetStickingFrictionForceSlackWitness(
-          contact_index, state)->is_enabled())   {
+      if (GetActiveWitnesses(contact_index, state).
+          sticking_friction_force_slack)   {
         tangent_vels[i] = 0.0;
       }
     }
@@ -582,7 +755,7 @@ void Rod2D<T>::CalcConstraintProblemData(
 
   // Set the inertia solver.
   data->solve_inertia = [this](const MatrixX<T>& m) {
-    return solve_inertia(m);
+    return SolveInertia(m);
   };
 
   // The normal and tangent spanning direction are unique.
@@ -782,9 +955,9 @@ void Rod2D<T>::ModelImpact(
   // Determine the vector of contact points using the active witness functions.
   std::vector<Vector2<T>> points;
   for (int i = 0; i < static_cast<int>(contact_candidates_.size()); ++i) {
-    if (GetNormalForceWitness(i, *state)->is_enabled() ||
-        GetNormalVelWitness(i, *state)->is_enabled() ||
-        GetNormalAccelWitness(i, *state)->is_enabled()) {
+    if (GetActiveWitnesses(i, *state).normal_force ||
+        GetActiveWitnesses(i, *state).normal_velocity ||
+        GetActiveWitnesses(i, *state).normal_acceleration) {
       points.push_back(GetPointInWorldFrame(q, i));
     }
   }
@@ -818,108 +991,6 @@ int Rod2D<T>::GetContactArrayIndex(
   }
 
   return -1; 
-}
-
-// Gets the row of a contact Jacobian matrix, given a point of contact, @p p,
-// and projection direction (unit vector), @p dir. Aborts if @p dir is not a
-// unit vector.
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetSignedDistanceWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kSignedDistanceWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing signed distance witness.");
-  return nullptr;
-}
-
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetNormalAccelWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kNormalAccelWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing normal acceleration witness.");
-  return nullptr;
-}
-
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetNormalVelWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kNormalVelWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing normal velocity witness.");
-  return nullptr;
-}
-
-/// The velocity tolerance for sliding.
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetStickingFrictionForceSlackWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kStickingFrictionForceSlackWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Sticking friction force slack witness.");
-  return nullptr;
-}
-
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetNormalForceWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kNormalForceWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing normal force witness.");
-  return nullptr;
-}
-
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetPosSlidingWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kPosSlidingWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing positive sliding witness.");
-  return nullptr;
-}
-
-template <class T>
-RodWitnessFunction<T>* Rod2D<T>::GetNegSlidingWitness(
-    int contact_index, const systems::State<T>& state) const {
-  auto witnesses = state.get_abstract_state()
-      .get_value(kNegSlidingWitnessAbstractIndex)
-      .template GetValue<std::vector<RodWitnessFunction<T>*>>();
-  for (int i = 0; i < static_cast<int>(witnesses.size()); ++i)
-    if (witnesses[i]->get_contact_index() == contact_index)
-      return witnesses[i];
-
-  throw std::logic_error("Missing negative sliding witness.");
-  return nullptr;
 }
 
 template <class T>
@@ -972,27 +1043,27 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // If the witness is a signed distance witness, the point should either
         // no longer be tracked or it should trigger
         // an impact.
-        if (GetNormalVelWitness(contact_index, *state)->is_enabled() ||
-            GetNormalAccelWitness(contact_index, *state)->is_enabled() ||
-            GetNormalForceWitness(contact_index, *state)->is_enabled()) {
+        if (GetActiveWitnesses(contact_index, state).normal_velocity ||
+            GetActiveWitnesses(contact_index, state).normal_acceleration ||
+            GetActiveWitnesses(contact_index, state).normal_force) {
           // If the point is part of the force calculations, disable that.
           if (contact_array_index >= 0)
             contacts_to_remove.push_back(contact_array_index);
 
           // Deactivate all but signed distance function witness.
-          GetNormalForceWitness(contact_index, *state)->set_enabled(false);
-          GetNormalAccelWitness(contact_index, *state)->set_enabled(false);
-          GetNormalVelWitness(contact_index, *state)->set_enabled(false);
-          GetStickingFrictionForceSlackWitness(contact_index, *state)->
-              set_enabled(false);
-          GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-          GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+          GetActiveWitnesses(contact_index, state).normal_force = false;
+          GetActiveWitnesses(contact_index, state).normal_acceleration = false;
+          GetActiveWitnesses(contact_index, state).normal_velocity = false;
+          GetActiveWitnesses(contact_index, state).
+              sticking_friction_force_slack = false;
+          GetActiveWitnesses(contact_index, state).positive_sliding = false;
+          GetActiveWitnesses(contact_index, state).negative_sliding = false;
         } else {
           // Indicate that an impact is occurring. Activate one of
           // { NormalAccelWitness, NormalVelWitness } arbitrarily (lets the
           // impact approach know that this point of contact is being tracked,
           // but that contact is not part of force calculations).
-          GetNormalVelWitness(contact_index, *state)->set_enabled(true);
+          GetActiveWitnesses(contact_index, state).normal_velocity = true;
           impacting = true;
         }
         break;
@@ -1004,7 +1075,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // re-enter the force calculations.
 
         // First disable the normal velocity witness.
-        witness->set_enabled(false);
+        GetActiveWitnesses(contact_index, state).normal_velocity = false;
 
         // Add the contact.
         AddContactToForceCalculationSet(contact_index, context, state);
@@ -1028,7 +1099,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // added into the force calculations, it's known that the acceleration
         // will be non-negative. Otherwise, the velocity is positive and we
         // want to identify when that will no longer be the case.
-        witness->set_enabled(false);
+        GetActiveWitnesses(contact_index, state).normal_acceleration = false;
 
         // Examine the normal velocity.
         const Vector2<T> v = CalcContactVelocity(context, contact_index);
@@ -1039,7 +1110,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
           // Modes must now be redetermined.
           redetermine_modes = true;
         } else {
-          GetNormalVelWitness(contact_index, *state)->set_enabled(true);
+          GetActiveWitnesses(contact_index, state).normal_velocity = true;
         }
 
         break;
@@ -1062,13 +1133,13 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // Activate the normal acceleration witness function. Deactivate the
         // normal force witness and deactivate any other witnesses dependent
         // upon the contact being in the force set.
-        witness->set_enabled(false);
-        GetNormalAccelWitness(contact_index, *state)->set_enabled(true);
-        GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-        GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
-        GetStickingFrictionForceSlackWitness(contact_index, *state)->
-            set_enabled(false);
-        
+        GetActiveWitnesses(contact_index, state).normal_force = false;
+        GetActiveWitnesses(contact_index, state).normal_acceleration = true;
+        GetActiveWitnesses(contact_index, state).positive_sliding = false;
+        GetActiveWitnesses(contact_index, state).negative_sliding = false;
+        GetActiveWitnesses(contact_index, state).
+            sticking_friction_force_slack = false;
+
         // Modes must now be redetermined.
         redetermine_modes = true;
 
@@ -1092,10 +1163,10 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 
           // Enable the sticking friction slack and disable the sliding dot
           // and sliding witnesses.
-          GetStickingFrictionForceSlackWitness(contact_index, *state)
-              ->set_enabled(true);
-          GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-          GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
+          GetActiveWitnesses(contact_index, state).
+              sticking_friction_force_slack = true;
+          GetActiveWitnesses(contact_index, state).positive_sliding = false;
+          GetActiveWitnesses(contact_index, state).negative_sliding = false;
 
           // Modes must now be redetermined.
           redetermine_modes = true;
@@ -1104,13 +1175,13 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
       }
 
       case RodWitnessFunction<T>::WitnessType::kStickingFrictionForceSlack:  {
-        // Disable the sliding dot / sticking friction forces slack witness
-        // function.
-        witness->set_enabled(false);
+        // Disable the sticking friction forces slack witness function.
+        GetActiveWitnesses(contact_index, state).
+            sticking_friction_force_slack = false;
 
         // Enable the sliding velocity witnesses. 
-        GetPosSlidingWitness(contact_index, *state)->set_enabled(true);
-        GetNegSlidingWitness(contact_index, *state)->set_enabled(true);
+        GetActiveWitnesses(contact_index, state).positive_sliding = true;
+        GetActiveWitnesses(contact_index, state).negative_sliding = true;
 
         // Mark the contact as transitioning.
         contacts[contact_array_index].sliding_type =
@@ -1150,9 +1221,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
       // The point is considered to be in contact if one of the following is
       // activated: the normal force witness, the normal velocity witness,
       // the normal acceleration witness.
-      if (GetNormalForceWitness(i, *state)->is_enabled() ||
-          GetNormalVelWitness(i, *state)->is_enabled() ||
-          GetNormalAccelWitness(i, *state)->is_enabled()) {
+      if (GetActiveWitnesses(i, *state).normal_force ||
+          GetActiveWitnesses(i, *state).normal_velocity ||
+          GetActiveWitnesses(i, *state).normal_acceleration) {
         // The point was considered to both be in contact and be part of the
         // force calculations. Remove it from force calculations and activate
         // the normal velocity witness (and deactivate other witnesses) if the
@@ -1160,19 +1231,19 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         if (v[1] > 0) {
           SPDLOG_DEBUG(drake::log(), "Disabling contact {} from force "
               "calculations", i);
-          GetNormalVelWitness(i, *state)->set_enabled(true);
-          GetNormalAccelWitness(i, *state)->set_enabled(false);
-          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
-          GetPosSlidingWitness(i, *state)->set_enabled(false);
-          GetNegSlidingWitness(i, *state)->set_enabled(false);
+          GetActiveWitnesses(i, state).normal_velocity = true;
+          GetActiveWitnesses(i, state).normal_acceleration = false;
+          GetActiveWitnesses(i, state).sticking_friction_force_slack = false;
+          GetActiveWitnesses(i, state).positive_sliding = false;
+          GetActiveWitnesses(i, state).negative_sliding = false;
 
           // Remove the point if it is tracked.
-          if (GetNormalForceWitness(i, *state)->is_enabled()) {
+          if (GetActiveWitnesses(i, *state).normal_force) {
             contacts[i] = contacts.back();
             contacts.pop_back();
 
             // Disable the normal force witness.
-            GetNormalForceWitness(i, *state)->set_enabled(false);
+            GetActiveWitnesses(i, state).normal_force = false;
 
             // Need to process the newly designated element i.
             --i;
@@ -1262,14 +1333,14 @@ void Rod2D<T>::DetermineContactModes(
       contacts_to_remove.push_back(contact_array_index);
 
       // Enable the normal acceleration witness.
-      GetNormalAccelWitness(i, *state)->set_enabled(true);
+      GetActiveWitnesses(i, state).normal_acceleration = true;
 
       // Disable all other witnesses
-      GetNormalVelWitness(i, *state)->set_enabled(false);
-      GetNormalForceWitness(i, *state)->set_enabled(false);
-      GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
-      GetPosSlidingWitness(i, *state)->set_enabled(false);
-      GetNegSlidingWitness(i, *state)->set_enabled(false);
+      GetActiveWitnesses(i, state).normal_velocity = false;
+      GetActiveWitnesses(i, state).normal_force = false;
+      GetActiveWitnesses(i, state).sticking_friction_force_slack = false;
+      GetActiveWitnesses(i, state).positive_sliding = false;
+      GetActiveWitnesses(i, state).negative_sliding = false;
     } else {
       // The contact is active. If the contact is not sliding, see whether
       // it needs to transition to sliding. Do this by examining whether the
@@ -1291,21 +1362,21 @@ void Rod2D<T>::DetermineContactModes(
           SPDLOG_DEBUG(drake::log(), "Setting contact to 'transitioning'");
           contacts[contact_array_index].sliding_type =
               multibody::constraint::SlidingModeType::kTransitioning;
-          GetPosSlidingWitness(i, *state)->set_enabled(true);
-          GetNegSlidingWitness(i, *state)->set_enabled(true);
-          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+          GetActiveWitnesses(i, state).positive_sliding = true;
+          GetActiveWitnesses(i, state).negative_sliding = true;
+          GetActiveWitnesses(i, state).sticking_friction_force_slack = false;
         } else {
           // Contact is not sliding and not transitioning. Enable and disable
           // proper witnesses.
-          GetPosSlidingWitness(i, *state)->set_enabled(false);
-          GetNegSlidingWitness(i, *state)->set_enabled(false);
-          GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(true);
+          GetActiveWitnesses(i, state).positive_sliding = false;
+          GetActiveWitnesses(i, state).negative_sliding = false;
+          GetActiveWitnesses(i, state).sticking_friction_force_slack = true;
         }
       } else {
         // Contact is sliding. Enable and disable proper witnesses.
-        GetPosSlidingWitness(i, *state)->set_enabled(true);
-        GetNegSlidingWitness(i, *state)->set_enabled(true);
-        GetStickingFrictionForceSlackWitness(i, *state)->set_enabled(false);
+        GetActiveWitnesses(i, state).positive_sliding = true;
+        GetActiveWitnesses(i, state).negative_sliding = true;
+        GetActiveWitnesses(i, state).sticking_friction_force_slack = false;
       }
     }
   }
@@ -1341,20 +1412,20 @@ void Rod2D<T>::AddContactToForceCalculationSet(
       multibody::constraint::SlidingModeType::kSliding;
 
   // Activate the normal force witness.
-  GetNormalForceWitness(contact_index, *state)->set_enabled(true);
+  GetActiveWitnesses(contact_index, state).normal_force = true;
 
   // If the contact is sliding, activate the sliding witnesses.
   if (contacts.back().sliding_type ==
       multibody::constraint::SlidingModeType::kSliding) {
-    GetPosSlidingWitness(contact_index, *state)->set_enabled(true);
-    GetNegSlidingWitness(contact_index, *state)->set_enabled(true);
-    GetStickingFrictionForceSlackWitness(
-        contact_index, *state)->set_enabled(false);
+    GetActiveWitnesses(contact_index, state).positive_sliding = true;
+    GetActiveWitnesses(contact_index, state).negative_sliding = true;
+    GetActiveWitnesses(
+        contact_index, state).sticking_friction_force_slack = false;
   } else {
-    GetPosSlidingWitness(contact_index, *state)->set_enabled(false);
-    GetNegSlidingWitness(contact_index, *state)->set_enabled(false);
-    GetStickingFrictionForceSlackWitness(
-        contact_index, *state)->set_enabled(true);
+    GetActiveWitnesses(contact_index, state).positive_sliding = false;
+    GetActiveWitnesses(contact_index, state).negative_sliding = false;
+    GetActiveWitnesses(
+        contact_index, state).sticking_friction_force_slack = true;
   }
 }
 
@@ -1464,30 +1535,46 @@ void Rod2D<T>::DoGetWitnessFunctions(const systems::Context<T>& context,
   witness_functions->clear();
 
   // If this is not a piecewise DAE system, return early.
-  if (simulation_type_ != SimulationType::kPiecewiseDAE)
+  if (system_type_ != SystemType::kPiecewiseDAE)
     return;
 
-  for (int i = kContactAbstractIndex + 1; i < kNumAbstractIndices; ++i) {
-    auto witnesses = context.get_abstract_state().
-        get_value(i).template GetValue<std::vector<RodWitnessFunction<T>*>>();
-    for (int j = 0; j < static_cast<int>(witnesses.size()); ++j)
-      if (witnesses[j]->is_enabled())
-        witness_functions->push_back(static_cast<systems::WitnessFunction<T>*>(witnesses[j]));
-  }
+  auto process_witnesses = [this, witness_functions](
+      int endpoint, const ActiveRodWitnesses& witnesses) {
+    if (witnesses.signed_distance)
+      witness_functions->push_back(signed_distance_witnesses_[endpoint].get());
+    if (witnesses.normal_force)
+      witness_functions->push_back(normal_force_witnesses_[endpoint].get());
+    if (witnesses.normal_velocity)
+      witness_functions->push_back(normal_velocity_witnesses_[endpoint].get());
+    if (witnesses.normal_acceleration) {
+      witness_functions->push_back(
+          normal_acceleration_witnesses_[endpoint].get());
+    }
+    if (witnesses.positive_sliding)
+      witness_functions->push_back(positive_sliding_witnesses_[endpoint].get());
+    if (witnesses.negative_sliding)
+      witness_functions->push_back(negative_sliding_witnesses_[endpoint].get());
+    if (witnesses.sticking_friction_force_slack)
+      witness_functions->push_back(
+          sticking_friction_force_slack_witnesses_[endpoint].get());
+  };
+
+  process_witnesses(kLeft, GetActiveWitnesses(kLeft, context.get_state()));
+  process_witnesses(kRight, GetActiveWitnesses(kRight, context.get_state()));
 }
 
 template <class T>
 void Rod2D<T>::ComputeAndCopyContactForceOut(
     const systems::Context<T>& context,
     systems::BasicVector<T>* contact_force_port_value) const {
-  switch (simulation_type_) {
-    case Rod2D<T>::SimulationType::kContinuous:  {
+  switch (system_type_) {
+    case Rod2D<T>::SystemType::kContinuous:  {
       const Vector3<T> Fc_Ro_W = CalcCompliantContactForces(context);
       contact_force_port_value->SetFromVector(Fc_Ro_W);
       break;
     }
 
-    case Rod2D<T>::SimulationType::kPiecewiseDAE:  {
+    case Rod2D<T>::SystemType::kPiecewiseDAE:  {
       // TODO(edrumwri): Cache this whole computation ASAP. 
       // Construct the problem data.
       const int ngc = 3;   // Number of generalized coordinates / velocities.
@@ -1506,7 +1593,7 @@ void Rod2D<T>::ComputeAndCopyContactForceOut(
       break;
     }
 
-    case Rod2D<T>::SimulationType::kDiscretized:  {
+    case Rod2D<T>::SystemType::kDiscretized:  {
       // TODO(edrumwri): Cache this computation ASAP. 
       // Must solve the time stepping problem and then compute the non-impulsive
       // contact forces.
@@ -1541,7 +1628,7 @@ template <typename T>
 void Rod2D<T>::CopyStateOut(const systems::Context<T>& context,
                             systems::BasicVector<T>* state_port_value) const {
   // Output port value is just the continuous or discrete state.
-  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
+  const VectorX<T> state = (system_type_ == SystemType::kDiscretized)
                                ? context.get_discrete_state(0).CopyToVector()
                                : context.get_continuous_state().CopyToVector();
   state_port_value->SetFromVector(state);
@@ -1551,7 +1638,7 @@ template <typename T>
 void Rod2D<T>::CopyPoseOut(
     const systems::Context<T>& context,
     systems::rendering::PoseVector<T>* pose_port_value) const {
-  const VectorX<T> state = (simulation_type_ == SimulationType::kDiscretized)
+  const VectorX<T> state = (system_type_ == SystemType::kDiscretized)
                                ? context.get_discrete_state(0).CopyToVector()
                                : context.get_continuous_state().CopyToVector();
   ConvertStateToPose(state, pose_port_value);
@@ -1801,7 +1888,7 @@ template <class T>
 Vector3<T> Rod2D<T>::CalcCompliantContactForces(
     const systems::Context<T>& context) const {
   // Depends on continuous state being available.
-  DRAKE_DEMAND(simulation_type_ == SimulationType::kContinuous);
+  DRAKE_DEMAND(system_type_ == SystemType::kContinuous);
 
   using std::abs;
   using std::max;
@@ -1915,7 +2002,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   using std::abs;
 
   // Don't compute any derivatives if this is the time stepping system.
-  if (simulation_type_ == SimulationType::kDiscretized) {
+  if (system_type_ == SystemType::kDiscretized) {
     DRAKE_ASSERT(derivatives->size() == 0);
     return;
   }
@@ -1935,7 +2022,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   f.SetAtIndex(2, thetadot);
 
   // Compute the velocity derivatives (accelerations).
-  if (simulation_type_ == SimulationType::kContinuous) {
+  if (system_type_ == SystemType::kContinuous) {
     return CalcAccelerationsCompliantContactAndBallistic(context, derivatives);
   } else {
     // Piecewise DAE approach: it is assumed that the set of active constraints
@@ -1968,10 +2055,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
 template <typename T>
 std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
     const {
-  // TODO: Make the sliding tolerance a function of accuracy.
-  const double slip_tol = 1e-4;
-
-  if (simulation_type_ == SimulationType::kPiecewiseDAE) {
+  if (system_type_ == SystemType::kPiecewiseDAE) {
     // Piecewise DAE approach needs multiple abstract variables: one vector
     // of contact indices used in force calculations and one vector for each
     // type of witness function. 
@@ -1981,50 +2065,11 @@ std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
         std::make_unique<systems::Value<std::vector<
         multibody::constraint::PointContact>>>());
 
-    // Create all of the witness function vectors.
-    for (int i = kContactAbstractIndex + 1; i < kNumAbstractIndices; ++i) {
-      abstract_data.push_back(
-          std::make_unique<
-          systems::Value<std::vector<RodWitnessFunction<T>*>>>());
-      auto& witnesses = abstract_data.back()->template GetMutableValue<std::vector<RodWitnessFunction<T>*>>();
-     
-      switch (i) {
-        case kSignedDistanceWitnessAbstractIndex:
-          witnesses.push_back(new SignedDistanceWitness<T>(this, 0));
-          witnesses.push_back(new SignedDistanceWitness<T>(this, 1));
-          break;
-
-        case kNormalAccelWitnessAbstractIndex:
-          witnesses.push_back(new NormalAccelWitness<T>(this, 0));
-          witnesses.push_back(new NormalAccelWitness<T>(this, 1));
-          break;
-
-        case kNormalVelWitnessAbstractIndex:
-          witnesses.push_back(new NormalVelWitness<T>(this, 0));
-          witnesses.push_back(new NormalVelWitness<T>(this, 1));
-          break;
-
-        case kStickingFrictionForceSlackWitnessAbstractIndex:
-          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(this, 0));
-          witnesses.push_back(new StickingFrictionForcesSlackWitness<T>(this, 1));
-          break;
-
-        case kNormalForceWitnessAbstractIndex:
-          witnesses.push_back(new NormalForceWitness<T>(this, 0));
-          witnesses.push_back(new NormalForceWitness<T>(this, 1));
-          break;
-
-        case kNegSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, false));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, false));
-          break;
-
-        case kPosSlidingWitnessAbstractIndex:
-          witnesses.push_back(new SlidingWitness<T>(this, 0, true));
-          witnesses.push_back(new SlidingWitness<T>(this, 1, true));
-          break;
-      }
-    }
+    // Create the left and right set of active witnesses.
+    abstract_data.push_back(
+        std::make_unique<systems::Value<ActiveRodWitnesses>>());
+    abstract_data.push_back(
+        std::make_unique<systems::Value<ActiveRodWitnesses>>());
 
     return std::make_unique<systems::AbstractValues>(std::move(abstract_data));
   } else {
@@ -2047,7 +2092,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
   VectorX<T> x0(6);
   const double r22 = sqrt(2) / 2;
   x0 << 0, half_len * r22, M_PI / 4.0, -1, 0, 0;  // Initial state.
-  if (simulation_type_ == SimulationType::kDiscretized) {
+  if (system_type_ == SystemType::kDiscretized) {
     state->get_mutable_discrete_state().get_mutable_vector(0)
         .SetFromVector(x0);
   } else {
@@ -2055,7 +2100,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
     state->get_mutable_continuous_state().SetFromVector(x0);
 
     // Set abstract variables for piecewise DAE approach.
-    if (simulation_type_ == SimulationType::kPiecewiseDAE) {
+    if (system_type_ == SystemType::kPiecewiseDAE) {
       // Initialize the vector of contact points.
       auto& contacts = get_contacts_used_in_force_calculations(state);
 
@@ -2063,8 +2108,8 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       contacts.resize(1);
 
       // Get the active witness functions.
-      ActiveRodWitnesses& left_witnesses = GetActiveWitnesses(state, kLeft);
-      ActiveRodWitnesses& right_witnesses = GetActiveWitnesses(state, kRight);
+      ActiveRodWitnesses& left_witnesses = GetActiveWitnesses(kLeft, state);
+      ActiveRodWitnesses& right_witnesses = GetActiveWitnesses(kRight, state);
 
       // First contact candidate is Rl in Rod Frame (see class documentation);
       // in the default rod configuration, Rl contacts the half-space and is
@@ -2093,11 +2138,6 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       right_witnesses.positive_sliding = false;
       right_witnesses.negative_sliding = false;
       right_witnesses.normal_force = false;
-
-      GetStickingFrictionForceSlackWitness(kLeft, *state)->
-          set_enabled(false);
-      GetStickingFrictionForceSlackWitness(kRight, *state)->
-          set_enabled(false);
     }
   }
 }

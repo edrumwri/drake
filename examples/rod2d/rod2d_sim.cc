@@ -97,13 +97,13 @@ int main(int argc, char* argv[]) {
   Rod2D* rod;
   if (FLAGS_simulation_type == "timestepping") {
     rod = builder.template AddSystem<Rod2D>(
-        Rod2D::SimulationType::kTimeStepping, FLAGS_dt);
+        Rod2D::SystemType::kDiscretized, FLAGS_dt);
   } else if (FLAGS_simulation_type == "compliant") {
-    rod = builder.template AddSystem<Rod2D>(Rod2D::SimulationType::kCompliant,
+    rod = builder.template AddSystem<Rod2D>(Rod2D::SystemType::kContinuous,
                                             0.0);
   } else if (FLAGS_simulation_type == "pDAE") {
     rod = builder.
-        template AddSystem<Rod2D>(Rod2D::SimulationType::kPiecewiseDAE, 0.0);
+        template AddSystem<Rod2D>(Rod2D::SystemType::kPiecewiseDAE, 0.0);
   } else {
     std::cerr << "Invalid simulation type '" << FLAGS_simulation_type
               << "'; note that types are case sensitive." << std::endl;
