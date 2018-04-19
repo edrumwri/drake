@@ -31,7 +31,7 @@ Rod2D<T>::Rod2D(SimulationType simulation_type, double dt)
     : simulation_type_(simulation_type), dt_(dt) {
   // Verify that the simulation approach is either piecewise DAE or
   // compliant ODE.
-  if (simulation_type == SimulationType::kTimeStepping) {
+  if (simulation_type == SimulationType::kDiscretized) {
     if (dt <= 0.0)
       throw std::logic_error(
           "Time stepping approach must be constructed using"
@@ -323,7 +323,7 @@ Vector2<T> Rod2D<T>::CalcCoincidentRodPointVelocity(
 ///     | 0 0 J | </pre>
 /// where `m` is the mass of the rod and `J` is its moment of inertia.
 template <class T>
-MatrixX<T> Rod2D<T>::solve_inertia(const MatrixX<T>& B) const {
+MatrixX<T> Rod2D<T>::SolveInertia(const MatrixX<T>& B) const {
   const T inv_mass = 1.0 / get_rod_mass();
   const T inv_J = 1.0 / get_rod_moment_of_inertia();
   Matrix3<T> iM;
@@ -582,7 +582,7 @@ void Rod2D<T>::CalcConstraintProblemData(
 
   // Set the inertia solver.
   data->solve_inertia = [this](const MatrixX<T>& m) {
-    return solve_inertia(m);
+    return SolveInertia(m);
   };
 
   // The normal and tangent spanning direction are unique.
@@ -714,7 +714,7 @@ void Rod2D<T>::CalcImpactProblemData(
 
   // Set the inertia solver.
   data->solve_inertia = [this](const MatrixX<T>& m) {
-    return solve_inertia(m);
+    return SolveInertia(m);
   };
 
   // The normal and tangent spanning direction are unique for the rod undergoing
@@ -1478,7 +1478,7 @@ void Rod2D<T>::ComputeAndCopyContactForceOut(
     const systems::Context<T>& context,
     systems::BasicVector<T>* contact_force_port_value) const {
   switch (simulation_type_) {
-    case Rod2D<T>::SimulationType::kCompliant:  {
+    case Rod2D<T>::SimulationType::kContinuous:  {
       const Vector3<T> Fc_Ro_W = CalcCompliantContactForces(context);
       contact_force_port_value->SetFromVector(Fc_Ro_W);
       break;
@@ -1503,7 +1503,7 @@ void Rod2D<T>::ComputeAndCopyContactForceOut(
       break;
     }
 
-    case Rod2D<T>::SimulationType::kTimeStepping:  {
+    case Rod2D<T>::SimulationType::kDiscretized:  {
       // TODO(edrumwri): Cache this computation ASAP. 
       // Must solve the time stepping problem and then compute the non-impulsive
       // contact forces.
@@ -1538,7 +1538,7 @@ template <typename T>
 void Rod2D<T>::CopyStateOut(const systems::Context<T>& context,
                             systems::BasicVector<T>* state_port_value) const {
   // Output port value is just the continuous or discrete state.
-  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
+  const VectorX<T> state = (simulation_type_ == SimulationType::kDiscretized)
                                ? context.get_discrete_state(0).CopyToVector()
                                : context.get_continuous_state().CopyToVector();
   state_port_value->SetFromVector(state);
@@ -1548,7 +1548,7 @@ template <typename T>
 void Rod2D<T>::CopyPoseOut(
     const systems::Context<T>& context,
     systems::rendering::PoseVector<T>* pose_port_value) const {
-  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
+  const VectorX<T> state = (simulation_type_ == SimulationType::kDiscretized)
                                ? context.get_discrete_state(0).CopyToVector()
                                : context.get_continuous_state().CopyToVector();
   ConvertStateToPose(state, pose_port_value);
@@ -1798,7 +1798,7 @@ template <class T>
 Vector3<T> Rod2D<T>::CalcCompliantContactForces(
     const systems::Context<T>& context) const {
   // Depends on continuous state being available.
-  DRAKE_DEMAND(simulation_type_ == SimulationType::kCompliant);
+  DRAKE_DEMAND(simulation_type_ == SimulationType::kContinuous);
 
   using std::abs;
   using std::max;
@@ -1912,7 +1912,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   using std::abs;
 
   // Don't compute any derivatives if this is the time stepping system.
-  if (simulation_type_ == SimulationType::kTimeStepping) {
+  if (simulation_type_ == SimulationType::kDiscretized) {
     DRAKE_ASSERT(derivatives->size() == 0);
     return;
   }
@@ -1932,7 +1932,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   f.SetAtIndex(2, thetadot);
 
   // Compute the velocity derivatives (accelerations).
-  if (simulation_type_ == SimulationType::kCompliant) {
+  if (simulation_type_ == SimulationType::kContinuous) {
     return CalcAccelerationsCompliantContactAndBallistic(context, derivatives);
   } else {
     // Piecewise DAE approach: it is assumed that the set of active constraints
@@ -2041,7 +2041,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
   VectorX<T> x0(6);
   const double r22 = sqrt(2) / 2;
   x0 << 0, half_len * r22, M_PI / 4.0, -1, 0, 0;  // Initial state.
-  if (simulation_type_ == SimulationType::kTimeStepping) {
+  if (simulation_type_ == SimulationType::kDiscretized) {
     state->get_mutable_discrete_state().get_mutable_vector(0)
         .SetFromVector(x0);
   } else {
@@ -2056,6 +2056,10 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       // Indicate that the rod is in the single contact sliding mode.
       contacts.resize(1);
 
+      // Get the active witness functions.
+      ActiveRodWitnesses& left_witnesses = GetActiveWitnesses(state, kLeft);
+      ActiveRodWitnesses& right_witnesses = GetActiveWitnesses(state, kRight);
+
       // First contact candidate is Rl in Rod Frame (see class documentation);
       // in the default rod configuration, Rl contacts the half-space and is
       // sliding.
@@ -2064,23 +2068,26 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       contacts.front().id = reinterpret_cast<void*>(0);
 
       // Enable both signed distance witnesses.
-      GetSignedDistanceWitness(kLeft, *state)->set_enabled(true);
-      GetSignedDistanceWitness(kRight, *state)->set_enabled(true);
+      left_witnesses.signed_distance = true;
+      right_witnesses.signed_distance = true;
 
       // Enable the normal force witness and the sliding witnesses for the
       // left (sliding) contact.
-      GetNormalForceWitness(kLeft, *state)->set_enabled(true);
-      GetPosSlidingWitness(kLeft, *state)->set_enabled(true);
-      GetNegSlidingWitness(kLeft, *state)->set_enabled(true);
+      left_witnesses.normal_force = true;
+      left_witnesses.positive_sliding = true;
+      left_witnesses.negative_sliding = true;
 
       // Disable all other witness functions.
-      GetNormalVelWitness(kLeft, *state)->set_enabled(false);
-      GetNormalVelWitness(kRight, *state)->set_enabled(false);
-      GetNormalAccelWitness(kLeft, *state)->set_enabled(false);
-      GetNormalAccelWitness(kRight, *state)->set_enabled(false);
-      GetPosSlidingWitness(kRight, *state)->set_enabled(false);
-      GetNegSlidingWitness(kRight, *state)->set_enabled(false);
-      GetNormalForceWitness(kRight, *state)->set_enabled(false);
+      left_witnesses.normal_velocity = false;
+      right_witnesses.normal_velocity = false;
+      left_witnesses.normal_acceleration = false;
+      right_witnesses.normal_acceleration = false;
+      left_witnesses.sticking_friction_force_slack = false;
+      right_witnesses.sticking_friction_force_slack = false;
+      right_witnesses.positive_sliding = false;
+      right_witnesses.negative_sliding = false;
+      right_witnesses.normal_force = false;
+
       GetStickingFrictionForceSlackWitness(kLeft, *state)->
           set_enabled(false);
       GetStickingFrictionForceSlackWitness(kRight, *state)->

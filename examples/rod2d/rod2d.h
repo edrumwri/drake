@@ -155,10 +155,8 @@ States: planar position (state indices 0 and 1) and orientation (state
         each of which is denoted by the AbstractIndices struct. The first
         abstract index corresponds to a vector of PointContact types and
         correspond to the points of contact used in force calculations. The
-        remaining abstract index corresponds to vectors of pointers of
-        witness functions, each of which is responsible for detecting when
-        certain mode changes occur. The subset of these witness functions that
-        are active at a point in time explicitly indicate the state of the
+        remaining abstract index corresponds to identifiers for the witness
+        functions that are active, which explicitly indicate the state of the
         system. For example, if the only witness functions active are the signed
         distance functions for both rod endpoints, the rod is moving
         ballistically.
@@ -190,11 +188,11 @@ class Rod2D : public systems::LeafSystem<T> {
 
     /// For simulating the system using rigid contact, Coulomb friction, and
     /// a first-order time stepping approach.
-    kTimeStepping,
+    kDiscretized,
 
     /// For simulating the system using compliant contact, Coulomb friction,
     /// and ordinary differential equations.
-    kCompliant
+    kContinuous
   };
 
   /// Constructor for the 2D rod system using the piecewise DAE (differential
@@ -203,8 +201,8 @@ class Rod2D : public systems::LeafSystem<T> {
   /// @param dt The integration step size. This step size cannot be reset
   ///           after construction.
   /// @throws std::logic_error if @p dt is not positive and simulation_type is
-  ///         kTimeStepping or @p dt is not zero and simulation_type is
-  ///         kPiecewiseDAE or kCompliant.
+  ///         kDiscretized or @p dt is not zero and simulation_type is
+  ///         kPiecewiseDAE or kContinuous.
   explicit Rod2D(SimulationType simulation_type, double dt);
 
   /// Initializes the abstract state variables using the continuous state of
@@ -479,7 +477,8 @@ class Rod2D : public systems::LeafSystem<T> {
   /// translational force f_Ro_W=(fx,fy) is applied at the rod origin Ro,
   /// and torque t_R=τ is the moment due to the contact forces actually being
   /// applied elsewhere. The returned spatial force may be the resultant of
-  /// multiple active contact points. Only valid for simulation type kCompliant.
+  /// multiple active contact points. Only valid for simulation type
+  /// kContinuous.
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
@@ -658,7 +657,7 @@ class Rod2D : public systems::LeafSystem<T> {
   static Matrix2<T> GetRotationMatrix2ndDerivative(T theta, T thetaddot);
   T GetSlidingVelocityTolerance() const;
   Matrix3<T> GetInertiaMatrix() const;
-  MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
+  MatrixX<T> SolveInertia(const MatrixX<T>& B) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
   void ComputeAndCopyContactForceOut(
@@ -684,20 +683,6 @@ class Rod2D : public systems::LeafSystem<T> {
       const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
-  RodWitnessFunction<T>* GetSignedDistanceWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetNormalVelWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetNormalAccelWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetPosSlidingWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetNegSlidingWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetNormalForceWitness(
-      int contact_index, const systems::State<T>& state) const;
-  RodWitnessFunction<T>* GetStickingFrictionForceSlackWitness(
-      int contact_index, const systems::State<T>& state) const;
   void AddContactToForceCalculationSet(
       int contact_index,
       const systems::Context<T>& context,
@@ -843,6 +828,27 @@ class Rod2D : public systems::LeafSystem<T> {
     kRight = 1,
   };
 
+  // A structure indicating which rod witness functions are active for a
+  // single end point of the rod.
+  struct ActiveRodWitnesses {
+    bool signed_distance{false};
+    bool normal_force{false};
+    bool normal_velocity{false};
+    bool normal_acceleration{false};
+    bool positive_sliding{false};
+    bool negative_sliding{false};
+    bool sticking_friction_force_slack{false};
+  };
+
+  std::unique_ptr<WitnessFunction<T>> signed_distance_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> normal_force_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> normal_velocity_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> normal_acceleration_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> positive_sliding_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> negative_sliding_witness_[2];
+  std::unique_ptr<WitnessFunction<T>> sticking_friction_force_slack_witness_[2];
+
+  // TODO: Update this.
   // Abstract state variable constants.
   enum AbstractIndices {
     kContactAbstractIndex = 0,
