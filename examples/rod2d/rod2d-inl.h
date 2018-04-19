@@ -582,7 +582,7 @@ void Rod2D<T>::CalcConstraintProblemData(
 
   // Set the inertia solver.
   data->solve_inertia = [this](const MatrixX<T>& m) {
-    return SolveInertia(m);
+    return solve_inertia(m);
   };
 
   // The normal and tangent spanning direction are unique.
@@ -1173,6 +1173,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
 
             // Disable the normal force witness.
             GetNormalForceWitness(i, *state)->set_enabled(false);
+
+            // Need to process the newly designated element i.
+            --i;
           }
         } else {
           // The contact point should potentially be accounted for in the force
@@ -1538,7 +1541,7 @@ template <typename T>
 void Rod2D<T>::CopyStateOut(const systems::Context<T>& context,
                             systems::BasicVector<T>* state_port_value) const {
   // Output port value is just the continuous or discrete state.
-  const VectorX<T> state = (simulation_type_ == SimulationType::kDiscretized)
+  const VectorX<T> state = (simulation_type_ == SimulationType::kTimeStepping)
                                ? context.get_discrete_state(0).CopyToVector()
                                : context.get_continuous_state().CopyToVector();
   state_port_value->SetFromVector(state);
@@ -1965,6 +1968,9 @@ void Rod2D<T>::DoCalcTimeDerivatives(
 template <typename T>
 std::unique_ptr<systems::AbstractValues> Rod2D<T>::AllocateAbstractState()
     const {
+  // TODO: Make the sliding tolerance a function of accuracy.
+  const double slip_tol = 1e-4;
+
   if (simulation_type_ == SimulationType::kPiecewiseDAE) {
     // Piecewise DAE approach needs multiple abstract variables: one vector
     // of contact indices used in force calculations and one vector for each

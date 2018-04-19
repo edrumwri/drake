@@ -22,7 +22,7 @@ class SlidingWitness : public RodWitnessFunction<T> {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SlidingWitness)
 
   SlidingWitness(
-      const Rod2D<T>* rod,
+      const Rod2D<T>& rod,
       int contact_index,
       bool pos_direction) :
       RodWitnessFunction<T>(

@@ -869,6 +869,19 @@ class Rod2D : public systems::LeafSystem<T> {
 
     kNumAbstractIndices = 8,
   };
+
+  // Witness functions: one for each endpoint.
+  std::unique_ptr<systems::WitnessFunction<T>> normal_accel_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> normal_force_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> normal_vel_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> signed_distance_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>>
+      sticking_friction_forces_slack_witnesses_[2];
+
+  // Witnesses for detecting sliding along +/- x-axis, respectively.
+  std::unique_ptr<systems::WitnessFunction<T>> pos_sliding_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> neg_sliding_witnesses_[2];
+
 };
 
 }  // namespace rod2d
