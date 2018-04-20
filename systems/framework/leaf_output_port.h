@@ -47,8 +47,7 @@ class LeafOutputPort : public OutputPort<T> {
   /** Signature of a function suitable for allocating an object that can hold
   a value of a particular output port. The result is returned as an
   AbstractValue even if this is a vector-valued port. */
-  using AllocCallback = std::function<std::unique_ptr<AbstractValue>(
-      const Context<T>&)>;
+  using AllocCallback = std::function<std::unique_ptr<AbstractValue>()>;
 
   /** Signature of a function suitable for calculating a value of a particular
   output port, given a place to put the value. */
@@ -129,15 +128,14 @@ class LeafOutputPort : public OutputPort<T> {
 
   // Invokes the supplied allocation function if there is one, otherwise
   // complains.
-  std::unique_ptr<AbstractValue> DoAllocate(
-      const Context<T>& context) const final;
+  std::unique_ptr<AbstractValue> DoAllocate() const final;
 
   // Invokes the supplied calculation function if present, otherwise complains.
   void DoCalc(const Context<T>& context, AbstractValue* value) const final;
 
   // Currently just invokes the supplied evaluation function if present,
   // otherwise complains.
-  // TODO(sherm1) Generate this automatically using the cache & DoCalc().
+  // TODO(sherm1) Generate this automatically using the cache & DoEvaluate().
   const AbstractValue& DoEval(const Context<T>& context) const final;
 
   AllocCallback alloc_function_;

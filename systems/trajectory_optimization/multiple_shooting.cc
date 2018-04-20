@@ -16,6 +16,8 @@ namespace drake {
 namespace systems {
 namespace trajectory_optimization {
 
+using trajectories::PiecewisePolynomial;
+
 // For readability of long lines, these single-letter variables names are
 // sometimes used:
 // N number of timesteps/samples
@@ -99,6 +101,32 @@ void MultipleShooting::AddDurationBounds(double lower_bound,
                       h_vars_);
 }
 
+solvers::Binding<solvers::VisualizationCallback>
+MultipleShooting::AddInputTrajectoryCallback(
+    const MultipleShooting::TrajectoryCallback& callback) {
+  return AddVisualizationCallback(
+      [this, callback](const Eigen::Ref<const Eigen::VectorXd>& x) {
+        const Eigen::VectorXd times = GetSampleTimes(x.head(h_vars_.size()));
+        const Eigen::Map<const Eigen::MatrixXd> inputs(
+            x.data() + h_vars_.size(), num_inputs_, N_);
+        callback(times, inputs);
+      },
+      {h_vars_, u_vars_});
+}
+
+solvers::Binding<solvers::VisualizationCallback>
+MultipleShooting::AddStateTrajectoryCallback(
+    const MultipleShooting::TrajectoryCallback& callback) {
+  return AddVisualizationCallback(
+      [this, callback](const Eigen::Ref<const Eigen::VectorXd>& x) {
+        const Eigen::VectorXd times = GetSampleTimes(x.head(h_vars_.size()));
+        const Eigen::Map<const Eigen::MatrixXd> states(
+            x.data() + h_vars_.size(), num_states_, N_);
+        callback(times, states);
+      },
+      {h_vars_, x_vars_});
+}
+
 void MultipleShooting::SetInitialTrajectory(
     const PiecewisePolynomial<double>& traj_init_u,
     const PiecewisePolynomial<double>& traj_init_x) {
@@ -108,16 +136,16 @@ void MultipleShooting::SetInitialTrajectory(
     double end_time = fixed_timestep_ * N_;
     DRAKE_THROW_UNLESS(!traj_init_u.empty() || !traj_init_x.empty());
     if (!traj_init_u.empty()) {
-      start_time = traj_init_u.getStartTime();
-      end_time = traj_init_u.getEndTime();
+      start_time = traj_init_u.start_time();
+      end_time = traj_init_u.end_time();
       if (!traj_init_x.empty()) {
         // Note: Consider adding a tolerance here if warranted.
-        DRAKE_THROW_UNLESS(start_time == traj_init_x.getStartTime());
-        DRAKE_THROW_UNLESS(end_time == traj_init_x.getEndTime());
+        DRAKE_THROW_UNLESS(start_time == traj_init_x.start_time());
+        DRAKE_THROW_UNLESS(end_time == traj_init_x.end_time());
       }
     } else {
-      start_time = traj_init_x.getStartTime();
-      end_time = traj_init_x.getEndTime();
+      start_time = traj_init_x.start_time();
+      end_time = traj_init_x.end_time();
     }
     DRAKE_DEMAND(start_time <= end_time);
     h = (end_time - start_time) / (N_ - 1);
@@ -148,14 +176,14 @@ void MultipleShooting::SetInitialTrajectory(
   SetInitialGuess(x_vars_, guess_x);
 }
 
-Eigen::VectorXd MultipleShooting::GetSampleTimes() const {
+Eigen::VectorXd MultipleShooting::GetSampleTimes(
+    const Eigen::Ref<const Eigen::VectorXd>& h_var_values) const {
   Eigen::VectorXd times(N_);
 
   if (timesteps_are_decision_variables_) {
-    const auto h_values = GetSolution(h_vars_);
     times[0] = 0.0;
     for (int i = 1; i < N_; i++) {
-      times[i] = times[i - 1] + h_values(i - 1);
+      times[i] = times[i - 1] + h_var_values(i - 1);
     }
   } else {
     for (int i = 0; i < N_; i++) {

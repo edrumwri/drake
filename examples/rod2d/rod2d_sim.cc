@@ -44,15 +44,14 @@ using drake::systems::ImplicitEulerIntegrator;
 using drake::systems::RungeKutta3Integrator;
 
 // Simulation parameters.
-DEFINE_string(simulation_type, "timestepping",
-              "Type of simulation, valid values are "
-              "'pDAE', 'timestepping','compliant'");
-DEFINE_double(dt, 1e-2, "Integration step size (for time stepping simulation, "
-              "maximum simulation step size otherwise)");
+DEFINE_string(system_type, "discretized",
+              "Type of rod system, valid values are "
+              "'discretized','continuous'");
+DEFINE_double(dt, 1e-2, "Integration step size");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
 DEFINE_double(sim_duration, 5, "Simulation duration in virtual seconds");
 DEFINE_double(accuracy, 1e-5,
-              "Requested simulation accuracy (ignored for time stepping)");
+              "Requested simulation accuracy (ignored for discretized system)");
 DEFINE_string(state, "0 0 0 0 0 0", "Six dimensional, space delimited vector "
                      "of initial conditions.");
 DEFINE_double(mu_c, Rod2D::get_default_mu(), "Coefficient of Coulomb "
@@ -95,17 +94,17 @@ int main(int argc, char* argv[]) {
 
   // Create the rod and add it to the diagram.
   Rod2D* rod;
-  if (FLAGS_simulation_type == "timestepping") {
+  if (FLAGS_system_type == "discretized") {
     rod = builder.template AddSystem<Rod2D>(
         Rod2D::SystemType::kDiscretized, FLAGS_dt);
-  } else if (FLAGS_simulation_type == "compliant") {
+  } else if (FLAGS_system_type == "continuous") {
     rod = builder.template AddSystem<Rod2D>(Rod2D::SystemType::kContinuous,
                                             0.0);
   } else if (FLAGS_simulation_type == "pDAE") {
     rod = builder.
         template AddSystem<Rod2D>(Rod2D::SystemType::kPiecewiseDAE, 0.0);
   } else {
-    std::cerr << "Invalid simulation type '" << FLAGS_simulation_type
+    std::cerr << "Invalid system type '" << FLAGS_system_type
               << "'; note that types are case sensitive." << std::endl;
     return -1;
   }
@@ -181,7 +180,7 @@ int main(int argc, char* argv[]) {
   Eigen::VectorXd initial_state(state_dim);
   for (int i = 0; i < state_dim; ++i)
     iss >> initial_state[i];
-  if (FLAGS_simulation_type == "timestepping") {
+  if (FLAGS_simulation_type == "discretized") {
     rod_context.get_mutable_discrete_state(0).SetFromVector(initial_state);
   } else {
     Rod2dStateVector<double>& rod_state =
@@ -200,7 +199,7 @@ int main(int argc, char* argv[]) {
 
   // Set up the integrator.
   Simulator<double> simulator(*diagram, std::move(context));
-  if (FLAGS_simulation_type == "compliant") {
+  if (FLAGS_system_type == "continuous") {
     Context<double>& mut_context = simulator.get_mutable_context();
     simulator.reset_integrator<ImplicitEulerIntegrator<double>>(*diagram,
                                                                 &mut_context);
@@ -238,4 +237,3 @@ int main(int argc, char* argv[]) {
     out.close();
   }
 }
-

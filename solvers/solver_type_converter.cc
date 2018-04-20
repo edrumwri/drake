@@ -9,8 +9,10 @@
 #include "drake/solvers/moby_lcp_solver.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/nlopt_solver.h"
+#include "drake/solvers/osqp_solver.h"
 #include "drake/solvers/scs_solver.h"
 #include "drake/solvers/snopt_solver.h"
+#include "drake/solvers/unrevised_lemke_solver.h"
 
 namespace drake {
 namespace solvers {
@@ -33,10 +35,14 @@ SolverId SolverTypeConverter::TypeToId(SolverType solver_type) {
       return MosekSolver::id();
     case SolverType::kNlopt:
       return NloptSolver::id();
+    case SolverType::kOsqp:
+      return OsqpSolver::id();
     case SolverType::kSnopt:
       return SnoptSolver::id();
     case SolverType::kScs:
       return ScsSolver::id();
+    case SolverType::kUnrevisedLemke:
+      return UnrevisedLemkeSolverId::id();
   }
   DRAKE_ABORT();
 }
@@ -60,8 +66,12 @@ optional<SolverType> SolverTypeConverter::IdToType(SolverId solver_id) {
     return SolverType::kNlopt;
   } else if (solver_id == SnoptSolver::id()) {
     return SolverType::kSnopt;
+  } else if (solver_id == OsqpSolver::id()) {
+    return SolverType::kOsqp;
   } else if (solver_id == ScsSolver::id()) {
     return SolverType::kScs;
+  } else if (solver_id == UnrevisedLemkeSolverId::id()) {
+    return SolverType::kUnrevisedLemke;
   } else {
     return nullopt;
   }

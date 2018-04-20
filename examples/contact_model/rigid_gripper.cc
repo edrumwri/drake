@@ -48,11 +48,11 @@ DEFINE_double(contact_radius, 1e-4,
 DEFINE_double(sim_duration, 5, "Amount of time to simulate (s)");
 DEFINE_bool(playback, true,
             "If true, simulation begins looping playback when complete");
-DEFINE_string(simulation_type, "compliant", "The type of simulation to use: "
-              "'compliant' or 'timestepping'");
+DEFINE_string(system_type, "continuous", "The type of system to use: "
+              "'continuous' or 'discretized'");
 DEFINE_double(dt, 1e-3, "The step size to use for "
-              "'simulation_type=timestepping' (ignored for "
-              "'simulation_type=compliant'");
+              "'system_type=discretized' (ignored for "
+              "'system_type=continuous'");
 
 namespace drake {
 namespace examples {
@@ -90,7 +90,7 @@ std::unique_ptr<RigidBodyTreed> BuildTestTree() {
 int main() {
   systems::DiagramBuilder<double> builder;
 
-  if (FLAGS_simulation_type != "timestepping")
+  if (FLAGS_system_type != "discretized")
     FLAGS_dt = 0.0;
   systems::RigidBodyPlant<double>* plant =
       builder.AddSystem<systems::RigidBodyPlant<double>>(BuildTestTree(),
@@ -137,7 +137,7 @@ int main() {
   builder.Connect(plant->contact_results_output_port(),
                   contact_viz.get_input_port(0));
   builder.Connect(contact_viz.get_output_port(0),
-                  contact_results_publisher.get_input_port(0));
+                  contact_results_publisher.get_input_port());
 
   // Set up the model and simulator and set their starting state.
   const std::unique_ptr<systems::Diagram<double>> model = builder.Build();

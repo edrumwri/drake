@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 from drake.tools.install.cpsutils import read_defs
 
@@ -21,12 +21,12 @@ content = """
   "Components": {
     "lcm-coretypes": {
       "Type": "interface",
-      "Includes": ["@prefix@/include"]
+      "Includes": ["@prefix@/include/lcm"]
     },
     "lcm": {
       "Type": "dylib",
-      "Includes": ["@prefix@/include"],
-      "Location": "@prefix@/lib/liblcm.so",
+      "Includes": ["@prefix@/include/lcm"],
+      "Location": "@prefix@/lib/libdrake_lcm.so",
       "Requires": [":lcm-coretypes"]
     },
     "lcm-gen": {

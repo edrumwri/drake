@@ -7,8 +7,10 @@
 #include <utility>
 
 #include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
+#include "drake/geometry/proximity_engine.h"
 
 namespace drake {
 namespace geometry {
@@ -93,7 +95,8 @@ std::string get_missing_id_message<GeometryId>(const GeometryId& key) {
 //-----------------------------------------------------------------------------
 
 template <typename T>
-GeometryState<T>::GeometryState() {}
+GeometryState<T>::GeometryState()
+    : geometry_engine_(make_unique<internal::ProximityEngine<T>>()) {}
 
 template <typename T>
 bool GeometryState<T>::source_is_registered(SourceId source_id) const {
@@ -255,9 +258,9 @@ GeometryId GeometryState<T>::RegisterGeometry(
   });
   geometry_index_id_map_.push_back(geometry_id);
 
-  // TODO(SeanCurtis-TRI): Replace this stub engine index with a call to the
-  // geometry engine, storing the engine index it actually stores.
-  GeometryIndex engine_index(X_FG_.size());
+  // Pass the geometry to the engine.
+  GeometryIndex engine_index =
+      geometry_engine_->AddDynamicGeometry(geometry->shape());
 
   // Configure topology.
   frames_[frame_id].add_child(geometry_id);
@@ -265,7 +268,8 @@ GeometryId GeometryState<T>::RegisterGeometry(
   geometries_.emplace(
       geometry_id,
       InternalGeometry(geometry->release_shape(), frame_id, geometry_id,
-                       geometry->pose(), engine_index));
+                       geometry->pose(), engine_index,
+                       geometry->visual_material()));
   // TODO(SeanCurtis-TRI): Enforcing the invariant that the indexes are
   // compactly distributed. Is there a more robust way to do this?
   DRAKE_ASSERT(static_cast<int>(X_FG_.size()) == engine_index);
@@ -343,57 +347,18 @@ GeometryId GeometryState<T>::RegisterAnchoredGeometry(
 
   set.emplace(geometry_id);
 
-  // TODO(SeanCurtis-TRI): Replace this stub engine index with a call to the
-  // geometry engine, storing the engine index it actually stores.
-  AnchoredGeometryIndex engine_index(anchored_geometry_index_id_map_.size());
-
-  // Note: This test will be more meaningful when the engine is included at this
-  // enforces an invariant between *two* structures rather than being a
-  // simple tautology.
+  // Pass the geometry to the engine.
+  auto engine_index = geometry_engine_->AddAnchoredGeometry(geometry->shape(),
+                                                            geometry->pose());
   DRAKE_ASSERT(static_cast<int>(anchored_geometry_index_id_map_.size()) ==
                engine_index);
   anchored_geometry_index_id_map_.push_back(geometry_id);
   anchored_geometries_.emplace(
       geometry_id,
-      InternalAnchoredGeometry(geometry->release_shape(), geometry_id,
-                               geometry->pose(), engine_index));
+      InternalAnchoredGeometry(
+          geometry->release_shape(), geometry_id, geometry->pose(),
+          engine_index, geometry->visual_material()));
   return geometry_id;
-}
-
-template <typename T>
-void GeometryState<T>::ClearSource(SourceId source_id) {
-  FrameIdSet& frames = GetMutableValueOrThrow(source_id, &source_frame_id_map_);
-  for (auto frame_id : frames) {
-    RemoveFrameUnchecked(frame_id, RemoveFrameOrigin::kSource);
-  }
-  source_frame_id_map_[source_id].clear();
-  source_root_frame_map_[source_id].clear();
-}
-
-template <typename T>
-void GeometryState<T>::RemoveFrame(SourceId source_id, FrameId frame_id) {
-  if (!BelongsToSource(frame_id, source_id)) {
-    throw std::logic_error("Trying to remove frame " + to_string(frame_id) +
-        " from source " + to_string(source_id) +
-        ", but the frame doesn't belong to that source.");
-  }
-  RemoveFrameUnchecked(frame_id, RemoveFrameOrigin::kFrame);
-}
-
-template <typename T>
-void GeometryState<T>::RemoveGeometry(SourceId source_id,
-                                      GeometryId geometry_id) {
-  if (!BelongsToSource(geometry_id, source_id)) {
-    throw std::logic_error(
-        "Trying to remove geometry " + to_string(geometry_id) + " from "
-            "source " + to_string(source_id) + ", but the geometry doesn't "
-            "belong to that source.");
-  }
-  if (is_dynamic(geometry_id)) {
-    RemoveGeometryUnchecked(geometry_id, RemoveGeometryOrigin::kGeometry);
-  } else {
-    RemoveAnchoredGeometryUnchecked(geometry_id);
-  }
 }
 
 template <typename T>
@@ -441,51 +406,38 @@ std::unique_ptr<GeometryState<AutoDiffXd>> GeometryState<T>::ToAutoDiffXd()
       new GeometryState<AutoDiffXd>(*this));
 }
 template <typename T>
-void GeometryState<T>::SetFramePoses(const FrameIdVector& ids,
-                                     const FramePoseVector<T>& poses) {
-  ValidateFramePoses(ids, poses);
+void GeometryState<T>::SetFramePoses(const FramePoseVector<T>& poses) {
+  // TODO(SeanCurtis-TRI): Down the road, make this validation depend on
+  // ASSERT_ARMED.
+  ValidateFrameIds(poses);
   const Isometry3<T> world_pose = Isometry3<T>::Identity();
-  for (auto frame_id : source_root_frame_map_[ids.get_source_id()]) {
-    UpdatePosesRecursively(frames_[frame_id], world_pose, ids, poses);
+  for (auto frame_id : source_root_frame_map_[poses.source_id()]) {
+    UpdatePosesRecursively(frames_[frame_id], world_pose, poses);
   }
 }
 
 template <typename T>
-void GeometryState<T>::ValidateFrameIds(const FrameIdVector& ids) const {
-  SourceId source_id = ids.get_source_id();
+template <typename ValueType>
+void GeometryState<T>::ValidateFrameIds(
+    const FrameKinematicsVector<ValueType>& kinematics_data) const {
+  SourceId source_id = kinematics_data.source_id();
   auto& frames = GetFramesForSource(source_id);
   const int ref_frame_count = static_cast<int>(frames.size());
-  if (ref_frame_count != ids.size()) {
+  if (ref_frame_count != kinematics_data.size()) {
     // TODO(SeanCurtis-TRI): Determine if more specific information is required.
     // e.g., which frames are missing/added.
-    throw std::logic_error(
+    throw std::runtime_error(
         "Disagreement in expected number of frames (" +
         to_string(frames.size()) + ") and the given number of frames (" +
-        to_string(ids.size()) + ").");
-  } else {
-    for (auto id : ids) {
-      FindOrThrow(id, frames, [id, source_id]() {
-        return "Frame id provided in kinematics data (" + to_string(id) + ") "
-            "does not belong to the source (" + to_string(source_id) +
-            "). At least one required frame id is also missing.";
-      });
+        to_string(kinematics_data.size()) + ").");
+  }
+  for (auto id : frames) {
+    if (!kinematics_data.has_id(id)) {
+      throw std::runtime_error(
+          "Registered frame id (" + to_string(id) + ") belonging to source " +
+          to_string(source_id) +
+          " was not found in the provided kinematics data.");
     }
-  }
-}
-
-template <typename T>
-void GeometryState<T>::ValidateFramePoses(
-    const FrameIdVector& ids, const FramePoseVector<T>& poses) const {
-  if (ids.get_source_id() != poses.get_source_id()) {
-    throw std::logic_error(
-        "Error setting poses for given ids; the ids and poses belong to "
-        "different geometry sources (" + to_string(ids.get_source_id()) +
-        " and " + to_string(poses.get_source_id()) + ", respectively).");
-  }
-  if (ids.size() != static_cast<int>(poses.vector().size())) {
-    throw std::logic_error("Different number of ids and poses. " +
-        to_string(ids.size()) + " ids and " + to_string(poses.vector().size()) +
-        " poses.");
   }
 }
 
@@ -496,144 +448,11 @@ SourceId GeometryState<T>::get_source_id(FrameId frame_id) const {
 }
 
 template <typename T>
-void GeometryState<T>::RemoveFrameUnchecked(FrameId frame_id,
-                                            RemoveFrameOrigin caller) {
-  auto& frame = GetMutableValueOrThrow(frame_id, &frames_);
-
-  if (caller != RemoveFrameOrigin::kSource) {
-    // Recursively delete the child frames.
-    for (auto child_id : *frame.get_mutable_child_frames()) {
-      RemoveFrameUnchecked(child_id, RemoveFrameOrigin::kRecurse);
-    }
-
-    // Remove the frames from the source.
-    SourceId source_id = frame.get_source_id();
-    auto& frame_set = GetMutableValueOrThrow(source_id, &source_frame_id_map_);
-    frame_set.erase(frame_id);
-    // This assumes that source_id in source_frame_id_map_ implies the existence
-    // of an id set in source_root_frame_map_. It further relies on the
-    // behavior that erasing a non-member of the set does nothing.
-    source_root_frame_map_[source_id].erase(frame_id);
-  }
-
-  // Recursively delete the child geometries.
-  for (auto child_id : *frame.get_mutable_child_geometries()) {
-    RemoveGeometryUnchecked(child_id, RemoveGeometryOrigin::kFrame);
-  }
-
-  // Don't leave holes in the pose vectors. Rewire pose indices by taking the
-  // frame with the last pose index and moving it to the newly vacated hold.
-  // We do *not* copy the values in X_PF_ because changes to the topology
-  // renders these values meaningless until recomputed.
-  auto pose_index = frame.get_pose_index();
-  PoseIndex last_index(static_cast<int>(X_PF_.size()) - 1);
-  if (pose_index < last_index) {
-    FrameId moved_id = pose_index_to_frame_map_[last_index];
-    frames_[moved_id].set_pose_index(pose_index);
-  }
-  X_PF_.pop_back();
-
-  if (caller == RemoveFrameOrigin::kFrame) {
-    // Only the root needs to explicitly remove itself from a possible parent
-    // frame.
-    FrameId parent_frame_id = frame.get_parent_frame_id();
-    if (parent_frame_id != InternalFrame::get_world_frame_id()) {
-      auto& parent_frame = GetMutableValueOrThrow(parent_frame_id, &frames_);
-      parent_frame.remove_child(frame_id);
-    }
-  }
-
-  // Remove from the frames.
-  frames_.erase(frame_id);
-}
-
-template <typename T>
-void GeometryState<T>::RemoveGeometryUnchecked(GeometryId geometry_id,
-                                               RemoveGeometryOrigin caller) {
-  const InternalGeometry& geometry = GetValueOrThrow(geometry_id, geometries_);
-
-  if (caller != RemoveGeometryOrigin::kFrame) {
-    // Clear children
-    for (auto child_id : geometry.get_child_geometry_ids()) {
-      RemoveGeometryUnchecked(child_id, RemoveGeometryOrigin::kRecurse);
-    }
-
-    // Remove the geometry from its frame's list of geometries.
-    auto& frame = GetMutableValueOrThrow(geometry.get_frame_id(), &frames_);
-    frame.remove_child(geometry_id);
-  }
-
-  GeometryIndex engine_index = geometry.get_engine_index();
-
-  // TODO(SeanCurtis-TRI): This simulates removal from the geometry engine where
-  // the *last* geometry is swapped with the removed geometry to maintain
-  // spatial coherency.
-  optional<GeometryIndex> moved_index{
-      GeometryIndex(static_cast<int>(geometry_index_id_map_.size()) - 1)};
-
-  if (moved_index) {
-    // The geometry engine moved a geometry into the removed `engine_index`.
-    // Update the state's knowledge of this.
-    GeometryId moved_id = geometry_index_id_map_[*moved_index];
-    geometries_[moved_id].set_engine_index(engine_index);
-
-    geometry_index_id_map_[engine_index] = moved_id;
-
-    X_FG_[engine_index] = X_FG_[*moved_index];
-  }
-  // Trim the vectors for these removed geometries.
-  X_FG_.pop_back();
-  // NOTE: we are not obliged to copy the value from moved_index to
-  // pose_index in X_WG_. This is a computed value that will live in the cache.
-  // Changing the topology will dirty the cache so it will be recomputed
-  // before being provided next.
-  X_WG_.pop_back();
-
-  // Always pop the last; we assume that either the geometry removed is already
-  // the last, or has been swapped into the last.
-  geometry_index_id_map_.pop_back();
-
-  if (caller == RemoveGeometryOrigin::kGeometry) {
-    // Only the root needs to explicitly remove itself from a possible parent
-    // geometry.
-    if (optional<GeometryId> parent_id = geometry.get_parent_id()) {
-      auto& parent_geometry =
-          GetMutableValueOrThrow(*parent_id, &geometries_);
-      parent_geometry.remove_child(geometry_id);
-    }
-  }
-
-  // Remove from the geometries.
-  geometries_.erase(geometry_id);
-}
-
-template <typename T>
-void GeometryState<T>::RemoveAnchoredGeometryUnchecked(GeometryId geometry_id) {
-  const auto& geometry = GetValueOrThrow(geometry_id, anchored_geometries_);
-  auto engine_index = geometry.get_engine_index();
-
-  // TODO(SeanCurtis-TRI): This simulates removal from the geometry engine where
-  // the *last* geometry is swapped with the removed geometry to maintain
-  // spatial coherency.
-  optional<AnchoredGeometryIndex> moved_index{AnchoredGeometryIndex(
-      static_cast<int>(anchored_geometry_index_id_map_.size()) - 1)};
-
-  if (moved_index) {
-    GeometryId moved_id = anchored_geometry_index_id_map_[*moved_index];
-    anchored_geometries_[moved_id].set_engine_index(engine_index);
-    anchored_geometry_index_id_map_[engine_index] = moved_id;
-  }
-  anchored_geometry_index_id_map_.pop_back();
-  anchored_geometries_.erase(geometry_id);
-}
-
-template <typename T>
 void GeometryState<T>::UpdatePosesRecursively(
     const internal::InternalFrame& frame, const Isometry3<T>& X_WP,
-    const FrameIdVector& ids, const FramePoseVector<T>& poses) {
+    const FramePoseVector<T>& poses) {
   const auto frame_id = frame.get_id();
-  int index = ids.GetIndex(frame_id);
-  const auto& X_PF = poses.vector().at(index);
+  const auto& X_PF = poses.value(frame_id);
   // Cache this transform for later use.
   X_PF_[frame.get_pose_index()] = X_PF;
   Isometry3<T> X_WF = X_WP * X_PF;
@@ -651,7 +470,7 @@ void GeometryState<T>::UpdatePosesRecursively(
     // TODO(SeanCurtis-TRI): See note above about replacing this when we have a
     // transform that supports autodiff * double.
     X_FG_[child_index].makeAffine();
-    // TODO(SeanCurtis-TRI): These matrix() shennigans are here because I can't
+    // TODO(SeanCurtis-TRI): These matrix() shenanigans are here because I can't
     // assign a an Isometry3<double> to an Isometry3<AutoDiffXd>. Replace this
     // when I can.
     X_WG_[child_index].matrix() = X_WF.matrix() * X_FG_[child_index].matrix();
@@ -660,14 +479,15 @@ void GeometryState<T>::UpdatePosesRecursively(
   // Update each child frame.
   for (auto child_id : frame.get_child_frames()) {
     auto& child_frame = frames_[child_id];
-    UpdatePosesRecursively(child_frame, X_WF, ids, poses);
+    UpdatePosesRecursively(child_frame, X_WF, poses);
   }
 }
-
-// Explicitly instantiates on the most common scalar types.
-template class GeometryState<double>;
-template class GeometryState<AutoDiffXd>;
 
 }  // namespace geometry
 }  // namespace drake
 
+// TODO(SeanCurtis-TRI): Currently assumes that "non-symbolic" implies
+// AutoDiffXd. Update things appropriately when more non-symbolic scalars
+// are available.
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+    class ::drake::geometry::GeometryState)

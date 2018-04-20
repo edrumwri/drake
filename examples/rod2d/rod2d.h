@@ -1,13 +1,5 @@
 #pragma once
 
-#include "drake/examples/rod2d/normal_accel_witness.h"
-#include "drake/examples/rod2d/normal_force_witness.h"
-#include "drake/examples/rod2d/normal_vel_witness.h"
-#include "drake/examples/rod2d/signed_distance_witness.h"
-#include "drake/examples/rod2d/sliding_witness.h"
-#include "drake/examples/rod2d/sticking_friction_forces_slack_witness.h"
-
-
 #include <memory>
 #include <utility>
 #include <vector>
@@ -117,13 +109,13 @@ h, and "left" and "right" endpoints `Rl=Ro-h*Rx` and `Rr=Ro+h*Rx` at which
 it can contact the halfspace whose surface is at Wy=0.
 
 This system can be simulated using one of three models:
-- a compliant contact model (the rod is rigid, but contact between
-  the rod and the half-space is modeled as compliant) simulated using
+- continuously, using a compliant contact model (the rod is rigid, but contact
+  between the rod and the half-space is modeled as compliant) simulated using
   ordinary differential equations (ODEs),
 - a fully rigid model simulated with piecewise differential algebraic
   equations (DAEs), and
 - a fully rigid model simulated as a discrete system using a first-order
-  time stepping approach.
+  discretization approach.
 
 The rod state is initialized to the configuration that corresponds to the
 Painlevé Paradox problem, described in [Stewart 2000]. The paradox consists
@@ -170,13 +162,6 @@ Outputs: Output Port 0 corresponds to the state vector; Output Port 1
 // TODO(edrumwri): Track energy and add a test to check it.
 template <typename T>
 class Rod2D : public systems::LeafSystem<T> {
-  friend class SlidingWitness<T>;
-  friend class StickingFrictionForcesSlackWitness<T>;
-  friend class NormalAccelWitness<T>;
-  friend class NormalVelWitness<T>;
-  friend class NormalForceWitness<T>;
-  friend class SignedDistanceWitness<T>;
-
  public:
   ~Rod2D() override {}
 
@@ -186,18 +171,20 @@ class Rod2D : public systems::LeafSystem<T> {
     /// piecewise differential algebraic equations.
     kPiecewiseDAE,
 
-    /// For simulating the system using rigid contact, Coulomb friction, and
-    /// a first-order time stepping approach.
+    /// For modeling the system using either rigid or compliant contact,
+    /// Coulomb friction, and a first-order time discretization (which can
+    /// be applied to simulating the system without an integrator).
     kDiscretized,
 
-    /// For simulating the system using compliant contact, Coulomb friction,
-    /// and ordinary differential equations.
+    /// For modeling the system using compliant contact, Coulomb friction,
+    /// and ordinary differential equations and simulating the system
+    /// through standard algorithms for solving initial value problems.
     kContinuous
   };
 
   /// Constructor for the 2D rod system using the piecewise DAE (differential
-  /// algebraic equation) based approach, the time stepping approach, or the
-  /// compliant ordinary differential equation based approach.
+  /// algebraic equation) based approach, the discretization approach, or the
+  /// continuous ordinary differential equation based approach.
   /// @param dt The integration step size. This step size cannot be reset
   ///           after construction.
   /// @throws std::logic_error if @p dt is not positive and system_type is
@@ -299,7 +286,7 @@ class Rod2D : public systems::LeafSystem<T> {
         half_length_);
   }
 
-  /// Gets the constraint force mixing parameter (CFM, used for time stepping
+  /// Gets the constraint force mixing parameter (CFM, used for discretized
   /// systems only), which should lie in the interval [0, infinity].
   double get_cfm() const {
     return 1.0 /
@@ -307,7 +294,7 @@ class Rod2D : public systems::LeafSystem<T> {
         kCharacteristicDeformation));
   }
 
-  /// Gets the error reduction parameter (ERP, used for time stepping
+  /// Gets the error reduction parameter (ERP, used for discretized
   /// systems only), which should lie in the interval [0, 1].
   double get_erp() const {
     return dt_ * stiffness_ / (stiffness_ * dt_ +
@@ -400,7 +387,7 @@ class Rod2D : public systems::LeafSystem<T> {
   }
 
   /// Sets stiffness and dissipation for the rod from cfm and erp values (used
-  /// for time stepping implementations).
+  /// for discretized system implementations).
   void SetStiffnessAndDissipation(double cfm, double erp) {
     // These values were determined by solving the equations:
     // cfm = 1 / (dt * stiffness + damping)
@@ -418,7 +405,7 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_mu_static() const { return mu_s_; }
 
   /// Set contact stiction coefficient (>= mu_coulomb). This has no
-  /// effect if the rod model is time stepping.
+  /// effect if the rod model is discretized.
   void set_mu_static(double mu_static) {
     DRAKE_DEMAND(mu_static >= mu_);
     mu_s_ = mu_static;
@@ -466,11 +453,11 @@ class Rod2D : public systems::LeafSystem<T> {
   /// this method returns `false`.
   bool IsImpacting(const systems::Context<T>& context) const;
 
-  /// Gets the integration step size for the time stepping system.
+  /// Gets the integration step size for the discretized system.
   /// @returns 0 if this is a DAE-based system.
   double get_integration_step_size() const { return dt_; }
 
-  /// Gets the model and system type for this system.
+  /// Gets the model and simulation type for this system.
   SystemType get_system_type() const { return system_type_; }
 
   /// Return net contact forces as a spatial force F_Ro_W=(fx,fy,τ) where
@@ -783,9 +770,15 @@ class Rod2D : public systems::LeafSystem<T> {
       int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
+  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Matrix3<T> GetInverseInertiaMatrix() const;
   void CalcTwoContactNoSlidingForces(const systems::Context<T>& context,
                                     Vector2<T>* fN, Vector2<T>* fF) const;
+  void CalcTwoContactSlidingForces(const systems::Context<T>& context,
+                                    Vector2<T>* fN, Vector2<T>* fF) const;
+  Vector2<T> CalcStickingImpactImpulse(const systems::Context<T>& context)
+    const;
+  Vector2<T> CalcFConeImpactImpulse(const systems::Context<T>& context) const;
   void CalcAccelerationsCompliantContactAndBallistic(
                                   const systems::Context<T>& context,
                                   systems::ContinuousState<T>* derivatives)
@@ -806,45 +799,38 @@ class Rod2D : public systems::LeafSystem<T> {
   // Quintic step function approximation used by Stribeck friction model.
   static T step5(const T& x);
 
-  // Friction model used in compliant contact.
+  // Friction model used in the continuous model.
   static T CalcMuStribeck(const T& us, const T& ud, const T& v);
 
   // The constraint solver.
   multibody::constraint::ConstraintSolver<T> solver_;
 
-  // Solves linear complementarity problems for time stepping.
+  // Solves linear complementarity problems for the discretized system.
   solvers::MobyLCPSolver<T> lcp_;
 
   // The system type, unable to be changed after object construction.
   const SystemType system_type_;
 
-  // Vectors of candidates for contact.
-  std::vector<Vector2<T>> contact_candidates_;
-
   // TODO(edrumwri,sherm1) Document these defaults once they stabilize.
 
-  double dt_{0.};               // Integration step-size for time stepping
-                                // approach.
-  double mass_{1.};             // The mass of the rod (kg).
-  double half_length_{1.};      // The length of the rod (m).
-  double mu_{get_default_mu()}; // The (dynamic) coefficient of friction.
-  double g_{-9.81};             // Acceleration due to gravity (in y direction).
-  double J_{1.};                // The moment of the inertia of the rod.
+  double dt_{0.};           // Step-size for the discretization approach.
+  double mass_{1.};         // The mass of the rod (kg).
+  double half_length_{1.};  // The length of the rod (m).
+  double mu_{1000.};        // The (dynamic) coefficient of friction.
+  double g_{-9.81};         // The acceleration due to gravity (in y direction).
+  double J_{1.};            // The moment of the inertia of the rod.
 
   // Compliant contact parameters.
-  double stiffness_{get_default_stiffness()};      // Normal stiffness of the
-                                                   // ground plane (N/m).
-  double dissipation_{get_default_dissipation()};  // Dissipation factor in
-                                                   // 1/velocity (s/m).
-  double mu_s_{get_default_mu()};                  // Static coefficient of
-                                                   // friction (>= mu).
+  double stiffness_{10000};   // Normal stiffness of the ground plane (N/m).
+  double dissipation_{1};     // Dissipation factor in 1/velocity (s/m).
+  double mu_s_{mu_};          // Static coefficient of friction (>= mu).
   double v_stick_tol_{1e-5};  // Slip speed below which the compliant model
                               //   considers the rod to be in stiction.
 
   // Characteristic deformation is 1mm for a 1m (unit length) rod half-length.
   double kCharacteristicDeformation{1e-3};
 
-  // Temporary matrices used in time stepping computation.
+  // Temporary matrices used in the discretization computation.
   mutable Eigen::Matrix<T, 2, 3> N_, F_;
 
   // Output ports.
@@ -858,26 +844,10 @@ class Rod2D : public systems::LeafSystem<T> {
     kRight = 1,
   };
 
-  // TODO: Update this.
   // Abstract state variable constants.
   enum AbstractIndices {
     kContactAbstractIndex = 0,
-
-    kSignedDistanceWitnessAbstractIndex = 1,
-
-    kNormalAccelWitnessAbstractIndex = 2,
-
-    kNormalVelWitnessAbstractIndex = 3,
-
-    kStickingFrictionForceSlackWitnessAbstractIndex = 4,
-
-    kNormalForceWitnessAbstractIndex = 5,
-
-    kNegSlidingWitnessAbstractIndex = 6,
-
-    kPosSlidingWitnessAbstractIndex = 7,
-
-    kNumAbstractIndices = 8,
+    kNumAbstractIndices = 3,
   };
 
   // Witness functions: one for each endpoint.

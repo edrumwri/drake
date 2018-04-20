@@ -15,11 +15,26 @@
 namespace drake {
 namespace maliput {
 namespace multilane {
+namespace {
 
 // TODO(maddog-tri)  Test use of Endpoint::reverse() with non-zero theta and
 //                   theta_dot, checking that the orientation of the resulting
 //                   road surface is continuous, off the centerline, at the
 //                   branch-point where two connections connect
+
+GTEST_TEST(MultilaneBuilderTest, ParameterConstructor) {
+  const double kLaneWidth = 4.;
+  const api::HBounds kElevationBounds(0., 5.);
+  const double kLinearTolerance = 0.01;
+  const double kAngularTolerance = 0.01 * M_PI;
+  Builder builder(kLaneWidth, kElevationBounds, kLinearTolerance,
+                  kAngularTolerance);
+  EXPECT_EQ(builder.get_lane_width(), kLaneWidth);
+  EXPECT_TRUE(api::test::IsHBoundsClose(builder.get_elevation_bounds(),
+                                        kElevationBounds, 0.));
+  EXPECT_EQ(builder.get_linear_tolerance(), kLinearTolerance);
+  EXPECT_EQ(builder.get_angular_tolerance(), kAngularTolerance);
+}
 
 GTEST_TEST(MultilaneBuilderTest, Fig8) {
   const double kLaneWidth = 4.;
@@ -560,6 +575,7 @@ GTEST_TEST(MultilaneBuilderTest, MultilaneCross) {
   EXPECT_EQ(rg->num_branch_points(), 20);
 }
 
+}  // namespace
 }  // namespace multilane
 }  // namespace maliput
 }  // namespace drake

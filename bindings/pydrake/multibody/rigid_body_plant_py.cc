@@ -1,13 +1,17 @@
-#include <pybind11/eigen.h>
-#include <pybind11/pybind11.h>
+#include "pybind11/eigen.h"
+#include "pybind11/pybind11.h"
 
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/multibody/rigid_body_plant/drake_visualizer.h"
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 
 using std::unique_ptr;
 using std::vector;
 
 namespace drake {
+
+using drake::lcm::DrakeLcmInterface;
+
 namespace pydrake {
 
 PYBIND11_MODULE(rigid_body_plant, m) {
@@ -15,10 +19,75 @@ PYBIND11_MODULE(rigid_body_plant, m) {
   using namespace drake::systems;
 
   // Ensure we have bindings for dependencies.
-  py::module::import("pydrake.rbtree");
+  py::module::import("pydrake.lcm");
+  py::module::import("pydrake.multibody.rigid_body_tree");
   py::module::import("pydrake.systems.framework");
 
   using T = double;
+
+  {
+    using Class = CompliantContactModelParameters;
+    py::class_<Class> cls(m, "CompliantContactModelParameters");
+    cls
+        .def(
+            py::init(
+                [](double v_stiction_tolerance, double characteristic_radius) {
+                  return Class{v_stiction_tolerance, characteristic_radius};
+                }),
+            py::arg("v_stiction_tolerance") =
+                Class::kDefaultVStictionTolerance,
+            py::arg("characteristic_radius") =
+                Class::kDefaultCharacteristicRadius)
+        .def_readwrite("v_stiction_tolerance", &Class::v_stiction_tolerance)
+        .def_readwrite("characteristic_radius", &Class::characteristic_radius);
+    cls.attr("kDefaultVStictionTolerance") =
+        Class::kDefaultVStictionTolerance;
+    cls.attr("kDefaultCharacteristicRadius") =
+        Class::kDefaultCharacteristicRadius;
+  }
+
+  {
+    using Class = CompliantMaterial;
+    py::class_<Class> cls(m, "CompliantMaterial");
+    cls
+        .def(py::init<>())
+        .def(py::init<double, double, double, double>(),
+             py::arg("youngs_modulus"),
+             py::arg("dissipation"),
+             py::arg("static_friction"),
+             py::arg("dynamic_friction"))
+        // youngs_modulus
+        .def("set_youngs_modulus", &Class::set_youngs_modulus, py_reference)
+        .def("youngs_modulus", &Class::youngs_modulus,
+             py::arg("default_value") = Class::kDefaultYoungsModulus)
+        .def("youngs_modulus_is_default", &Class::youngs_modulus_is_default)
+        .def("set_youngs_modulus_to_default",
+             &Class::set_youngs_modulus_to_default)
+        // dissipation
+        .def("set_dissipation", &Class::set_dissipation, py_reference)
+        .def("dissipation", &Class::dissipation,
+             py::arg("default_value") = Class::kDefaultDissipation)
+        .def("dissipation_is_default", &Class::dissipation_is_default)
+        .def("set_dissipation_to_default", &Class::set_dissipation_to_default)
+        // friction
+        .def("set_friction",
+             py::overload_cast<double>(&Class::set_friction),
+             py::arg("value"), py_reference)
+        .def("set_friction",
+             py::overload_cast<double, double>(&Class::set_friction),
+             py::arg("static_friction"), py::arg("dynamic_friction"),
+             py_reference)
+        .def("static_friction", &Class::static_friction,
+             py::arg("default_value") = Class::kDefaultStaticFriction)
+        .def("dynamic_friction", &Class::dynamic_friction,
+             py::arg("default_value") = Class::kDefaultDynamicFriction)
+        .def("friction_is_default", &Class::friction_is_default)
+        .def("set_friction_to_default", &Class::set_friction_to_default);
+    cls.attr("kDefaultYoungsModulus") = Class::kDefaultYoungsModulus;
+    cls.attr("kDefaultDissipation") = Class::kDefaultDissipation;
+    cls.attr("kDefaultStaticFriction") = Class::kDefaultStaticFriction;
+    cls.attr("kDefaultDynamicFriction") = Class::kDefaultDynamicFriction;
+  }
 
   {
     using Class = RigidBodyPlant<T>;
@@ -26,6 +95,10 @@ PYBIND11_MODULE(rigid_body_plant, m) {
     py::class_<Class, LeafSystem<T>>(m, "RigidBodyPlant")
         .def(py::init<unique_ptr<const RigidBodyTree<T>>, double>(),
              py::arg("tree"), py::arg("timestep") = 0.0)
+        .def("set_contact_model_parameters",
+             &Class::set_contact_model_parameters)
+        .def("set_default_compliant_material",
+             &Class::set_default_compliant_material)
         .def("get_rigid_body_tree", &Class::get_rigid_body_tree,
              py_reference_internal)
         .def("get_num_bodies", &Class::get_num_bodies)
@@ -90,6 +163,24 @@ PYBIND11_MODULE(rigid_body_plant, m) {
              py::keep_alive<0, 2>())
         .def("is_state_discrete", &Class::is_state_discrete)
         .def("get_time_step", &Class::get_time_step);
+  }
+
+  {
+    using Class = DrakeVisualizer;
+    py::class_<Class, LeafSystem<T>>(m, "DrakeVisualizer")
+        .def(py::init<const RigidBodyTree<T>&, DrakeLcmInterface*, bool>(),
+             py::arg("tree"), py::arg("lcm"),
+             py::arg("enable_playback") = false,
+             // Keep alive, reference: `this` keeps `tree` alive.
+             py::keep_alive<1, 2>(),
+             // Keep alive, reference: `this` keeps `lcm` alive.
+             py::keep_alive<1, 3>())
+        .def("set_publish_period", &Class::set_publish_period,
+             py::arg("period"))
+        .def("ReplayCachedSimulation", &Class::ReplayCachedSimulation)
+        .def("PublishLoadRobot", &Class::PublishLoadRobot);
+    // TODO(eric.cousineau): Bind `PlaybackTrajectory` when
+    // `PiecewisePolynomial` has bindings.
   }
 }
 

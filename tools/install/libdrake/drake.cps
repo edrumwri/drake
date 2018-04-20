@@ -11,18 +11,12 @@
       "Hints": ["@prefix@/lib/cmake/bot2-core-lcmtypes"],
       "X-CMake-Find-Args": ["CONFIG"]
     },
-    "Bullet": {
-      "Version": "2.86",
-      "Hints": ["@prefix@/lib/cmake/bullet"],
-      "X-CMake-Find-Args": ["CONFIG"]
-    },
     "Eigen3": {
       "Version": "3.3.3",
       "Hints": ["@prefix@/lib/cmake/eigen3"],
       "X-CMake-Find-Args": ["CONFIG"]
     },
     "fmt": {
-      "Version": "3.0.1",
       "Hints": ["@prefix@/lib/cmake/fmt"],
       "X-CMake-Find-Args": ["CONFIG"]
     },
@@ -54,7 +48,7 @@
       "X-CMake-Find-Args": ["CONFIG"]
     },
     "spdlog": {
-      "Version": "1.0.0",
+      "Version": "0.16.3",
       "Hints": ["@prefix@/lib/cmake/spdlog"],
       "X-CMake-Find-Args": ["CONFIG"]
     },
@@ -71,16 +65,15 @@
       "Includes": ["@prefix@/include"],
       "Compile-Features": ["c++14"],
       "Link-Flags": ["-ltinyxml2"],
-      "Link-Requires": ["fmt:fmt"],
       "Requires": [
         ":drake-lcmtypes-cpp",
         "bot2-core-lcmtypes:lcmtypes_bot2-core-cpp",
-        "Bullet:BulletCollision",
         "Eigen3:Eigen",
+        "fmt:fmt-header-only",
         "ignition-math4:ignition-math4",
         "ignition-rndf0:ignition-rndf0",
         "lcm:lcm",
-        "optitrack:lcmtypes_optitrack-cpp",
+        "optitrack:optitrack-lcmtypes-cpp",
         "protobuf:libprotobuf",
         "robotlocomotion-lcmtypes:robotlocomotion-lcmtypes-cpp",
         "spdlog:spdlog",
@@ -105,10 +98,11 @@
     }
   },
   "X-CMake-Variables": {
+    "drake_PYTHON_DIRS": "${CMAKE_CURRENT_LIST_DIR}/../../python2.7/site-packages",
     "drake_RESOURCE_ROOT": "${CMAKE_CURRENT_LIST_DIR}/../../../share/drake"
   },
   "X-CMake-Variables-Init": {
     "_Boost_IMPORTED_TARGETS": 1,
-    "CMAKE_MODULE_PATH": "${CMAKE_CURRENT_LIST_DIR}/modules;${CMAKE_MODULE_PATH}"
+    "CMAKE_MODULE_PATH": "${CMAKE_CURRENT_LIST_DIR}/modules/3.10;${CMAKE_MODULE_PATH}"
   }
 }

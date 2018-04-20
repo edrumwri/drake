@@ -5,13 +5,13 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/geometry/geometry_context.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/query_object.h"
 #include "drake/geometry/shape_specification.h"
-#include "drake/geometry/test_utilities/expect_error_message.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/leaf_system.h"
@@ -151,7 +151,7 @@ TEST_F(GeometrySystemTest, RegisterSourceSpecifiedName) {
 // Tests that sources cannot be registered after context allocation.
 TEST_F(GeometrySystemTest, PoseContextSourceRegistration) {
   AllocateContext();
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterSource(),
       std::logic_error,
       "The call to RegisterSource is invalid; a context has already been "
@@ -172,11 +172,7 @@ TEST_F(GeometrySystemTest, SourceIsRegistered) {
 // throws exceptions.
 TEST_F(GeometrySystemTest, InputPortsForInvalidSource) {
   SourceId fake_source = SourceId::get_new_id();
-  EXPECT_ERROR_MESSAGE(
-      system_.get_source_frame_id_port(fake_source),
-      std::logic_error,
-      "Can't acquire id port for unknown source id: \\d+.");
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.get_source_pose_port(fake_source),
       std::logic_error,
       "Can't acquire pose port for unknown source id: \\d+.");
@@ -186,10 +182,8 @@ TEST_F(GeometrySystemTest, InputPortsForInvalidSource) {
 // first time *after* allocation is acceptable.
 TEST_F(GeometrySystemTest, AcquireInputPortsAfterAllocation) {
   SourceId id = system_.RegisterSource();
-  EXPECT_NO_THROW(system_.get_source_frame_id_port(id));
+  EXPECT_NO_THROW(system_.get_source_pose_port(id));
   AllocateContext();
-  // Port previously accessed is still accessible.
-  EXPECT_NO_THROW(system_.get_source_frame_id_port(id));
   // Port which *hadn't* been accessed is still accessible.
   EXPECT_NO_THROW(system_.get_source_pose_port(id));
 }
@@ -206,7 +200,7 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
   AllocateContext();
 
   // Attach frame to world.
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterFrame(
           id, GeometryFrame("frame", Isometry3<double>::Identity())),
       std::logic_error,
@@ -214,7 +208,7 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
       "allocated.");
 
   // Attach frame to another frame.
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterFrame(
           id, FrameId::get_new_id(),
           GeometryFrame("frame", Isometry3<double>::Identity())),
@@ -223,7 +217,7 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
       "allocated.");
 
   // Attach geometry to frame.
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterGeometry(
           id, FrameId::get_new_id(), make_sphere_instance()),
       std::logic_error,
@@ -231,7 +225,7 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
       "allocated.");
 
   // Attach geometry to another geometry.
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterGeometry(
           id, GeometryId::get_new_id(), make_sphere_instance()),
       std::logic_error,
@@ -239,32 +233,11 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
           "allocated.");
 
   // Attach anchored geometry to world.
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       system_.RegisterAnchoredGeometry(id, make_sphere_instance()),
       std::logic_error,
       "The call to RegisterAnchoredGeometry is invalid; a context has already "
       "been allocated.");
-
-  // Clearing a source.
-  EXPECT_ERROR_MESSAGE(
-      system_.ClearSource(id),
-      std::logic_error,
-      "The call to ClearSource is invalid; a context has already been "
-      "allocated.");
-
-  // Removing a frame.
-  EXPECT_ERROR_MESSAGE(
-      system_.RemoveFrame(id, FrameId::get_new_id()),
-      std::logic_error,
-      "The call to RemoveFrame is invalid; a context has already been "
-      "allocated.");
-
-  // Removing a geometry.
-  EXPECT_ERROR_MESSAGE(
-      system_.RemoveGeometry(id, GeometryId::get_new_id()),
-      std::logic_error,
-      "The call to RemoveGeometry is invalid; a context has already been "
-      "allocated.");
 }
 
 // Confirms that the direct feedthrough logic is correct -- there is total
@@ -272,7 +245,6 @@ TEST_F(GeometrySystemTest, TopologyAfterAllocation) {
 TEST_F(GeometrySystemTest, DirectFeedThrough) {
   SourceId id = system_.RegisterSource();
   std::vector<int> input_ports{
-      system_.get_source_frame_id_port(id).get_index(),
       system_.get_source_pose_port(id).get_index()};
   for (int input_port_id : input_ports) {
     EXPECT_TRUE(GeometrySystemTester::HasDirectFeedthrough(
@@ -333,8 +305,6 @@ TEST_F(GeometrySystemTest, TransmogrifyPorts) {
   GeometrySystem<AutoDiffXd>& geo_system_ad =
       *dynamic_cast<GeometrySystem<AutoDiffXd>*>(system_ad.get());
   EXPECT_EQ(geo_system_ad.get_num_input_ports(), system_.get_num_input_ports());
-  EXPECT_EQ(geo_system_ad.get_source_frame_id_port(s_id).get_index(),
-            system_.get_source_frame_id_port(s_id).get_index());
   EXPECT_EQ(geo_system_ad.get_source_pose_port(s_id).get_index(),
             system_.get_source_pose_port(s_id).get_index());
   std::unique_ptr<systems::Context<AutoDiffXd>> context_ad =
@@ -360,10 +330,9 @@ TEST_F(GeometrySystemTest, TransmogrifyContext) {
   ASSERT_NE(geo_context_ad, nullptr);
   // If the anchored geometry were not ported over, this would throw an
   // exception.
-  EXPECT_NO_THROW(
-      geo_context_ad->get_mutable_geometry_state().RemoveGeometry(s_id, g_id));
-  EXPECT_THROW(geo_context_ad->get_mutable_geometry_state().RemoveGeometry(
-                   s_id, GeometryId::get_new_id()),
+  EXPECT_TRUE(geo_context_ad->get_geometry_state().BelongsToSource(g_id, s_id));
+  EXPECT_THROW(geo_context_ad->get_geometry_state().BelongsToSource(
+                   GeometryId::get_new_id(), s_id),
                std::logic_error);
 }
 
@@ -377,21 +346,20 @@ class GeometrySourceSystem : public systems::LeafSystem<double> {
     FrameId f_id = geometry_system->RegisterFrame(
         source_id_, GeometryFrame("frame", Isometry3<double>::Identity()));
     frame_ids_.push_back(f_id);
-    // Set up output ports
+
+    // Set up output port now that the frame is registered.
+    std::vector<FrameId> all_ids{f_id};
+    all_ids.insert(all_ids.end(), extra_frame_ids_.begin(),
+                   extra_frame_ids_.end());
     this->DeclareAbstractOutputPort(
-        &GeometrySourceSystem::AllocateFrameIdOutput,
-        &GeometrySourceSystem::CalcFrameIdOutput);
-    this->DeclareAbstractOutputPort(
-        &GeometrySourceSystem::AllocateFramePoseOutput,
+        FramePoseVector<double>(source_id_, all_ids),
         &GeometrySourceSystem::CalcFramePoseOutput);
   }
   SourceId get_source_id() const { return source_id_; }
-  const systems::OutputPort<double>& get_id_output_port() const {
+  const systems::OutputPort<double>& get_pose_output_port() const {
     return systems::System<double>::get_output_port(0);
   }
-  const systems::OutputPort<double>& get_pose_output_port() const {
-    return systems::System<double>::get_output_port(1);
-  }
+
   // Method used to bring frame ids and poses out of sync. Adds a frame that
   // will *not* automatically get a pose.
   void add_extra_frame(bool add_to_output = true) {
@@ -406,31 +374,26 @@ class GeometrySourceSystem : public systems::LeafSystem<double> {
   }
 
  private:
-  // Frame id output allocation and calculation.
-  FrameIdVector AllocateFrameIdOutput(
-      const Context<double>& context) const {
-    FrameIdVector ids(source_id_, frame_ids_);
-    ids.AddFrameIds(extra_frame_ids_);
-    return ids;
-  }
-  // Frame ids never change after allocation.
-  void CalcFrameIdOutput(const Context<double> &context,
-                                               FrameIdVector *) const {}
-  // Frame pose output allocation.
-  FramePoseVector<double> AllocateFramePoseOutput(
-  const Context<double>& context) const {
-    FramePoseVector<double> poses(source_id_);
-    for (size_t i = 0; i < frame_ids_.size(); ++i) {
-      poses.mutable_vector().push_back(Isometry3<double>::Identity());
-    }
-    for (const auto& extra_pose : extra_poses_) {
-      poses.mutable_vector().push_back(extra_pose);
-    }
-    return poses;
-  }
-  // For test purposes, no changes are required.
+  // Populate with the pose data.
   void CalcFramePoseOutput(const Context<double>& context,
-                           FramePoseVector<double>* pose_set) const {}
+                           FramePoseVector<double>* poses) const {
+    const int frame_count =
+        static_cast<int>(frame_ids_.size() + extra_frame_ids_.size());
+    DRAKE_DEMAND(poses->size() == frame_count);
+    DRAKE_DEMAND(poses->source_id() == source_id_);
+
+    poses->clear();
+
+    const int base_count = static_cast<int>(frame_ids_.size());
+    for (int i = 0; i < base_count; ++i) {
+      poses->set_value(frame_ids_[i], Isometry3<double>::Identity());
+    }
+
+    const int extra_count = static_cast<int>(extra_frame_ids_.size());
+    for (int i = 0; i < extra_count; ++i) {
+      poses->set_value(extra_frame_ids_[i], extra_poses_[i]);
+    }
+  }
 
   GeometrySystem<double>* geometry_system_{nullptr};
   SourceId source_id_;
@@ -440,7 +403,7 @@ class GeometrySourceSystem : public systems::LeafSystem<double> {
 };
 
 // Simple test case; system registers frames and provides correct connections.
-GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateUnconnectedId) {
+GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateConnected) {
   // Build a fully connected system.
   systems::DiagramBuilder<double> builder;
   auto geometry_system = builder.AddSystem<GeometrySystem<double>>();
@@ -448,8 +411,6 @@ GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateUnconnectedId) {
   auto source_system = builder.AddSystem<GeometrySourceSystem>(geometry_system);
   source_system->set_name("source_system");
   SourceId source_id = source_system->get_source_id();
-  builder.Connect(source_system->get_id_output_port(),
-                  geometry_system->get_source_frame_id_port(source_id));
   builder.Connect(source_system->get_pose_output_port(),
                   geometry_system->get_source_pose_port(source_id));
   auto diagram = builder.Build();
@@ -463,48 +424,21 @@ GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateUnconnectedId) {
       GeometrySystemTester::FullPoseUpdate(*geometry_system, geometry_context));
 }
 
-// Adversarial test case: Missing id port connection.
-GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateNoIdConnection) {
-  // Build a fully connected system.
-  systems::DiagramBuilder<double> builder;
-  auto geometry_system = builder.AddSystem<GeometrySystem<double>>();
-  geometry_system->set_name("geometry_system");
-  auto source_system = builder.AddSystem<GeometrySourceSystem>(geometry_system);
-  source_system->set_name("source_system");
-  SourceId source_id = source_system->get_source_id();
-  builder.Connect(source_system->get_pose_output_port(),
-                  geometry_system->get_source_pose_port(source_id));
-  auto diagram = builder.Build();
-  auto diagram_context = diagram->AllocateContext();
-  diagram->SetDefaultContext(diagram_context.get());
-  auto& geometry_context = dynamic_cast<GeometryContext<double>&>(
-      diagram->GetMutableSubsystemContext(*geometry_system,
-                                          diagram_context.get()));
-  EXPECT_ERROR_MESSAGE(
-      GeometrySystemTester::FullPoseUpdate(*geometry_system, geometry_context),
-      std::logic_error,
-      "Source \\d+ has registered frames but does not provide id values on "
-      "the input port.");
-}
-
 // Adversarial test case: Missing pose port connection.
-GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateNoPoseConnection) {
+GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateDisconnected) {
   // Build a fully connected system.
   systems::DiagramBuilder<double> builder;
   auto geometry_system = builder.AddSystem<GeometrySystem<double>>();
   geometry_system->set_name("geometry_system");
   auto source_system = builder.AddSystem<GeometrySourceSystem>(geometry_system);
   source_system->set_name("source_system");
-  SourceId source_id = source_system->get_source_id();
-  builder.Connect(source_system->get_id_output_port(),
-                  geometry_system->get_source_frame_id_port(source_id));
   auto diagram = builder.Build();
   auto diagram_context = diagram->AllocateContext();
   diagram->SetDefaultContext(diagram_context.get());
   auto& geometry_context = dynamic_cast<GeometryContext<double>&>(
       diagram->GetMutableSubsystemContext(*geometry_system,
                                           diagram_context.get()));
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       GeometrySystemTester::FullPoseUpdate(*geometry_system, geometry_context),
       std::logic_error,
       "Source \\d+ has registered frames but does not provide pose values on "
@@ -525,10 +459,10 @@ GTEST_TEST(GeometrySystemConnectionTest, FullPoseUpdateNoConnections) {
   auto& geometry_context = dynamic_cast<GeometryContext<double>&>(
       diagram->GetMutableSubsystemContext(*geometry_system,
                                           diagram_context.get()));
-  EXPECT_ERROR_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE(
       GeometrySystemTester::FullPoseUpdate(*geometry_system, geometry_context),
       std::logic_error,
-      "Source \\d+ has registered frames but does not provide id values on "
+      "Source \\d+ has registered frames but does not provide pose values on "
           "the input port.");
 }
 

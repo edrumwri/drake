@@ -17,6 +17,11 @@ load(
 )
 load("@drake//tools/lint:python_lint.bzl", "python_lint")
 
+licenses([
+    "notice",  # BSD-3-Clause
+    "restricted",  # LGPL-2.1 AND LGPL-2.1+
+])
+
 package(default_visibility = ["//visibility:public"])
 
 config_setting(
@@ -70,7 +75,7 @@ LCM_PUBLIC_HEADER_INCLUDES = [
 # linked dynamically.  The `name = "lcm"` rule below provides the compile-time
 # artifact that combines the shared library with its headers.
 cc_binary(
-    name = "liblcm.so",
+    name = "libdrake_lcm.so",
     srcs = [
         # Sources
         "lcm/eventlog.c",
@@ -96,7 +101,10 @@ cc_binary(
     copts = LCM_COPTS,
     includes = LCM_PUBLIC_HEADER_INCLUDES,
     linkopts = select({
-        ":linux": ["-pthread"],  # For lcm_(mp)udpm.c.
+        ":linux": [
+            "-pthread",  # For lcm_(mp)udpm.c.
+            "-Wl,-soname,libdrake_lcm.so",
+        ],
         "@//conditions:default": [],
     }),
     linkshared = 1,
@@ -107,7 +115,7 @@ cc_binary(
 # This is the compile-time target for liblcm.  See above for details.
 cc_library(
     name = "lcm",
-    srcs = ["liblcm.so"],
+    srcs = ["libdrake_lcm.so"],
     hdrs = LCM_PUBLIC_HEADERS,
     includes = LCM_PUBLIC_HEADER_INCLUDES,
 )
@@ -207,8 +215,7 @@ cc_binary(
 # that, we pre-load the shared library before calling the upstream __init__,
 # using python ctypes with the realpath to the shared library.
 generate_file(
-    name = "init_genrule",
-    out = "__init__.py",
+    name = "__init__.py",
     content = """
 import ctypes
 import os.path
@@ -265,13 +272,16 @@ drake_java_binary(
     ],
 )
 
+CMAKE_PACKAGE = "lcm"
+
 cmake_config(
-    package = "lcm",
+    package = CMAKE_PACKAGE,
     script = "@drake//tools/workspace/lcm:package-create-cps.py",
     version_file = "lcm/lcm_version.h",
 )
 
-install_cmake_config(package = "lcm")  # Creates rule :install_cmake_config.
+# Creates rule :install_cmake_config.
+install_cmake_config(package = CMAKE_PACKAGE)
 
 install_files(
     name = "install_extra_cmake",
@@ -292,6 +302,9 @@ install(
 
 install(
     name = "install",
+    install_tests = [
+        "@drake//tools/workspace/lcm:test/lcm-gen_install_test.py",
+    ],
     targets = [
         ":lcm-gen",
         ":lcm-java",
@@ -301,10 +314,11 @@ install(
         ":lcm-logplayer-gui-launcher",
         ":lcm-spy",
         ":lcm-spy-launcher",
-        ":liblcm.so",
+        ":libdrake_lcm.so",
     ],
     py_strip_prefix = ["lcm-python"],
     hdrs = LCM_PUBLIC_HEADERS,
+    hdr_dest = "include/" + CMAKE_PACKAGE,
     docs = [
         "AUTHORS",
         "COPYING",
@@ -322,4 +336,4 @@ install(
     ],
 )
 
-python_lint()
+python_lint(extra_srcs = [":test/lcm-gen_install_test.py"])

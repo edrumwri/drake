@@ -12,7 +12,6 @@ load(
     "drake_py_library",
     "drake_py_test",
 )
-load("//tools/skylark:6996.bzl", "adjust_label_for_drake_hoist")
 
 _PY_VERSION = "2.7"
 
@@ -23,7 +22,6 @@ _PY_VERSION = "2.7"
 def _drake_pybind_cc_binary(
         name,
         srcs = [],
-        copts = [],
         deps = [],
         visibility = None,
         testonly = None):
@@ -39,12 +37,6 @@ def _drake_pybind_cc_binary(
         name = name,
         # This is how you tell Bazel to link in a shared library.
         srcs = srcs + ["//tools/install/libdrake:libdrake.so"],
-        # These copts are per pybind11 deficiencies.
-        copts = [
-            "-Wno-#warnings",
-            "-Wno-cpp",
-            "-Wno-unknown-warning-option",
-        ] + copts,
         # This is how you tell Bazel to create a shared library.
         linkshared = 1,
         linkstatic = 1,
@@ -67,7 +59,6 @@ def drake_pybind_library(
         name,
         cc_srcs = [],
         cc_deps = [],
-        copts = [],
         cc_so_name = None,
         package_info = None,
         py_srcs = [],
@@ -225,6 +216,7 @@ def drake_pybind_cc_googletest(
             "//bindings/pydrake:pydrake_pybind",
             "//tools/install/libdrake:drake_shared_library",
             "@pybind11",
+            "@python//:python_direct_link",
         ],
         # Add 'manual', because we only want to run it with Python present.
         tags = ["manual"],
@@ -253,4 +245,7 @@ def drake_pybind_cc_googletest(
         deps = [py_name],
         tags = tags,
         visibility = visibility,
+        # The C++ test isn't going to `import unittest`, but test dependencies
+        # such as numpy(!!) do so unconditionally.  We should allow that.
+        allow_import_unittest = True,
     )

@@ -12,6 +12,8 @@
 #include <vector>
 
 #include <Eigen/Core>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/never_destroyed.h"
@@ -23,6 +25,7 @@
 namespace drake {
 namespace symbolic {
 
+using std::logic_error;
 using std::make_shared;
 using std::map;
 using std::numeric_limits;
@@ -71,7 +74,8 @@ Expression NegateMultiplication(const Expression& e) {
 Expression::Expression(const Variable& var)
     : ptr_{make_shared<ExpressionVar>(var)} {}
 Expression::Expression(const double d) : ptr_{make_cell(d)} {}
-Expression::Expression(shared_ptr<ExpressionCell> ptr) : ptr_{std::move(ptr)} {}
+Expression::Expression(std::shared_ptr<ExpressionCell> ptr)
+    : ptr_{std::move(ptr)} {}
 
 ExpressionKind Expression::get_kind() const {
   DRAKE_ASSERT(ptr_ != nullptr);
@@ -196,6 +200,15 @@ Expression Expression::Differentiate(const Variable& x) const {
   return ptr_->Differentiate(x);
 }
 
+RowVectorX<Expression> Expression::Jacobian(
+    const Eigen::Ref<const VectorX<Variable>>& vars) const {
+  RowVectorX<Expression> J(vars.size());
+  for (VectorX<Variable>::Index i = 0; i < vars.size(); ++i) {
+    J(i) = Differentiate(vars(i));
+  }
+  return J;
+}
+
 string Expression::to_string() const {
   ostringstream oss;
   oss << *this;
@@ -259,6 +272,8 @@ Expression Expression::operator++(int) {
   ++*this;
   return copy;
 }
+
+Expression operator+(const Expression& e) { return e; }
 
 Expression operator-(Expression lhs, const Expression& rhs) {
   lhs -= rhs;
@@ -811,52 +826,34 @@ const string& get_uninterpreted_function_name(const Expression& e) {
   return to_uninterpreted_function(e)->get_name();
 }
 
-// NOLINTNEXTLINE(runtime/references) per C++ standard signature.
-Expression& operator+=(Expression& lhs, const Variable& rhs) {
-  return lhs += Expression{rhs};
-}
-Expression operator+(const Variable& lhs, const Variable& rhs) {
-  return Expression{lhs} + Expression{rhs};
-}
-Expression operator+(Expression lhs, const Variable& rhs) { return lhs += rhs; }
-Expression operator+(const Variable& lhs, Expression rhs) { return rhs += lhs; }
-
-// NOLINTNEXTLINE(runtime/references) per C++ standard signature.
-Expression& operator-=(Expression& lhs, const Variable& rhs) {
-  return lhs -= Expression{rhs};
-}
-Expression operator-(const Variable& lhs, const Variable& rhs) {
-  return Expression{lhs} - Expression{rhs};
-}
-Expression operator-(Expression lhs, const Variable& rhs) { return lhs -= rhs; }
-Expression operator-(const Variable& lhs, const Expression& rhs) {
-  return Expression(lhs) - rhs;
+const Formula& get_conditional_formula(const Expression& e) {
+  return to_if_then_else(e)->get_conditional_formula();
 }
 
-// NOLINTNEXTLINE(runtime/references) per C++ standard signature.
-Expression& operator*=(Expression& lhs, const Variable& rhs) {
-  return lhs *= Expression{rhs};
+const Expression& get_then_expression(const Expression& e) {
+  return to_if_then_else(e)->get_then_expression();
 }
-Expression operator*(const Variable& lhs, const Variable& rhs) {
-  return Expression{lhs} * Expression{rhs};
-}
-Expression operator*(Expression lhs, const Variable& rhs) { return lhs *= rhs; }
-Expression operator*(const Variable& lhs, Expression rhs) { return rhs *= lhs; }
 
-// NOLINTNEXTLINE(runtime/references) per C++ standard signature.
-Expression& operator/=(Expression& lhs, const Variable& rhs) {
-  return lhs /= Expression{rhs};
-}
-Expression operator/(const Variable& lhs, const Variable& rhs) {
-  return Expression{lhs} / Expression{rhs};
-}
-Expression operator/(Expression lhs, const Variable& rhs) { return lhs /= rhs; }
-Expression operator/(const Variable& lhs, const Expression& rhs) {
-  return Expression(lhs) / rhs;
+const Expression& get_else_expression(const Expression& e) {
+  return to_if_then_else(e)->get_else_expression();
 }
 
 Expression operator+(const Variable& var) { return Expression{var}; }
 Expression operator-(const Variable& var) { return -Expression{var}; }
+
+VectorX<Variable> GetVariableVector(
+    const Eigen::Ref<const VectorX<Expression>>& evec) {
+  VectorX<Variable> vec(evec.size());
+  for (int i = 0; i < evec.size(); i++) {
+    const Expression e_i{evec(i)};
+    if (is_variable(e_i)) {
+      vec(i) = get_variable(e_i);
+    } else {
+      throw logic_error(fmt::format("{} is not a variable.", e_i));
+    }
+  }
+  return vec;
+}
 
 MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
                              const vector<Variable>& vars) {
@@ -876,6 +873,18 @@ MatrixX<Expression> Jacobian(const Eigen::Ref<const VectorX<Expression>>& f,
                              const Eigen::Ref<const VectorX<Variable>>& vars) {
   return Jacobian(f, vector<Variable>(vars.data(), vars.data() + vars.size()));
 }
+
+Variables GetDistinctVariables(const Eigen::Ref<const MatrixX<Expression>>& v) {
+  Variables vars{};
+  // Note: Default storage order for Eigen is column-major.
+  for (int j = 0; j < v.cols(); j++) {
+    for (int i = 0; i < v.rows(); i++) {
+      vars.insert(v(i, j).GetVariables());
+    }
+  }
+  return vars;
+}
+
 }  // namespace symbolic
 
 double ExtractDoubleOrThrow(const symbolic::Expression& e) {

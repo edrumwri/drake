@@ -4,10 +4,12 @@
 #include <ostream>
 #include <string>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/eigen_types.h"
+#include "drake/common/extract_double.h"
 #include "drake/math/quaternion.h"
 #include "drake/math/roll_pitch_yaw.h"
 
@@ -49,6 +51,7 @@ struct LaneEnd {
 std::ostream& operator<<(std::ostream& out, const LaneEnd::Which& which_end);
 
 /// A 3-dimensional rotation.
+// TODO(Mitiguy) Rename/move this class to drake/math alongside RotationMatrix.
 class Rotation {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(Rotation)
@@ -90,7 +93,7 @@ class Rotation {
   /// Provides a representation of rotation as a vector of angles
   /// `[roll, pitch, yaw]` (in radians).
   Vector3<double> rpy() const {
-    return math::QuaternionToSpaceXYZ(to_drake(quaternion_));
+    return math::QuaternionToSpaceXYZ(quaternion_);
   }
 
   // TODO(maddog@tri.global)  Deprecate and/or remove roll()/pitch()/yaw(),
@@ -108,11 +111,6 @@ class Rotation {
 
  private:
   explicit Rotation(const Quaternion<double>& quat) : quaternion_(quat) {}
-
-  // Converts Eigen (x,y,z,w) quaternion to drake's temporary(?) (w,x,y,z).
-  static Vector4<double> to_drake(const Quaternion<double>& quat) {
-    return Vector4<double>(quat.w(), quat.x(), quat.y(), quat.z());
-  }
 
   Quaternion<double> quaternion_;
 };
@@ -168,6 +166,14 @@ class GeoPositionT {
   /// Sets `z` value.
   void set_z(const T& z) { xyz_.z() = z; }
   //@}
+
+  /// Constructs a GeoPositionT<double> from other types, producing a clone if
+  /// already double.
+  GeoPositionT<double> MakeDouble() const {
+    return {ExtractDoubleOrThrow(xyz_.x()),
+            ExtractDoubleOrThrow(xyz_.y()),
+            ExtractDoubleOrThrow(xyz_.z())};
+  }
 
  private:
   explicit GeoPositionT(const Vector3<T>& xyz) : xyz_(xyz) {}
@@ -242,6 +248,14 @@ class LanePositionT {
   /// Sets `h` value.
   void set_h(const T& h) { srh_.z() = h; }
   //@}
+
+  /// Constructs a LanePositionT<double> from other types, producing a clone if
+  /// already double.
+  LanePositionT<double> MakeDouble() const {
+    return {ExtractDoubleOrThrow(srh_.x()),
+            ExtractDoubleOrThrow(srh_.y()),
+            ExtractDoubleOrThrow(srh_.z())};
+  }
 
  private:
   explicit LanePositionT(const Vector3<T>& srh) : srh_(srh) {}

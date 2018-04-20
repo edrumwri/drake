@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 from __future__ import print_function
 import argparse
 import os
@@ -244,9 +242,6 @@ def default_globals():
         locals())
 
 
-_FILENAME_DEFAULT = "/tmp/python_rpc"
-
-
 class CallPythonClient(object):
     """Provides a client to receive Python commands.
 
@@ -257,7 +252,10 @@ class CallPythonClient(object):
                  scope_globals=None, scope_locals=None,
                  threaded=True, wait=False):
         if filename is None:
-            self.filename = _FILENAME_DEFAULT
+            # TODO(jamiesnape): Implement and use a
+            # drake.common.GetRpcPipeTempDirectory function.
+            temp_directory = os.environ.get("TEST_TMPDIR", "/tmp")
+            self.filename = os.path.join(temp_directory, "python_rpc")
         else:
             self.filename = filename
         # Scope. Give it access to everything here.

@@ -74,6 +74,17 @@ TEST_F(SymbolicExpressionMatrixTest, EigenAdd) {
   EXPECT_EQ(M, M_expected);
 }
 
+TEST_F(SymbolicExpressionMatrixTest, GetVariableVector) {
+  const Vector3<Expression> evec(x_, y_, z_);
+  const VectorX<Variable> vec = GetVariableVector(evec);
+  EXPECT_EQ(vec(0), x_);
+  EXPECT_EQ(vec(1), y_);
+  EXPECT_EQ(vec(2), z_);
+
+  EXPECT_THROW(GetVariableVector(Vector3<Expression>(x_, y_, x_ + y_)),
+               std::logic_error);
+}
+
 TEST_F(SymbolicExpressionMatrixTest, EigenSub1) {
   auto const M(A_ - A_);
   Eigen::Matrix<Expression, 3, 2> M_expected;
@@ -168,11 +179,11 @@ bool CheckMatrixOperatorEq(const MatrixX<Expression>& m1,
 
 // Checks the following two formulas are identical:
 //   - m1 != m2
-//   - ⋀ᵢⱼ (m1.array() != m2.array())
+//   - ⋁ᵢⱼ (m1.array() != m2.array())
 bool CheckMatrixOperatorNeq(const MatrixX<Expression>& m1,
                             const MatrixX<Expression>& m2) {
   const Formula f1{m1 != m2};
-  const Formula f2{(m1.array() != m2.array()).redux(detail::logic_and)};
+  const Formula f2{(m1.array() != m2.array()).redux(detail::logic_or)};
   return f1.EqualTo(f2);
 }
 

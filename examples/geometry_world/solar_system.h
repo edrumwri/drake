@@ -28,14 +28,15 @@ namespace solar_system {
  different arbitrary plane (illustrating transform compositions).
  - Mars orbits the sun at a farther distance on a plane that is tilted off of
  the xy-plane. Its moon (Phobos) orbits around Mars on a plane parallel to
- Mars's orbital plane.
+ Mars's orbital plane, but in the opposite direction.
+ - Mars has been given an arbitrary set of rings posed askew. The rings are
+ declared as a child of mars's geometry.
 
  This system illustrates the following features:
 
  1. Registering anchored geometry.
  2. Registering frames as children of other frames.
- 3. Creating a fixed FrameIdVector output.
- 4. Updating the context-dependent FramePoseVector output.
+ 3. Allocating and calculating the FramePoseVector output for visualization.
 
  Illustration of the orrery:
 
@@ -47,28 +48,40 @@ namespace solar_system {
         M - ◍    | Mars
         P - ●    | Phobos (Mars's moon)
 
-    Frame Symbol | Meaning
+        Frames   | Meaning
     :-----------:|:--------------------
-        X_SE     | Earth's frame (centered on the sun) (X_SE == X_SM)
-        X_SM     | Mar's frame (centered on the sun)
-        X_EL     | Luna's frame (centered on the Earth)
-        X_MP     | Phobos's frame (centered on Mars)
-        X_EG     | The fixed offset of Earth's geometry from X_SE (at Earth's orbit radius).
-        X_LG     | The fixed offset of Luna's geometry from X_EL (at Luna's orbit radius).
-        X_MG     | The fixed offset of Mars's geometry from X_SM (at Mars's orbit radius).
-        X_PG     | The fixed offset of Phobos's geometry from X_MP (at Phobos's orbit radius).
+        S        | The sun's frame
+        E        | Earth's orbital frame
+        M        | Mars's orbital frame
+        L        | Luna's orbital frame
+        P        | Phobos's orbital frame
+        Gᵢ       | Frame of geometry; `i ∈ {e, m, l, p, r}` for Earth, Mars, Luna, Phobos, and rings of Mars, respectively.
 
+     Pose Symbol | Meaning
+    :-----------:|:--------------------
+       `X_SE`    | Earth's frame E relative to S
+       `X_EGₑ`   | Earth's geometry Gₑ relative to E (placed at the end of the arm)
+       `X_EL`    | Luna's frame L relative to E (X_EL = X_EGₑ)
+       `X_LGₗ`   | Luna's geometry Gₗ relative to L (placed out in orbit)
+       `X_SM`    | Mars's frame M relative to S
+       `X_MGₘ`   | Mars's geometry Gₘ relative to M (placed at the end of the arm)
+       `X_MP`    | Phobos's frame P relative to M (X_MP = X_MGₘ)
+       `X_PGₚ`   | Phobos's geometry Gₚ relative to P (placed out in orbit)
+       `X_GₘGᵣ`  | Mars's rings Gr relative to Mars's geometry Gm (not shown in diagram).
+
+<br>
 ```
-    X_EG X_LG                            X_MG X_PG
+   X_EGₑ  X_LGₗ                          X_MGₘ  X_PGₚ
       ↓   ↓                                ↓   ↓
       E   L         ▁▁▁                    M   p
       ◯   ◑        ╱   ╲                   ◍   ●
 X_EL →├───┘       │  S  │           X_MP → ├───┘
       │            ╲▁▁▁╱                   │
       │              │                     │
-      └──────────────┴─────────────────────┘
+      └──────────────┤ ← X_SE              │
+                     └─────────────────────┘
                      ↑
-                     X_SE, X_SM
+                    X_SM
 ```
 
  @tparam T The vector element type, which must be a valid Eigen scalar.
@@ -88,7 +101,6 @@ class SolarSystem : public systems::LeafSystem<T> {
 
   geometry::SourceId source_id() const { return source_id_; }
 
-  const systems::OutputPort<T>& get_geometry_id_output_port() const;
   const systems::OutputPort<T>& get_geometry_pose_output_port() const;
 
   // The default leaf system zeros out all of the state as "default" behavior.
@@ -110,19 +122,9 @@ class SolarSystem : public systems::LeafSystem<T> {
   // Allocate all of the geometry.
   void AllocateGeometry(geometry::GeometrySystem<T>* geometry_system);
 
-  // Allocate the frame pose set output port value.
-  geometry::FramePoseVector<T> AllocateFramePoseOutput(
-      const MyContext& context) const;
-
   // Calculate the frame pose set output port value.
   void CalcFramePoseOutput(const MyContext& context,
                            geometry::FramePoseVector<T>* poses) const;
-
-  // Allocate the id output.
-  geometry::FrameIdVector AllocateFrameIdOutput(const MyContext& context) const;
-  // Calculate the id output.
-  void CalcFrameIdOutput(const MyContext& context,
-                         geometry::FrameIdVector* id_set) const;
 
   void DoCalcTimeDerivatives(const MyContext& context,
                              MyContinuousState* derivatives) const override;
@@ -144,7 +146,6 @@ class SolarSystem : public systems::LeafSystem<T> {
   geometry::SourceId source_id_{};
 
   // Port handles
-  int geometry_id_port_{-1};
   int geometry_pose_port_{-1};
 
   // Solar system specification

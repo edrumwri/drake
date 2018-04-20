@@ -58,6 +58,13 @@ class TestFormatterBase(unittest.TestCase):
         self.assertEqual(
             dut.get_non_format_ranges(), [[1, 2, 3], [6, 7, 8, 9]])
 
+    def test_dos(self):
+        original_lines = [
+            '#include "line0"\r\n',
+        ]
+        with self.assertRaisesRegexp(Exception, "DOS newline"):
+            FormatterBase("filename.cc", readlines=original_lines)
+
 
 class TestIncludeFormatter(unittest.TestCase):
 
@@ -295,10 +302,3 @@ namespace { }
         dut.format_includes()
         with self.assertRaisesRegexp(Exception, 'not just a shuffle'):
             dut.rewrite_file()
-
-
-# TODO(jwnimmer-tri) Omitting or mistyping these lines means that no tests get
-# run, and nobody notices.  We should probably have drake_py_unittest macro
-# that takes care of this, to be less brittle.
-if __name__ == '__main__':
-    unittest.main()

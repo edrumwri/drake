@@ -53,34 +53,18 @@ template <typename T> class QueryObject;
  // types.
  @endcond
 
- For each registered geometry source, there are _two_ input ports: id and pose.
- Failing to connect to those ports or providing "bad" values on
- those ports will cause runtime errors to be thrown. The two ports work in
- tandem. Through these ports, the upstream source system communicates the
- poses of all of the _frames_ it has registered with %GeometrySystem (see
- RegisterFrame() for more details).
+ For each registered geometry source, there is one input port for each
+ order of kinematics values (e.g., pose, velocity, and acceleration).
+ If a source registers a frame, it must connect to these ports (although, in the
+ current version, only pose is supported). Failure to connect to the port (or
+ to provide valid kinematics values) will lead to runtime exceptions.
 
- __identifier port__: An abstract-valued port containing an instance of
- FrameIdVector. It should contain the FrameId of each frame registered by the
- upstream source exactly once. The _order_ of the ids is how the values in the
- pose port will be interpreted. Use get_source_frame_id_port() to acquire the
- port for a given source.
-
- __pose port__: An abstract-valued port containing an instance of
- FramePoseVector. There should be one pose value for each id in the the
- identifier port value. The iᵗʰ pose belongs to the iᵗʰ id. Use
- get_source_pose_port() to acquire the port for a given source.
-
- For source systems, there are some implicit assumptions regarding these input
- ports. Generally, we assume that the source system already has some logic for
- computing kinematics of the frames they've registered and an ordered data
- structure for organizing that data. These input ports rely on that. It is
- expected that the geometry source will define the frame identifiers in an order
- which matches the source's internal ordering (and never need to change that
- output value unless the topology changes). The values of the pose port can
- then simply be written by copying the ordered data from the internal ordering
- to the output ordering. This should facilitate translation from internal
- representation to GeometrySystem representation.
+ __pose port__: An abstract-valued port providing an instance of
+ FramePoseVector. For each registered frame, this "pose vector" maps the
+ registered FrameId to a pose value. All registered frames must be accounted
+ for and only frames registered by a source can be included in its output port.
+ See the details in FrameKinematicsVector for details on how to allocate and
+ calculate this port.
 
  @section geom_sys_outputs Outputs
 
@@ -226,15 +210,14 @@ class GeometrySystem final : public systems::LeafSystem<T> {
    provided. */
   //@{
 
-  /** Registers a new source to the geometry system (see GeometryWorld for the
-   discussion of "geometry source"). The caller must save the returned SourceId;
-   it is the token by which all other operations on the geometry world are
-   conducted.
+  /** Registers a new source to the geometry system. The caller must save the
+   returned SourceId; it is the token by which all other operations on the
+   geometry world are conducted.
 
    This source id can be used to register arbitrary _anchored_ geometry. But if
    dynamic geometry is registered (via RegisterGeometry/RegisterFrame), then
    the context-dependent pose values must be provided on an input port.
-   See get_source_frame_id_port() and get_source_pose_port().
+   See get_source_pose_port().
    @param name          The optional name of the source. If none is provided
                         (or the empty string) a unique name will be defined by
                         GeometrySystem's logic.
@@ -246,13 +229,6 @@ class GeometrySystem final : public systems::LeafSystem<T> {
   /** Reports if the given source id is registered.
    @param id       The id of the source to query. */
   bool SourceIsRegistered(SourceId id) const;
-
-  /** Given a valid source `id`, returns the "frame id" input port associated
-   with that `id`. This port's value is an ordered list of frame ids; it
-   is used to provide an interpretation on the pose values provided on the
-   pose port.
-   @throws  std::logic_error if the source_id is _not_ recognized. */
-  const systems::InputPortDescriptor<T>& get_source_frame_id_port(SourceId id);
 
   /** Given a valid source `id`, returns a _pose_ input port associated
    with that `id`. This port is used to communicate _pose_ data for registered
@@ -380,38 +356,6 @@ class GeometrySystem final : public systems::LeafSystem<T> {
       SourceId source_id,
       std::unique_ptr<GeometryInstance> geometry);
 
-  /** Clears all of the registered frames and geometries from this source, but
-   the source is still registered, allowing future registration of frames
-   and geometries.
-   @param source_id   The id of the source whose registered elements will be
-                      cleared.
-   @throws std::logic_error  If the `source_id` does _not_ map to a registered
-                             source or if a context has been allocated. */
-  void ClearSource(SourceId source_id);
-
-  /** Removes the given frame F (indicated by `frame_id`) from the the given
-   source's registered frames. All registered geometries connected to this frame
-   will also be removed.
-   @param source_id   The id for the owner geometry source.
-   @param frame_id    The id of the frame to remove.
-   @throws std::logic_error If:
-                            1. The `source_id` is not a registered source,
-                            2. the `frame_id` doesn't belong to the source, or
-                            3. a context has been allocated. */
-  void RemoveFrame(SourceId source_id, FrameId frame_id);
-
-  /** Removes the given geometry G (indicated by `geometry_id`) from the the
-   given source's registered geometries. All registered geometries hanging from
-   this geometry will also be removed.
-   @param source_id   The identifier for the owner geometry source.
-   @param geometry_id The identifier of the geometry to remove.
-   @throws std::logic_error If:
-                            1. The `source_id` is not a registered source,
-                            2. the `geometry_id` doesn't belong to the source,
-                               or
-                            3. a context has been allocated. */
-  void RemoveGeometry(SourceId source_id, GeometryId geometry_id);
-
   //@}
 
  private:
@@ -441,7 +385,7 @@ class GeometrySystem final : public systems::LeafSystem<T> {
   friend void DispatchLoadMessage(const GeometrySystem<double>&);
 
   // Constructs a QueryObject for OutputPort allocation.
-  QueryObject<T> MakeQueryObject(const systems::Context<T>& context) const;
+  QueryObject<T> MakeQueryObject() const;
 
   // Sets the context into the output port value so downstream consumers can
   // perform queries.
@@ -450,8 +394,7 @@ class GeometrySystem final : public systems::LeafSystem<T> {
 
   // Constructs a PoseBundle of length equal to the concatenation of all inputs.
   // This is the method used by the allocator for the output port.
-  systems::rendering::PoseBundle<T> MakePoseBundle(
-      const systems::Context<T>& context) const;
+  systems::rendering::PoseBundle<T> MakePoseBundle() const;
 
   // Aggregates the input poses into the output PoseBundle, in the same order as
   // was used in allocation. Aborts if any inputs have a _different_ size than
@@ -466,7 +409,7 @@ class GeometrySystem final : public systems::LeafSystem<T> {
   //    - instantiating a GeometryContext instance (as opposed to LeafContext),
   //    - to detect allocation in support of the topology semantics described
   //      above.
-  std::unique_ptr<systems::LeafContext<T>> DoMakeContext() const override;
+  std::unique_ptr<systems::LeafContext<T>> DoMakeLeafContext() const override;
 
   // Helper method for throwing an exception if a context has *ever* been
   // allocated by this system. The invoking method should pass it's name so
@@ -480,7 +423,6 @@ class GeometrySystem final : public systems::LeafSystem<T> {
   // A struct that stores the port indices for a given source.
   // TODO(SeanCurtis-TRI): Consider making these TypeSafeIndex values.
   struct SourcePorts {
-    int id_port{-1};
     int pose_port{-1};
   };
 
@@ -501,7 +443,10 @@ class GeometrySystem final : public systems::LeafSystem<T> {
   // property that source ids can only be added prior to context allocation.
   // This is mutable so that it can be cleared in the const method
   // AllocateContext().
-  mutable GeometryState<T>* initial_state_;
+  GeometryState<T>* initial_state_{};
+
+  // TODO(SeanCurtis-TRI): Get rid of this.
+  mutable bool context_has_been_allocated_{false};
 
   // The index of the geometry state in the context's abstract state.
   int geometry_state_index_{-1};

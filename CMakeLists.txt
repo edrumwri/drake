@@ -14,7 +14,13 @@ if(CYGWIN OR NOT UNIX)
   message(FATAL_ERROR "Cygwin and non-Unix platforms are NOT supported")
 endif()
 
-find_package(Bazel 0.6.1 MODULE REQUIRED)
+if(APPLE)
+  set(MINIMUM_BAZEL_VERSION 0.12.0)
+else()
+  set(MINIMUM_BAZEL_VERSION 0.10.1)
+endif()
+
+find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE REQUIRED)
 
 get_filename_component(C_COMPILER_REALPATH "${CMAKE_C_COMPILER}" REALPATH)
 get_filename_component(C_COMPILER_NAME "${C_COMPILER_REALPATH}" NAME)
@@ -38,6 +44,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   )
 endif()
 
+if(APPLE)
+  # Ensure that the python2 executable or link is used in preference to the
+  # python and python2.7 executables or links.
+  find_program(PYTHON_EXECUTABLE NAMES python2)
+endif()
+
 find_package(PythonInterp 2.7 EXACT MODULE REQUIRED)
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
@@ -49,6 +61,10 @@ endif()
 set(BAZEL_ENV)
 
 if(NOT APPLE)
+  # Patches applied to the compiler by particular distributions may have broken
+  # the behavior expected by bazel when identifying the built-in include
+  # directories, so call a wrapper script that intercepts certain calls and
+  # fixes the output.
   foreach(LANG C CXX)
     set(COMPILER ${CMAKE_${LANG}_COMPILER})
     configure_file(tools/cc_toolchain/wrapper.sh.in ${LANG}_wrapper.sh @ONLY)
@@ -59,6 +75,40 @@ if(NOT APPLE)
     "CXX=${CMAKE_CURRENT_BINARY_DIR}/CXX_wrapper.sh"
   )
 endif()
+
+get_filename_component(PROJECT_BINARY_DIR_REALPATH
+  "${PROJECT_BINARY_DIR}" REALPATH
+)
+get_filename_component(PROJECT_SOURCE_DIR_REALPATH
+  "${PROJECT_SOURCE_DIR}" REALPATH
+)
+
+# Check whether the PROJECT_BINARY_DIR is a subdirectory of the
+# PROJECT_SOURCE_DIR.
+string(FIND "${PROJECT_BINARY_DIR_REALPATH}/" "${PROJECT_SOURCE_DIR_REALPATH}/"
+  STRING_FIND_RESULT_VARIABLE
+)
+
+if(STRING_FIND_RESULT_VARIABLE EQUAL 0)
+  # The --output_base cannot be within the WORKSPACE (a subdirectory of
+  # PROJECT_SOURCE_DIR), so fallback to the using the same parent directory
+  # that bazel uses by default for its --output_base.
+  if(APPLE)
+    set(BAZEL_OUTPUT_BASE "/var/tmp")
+  else()
+    set(BAZEL_OUTPUT_BASE "$ENV{HOME}/.cache/bazel")
+  endif()
+else()
+  set(BAZEL_OUTPUT_BASE "${PROJECT_BINARY_DIR}")
+endif()
+
+# Compute the MD5 of the PROJECT_BINARY_DIR rather than the WORKSPACE
+# (PROJECT_SOURCE_DIR) to avoid colliding with the directory that bazel uses by
+# default.
+string(MD5 PROJECT_BINARY_DIR_MD5 "${PROJECT_BINARY_DIR_REALPATH}")
+set(BAZEL_OUTPUT_BASE
+  "${BAZEL_OUTPUT_BASE}/_bazel_$ENV{USER}/${PROJECT_BINARY_DIR_MD5}"
+)
 
 configure_file(tools/cc_toolchain/bazel.rc.in bazel.rc @ONLY)
 
@@ -86,7 +136,10 @@ endif()
 option(WITH_MATLAB "Build with support for MATLAB" OFF)
 
 if(WITH_MATLAB)
-  list(APPEND BAZEL_ARGS --define=NO_IPOPT=ON)
+  list(APPEND BAZEL_ARGS
+    --define=NO_IPOPT=ON
+    --define=NO_OSQP=ON
+  )
 endif()
 
 option(WITH_MOSEK "Build with support for MOSEK" OFF)
@@ -122,6 +175,29 @@ ExternalProject_Add(drake_cxx_python
   USES_TERMINAL_INSTALL 1
 )
 
+set(GIT_DIR "${PROJECT_SOURCE_DIR}/.git")
+set(GIT_REVISION HEAD)
+
+find_package(Git)
+
+if(GIT_FOUND AND EXISTS "${GIT_DIR}")
+  execute_process(COMMAND "${GIT_EXECUTABLE}" "--git-dir=${GIT_DIR}" rev-parse HEAD
+    RESULT_VARIABLE GIT_REV_PARSE_RESULT_VARIABLE
+    OUTPUT_VARIABLE GIT_REV_PARSE_OUTPUT_VARIABLE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+
+  if(GIT_REV_PARSE_RESULT_VARIABLE EQUAL 0)
+    set(GIT_REVISION "${GIT_REV_PARSE_OUTPUT_VARIABLE}")
+  endif()
+endif()
+
+string(TIMESTAMP BUILD_TIMESTAMP "%Y%m%d%H%M%S")
+
+configure_file(tools/install/libdrake/VERSION.TXT.in VERSION.TXT @ONLY)
+
+install(FILES "${PROJECT_BINARY_DIR}/VERSION.TXT" DESTINATION share/doc/drake)
+
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_INSTALL_PREFIX}")
 
 if(WITH_MATLAB)
@@ -141,3 +217,47 @@ if(WITH_MATLAB)
     BUILD_ALWAYS 1
   )
 endif()
+
+set(CPACK_GENERATOR TGZ)
+set(CPACK_INSTALLED_DIRECTORIES "${CMAKE_INSTALL_PREFIX}" .)
+set(CPACK_PACKAGE_CONTACT RobotLocomotion)
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+  "Planning, control, and analysis toolbox for nonlinear dynamical systems"
+)
+set(CPACK_PACKAGE_VENDOR RobotLocomotion)
+set(CPACK_PACKAGE_VERSION_MAJOR 0)
+set(CPACK_PACKAGE_VERSION_MINOR 0)
+set(CPACK_PACKAGE_VERSION_PATCH 0)
+set(CPACK_PACKAGE_CHECKSUM SHA256)
+set(CPACK_SET_DESTDIR ON)
+set(CPACK_SOURCE_GENERATOR "")
+
+if(APPLE)
+  set(CPACK_SYSTEM_NAME mac)
+else()
+  string(TOLOWER "${CMAKE_SYSTEM_NAME}" CPACK_SYSTEM_NAME)
+
+  list(APPEND CPACK_GENERATOR DEB)
+
+  set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+  set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
+  set(CPACK_DEBIAN_PACKAGE_HOMEPAGE http://drake.mit.edu/)
+  set(CPACK_DEBIAN_PACKAGE_RELEASE 1)
+  set(CPACK_DEBIAN_PACKAGE_SECTION contrib/devel)
+
+  file(STRINGS setup/ubuntu/16.04/binary_distribution/packages.txt
+    CPACK_DEBIAN_PACKAGE_DEPENDS
+  )
+  string(REGEX REPLACE "([a-z0-9\\-]+)=([a-z0-9\\-\\.~]+)" "\\1 (= \\2)"
+    CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}"
+  )
+  string(REPLACE ";" ", " CPACK_DEBIAN_PACKAGE_DEPENDS
+    "${CPACK_DEBIAN_PACKAGE_DEPENDS}"
+  )
+endif()
+
+set(CPACK_PACKAGE_FILE_NAME
+  "${PROJECT_NAME}-${BUILD_TIMESTAMP}-${CPACK_SYSTEM_NAME}"
+)
+
+include(CPack)

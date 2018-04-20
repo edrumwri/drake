@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "drake/common/drake_assert.h"
+#include "drake/manipulation/util/bot_core_lcm_encode_decode.h"
+#include "drake/util/drakeGeometryUtil.h"
 
 namespace drake {
 namespace manipulation {
@@ -61,7 +63,7 @@ RobotStateLcmMessageTranslator::RobotStateLcmMessageTranslator(
     DRAKE_DEMAND(root_joint.get_num_velocities() == 0);
   }
 
-  for (const auto& body : robot.bodies) {
+  for (const auto& body : robot.get_bodies()) {
     if (body->has_parent_body()) {
       const auto& joint = body->getJoint();
       if (!joint.is_fixed() && !joint.is_floating()) {
@@ -147,7 +149,9 @@ void RobotStateLcmMessageTranslator::DecodeMessageKinematics(
       q.segment<3>(position_start) = X_JB.translation();
 
       // Orientation.
-      auto quat = math::rotmat2quat(X_JB.linear());
+      const Eigen::Vector4d quat =
+          drake::math::RotationMatrix<double>::ToQuaternionAsVector4(
+              X_JB.linear());
       q.segment<4>(position_start + 3) = quat;
 
       // Transform V_WB to the floating base's body frame (V_WB_B).
@@ -357,7 +361,7 @@ RobotStateLcmMessageTranslator::CheckTreeIsRobotStateLcmTypeCompatible(
 
   // Skip the "world" and the "root_body".
   for (int i = 2; i < robot.get_num_bodies(); ++i) {
-    const RigidBody<double>* body = robot.bodies[i].get();
+    const RigidBody<double>* body = robot.get_bodies()[i].get();
     DRAKE_DEMAND(body->has_parent_body());
 
     const auto& joint = body->getJoint();

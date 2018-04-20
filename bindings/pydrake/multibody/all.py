@@ -1,6 +1,7 @@
+from .parsers import *
 from .rigid_body_plant import *
+from .rigid_body_tree import *
+from .shapes import *
 
-try:
-    from .drawing import *
-except ImportError:
-    pass
+# Submodules.
+from .multibody_tree.all import *

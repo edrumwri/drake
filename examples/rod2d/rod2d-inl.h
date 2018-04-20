@@ -18,7 +18,6 @@
 #include "drake/common/drake_assert.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/value.h"
-#include "systems/framework/witness_function.h"
 
 // TODO(edrumwri,sherm1) This code is currently written out mostly in scalars
 // but should be done in 2D vectors instead to make it more compact, easier to
@@ -28,17 +27,17 @@ namespace examples {
 namespace rod2d {
 
 template <typename T>
-Rod2D<T>::Rod2D(SystemType simulation_type, double dt)
-    : system_type_(simulation_type), dt_(dt) {
+Rod2D<T>::Rod2D(SystemType system_type, double dt)
+    : system_type_(system_type), dt_(dt) {
   // Verify that the simulation approach is either piecewise DAE or
   // compliant ODE.
-  if (simulation_type == SystemType::kDiscretized) {
+  if (system_type == SystemType::kDiscretized) {
     if (dt <= 0.0)
       throw std::logic_error(
-          "Time stepping approach must be constructed using"
+          "Discretization approach must be constructed using"
           " strictly positive step size.");
 
-    // Time stepping approach requires three position variables and
+    // Discretization approach requires three position variables and
     // three velocity variables, all discrete, and periodic update.
     this->DeclarePeriodicDiscreteUpdate(dt);
     this->DeclareDiscreteState(6);
@@ -1644,6 +1643,8 @@ void Rod2D<T>::CopyPoseOut(
   ConvertStateToPose(state, pose_port_value);
 }
 
+/// Integrates the Rod 2D example forward in time using a
+/// half-explicit discretization scheme.
 template <class T>
 void Rod2D<T>::ComputeTimeSteppingProblemData(
     const Vector3<T>& q,
@@ -1659,7 +1660,7 @@ void Rod2D<T>::ComputeTimeSteppingProblemData(
 
   // Two contact points, corresponding to the two rod endpoints, are always
   // used, regardless of whether any part of the rod is in contact with the
-  // halfspace. This practice is standard in time stepping approaches with
+  // halfspace. This practice is standard in discretization approaches with
   // constraint stabilization. See:
   // M. Anitescu and G. Hart. A Constraint-Stabilized Time-Stepping Approach
   // for Rigid Multibody Dynamics with Joints, Contact, and Friction. Intl.
@@ -2001,7 +2002,7 @@ void Rod2D<T>::DoCalcTimeDerivatives(
   using std::cos;
   using std::abs;
 
-  // Don't compute any derivatives if this is the time stepping system.
+  // Don't compute any derivatives if this is the discretized system.
   if (system_type_ == SystemType::kDiscretized) {
     DRAKE_ASSERT(derivatives->size() == 0);
     return;

@@ -5,7 +5,6 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/drake_copyable.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/cache.h"
 #include "drake/systems/framework/context.h"
@@ -18,20 +17,21 @@
 namespace drake {
 namespace systems {
 
-/// %LeafContext is a container for all of the data necessary to uniquely
-/// determine the computations performed by a leaf System. Specifically, a
-/// %LeafContext contains and owns the State, and also contains (but does not
-/// own) pointers to the value sources for Inputs, as well as the simulation
-/// time and the cache.
+/// %LeafContext contains all prerequisite data necessary to uniquely determine
+/// the results of computations performed by the associated LeafSystem.
 ///
 /// @tparam T The mathematical type of the context, which must be a valid Eigen
 ///           scalar.
-// TODO(david-german-tri): Manage cache invalidation.
 template <typename T>
 class LeafContext : public Context<T> {
  public:
-  // LeafContext objects are neither copyable nor moveable.
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LeafContext)
+  /// @name  Does not allow copy, move, or assignment.
+  //@{
+  // Copy constructor is protected for use in implementing Clone().
+  LeafContext(LeafContext&&) = delete;
+  LeafContext& operator=(const LeafContext&) = delete;
+  LeafContext& operator=(LeafContext&&) = delete;
+  //@}
 
   LeafContext()
       : state_(std::make_unique<State<T>>()),
@@ -63,51 +63,6 @@ class LeafContext : public Context<T> {
     return *state_.get();
   }
 
-  /// Reserves a cache entry with the given @p prerequisites on which it
-  /// depends. Returns a ticket to identify the entry.
-  CacheTicket CreateCacheEntry(
-      const std::set<CacheTicket>& prerequisites) const {
-    // TODO(david-german-tri): Provide a notation for specifying context
-    // dependencies as well, and provide automatic invalidation when the
-    // context dependencies change.
-    return cache_.MakeCacheTicket(prerequisites);
-  }
-
-  /// Stores the given @p value in the cache entry for the given @p ticket,
-  /// and returns a bare pointer to @p value.  That pointer will be invalidated
-  /// whenever any of the @p ticket's declared prerequisites change, and
-  /// possibly also at other times which are not defined.
-  ///
-  /// Systems MUST NOT depend on a particular value being present or valid
-  /// in the Cache, and MUST check the validity of cached values using
-  /// the GetCachedValue interface.
-  //
-  /// The Cache is useful to avoid recomputing expensive intermediate data. It
-  /// is not a scratch space for arbitrary state. If you cannot derive a value
-  /// from other fields in the Context, do not put that value in the Cache.
-  /// If you violate this rule, you may be devoured by a horror from another
-  /// universe, and forced to fill out paperwork in triplicate for all eternity.
-  /// You have been warned.
-  AbstractValue* InitCachedValue(CacheTicket ticket,
-                                 std::unique_ptr<AbstractValue> value) const {
-    return cache_.Init(ticket, std::move(value));
-  }
-
-  /// Copies the given @p value into the cache entry for the given @p ticket.
-  /// May throw std::bad_cast if the type of the existing value is not V.
-  ///
-  /// @tparam V The type of the value to store.
-  template <typename V>
-  void SetCachedValue(CacheTicket ticket, const V& value) const {
-    cache_.Set<V>(ticket, value);
-  }
-
-  // Returns the cached value for the given @p ticket, or nullptr if the
-  // cache entry has been invalidated.
-  const AbstractValue* GetCachedValue(CacheTicket ticket) const {
-    return cache_.Get(ticket);
-  }
-
   // =========================================================================
   // Accessors and Mutators for Parameters.
 
@@ -127,37 +82,38 @@ class LeafContext : public Context<T> {
   }
 
  protected:
-  /// The caller owns the returned memory.
-  Context<T>* DoClone() const override {
-    LeafContext<T>* clone = new LeafContext<T>();
-
+  /// Protected copy constructor takes care of the local data members and
+  /// all base class members, but doesn't update base class pointers so is
+  /// not a complete copy.
+  LeafContext(const LeafContext& source) : Context<T>(source) {
     // Make a deep copy of the state.
-    clone->state_ = this->CloneState();
+    state_ = source.CloneState();
 
     // Make deep copies of the parameters.
-    clone->set_parameters(parameters_->Clone());
+    set_parameters(source.parameters_->Clone());
 
     // Make deep copies of the inputs into FreestandingInputPortValues.
     // TODO(david-german-tri): Preserve version numbers as well.
-    for (const auto& port : this->input_values_) {
+    for (const auto& port : source.input_values_) {
       if (port == nullptr) {
-        clone->input_values_.emplace_back(nullptr);
+        input_values_.emplace_back(nullptr);
       } else {
-        clone->input_values_.emplace_back(new FreestandingInputPortValue(
-            port->template get_abstract_data()->Clone()));
+        input_values_.emplace_back(new FreestandingInputPortValue(
+            port->get_abstract_data()->Clone()));
       }
     }
 
-    // Make deep copies of everything else using the default copy constructors.
-    *clone->get_mutable_step_info() = this->get_step_info();
-    clone->set_accuracy(this->get_accuracy());
-    clone->cache_ = this->cache_;
-    return clone;
+    // Everything else was handled by the Context<T> copy constructor.
   }
 
-  /// The caller owns the returned memory.
-  State<T>* DoCloneState() const override {
-    State<T>* clone = new State<T>();
+  /// Derived classes should reimplement and replace this; don't recursively
+  /// invoke it.
+  std::unique_ptr<ContextBase> DoCloneWithoutPointers() const override {
+    return std::unique_ptr<ContextBase>(new LeafContext<T>(*this));
+  }
+
+  std::unique_ptr<State<T>> DoCloneState() const override {
+    auto clone = std::make_unique<State<T>>();
 
     // Make a deep copy of the continuous state using BasicVector::Clone().
     const ContinuousState<T>& xc = this->get_continuous_state();
@@ -196,10 +152,6 @@ class LeafContext : public Context<T> {
 
   // The parameters of the system.
   std::unique_ptr<Parameters<T>> parameters_;
-
-  // The cache. The System may insert arbitrary key-value pairs, and configure
-  // invalidation on a per-entry basis.
-  mutable Cache cache_;
 };
 
 }  // namespace systems
