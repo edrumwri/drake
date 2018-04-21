@@ -257,7 +257,6 @@ class WitnessFunction final {
     };
   }
 
- private:
   // A reference to the system.
   const System<T>* system_{nullptr};
 
