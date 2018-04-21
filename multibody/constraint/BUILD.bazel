@@ -14,7 +14,6 @@ drake_cc_library(
     name = "constraint",
     hdrs = [
         "constraint_problem_data.h",
-        "point_contact.h",
     ],
     deps = [
         "//common:essential",

@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
   } else if (FLAGS_system_type == "continuous") {
     rod = builder.template AddSystem<Rod2D>(Rod2D::SystemType::kContinuous,
                                             0.0);
-  } else if (FLAGS_simulation_type == "pDAE") {
+  } else if (FLAGS_system_type == "pDAE") {
     rod = builder.
         template AddSystem<Rod2D>(Rod2D::SystemType::kPiecewiseDAE, 0.0);
   } else {
@@ -134,8 +134,7 @@ int main(int argc, char* argv[]) {
   const int message_length = message.getEncodedSize();
   message_bytes.resize(message_length);
   message.encode(message_bytes.data(), 0, message_length);
-  lcm.Publish("DRAKE_VIEWER_LOAD_ROBOT", message_bytes.data(),
-              message_bytes.size());
+  Publish(&lcm, "DRAKE_VIEWER_LOAD_ROBOT", message);
 
   // Set the names of the systems.
   rod->set_name("rod");
@@ -180,7 +179,7 @@ int main(int argc, char* argv[]) {
   Eigen::VectorXd initial_state(state_dim);
   for (int i = 0; i < state_dim; ++i)
     iss >> initial_state[i];
-  if (FLAGS_simulation_type == "discretized") {
+  if (FLAGS_system_type == "discretized") {
     rod_context.get_mutable_discrete_state(0).SetFromVector(initial_state);
   } else {
     Rod2dStateVector<double>& rod_state =
@@ -190,7 +189,7 @@ int main(int argc, char* argv[]) {
     // If this is the piecewise DAE system, make an educated guess as to the
     // proper initial mode.
     // TODO(edrumwri): Make the stiction tolerance a settable parameter.
-    if (FLAGS_simulation_type == "pDAE") {
+    if (FLAGS_system_type == "pDAE") {
       const double stiction_tolerance = 1e-6;
       rod->InitializeAbstractStateFromContinuousState(
           stiction_tolerance, &rod_context.get_mutable_state());

@@ -15,6 +15,30 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
+/// The type of sliding between a rod endpoint and the halfspace.
+enum class SlidingModeType {
+  // The mode has not been set.
+  kNotSet,
+
+  // The bodies are sliding at the contact.
+  kSliding,
+
+  // The bodies are not sliding at the contact. 
+  kNotSliding,
+
+  // The bodies are transitioning from not sliding to sliding at the contact.
+  kTransitioning,
+};
+
+/// The descriptor for a point contact between two rigid bodies.
+struct PointContact {
+  /// Whether the bodies are considered to be sliding at the point or not.
+  SlidingModeType sliding_type{SlidingModeType::kNotSet};
+
+  /// The identifier used to locate the point of contact on the bodies.
+  void* id;
+};
+
 /** Dynamical system representation of a rod contacting a half-space in
 two dimensions.
 
@@ -165,7 +189,7 @@ class Rod2D : public systems::LeafSystem<T> {
  public:
   ~Rod2D() override {}
 
-  /// Simulation model and approach for the system.
+  /// System model and simulation approach for the system.
   enum class SystemType {
     /// For simulating the system using rigid contact, Coulomb friction, and
     /// piecewise differential algebraic equations.
@@ -471,12 +495,12 @@ class Rod2D : public systems::LeafSystem<T> {
 
   /// Gets the vector of contact state variables used in force calculations
   /// from the given state.
-  const std::vector<multibody::constraint::PointContact>&
+  const std::vector<PointContact>&
       get_contacts_used_in_force_calculations(
       const systems::State<T>& state) const;
 
   /// Mutable version of get_contacts_used_in_force_calculations(). 
-  std::vector<multibody::constraint::PointContact>&
+  std::vector<PointContact>&
       get_contacts_used_in_force_calculations(systems::State<T>* state) const;
 
   /// Returns the 3D pose of this rod.
@@ -592,12 +616,12 @@ class Rod2D : public systems::LeafSystem<T> {
   ///      contacting the halfspace.
   void SetOneEndpointContacting(
       int index, systems::State<T>* state,
-      multibody::constraint::SlidingModeType sliding_type) const;
+      SlidingModeType sliding_type) const;
 
   /// Puts the rod's state into a mode with both endpoints contacting.
   void SetBothEndpointsContacting(
       systems::State<T>* state,
-      multibody::constraint::SlidingModeType sliding_type) const;
+      SlidingModeType sliding_type) const;
 
   void CalcConstraintProblemData(
       const systems::Context<T>& context,
@@ -749,7 +773,6 @@ class Rod2D : public systems::LeafSystem<T> {
   // edges in the polygonalization of the friction cone. In 2D, both tangent
   // directions (+/-x) must be covered.
   int get_num_tangent_directions_per_contact() const { return 2; }
-  Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
   Vector2<T> CalcContactLocationInWorldFrame(
       const systems::Context<T>& context,
       int index) const;
@@ -838,8 +861,8 @@ class Rod2D : public systems::LeafSystem<T> {
   const systems::OutputPort<T>* state_output_port_{nullptr};
   const systems::OutputPort<T>* contact_force_output_port_{nullptr};
 
-  // IDs for the two contact points in the piecewise DAE system.
-  enum ContactPointIDs {
+  // IDs for the two endpoints in the piecewise DAE system.
+  enum EndpointID {
     kLeft = 0,
     kRight = 1,
   };
@@ -863,6 +886,27 @@ class Rod2D : public systems::LeafSystem<T> {
   std::unique_ptr<systems::WitnessFunction<T>> positive_sliding_witnesses_[2];
   std::unique_ptr<systems::WitnessFunction<T>> negative_sliding_witnesses_[2];
 
+  // The number of possible points in contact.
+  static const int kNumContactCandidates{2};
+
+  // Vector of possible contact points.
+  Vector2<T> contact_candidates_[kNumContactCandidates];
+
+  // Types of witness functions.
+  enum WitnessFunctionType {
+      kSignedDistance,
+      kNormalAcceleration,
+      kNormalForce,
+      kNormalVelocity,
+      kStickingFrictionForceSlack,
+      kPositiveSliding,
+      kNegativeSliding
+  };
+
+  // Mapping of witness function pointers to the type of witness function and
+  // the endpoint it is applied to.
+  std::map<const systems::WitnessFunction<T>*, std::pair<WitnessFunctionType,
+      EndpointID>> witness_function_info_; 
 };
 
 }  // namespace rod2d
