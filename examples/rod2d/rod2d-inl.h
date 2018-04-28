@@ -1125,9 +1125,9 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // If the witness is a signed distance witness, the point should either
         // no longer be tracked or it should trigger
         // an impact.
-        if (GetActiveWitnesses(endpoint_index, state).normal_velocity ||
-            GetActiveWitnesses(endpoint_index, state).normal_acceleration ||
-            GetActiveWitnesses(endpoint_index, state).normal_force) {
+        if (GetActiveWitnesses(endpoint_index, *state).normal_velocity ||
+            GetActiveWitnesses(endpoint_index, *state).normal_acceleration ||
+            GetActiveWitnesses(endpoint_index, *state).normal_force) {
           // If the point is part of the force calculations, disable that.
           if (contact_array_index >= 0)
             contacts_to_remove.push_back(contact_array_index);
