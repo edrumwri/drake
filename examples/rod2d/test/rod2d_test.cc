@@ -13,7 +13,7 @@
 
 using drake::multibody::constraint::ConstraintAccelProblemData;
 using drake::multibody::constraint::ConstraintVelProblemData;
-using drake::multibody::constraint::SlidingModeType;
+using drake::examples::rod2d::SlidingModeType;
 using drake::systems::VectorBase;
 using drake::systems::BasicVector;
 using drake::systems::ContinuousState;
@@ -67,7 +67,7 @@ std::unique_ptr<systems::Diagram<double>> CreateRodDiagramWithTimedInput(
   // Add the rod to the system.
   const double dt = 0.0;  // Since system is piecewise DAE.
   Rod2D<double>* rod = builder.AddSystem<Rod2D<double>>(
-      Rod2D<double>::SimulationType::kPiecewiseDAE, dt);
+      Rod2D<double>::SystemType::kPiecewiseDAE, dt);
   rod->set_name("rod");
 
   // Adds the step input to the system.
@@ -202,10 +202,10 @@ class Rod2DDAETest : public ::testing::Test {
     // ballistic mode (i.e., this will be the point right before an impact),
     // and then enabling the normal velocity witness. This is the mechanism
     // that Rod2D::ModelImpact() uses to determine its contact points.
-    dut_->SetBallisticMode(&context_->get_mutable_state());
+    auto& state = context_->get_mutable_state();
+    dut_->SetBallisticMode(&state);
     const int right_endpoint_id = 1;
-    dut_->GetNormalVelWitness(
-        right_endpoint_id, context_->get_state())->set_enabled(true);
+    dut_->GetActiveWitnesses(right_endpoint_id, &state).normal_velocity = true;
   }
 
   // Computes rigid impact data.
@@ -945,14 +945,14 @@ TEST_F(Rod2DDAETest, RigidContactProblemDataVerticalSliding) {
 // contact in a horizontal configuration and goes from sliding to not sliding.
 TEST_F(Rod2DDAETest, SlidingToNotSliding) {
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the velocity is horizontal
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[3] = 0.1;
-  dut_->SetBothEndpointsContacting(state, SlidingModeType::kSliding);
+  dut_->SetBothEndpointsContacting(&state, SlidingModeType::kSliding);
 
   // Simulate forward.
   const double t_final = 1.0;
@@ -971,28 +971,26 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
   // for signed distance, one for normal force, and one for sticking friction
   // slack.
   const int left_endpoint_id = 0, right_endpoint_id = 1;
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(left_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(right_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
 
   // All other witnesses should be disabled.
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in sustained
@@ -1007,7 +1005,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   context_->FixInputPort(0, std::move(ext_input));
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the coefficient of friction to very near zero.
   dut_->set_mu_coulomb(1e-6);
@@ -1016,8 +1014,8 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   // Set the state such that the velocity is zero 
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
-  dut_->SetBothEndpointsContacting(state, SlidingModeType::kTransitioning);
-  dut_->DetermineContactModes(*context_, state);
+  dut_->SetBothEndpointsContacting(&state, SlidingModeType::kTransitioning);
+  dut_->DetermineContactModes(*context_, &state);
 
   // Verify that the both contacts are still in the set of force calculations. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 2);
@@ -1026,9 +1024,9 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   const int left_endpoint_id = dut_->get_left_endpoint_index();
   const int right_endpoint_id = dut_->get_right_endpoint_index();
   EXPECT_TRUE(
-      dut_->GetPosSlidingWitness(left_endpoint_id, *state)->is_enabled());
+      dut_->GetActiveWitnesses(left_endpoint_id, state).positive_sliding);
   EXPECT_TRUE(
-      dut_->GetPosSlidingWitness(right_endpoint_id, *state)->is_enabled());
+      dut_->GetActiveWitnesses(right_endpoint_id, state).positive_sliding);
 
   // Simulate forward.
   const double t_final = 1.0;
@@ -1045,28 +1043,26 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding) {
   // Verify that five witness functions are active for the each endpoint- one
   // for signed distance, one for normal force, one for sliding friction
   // direction change, and two for sliding velocity.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(left_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(right_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 
   // The sticking friction slack witnesses should be disabled. 
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
 }
 
 // Verifies that the mode changes as expected when the rod is in sustained
@@ -1084,7 +1080,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   context_ = diagram->CreateDefaultContext();
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the coefficient of friction to very near zero.
   Rod2D<double>& rod = *const_cast<Rod2D<double>*>(
@@ -1095,7 +1091,7 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   // Set the state such that the velocity is zero 
   // (and the contact mode is set appropriately).
   SetRestingHorizontalConfig();
-  rod.SetBothEndpointsContacting(state, SlidingModeType::kNotSliding);
+  rod.SetBothEndpointsContacting(&state, SlidingModeType::kNotSliding);
 
   // TODO: Re-enable and debug this.
   /*
@@ -1109,9 +1105,9 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   const int left_endpoint_id = rod.get_left_endpoint_index();
   const int right_endpoint_id = rod.get_right_endpoint_index();
   EXPECT_FALSE(
-      rod.GetPosSlidingWitness(left_endpoint_id, *state)->is_enabled());
+      rod.GetActiveWitnesses(left_endpoint_id, state).positive_sliding);
   EXPECT_FALSE(
-      rod.GetPosSlidingWitness(right_endpoint_id, *state)->is_enabled());
+      rod.GetActiveWitnesses(right_endpoint_id, state).positive_sliding);
 
   // Simulate forward.
   const double t_final = 1.0;
@@ -1125,35 +1121,35 @@ TEST_F(Rod2DDAETest, NotSlidingToSliding2) {
   // Verify that three witness functions are active for the each endpoint- one
   // for signed distance, one for normal force, and one for sliding friction
   // direction change. 
-  EXPECT_TRUE(rod.GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(rod.GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(rod.GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(rod.GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(rod.GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(rod.GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(rod.GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_TRUE(rod.GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_TRUE(rod.GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 
   // The stiction friction slack witnesses should be disabled. 
-  EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(rod.GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled());
+  EXPECT_FALSE(rod.GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(rod.GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
 // moving slightly upward (and remains in contact).
 TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the vertical velocity is upward and not sliding
   // (and the contact mode is set appropriately).
@@ -1162,30 +1158,30 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
   xc[1] = -0.1;
   xc[4] = 1e-5;
   dut_->SetOneEndpointContacting(
-      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
+      dut_->get_left_endpoint_index(), &state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_contacts_used_in_force_calculations(state).clear();
+  dut_->get_contacts_used_in_force_calculations(&state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
 
   // This also means that we need to disable relevant witnesses. 
-  dut_->GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
-      set_enabled(false);
-  dut_->GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).
+      sticking_friction_force_slack = false;
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_force = false;
 
   // Get the normal velocity witness.
-  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
-      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+  auto normal_vel_witness = dut_->normal_velocity_witnesses_[
+      left_endpoint_id].get();
 
   // Verify that the normal velocity witness returns a positive value.
-  EXPECT_GT(normal_vel_witness->Evaluate(*context_), 0);
+  EXPECT_GT(normal_vel_witness->CalcWitnessValue(*context_), 0);
 
-  // Activate the normal velocity witness for the left endpoint. 
-  normal_vel_witness->set_enabled(true);
+  // Activate the normal velocity witness for the left endpoint.
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_velocity = true;
 
   // Simulate forward.
   const double t_final = 0.1;
@@ -1199,7 +1195,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
 
   // Verify that the normal velocity witness returns a non-negative value.
   const double zero_tol = 1e-6;
-  EXPECT_GT(normal_vel_witness->Evaluate(sim.get_context()), -zero_tol);
+  EXPECT_GT(normal_vel_witness->CalcWitnessValue(sim.get_context()), -zero_tol);
 
   // The left contact point should now be back in the set of force calculations.
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1207,35 +1203,35 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
   // Verify that three witness functions are active for the left endpoint- one
   // for signed distance, one for normal force, and one for sticking friction
   // slack.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
 // moving upward (and remains in contact).
 TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the vertical velocity is upward and not sliding
   // (and the contact mode is set appropriately).
@@ -1244,27 +1240,27 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   xc[1] = -0.1;
   xc[4] = 10000;
   dut_->SetOneEndpointContacting(
-      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
+      dut_->get_left_endpoint_index(), &state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_contacts_used_in_force_calculations(state).clear();
+  dut_->get_contacts_used_in_force_calculations(&state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
 
   // This also means that we need to disable relevant witnesses. 
-  dut_->GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
-      set_enabled(false);
-  dut_->GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).
+      sticking_friction_force_slack = false;
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_force = false;
 
   // Get the normal velocity witness.
-  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
-      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+  auto normal_vel_witness = dut_->
+      normal_velocity_witnesses_[left_endpoint_id].get();
 
-  // Activate the normal velocity witness for the left endpoint. 
-  normal_vel_witness->set_enabled(true);
+  // Activate the normal velocity witness for the left endpoint.
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_velocity = true;
 
   // Simulate forward.
   const double t_final = 0.1;
@@ -1277,7 +1273,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
 
   // Verify that the normal velocity witness returns a positive value.
-  EXPECT_GT(normal_vel_witness->Evaluate(sim.get_context()), 0);
+  EXPECT_GT(normal_vel_witness->CalcWitnessValue(sim.get_context()), 0);
 
   // The set of contact points in force calculations should still be empty. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 0);
@@ -1285,28 +1281,28 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
   // Verify that only the signed distance witness function is active for the
   // left endpoint (i.e., the normal velocity witness should no longer be
   // active). 
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
@@ -1314,7 +1310,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
 TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating) 
 {
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the velocity is zero (not separating, not sliding)
   // (and the contact mode is set appropriately.
@@ -1323,27 +1319,23 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
   xc[1] = -0.1;
   xc[4] = 10000;
   dut_->SetOneEndpointContacting(
-      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
+      dut_->get_left_endpoint_index(), &state, SlidingModeType::kNotSliding);
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_contacts_used_in_force_calculations(state).clear();
+  dut_->get_contacts_used_in_force_calculations(&state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
 
   // This also means that we need to disable relevant witnesses. 
-  dut_->GetStickingFrictionForceSlackWitness(left_endpoint_id, *state)->
-      set_enabled(false);
-  dut_->GetNormalForceWitness(left_endpoint_id, *state)->set_enabled(false);
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).
+      sticking_friction_force_slack = false;
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_force = false;
 
-  // Get the normal velocity witness.
-  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
-      dut_->GetNormalVelWitness(left_endpoint_id, *state));
-
-  // Activate the normal velocity witness for the left endpoint. 
-  normal_vel_witness->set_enabled(true);
+  // Activate the normal velocity witness for the left endpoint.
+  dut_->GetActiveWitnesses(left_endpoint_id, &state).normal_velocity = true;
 
   // Simulate forward.
   const double t_final = 0.1;
@@ -1360,28 +1352,28 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
 
   // Verify that only the signed distance witness function is active for the
   // left endpoint. 
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
@@ -1398,7 +1390,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
   context_ = diagram->CreateDefaultContext();
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
@@ -1406,7 +1398,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
   dut_->SetOneEndpointContacting(
-      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
+      dut_->get_left_endpoint_index(), &state, SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1430,26 +1422,26 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
 
   // Verify that only the signed distance witness and normal force witness
   // functions are active for the left endpoint.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalAccelWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_acceleration);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
@@ -1465,7 +1457,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   context_ = diagram->CreateDefaultContext();
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
@@ -1473,7 +1465,7 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
   dut_->SetOneEndpointContacting(
-      dut_->get_left_endpoint_index(), state, SlidingModeType::kNotSliding);
+      dut_->get_left_endpoint_index(), &state, SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1499,26 +1491,26 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardMomentarily) {
 
   // Verify that the signed distance witness and normal force functions are
   // active for the left endpoint.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalAccelWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 // Verifies that the mode changes as expected when the rod is in contact but
@@ -1535,14 +1527,14 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
   context_ = diagram->CreateDefaultContext();
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the velocity is not sliding
   // (and the contact mode is set appropriately).
   SetRestingVerticalConfig();
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = -0.1;
-  dut_->SetOneEndpointContacting(dut_->get_left_endpoint_index(), state,
+  dut_->SetOneEndpointContacting(dut_->get_left_endpoint_index(), &state,
       SlidingModeType::kNotSliding);
 
   // The set of contact points in force calculations should have one element. 
@@ -1568,33 +1560,33 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpwardThenBreaks) {
 
   // Verify that only the signed distance witness functions is active for the
   // left endpoint.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalAccelWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_acceleration);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 /// Verifies the correct behavior as the rod impacts the ground. The rod should
 /// impact and then remain in sustained contact.
 TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the vertical velocity is downward and the rod
   // is not contacting.
@@ -1602,18 +1594,18 @@ TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = 1.5;
   xc[4] = -1;
-  dut_->SetBallisticMode(state);
+  dut_->SetBallisticMode(&state);
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
 
   // Get the normal velocity witness.
-  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
-      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+  auto normal_vel_witness = dut_->normal_velocity_witnesses_[
+      left_endpoint_id].get();
 
   // Verify that the normal velocity witness returns a negative value.
-  EXPECT_LT(normal_vel_witness->Evaluate(*context_), 0);
+  EXPECT_LT(normal_vel_witness->CalcWitnessValue(*context_), 0);
 
   // Simulate forward.
   const double t_final = 1;
@@ -1627,7 +1619,7 @@ TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
 
   // Verify that the normal velocity witness returns a non-negative value.
   const double zero_tol = 1e-6;
-  EXPECT_GT(normal_vel_witness->Evaluate(sim.get_context()), -zero_tol);
+  EXPECT_GT(normal_vel_witness->CalcWitnessValue(sim.get_context()), -zero_tol);
 
   // The left contact point should now be in the set of force calculations.
   EXPECT_EQ(dut_->get_contacts_used_in_force_calculations(state).size(), 1);
@@ -1635,28 +1627,28 @@ TEST_F(Rod2DDAETest, ImpactThenSustainedContact) {
   // Verify that three witness functions are active for the left endpoint- one
   // for signed distance, one for normal force, and one for sticking friction
   // slack.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_TRUE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 /// Verifies the correct behavior as the rod impacts the ground while
@@ -1672,7 +1664,7 @@ TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
   context_->FixInputPort(0, std::move(ext_input));
 
   // Get a pointer to the mutable state- it will be used repeatedly.
-  systems::State<double>* state = &context_->get_mutable_state();
+  systems::State<double>& state = context_->get_mutable_state();
 
   // Set the state such that the vertical velocity is downward and the rod
   // is not contacting.
@@ -1680,18 +1672,18 @@ TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
   ContinuousState<double>& xc = context_->get_mutable_continuous_state();
   xc[1] = 1.5;
   xc[4] = -10;
-  dut_->SetBallisticMode(state);
+  dut_->SetBallisticMode(&state);
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
   const int right_endpoint_id = 1;
 
   // Get the normal velocity witness.
-  auto normal_vel_witness = static_cast<NormalVelWitness<double>*>(
-      dut_->GetNormalVelWitness(left_endpoint_id, *state));
+  auto normal_vel_witness = dut_->
+      normal_velocity_witnesses_[left_endpoint_id].get();
 
   // Verify that the normal velocity witness returns a negative value.
-  EXPECT_LT(normal_vel_witness->Evaluate(*context_), 0);
+  EXPECT_LT(normal_vel_witness->CalcWitnessValue(*context_), 0);
 
   // Simulate forward.
   const double t_final = 1;
@@ -1708,28 +1700,28 @@ TEST_F(Rod2DDAETest, AcceleratingUpwardImpactThenImmediateSeparation) {
 
   // Verify that one witness function is active for the left endpoint
   // (for signed distance).
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      left_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      left_endpoint_id, state).negative_sliding);
 
   // Only one witness function for the right endpoint should be enabled.
-  EXPECT_TRUE(dut_->GetSignedDistanceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetNormalForceWitness(
-      right_endpoint_id, *state)->is_enabled());
-  EXPECT_FALSE(dut_->GetStickingFrictionForceSlackWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetPosSlidingWitness(
-      right_endpoint_id, *state)->is_enabled()); 
-  EXPECT_FALSE(dut_->GetNegSlidingWitness(
-      right_endpoint_id, *state)->is_enabled());
+  EXPECT_TRUE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).signed_distance);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).normal_force);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).sticking_friction_force_slack);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).positive_sliding);
+  EXPECT_FALSE(dut_->GetActiveWitnesses(
+      right_endpoint_id, state).negative_sliding);
 }
 
 /// Class for testing the Rod 2D example using a first order time
