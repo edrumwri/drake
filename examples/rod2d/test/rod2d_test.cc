@@ -983,18 +983,14 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
       right_endpoint_id, state).sticking_friction_force_slack);
 
   // All other witnesses should be disabled.
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      left_endpoint_id, state).normal_acceleration);
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      left_endpoint_id, state).positive_sliding);
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      left_endpoint_id, state).negative_sliding);
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      right_endpoint_id, state).normal_acceleration);
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      right_endpoint_id, state).positive_sliding);
-  EXPECT_FALSE(dut_->GetActiveWitnesses(
-      right_endpoint_id, state).negative_sliding);
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      left_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetPosSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
+  EXPECT_FALSE(dut_->GetNegSlidingWitness(
+      right_endpoint_id, *state)->is_enabled()); 
 }
 
 // Verifies that the mode changes as expected when the rod is in sustained
@@ -1166,7 +1162,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingSlightlyUpward) {
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_endpoints_used_in_force_calculations(&state).clear();
+  dut_->get_contacts_used_in_force_calculations(state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
@@ -1248,7 +1244,7 @@ TEST_F(Rod2DDAETest, ContactingAndMovingUpward) {
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_endpoints_used_in_force_calculations(&state).clear();
+  dut_->get_contacts_used_in_force_calculations(state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
@@ -1327,7 +1323,7 @@ TEST_F(Rod2DDAETest, ContactingMovingUpwardAndSeparating)
 
   // Since the velocity is positive, the point should be removed from the
   // force calculations.
-  dut_->get_endpoints_used_in_force_calculations(&state).clear();
+  dut_->get_contacts_used_in_force_calculations(state).clear();
 
   // Set contact candidate ids.
   const int left_endpoint_id = 0;
