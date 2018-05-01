@@ -493,15 +493,11 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
-  /// Gets the vector of contact state variables used in force calculations
-  /// from the given state.
   const std::vector<PointContact>&
-      get_contacts_used_in_force_calculations(
+      get_endpoints_used_in_force_calculations(
       const systems::State<T>& state) const;
-
-  /// Mutable version of get_contacts_used_in_force_calculations(). 
   std::vector<PointContact>&
-      get_contacts_used_in_force_calculations(systems::State<T>* state) const;
+      get_endpoints_used_in_force_calculations(systems::State<T>* state) const;
 
   /// Returns the 3D pose of this rod.
   const systems::OutputPort<T>& pose_output() const {
@@ -649,13 +645,14 @@ class Rod2D : public systems::LeafSystem<T> {
     return GetPointInWorldFrame(q, contact_candidates_[contact_index]);
   }
 
+  static std::string AppendEndpoint(const std::string& witness, int endpoint);
   void ComputeTimeSteppingProblemData(
       const Vector3<T>& q,
       const Vector3<T>& v,
       multibody::constraint::ConstraintVelProblemData<T>* problem_data) const;
   void DetermineContactModes(
       const systems::Context<T>& context, systems::State<T>* state) const;
-  int GetContactArrayIndex(const systems::State<T>& state,
+  int GetActiveSetArrayIndex(const systems::State<T>& state,
       int contact_candidate_index) const;
   void SetContactCandidates();
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
@@ -694,7 +691,7 @@ class Rod2D : public systems::LeafSystem<T> {
       const override;
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
-  void AddContactToForceCalculationSet(
+  void AddEndpointToForceCalculationSet(
       int contact_index,
       const systems::Context<T>& context,
       systems::State<T>* state) const;

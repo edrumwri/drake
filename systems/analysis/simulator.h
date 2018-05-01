@@ -843,6 +843,8 @@ bool Simulator<T>::IntegrateContinuousState(const T& next_publish_dt,
     // Isolate the time that the witness function triggered.
     IsolateWitnessTriggers(witness_functions, w0_, t0, x0, tf,
                              &triggered_witnesses_);
+    SPDLOG_DEBUG(drake::log(), "  triggered witness functions at t0: {}", w0_); 
+    SPDLOG_DEBUG(drake::log(), "  triggered witness functions at tf: {}", wf_); 
 
     // Store the state at x0 in the temporary continuous state. We only do this
     // if there are triggered witnesses (even though `witness_triggered` is
