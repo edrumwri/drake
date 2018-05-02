@@ -228,7 +228,7 @@ void Rod2D<T>::SetOneEndpointContacting(
       get_endpoints_used_in_force_calculations(state);
   active_set_endpoints.resize(1);
   active_set_endpoints.front().sliding_type = sliding_type; 
-  active_set_endpoints.front().id = reinterpret_cast<void*>(index);
+  active_set_endpoints.front().id = index;
 
   // The signed distance witnesses should always be enabled.
   GetActiveWitnesses(kLeft, state).signed_distance = true;
@@ -284,8 +284,8 @@ void Rod2D<T>::SetBothEndpointsContacting(
   active_set_endpoints.resize(2);
   active_set_endpoints.front().sliding_type = sliding_type;
   active_set_endpoints.back().sliding_type = sliding_type;
-  active_set_endpoints.front().id = reinterpret_cast<void*>(kLeft);
-  active_set_endpoints.back().id = reinterpret_cast<void*>(kRight);
+  active_set_endpoints.front().id = kLeft;
+  active_set_endpoints.back().id = kRight;
 
   // The signed distance witnesses should always be enabled.
   GetActiveWitnesses(kLeft, state).signed_distance = true;
@@ -784,7 +784,7 @@ void Rod2D<T>::CalcConstraintProblemData(
   std::vector<Vector2<T>> points;
   for (int i = 0; i < static_cast<int>(active_set_endpoints.size()); ++i) {
     // Get the point in the world frame.
-    const long index = reinterpret_cast<long>(active_set_endpoints[i].id);
+    const int index = active_set_endpoints[i].id;
     const Vector2<T> p0 = GetPointInWorldFrame(q, contact_candidates_[index]);
     points.push_back(p0);
   }
@@ -806,7 +806,7 @@ void Rod2D<T>::CalcConstraintProblemData(
   // Set tangent velocities appropriately.
   for (int i = 0; i < static_cast<int>(active_set_endpoints.size()); ++i) {
     // Check for a transitioning contact.
-    const int contact_index = reinterpret_cast<long>(active_set_endpoints[i].id);
+    const int contact_index = active_set_endpoints[i].id;
     if (active_set_endpoints[i].sliding_type == SlidingModeType::kTransitioning) {
       tangent_vels[i] = 0.0;
     } else {
@@ -1068,10 +1068,8 @@ int Rod2D<T>::GetActiveSetArrayIndex(
       get_endpoints_used_in_force_calculations(state);
 
   for (int i = 0; i < static_cast<int>(active_set_endpoints.size()); ++i) {
-    if (reinterpret_cast<long>(active_set_endpoints[i].id) ==
-         contact_candidate_index) {
+    if (active_set_endpoints[i].id == contact_candidate_index)
       return i;
-    }
   }
 
   return -1; 
@@ -1085,6 +1083,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   using std::abs;
   SPDLOG_DEBUG(drake::log(), "Performing 'unrestricted' update");
 
+
   // Get the current configuration of the system.
   const VectorX<T> q = state->get_continuous_state().
       get_generalized_position().CopyToVector();
@@ -1095,6 +1094,35 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   // Get the vector of endpoints in the active set.
   std::vector<PointContact>& active_set_endpoints =
       get_endpoints_used_in_force_calculations(state);
+
+  #ifdef DRAKE_SPDLOG_DEBUG
+  std::vector<const systems::WitnessFunction<T>*> witnesses;
+  this->GetWitnessFunctions(context, &witnesses);
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Active witness functions:");
+  for (auto witness : witnesses)
+      DRAKE_SPDLOG_DEBUG(drake::log(), "  {}", witness->description());
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Actively contacting endpoints:");
+  for (const auto& contact : active_set_endpoints) {
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  id: {}", contact.id);
+    switch (contact.sliding_type) {
+      case  SlidingModeType::kNotSet:
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  (contact sliding type not set)");
+        break;
+
+      case SlidingModeType::kNotSliding:
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  (contact not sliding)");
+        break;
+
+      case SlidingModeType::kSliding:
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  (contact sliding)");
+        break;
+
+      case SlidingModeType::kTransitioning:
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  (contact transitioning)");
+        break;
+    }
+  }
+  #endif
 
   // Indicate there are no impacts.
   bool impacting = false;
@@ -1449,7 +1477,13 @@ void Rod2D<T>::DetermineContactModes(
       GetActiveWitnesses(i, state).positive_sliding = false;
       GetActiveWitnesses(i, state).negative_sliding = false;
     } else {
-      // The contact is active. If the contact is not sliding, see whether
+      // The contact is active. Set normal direction witness functions
+      // appropriately.
+      GetActiveWitnesses(i, state).normal_acceleration = false;
+      GetActiveWitnesses(i, state).normal_velocity = false;
+      GetActiveWitnesses(i, state).normal_force = true;
+
+      // If the contact is not sliding, see whether
       // it needs to transition to sliding. Do this by examining whether the
       // tangential acceleration is clearly non-zero.
       if (active_set_endpoints[active_set_array_index].sliding_type ==
@@ -1514,7 +1548,7 @@ void Rod2D<T>::AddEndpointToForceCalculationSet(
   DRAKE_ASSERT(active_set_endpoints.size() <= 2);
 
   // Set the contact index.
-  active_set_endpoints.back().id = reinterpret_cast<void*>(endpoint_index);
+  active_set_endpoints.back().id = endpoint_index;
   DRAKE_ASSERT(active_set_endpoints.size() < 2 ||
       active_set_endpoints.front().id != active_set_endpoints.back().id);
 
@@ -2228,7 +2262,7 @@ void Rod2D<T>::SetDefaultState(const systems::Context<T>&,
       // in the default rod configuration, Rl contacts the half-space and is
       // sliding.
       active_set_endpoints.front().sliding_type = SlidingModeType::kSliding;
-      active_set_endpoints.front().id = reinterpret_cast<void*>(0);
+      active_set_endpoints.front().id = 0;
 
       // Enable both signed distance witnesses.
       left_witnesses.signed_distance = true;

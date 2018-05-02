@@ -35,8 +35,8 @@ struct PointContact {
   /// Whether the bodies are considered to be sliding at the point or not.
   SlidingModeType sliding_type{SlidingModeType::kNotSet};
 
-  /// The identifier used to locate the point of contact on the bodies.
-  void* id;
+  /// The unique identifier used to locate the point of contact on the bodies.
+  int id{-1};    // Indicate that the ID has not been set.
 };
 
 /** Dynamical system representation of a rod contacting a half-space in
