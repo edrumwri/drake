@@ -9,6 +9,7 @@
 
 #include "drake/common/text_logging.h"
 #include "drake/multibody/constraint/constraint_problem_data.h"
+#include "drake/solvers/unrevised_lemke_solver.h"
 #include "drake/solvers/moby_lcp_solver.h"
 
 namespace drake {
@@ -314,6 +315,7 @@ class ConstraintSolver {
       ProblemData* modified_problem_data) const;
 
   drake::solvers::MobyLCPSolver<T> lcp_;
+  drake::solvers::UnrevisedLemkeSolver<T> lcp2_;
 };
 
 // Given a matrix A of blocks consisting of generalized inertia (M) and the
@@ -687,8 +689,9 @@ void ConstraintSolver<T>::FormAndSolveConstraintLCP(
   const T zero_tol = lcp_.ComputeZeroTolerance(MM);
 
   // Solve the LCP and compute the values of the slack variables.
+  int num_pivots;
   VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
+  bool success = lcp2_.SolveLcpLemke(MM, qq, &zz, &num_pivots, zero_tol);
   VectorX<T> ww = MM * zz + qq;
   const double max_dot = (zz.size() > 0) ?
                          (zz.array() * ww.array()).abs().maxCoeff() : 0.0;

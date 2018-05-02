@@ -46,7 +46,7 @@ using drake::systems::RungeKutta3Integrator;
 // Simulation parameters.
 DEFINE_string(system_type, "discretized",
               "Type of rod system, valid values are "
-              "'discretized','continuous'");
+              "'discretized','continuous', 'pDAE'");
 DEFINE_double(dt, 1e-2, "Integration step size");
 DEFINE_double(rod_radius, 5e-2, "Radius of the rod (for visualization only)");
 DEFINE_double(sim_duration, 5, "Simulation duration in virtual seconds");

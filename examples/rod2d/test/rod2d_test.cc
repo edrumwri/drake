@@ -957,7 +957,7 @@ TEST_F(Rod2DDAETest, SlidingToNotSliding) {
   // Simulate forward.
   const double t_final = 1.0;
   Simulator<double> sim(*dut_, std::move(context_));
-  sim.get_mutable_context().set_accuracy(1e-8);
+  sim.get_mutable_context().set_accuracy(1e-5);
   sim.StepTo(t_final);
 
   // Verify that exactly one unrestricted update (sliding direction change)
@@ -1417,8 +1417,8 @@ TEST_F(Rod2DDAETest, ContactingAndAcceleratingUpward) {
   sim.get_mutable_context().set_accuracy(1e-8);
   sim.StepTo(t_final);
 
-  // Verify that exactly one unrestricted update (the one we're searching for)
-  // was handled.
+  // Verify that exactly one unrestricted update (the left endpoint going
+  // ballistic ).
   EXPECT_EQ(sim.get_num_unrestricted_updates(), 1);
 
   // The set of contact points in force calculations should now be empty. 

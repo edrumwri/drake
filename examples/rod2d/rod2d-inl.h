@@ -895,9 +895,9 @@ void Rod2D<T>::CalcConstraintProblemData(
   for (size_t i = 0; i < points.size(); ++i)
     phi[i] = points[i][1];
 
-  // Set the Baumgarte term to effect critical damping.
-  const double omega = (context.get_accuracy()) ?
-      1.0/context.get_accuracy().value() : 100;  // Oscillation frequency.
+  // Set the Baumgarte term to effect critical damping with an undamped
+  // oscillation frequency of 0.1 Hz.
+  const double omega = 1e-1;
   const double alpha = 2 * get_rod_mass() * omega;
   const double beta = alpha * alpha / (4 * get_rod_mass() * get_rod_mass()); 
 
@@ -1095,6 +1095,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   std::vector<PointContact>& active_set_endpoints =
       get_endpoints_used_in_force_calculations(state);
 
+  #ifndef NDEBUG
   #ifdef DRAKE_SPDLOG_DEBUG
   std::vector<const systems::WitnessFunction<T>*> witnesses;
   this->GetWitnessFunctions(context, &witnesses);
@@ -1123,6 +1124,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     }
   }
   #endif
+  #endif
 
   // Indicate there are no impacts.
   bool impacting = false;
@@ -1133,7 +1135,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
   bool redetermine_modes = false;
 
   // The vector of endpoints to be removed from the force set.
-  std::vector<int> active_set_endpoints_to_remove;
+  std::set<int> active_set_endpoints_to_remove;
 
   // Process all events.
   for (int i = 0; i < static_cast<int>(events.size()); ++i) {
@@ -1172,7 +1174,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
             GetActiveWitnesses(endpoint_index, *state).normal_force) {
           // If the point is part of the force calculations, disable that.
           if (active_set_array_index >= 0) {
-            active_set_endpoints_to_remove.push_back(active_set_array_index);
+            active_set_endpoints_to_remove.insert(active_set_array_index);
             redetermine_modes = true;
           }
 
@@ -1255,7 +1257,7 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
                      !active_set_endpoints.empty());
 
         // Mark the contact for removal.
-        active_set_endpoints_to_remove.push_back(active_set_array_index);
+        active_set_endpoints_to_remove.insert(active_set_array_index);
 
         // Activate the normal acceleration witness function. Deactivate the
         // normal force witness and deactivate any other witnesses dependent
@@ -1280,6 +1282,11 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
         // be used again to determine when the contact should transition to
         // non-sliding.
 
+        // Don't do anything if this endpoint is slated to be removed.
+        if (active_set_endpoints_to_remove.find(active_set_array_index) !=
+            active_set_endpoints_to_remove.end())
+          break;
+
         // If the contact is not transitioning from not sliding to sliding,
         // it is coming to rest.
         if (active_set_endpoints[active_set_array_index].sliding_type !=
@@ -1303,11 +1310,16 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
       }
 
       case kStickingFrictionForceSlack:  {
+        // Don't do anything if this endpoint is slated to be removed.
+        if (active_set_endpoints_to_remove.find(active_set_array_index) !=
+            active_set_endpoints_to_remove.end())
+          break;
+
         // Disable the sticking friction forces slack witness function.
         GetActiveWitnesses(endpoint_index, state).
             sticking_friction_force_slack = false;
 
-        // Enable the sliding velocity witnesses. 
+        // Enable the sliding velocity witnesses
         GetActiveWitnesses(endpoint_index, state).positive_sliding = true;
         GetActiveWitnesses(endpoint_index, state).negative_sliding = true;
 
@@ -1323,15 +1335,10 @@ void Rod2D<T>::DoCalcUnrestrictedUpdate(
     } 
   } 
 
-  // Sort the contacts slated for removal, so that we can remove them safely
-  // using indices.
-  std::sort(active_set_endpoints_to_remove.begin(),
-            active_set_endpoints_to_remove.end());
-
   // Remove all contacts slated for removal.
-  for (int i = active_set_endpoints_to_remove.size() - 1; i >= 0; --i) {
-    active_set_endpoints[active_set_endpoints_to_remove[i]] =
-        active_set_endpoints.back();
+  for (auto i = active_set_endpoints_to_remove.rbegin();
+       i != active_set_endpoints_to_remove.rend(); ++i) {
+    active_set_endpoints[*i] = active_set_endpoints.back();
     active_set_endpoints.pop_back();
   }
 
