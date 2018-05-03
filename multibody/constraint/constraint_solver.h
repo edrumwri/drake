@@ -308,6 +308,7 @@ class ConstraintSolver {
       ProblemData* modified_problem_data) const;
 
   drake::solvers::MobyLCPSolver<T> lcp_;
+  mutable Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> QTZ_; 
 };
 
 // Given a matrix A of blocks consisting of generalized inertia (M) and the
@@ -1044,6 +1045,8 @@ void ConstraintSolver<T>::SolveImpactProblem(
   VectorX<T> qq;
   FormImpactingConstraintLCP(problem_data, trunc_neg_invA_a, &MM, &qq);
 
+  // TODO: Add in lambda terms?
+
   // Get the tolerance for zero used by the LCP solver.
   const T zero_tol = lcp_.ComputeZeroTolerance(MM, qq);
 
@@ -1149,58 +1152,10 @@ void ConstraintSolver<T>::SolveImpactProblem(
 }
 
 template <typename T>
-double ConstraintSolver<T>::SolveDiscretizedConstraintProblem(
+void ConstraintSolver<T>::ConstructLinearEquationSolversForMLCP(
     const ConstraintVelProblemData<T>& problem_data,
-    double target_dt,
-    VectorX<T>* cf) const {
-  using std::max;
-  using std::abs;
-
-  if (!cf)
-    throw std::logic_error("cf (output parameter) is null.");
-
-  // Get number of contacts and limits.
-  const int num_contacts = problem_data.mu.size();
-  if (static_cast<size_t>(num_contacts) != problem_data.r.size()) {
-    throw std::logic_error("Number of elements in 'r' does not match number"
-                               "of elements in 'mu'");
-  }
-  const int num_limits = problem_data.kL.size();
-  const int num_eq_constraints = problem_data.kG.size();
-  const int num_generalized_velocities = problem_data.Mv.size();
-
-  // Look for fast exit.
-  if (num_contacts == 0 && num_limits == 0 && num_eq_constraints == 0) {
-    cf->resize(0);
-    return;
-  }
-
-  // Get number of tangent spanning vectors.
-  const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
-                                                   problem_data.r.end(), 0);
-
-  // TODO: incorporate force here.
-  // Determine the pre-impact velocity.
-  const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv);
-
-  // If no impact and no bilateral constraints, do not apply the impact model.
-  // (We avoid this calculation if there are bilateral constraints because it's
-  // too hard to determine a workable tolerance at this point).
-  const VectorX<T> N_eval = problem_data.N_mult(v) +
-      problem_data.kN;
-  const VectorX<T> L_eval = problem_data.L_mult(v) +
-      problem_data.kL;
-  if ((num_contacts == 0 || N_eval.minCoeff() >= 0) &&
-      (num_limits == 0 || L_eval.minCoeff() >= 0) &&
-      (num_eq_constraints == 0)) {
-    cf->setZero(num_contacts + num_spanning_vectors + num_limits);
-    return target_dt;
-  }
-
-  // Initialize contact force vector.
-  cf->resize(num_contacts + num_spanning_vectors + num_limits +
-      num_eq_constraints);
-
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve) const {
   // The constraint problem is a mixed linear complementarity problem of the
   // form:
   // (a)    Au + Xv + a = 0
@@ -1266,22 +1221,14 @@ double ConstraintSolver<T>::SolveDiscretizedConstraintProblem(
   //          |            kᴳ            |
   //
 
-  // TODO(edrumwri): Consider checking whether or not the constraints are
-  // satisfied to a user-specified tolerance; a set of constraint equations that
-  // are dependent upon time (e.g., prescribed motion constraints) might not be
-  // fully satisfiable.
-
   // Prepare to set up the functionals to compute Ax = b, where A is the
   // blocked saddle point matrix containing the generalized inertia matrix
   // and the bilateral constraints *assuming there are bilateral constraints*.
   // If there are no bilateral constraints, A_solve and fast_A_solve will
   // simply point to the inertia solve operator.
-  std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
-  std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
-  std::unique_ptr<
-      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>> delassus_QTZ;
 
   // Form the Delassus matrix for the bilateral constraints.
+  const int num_eq_constraints = problem_data.kG.size();
   if (num_eq_constraints > 0) {
     MatrixX<T> Del(num_eq_constraints, num_eq_constraints);
     MatrixX<T> iM_GT(num_generalized_velocities, num_eq_constraints);
@@ -1293,8 +1240,7 @@ double ConstraintSolver<T>::SolveDiscretizedConstraintProblem(
                                            iM_GT, Del);
 
     // Compute the complete orthogonal factorization.
-    delassus_QTZ = std::make_unique<
-        Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>>(Del);
+    QTZ.compute(Del);
 
     // Determine a new "inertia" solve operator, which solves AX = B, where
     // A = | M  -Gᵀ |
@@ -1302,140 +1248,200 @@ double ConstraintSolver<T>::SolveDiscretizedConstraintProblem(
     // using the newly reduced set of constraints. This will allow transforming
     // the mixed LCP into a pure LCP.
     DetermineNewFullInertiaSolveOperator(&problem_data,
-        num_generalized_velocities, delassus_QTZ.get(), &A_solve);
+        num_generalized_velocities, &QTZ_, A_solve);
 
     // Determine a new "inertia" solve operator, using only the upper left block
     // of A⁻¹ to exploit zeros in common operations.
     DetermineNewPartialInertiaSolveOperator(&problem_data,
-        num_generalized_velocities, delassus_QTZ.get(), &fast_A_solve);
+        num_generalized_velocities, &QTZ_, fast_A_solve);
   } else {
-    A_solve = problem_data.solve_inertia;
-    fast_A_solve = problem_data.solve_inertia;
+    *A_solve = problem_data.solve_inertia;
+    *fast_A_solve = problem_data.solve_inertia;
+  }
+}
+
+template <typename T>
+double ConstraintSolver<T>::SolveDiscretizedConstraintProblem(
+    const ConstraintVelProblemData<T>& problem_data,
+    const VectorX<T>& f,
+    double target_dt,
+    VectorX<T>* cf) const {
+  using std::max;
+  using std::abs;
+
+  if (!cf)
+    throw std::logic_error("cf (output parameter) is null.");
+
+  // Get number of contacts and limits.
+  const int num_contacts = problem_data.mu.size();
+  if (static_cast<size_t>(num_contacts) != problem_data.r.size()) {
+    throw std::logic_error("Number of elements in 'r' does not match number"
+                               "of elements in 'mu'");
+  }
+  const int num_limits = problem_data.kL.size();
+  const int num_eq_constraints = problem_data.kG.size();
+  const int num_generalized_velocities = problem_data.Mv.size();
+
+  // Look for fast exit.
+  if (num_contacts == 0 && num_limits == 0 && num_eq_constraints == 0) {
+    cf->resize(0);
+    return target_dt;
   }
 
-  // Copy the problem data and then update it to account for bilateral
-  // constraints.
-  ConstraintVelProblemData<T> modified_problem_data(
-      problem_data.Mv.size() + num_eq_constraints);
-  ConstraintVelProblemData<T>* data_ptr = &modified_problem_data;
-  data_ptr = UpdateProblemDataForUnilateralConstraints(
-      problem_data, fast_A_solve, data_ptr);
+  // Get number of tangent spanning vectors.
+  const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
+                                                   problem_data.r.end(), 0);
 
-  // Compute a and A⁻¹a.
-  const VectorX<T>& Mv = problem_data.Mv;
-  VectorX<T> a(Mv.size() + num_eq_constraints);
-  a.head(Mv.size()) = -Mv;
-  a.tail(num_eq_constraints) = data_ptr->kG / target_dt;
-  const VectorX<T> invA_a = A_solve(a);
-  const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
+  // TODO(edrumwri): Consider checking whether or not the equality constraints
+  // are satisfied to a user-specified tolerance; a set of constraint equations
+  // that are dependent upon time (e.g., prescribed motion constraints) might
+  // not be fully satisfiable.
 
-  // Set up the linear complementarity problem.
+  // If no impact and no bilateral constraints, do not apply the impact model.
+  // (We avoid this calculation if there are bilateral constraints because it's
+  // too hard to determine a workable tolerance at this point).
+  const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv +
+      f*target_dt);
+  const VectorX<T> N_eval = problem_data.N_mult(v) +
+      problem_data.kN;
+  const VectorX<T> L_eval = problem_data.L_mult(v) +
+      problem_data.kL;
+  if ((num_contacts == 0 || N_eval.minCoeff() >= 0) &&
+      (num_limits == 0 || L_eval.minCoeff() >= 0) &&
+      (num_eq_constraints == 0)) {
+    cf->setZero(num_contacts + num_spanning_vectors + num_limits);
+    return target_dt;
+  }
+
+  // Initialize constraint force vector.
+  cf->resize(num_contacts + num_spanning_vectors + num_limits +
+      num_eq_constraints);
+
+  // Determine the "A" and fast "A" solution operators, which allow us to
+  // solve the mixed linear complementarity problem by first solving a "pure"
+  // linear complementarity problem. See 
+  std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
+  std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
+  ConstructLinearEquationSolversForMLCP(problem_data, &A_solve, &fast_A_solve);
+    
+  // Allocate storage for a.
+  VectorX<T> a(problem_data.Mv.size() + num_eq_constraints);
+
+  // Allocate variables outside of the loop to keep from repeatedly
+  // reallocating memory.
   MatrixX<T> MM;
-  VectorX<T> qq;
-  FormImpactingConstraintLCP(problem_data, trunc_neg_invA_a, &MM, &qq);
+  VectorX<T> qq, zz, ww;
 
-  // Get the tolerance for zero used by the LCP solver.
-  const T zero_tol = lcp_.ComputeZeroTolerance(MM, qq);
+  // Loop until successful.
+  double dt = target_dt;
+  while (dt > std::numeric_limits<double>::epsilon()) {
+    // Copy the problem data and then update it to account for bilateral
+    // constraints.
+    ConstraintVelProblemData<T> modified_problem_data(
+        problem_data.Mv.size() + num_eq_constraints);
+    ConstraintVelProblemData<T>* data_ptr = &modified_problem_data;
+    data_ptr = UpdateProblemDataForUnilateralConstraints(
+        problem_data, fast_A_solve, data_ptr);
 
-  // Solve the LCP and compute the values of the slack variables.
-  VectorX<T> zz;
-  bool success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
-  VectorX<T> ww = MM * zz + qq;
-  const T max_dot = (zz.size() > 0) ?
-                    (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+    // Compute a and A⁻¹a.
+    const VectorX<T>& Mv = problem_data.Mv + dt * f;
+    a.head(Mv.size()) = -Mv;
+    a.tail(num_eq_constraints) = data_ptr->kG / target_dt;
+    const VectorX<T> invA_a = A_solve(a);
+    const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
 
-  // NOTE: This LCP should always be solvable.
-  // Check the answer and throw a runtime error if it's no good.
-  // LCP constraints are zz ≥ 0, ww ≥ 0, zzᵀww = 0. Since the zero tolerance
-  // is used to check a single element for zero (within a single pivoting
-  // operation), we must compensate for the number of pivoting operations and
-  // the problem size. zzᵀww must use a looser tolerance to account for the
-  // num_vars multiplies.
-  const int num_vars = qq.size();
-  const int npivots = std::max(lcp_.get_num_pivots(), 1);
-  if (!success ||
-      (zz.size() > 0 &&
-          (zz.minCoeff() < -num_vars * npivots * zero_tol ||
-              ww.minCoeff() < -num_vars * npivots * zero_tol ||
-              max_dot > max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
-                  num_vars * npivots * zero_tol))) {
-    // Report difficulty
-    SPDLOG_DEBUG(drake::log(), "Unable to solve impacting problem LCP without "
-        "progressive regularization");
-    SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
-                 num_vars * npivots * zero_tol);
-    SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
-    SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-    SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
-    SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
-                 max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
-                     npivots * zero_tol);
-    SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
+    // Set up the linear complementarity problem.
+    // TODO: Move regularized parts out of the impacting constraint problem.
+    FormImpactingConstraintLCP(problem_data, trunc_neg_invA_a, &MM, &qq);
 
-    // Use progressive regularization to solve.
-    const int min_exp = -16;      // Minimum regularization factor: 1e-16.
-    const unsigned step_exp = 1;  // Regularization progressively increases by a
-    // factor of ten.
-    const int max_exp = 1;        // Maximum regularization: 1e1.
-    const double piv_tol = -1;    // Make solver compute the pivot tolerance.
-    if (!lcp_.SolveLcpLemkeRegularized(
-        MM, qq, &zz, min_exp, step_exp, max_exp, piv_tol, zero_tol)) {
-      throw std::runtime_error("Progressively regularized LCP solve failed.");
-    } else {
-      ww = MM * zz + qq;
-      SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-      SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
-      SPDLOG_DEBUG(drake::log(), "z'w: ",
-                   (zz.array() * ww.array()).abs().maxCoeff());
+    // Regularize, etc.?
+    Regularize(problem_data, &MM, &qq);
+
+    // Get the tolerance for zero used by the LCP solver.
+    const T zero_tol = lcp_.ComputeZeroTolerance(MM, qq);
+
+    // Try solving the LCP.
+    bool success = lcp_.SolveLcpLemke(MM, qq, &zz, -1, zero_tol);
+    ww = MM * zz + qq;
+    const T max_dot = (zz.size() > 0) ?
+                      (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+
+    // Check the answer. LCP constraints are zz ≥ 0, ww ≥ 0, zzᵀww = 0.
+    const int num_vars = qq.size();
+    if (success && (zz.size() == 0 ||
+                       (zz.minCoeff() > -num_vars * zero_tol &&
+                        ww.minCoeff() > -num_vars * zero_tol &&
+                        max_dot < max(T(1), zz.maxCoeff()) * 
+                             max(T(1), ww.maxCoeff()) * num_vars * zero_tol))) {
+
+      // Alias constraint force segments.
+      const auto fN = zz.segment(0, num_contacts);
+      const auto fD_plus = zz.segment(num_contacts, num_spanning_vectors);
+      const auto fD_minus = zz.segment(num_contacts + num_spanning_vectors,
+                                       num_spanning_vectors);
+      const auto fL = zz.segment(num_contacts * 2 + num_spanning_vectors * 2,
+                                 num_limits);
+      const auto fF = cf->segment(num_contacts, num_spanning_vectors);
+
+      // Get the constraint forces in the specified packed storage format.
+      cf->segment(0, num_contacts) = fN;
+      cf->segment(num_contacts, num_spanning_vectors) = fD_plus - fD_minus;
+      cf->segment(num_contacts + num_spanning_vectors, num_limits) = fL;
+      SPDLOG_DEBUG(drake::log(), "Normal contact impulses: {}", fN.transpose());
+      SPDLOG_DEBUG(drake::log(), "Frictional contact impulses: {}",
+                   (fD_plus - fD_minus).transpose());
+      SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
+                   fL.transpose());
+
+      // Determine the new velocity and the bilateral constraint forces.
+      //     Au + Xv + a = 0
+      //     Yu + Bv + b ≥ 0
+      //               v ≥ 0
+      // vᵀ(b + Yu + Bv) = 0
+      // where u are "free" variables (corresponding to new velocities
+      // concatenated with bilateral constraint forces). If the matrix A is
+      // nonsingular, u can be solved for:
+      //      u = -A⁻¹ (a + Xv)
+      // allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:
+      // q = b - DA⁻¹a
+      // M = B - DA⁻¹C
+      if (num_eq_constraints > 0) {
+        // In this case, Xv = -NᵀfN - DᵀfD -LᵀfL and a = | -Mv(t) |.
+        //                                               |   kG   |
+        const VectorX<T> Xv = -data_ptr->N_transpose_mult(fN)
+            -data_ptr->F_transpose_mult(fF)
+            -data_ptr->L_transpose_mult(fL);
+        VectorX<T> aug = a;
+        aug.head(Xv.size()) += Xv;
+        const VectorX<T> u = -A_solve(aug);
+        auto lambda = cf->segment(num_contacts +
+            num_spanning_vectors + num_limits, num_eq_constraints);
+        lambda = u.tail(num_eq_constraints);
+        SPDLOG_DEBUG(drake::log(), "Bilateral constraint impulses: {}",
+                     lambda.transpose());
+      }
+
+      return dt;
     }
+
+    // Report difficulty
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Unable to solve LCP at dt = {}", dt);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
+        num_vars * zero_tol);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
+        max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
+        zero_tol);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
+
+    // Scale dt and try again.
+    dt *= 0.5;
   }
 
-  // Alias constraint force segments.
-  const auto fN = zz.segment(0, num_contacts);
-  const auto fD_plus = zz.segment(num_contacts, num_spanning_vectors);
-  const auto fD_minus = zz.segment(num_contacts + num_spanning_vectors,
-                                   num_spanning_vectors);
-  const auto fL = zz.segment(num_contacts * 2 + num_spanning_vectors * 2,
-                             num_limits);
-  const auto fF = cf->segment(num_contacts, num_spanning_vectors);
-
-  // Get the constraint forces in the specified packed storage format.
-  cf->segment(0, num_contacts) = fN;
-  cf->segment(num_contacts, num_spanning_vectors) = fD_plus - fD_minus;
-  cf->segment(num_contacts + num_spanning_vectors, num_limits) = fL;
-  SPDLOG_DEBUG(drake::log(), "Normal contact impulses: {}", fN.transpose());
-  SPDLOG_DEBUG(drake::log(), "Frictional contact impulses: {}",
-               (fD_plus - fD_minus).transpose());
-  SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
-               fL.transpose());
-
-  // Determine the new velocity and the bilateral constraint impulses.
-  //     Au + Xv + a = 0
-  //     Yu + Bv + b ≥ 0
-  //               v ≥ 0
-  // vᵀ(b + Yu + Bv) = 0
-  // where u are "free" variables (corresponding to new velocities concatenated
-  // with bilateral constraint impulses). If the matrix A is nonsingular, u can
-  // be solved for:
-  //      u = -A⁻¹ (a + Xv)
-  // allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:
-  // q = b - DA⁻¹a
-  // M = B - DA⁻¹C
-  if (num_eq_constraints > 0) {
-    // In this case, Xv = -NᵀfN - DᵀfD -LᵀfL and a = | -Mv(t) |.
-    //                                               |   kG   |
-    const VectorX<T> Xv = -data_ptr->N_transpose_mult(fN)
-        -data_ptr->F_transpose_mult(fF)
-        -data_ptr->L_transpose_mult(fL);
-    VectorX<T> aug = a;
-    aug.head(Xv.size()) += Xv;
-    const VectorX<T> u = -A_solve(aug);
-    auto lambda = cf->segment(
-        num_contacts + num_spanning_vectors + num_limits, num_eq_constraints);
-    lambda = u.tail(num_eq_constraints);
-    SPDLOG_DEBUG(drake::log(), "Bilateral constraint impulses: {}",
-                 lambda.transpose());
-  }
+  // Indicate failure.
+  throw std::runtime_error("Failed to solve complementarity problem at any h.");
 }
 
 template <class T>
