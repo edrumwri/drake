@@ -13,6 +13,7 @@
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
 #include "drake/multibody/rigid_body_tree.h"
+#include "drake/solvers/unrevised_lemke_solver.h"
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
@@ -481,6 +482,11 @@ class RigidBodyPlant : public LeafSystem<T> {
       const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
       drake::systems::DiscreteValues<U>* updates) const;
 
+  void DoCalcDiscreteVariableUpdatesImplRecursive(
+      const drake::systems::Context<T>& context,
+      const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
+      drake::systems::DiscreteValues<T>* updates) const;
+
   template <typename U = T>
   std::enable_if_t<!std::is_same<U, double>::value, void>
   DoCalcDiscreteVariableUpdatesImpl(
@@ -625,6 +631,9 @@ class RigidBodyPlant : public LeafSystem<T> {
   // Half the number of edges used in a polygonal approximation to a friction
   // cone, when no such per-pair number has been specified.
   int default_half_num_friction_cone_edges_{2};  // Default is friction pyramid.
+
+  // For solving linear complementarity problems.
+  drake::solvers::UnrevisedLemkeSolver<T> lemke_;
 
   template <typename U>
   friend class RigidBodyPlant;  // For scalar-converting copy constructor.

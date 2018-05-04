@@ -985,17 +985,33 @@ template <typename U>
 std::enable_if_t<std::is_same<U, double>::value, void>
 RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
     const drake::systems::Context<U>& context,
-    const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>&,
+    const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
     drake::systems::DiscreteValues<U>* updates) const {
-  using std::abs;
-
   // If plant state is continuous, no discrete state to update.
   if (!is_state_discrete()) return;
 
+  // Clear the generalized contact force.
+  discretized_system_contact_results_.set_generalized_contact_force(
+      VectorX<T>::Zero(get_num_velocities()));
+
+  // Copy the discrete state to the updated state from the context. Then call
+  // the recursive version.
+  updates->CopyFrom(context.get_discrete_state()); 
+  DoCalcDiscreteVariableUpdatesImplRecursive(context, events, updates);
+}
+
+template <typename T>
+void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
+    const drake::systems::Context<T>& context,
+    const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
+    drake::systems::DiscreteValues<T>* updates) const {
+  using std::abs;
+  using std::max;
+
   // Get the time step.
-  const T t = context.get_discrete_state(1).get_value()[0];
-  T dt = context.get_time() - t;
-  if (dt <= 0.0) dt = this->get_time_step();
+  const T t = updates->get_vector(1)[0];
+  double target_dt = context.get_time() - t;
+  if (target_dt <= 0.0) target_dt = this->get_time_step();
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
 
@@ -1004,13 +1020,24 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
   const int num_actuators = this->get_num_actuators();
 
   // Initialize the velocity problem data.
-  drake::multibody::constraint::ConstraintVelProblemData<T> data(nv);
+  drake::multibody::constraint::ConstraintVelProblemData<T> problem_data(nv);
 
   // Get the rigid body tree.
   const auto& tree = this->get_rigid_body_tree();
 
+  // Allocate the LDLT factorization only once.
+  Eigen::LDLT<MatrixX<T>> ldlt;
+
+  // There are no external wrenches, but it is a required argument in
+  // dynamicsBiasTerm().
+  const typename RigidBodyTree<T>::BodyToWrenchMap no_external_wrenches;
+
+  // right_hand_side is the right hand side of the system's equations:
+  //   right_hand_side = B*u - C(q,v)
+  VectorX<T> right_hand_side;
+
   // Get the system state.
-  auto x = context.get_discrete_state(0).get_value();
+  auto x = updates->get_vector(0).get_value();
   VectorX<T> q = x.topRows(nq);
   VectorX<T> v = x.bottomRows(nv);
   auto kinematics_cache = tree.doKinematics(q, v);
@@ -1019,51 +1046,24 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
   auto H = tree.massMatrix(kinematics_cache);
 
   // Compute the LDLT factorizations, which will be used by the solver.
-  Eigen::LDLT<MatrixX<T>> ldlt(H);
+  ldlt.compute(H);
   DRAKE_DEMAND(ldlt.info() == Eigen::Success);
 
   // Set the inertia matrix solver.
-  data.solve_inertia = [&ldlt](const MatrixX<T>& m) {
+  problem_data.solve_inertia = [&ldlt](const MatrixX<T>& m) {
     return ldlt.solve(m);
   };
 
-  // There are no external wrenches, but it is a required argument in
-  // dynamicsBiasTerm().
-  const typename RigidBodyTree<T>::BodyToWrenchMap no_external_wrenches;
-
   // right_hand_side is the right hand side of the system's equations:
   //   right_hand_side = B*u - C(q,v)
-  VectorX<T> right_hand_side =
-      -tree.dynamicsBiasTerm(kinematics_cache, no_external_wrenches);
+  right_hand_side =
+    -tree.dynamicsBiasTerm(kinematics_cache, no_external_wrenches);
   if (num_actuators > 0) right_hand_side += tree.B * u;
 
   // Determine the set of contact points corresponding to the current q.
   std::vector<drake::multibody::collision::PointPair<T>> contacts =
       const_cast<RigidBodyTree<double>*>(&tree)
-          ->ComputeMaximumDepthCollisionPoints(kinematics_cache, true);
-
-  // Set the stabilization term for contact normal direction (kN). Also,
-  // determine the friction coefficients and (half) the number of friction cone
-  // edges.
-  data.gammaN.resize(contacts.size());
-  data.kN.resize(contacts.size());
-  data.mu.resize(contacts.size());
-  data.r.resize(contacts.size());
-  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
-    double stiffness, damping, mu;
-    int half_friction_cone_edges;
-    CalcContactStiffnessDampingMuAndNumHalfConeEdges(
-        contacts[i], &stiffness, &damping, &mu, &half_friction_cone_edges);
-    data.mu[i] = mu;
-    data.r[i] = half_friction_cone_edges;
-
-    // Set cfm and erp parameters for contacts.
-    const T denom = dt * stiffness + damping;
-    const T cfm = 1.0 / denom;
-    const T erp = (dt * stiffness) / denom;
-    data.gammaN[i] = cfm;
-    data.kN[i] = erp * contacts[i].distance / dt;
-  }
+            ->ComputeMaximumDepthCollisionPoints(kinematics_cache, true);
 
   // Set the joint range of motion limits.
   std::vector<JointLimit> limits;
@@ -1079,13 +1079,12 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
 
       // Get the current joint position and velocity.
       const T& qjoint = q(b->get_position_start_index());
-      const T& vjoint = v(b->get_velocity_start_index());
 
       // See whether the joint is currently violated or the *current* joint
-      // velocity might lead to a limit violation. The latter is a heuristic to
-      // incorporate the joint limit into the discretization calculations before
-      // it is violated.
-      if (qjoint < qmin || qjoint + vjoint * dt < qmin) {
+      // velocity might lead to a limit violation. The latter is a heuristic
+      // to incorporate the joint limit into the discretization calculations
+      // before it is violated.
+      if (qjoint < qmin) {
         // Institute a lower limit.
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
@@ -1096,7 +1095,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
             limits.back().signed_distance);
         limits.back().lower_limit = true;
       }
-      if (qjoint > qmax || qjoint + vjoint * dt > qmax) {
+      if (qjoint > qmax) {
         // Institute an upper limit.
         limits.push_back(JointLimit());
         limits.back().v_index = b->get_velocity_start_index();
@@ -1110,37 +1109,44 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
     }
   }
 
-  // Set up the N multiplication operator (projected velocity along the contact
-  // normals) and the N' multiplication operator (effect of contact normal
-  // forces on generalized forces). Note that Nᵀ is scaled by dt which makes
-  // the contact forces non-impulsive.
-  data.N_mult = [this, &contacts, &q](const VectorX<T>& w) -> VectorX<T> {
+  // Allocate storage for contact stiffness/damping and friction related terms.
+  problem_data.gammaN.resize(contacts.size());
+  problem_data.kN.resize(contacts.size());
+  problem_data.mu.resize(contacts.size());
+  problem_data.r.resize(contacts.size());
+
+  // Set up the N multiplication operator (projected velocity along the
+  // contact normals) and the N' multiplication operator (effect of contact
+  // normal forces on generalized forces). Note that Nᵀ is scaled by dt which 
+  // makes the contact forces non-impulsive.
+  problem_data.N_mult = [this, &contacts, &q](const VectorX<T>& w) ->
+      VectorX<T> {
     return ContactNormalJacobianMult(contacts, q, w);
   };
-  data.N_transpose_mult = [this, &contacts, &kinematics_cache, dt]
+  problem_data.N_transpose_mult = [this, &contacts, &kinematics_cache]
       (const VectorX<T>& f) -> VectorX<T> {
     return TransposedContactNormalJacobianMult(
-        contacts, kinematics_cache, f) * dt;
+        contacts, kinematics_cache, f);
   };
 
-  // Set up the F multiplication operator (projected velocity along the contact
-  // tangent directions) and the F' multiplication operator (effect of contact
-  // frictional forces on generalized forces). Note that Fᵀ is scaled by dt
-  // which makes the contact forces non-impulsive.
-  data.F_mult = [this, &contacts, &q, &data](const VectorX<T>& w) ->
-      VectorX<T> {
-    return ContactTangentJacobianMult(contacts, q, w, data.r);
+  // Set up the F multiplication operator (projected velocity along the
+  // contact tangent directions) and the F' multiplication operator (effect
+  // of contact frictional forces on generalized forces). Note that Fᵀ is
+  // scaled by dt which makes the contact forces non-impulsive.
+  problem_data.F_mult = [this, &contacts, &q, &problem_data](
+      const VectorX<T>& w) -> VectorX<T> {
+    return ContactTangentJacobianMult(contacts, q, w, problem_data.r);
   };
-  data.F_transpose_mult = [this, &contacts, &kinematics_cache, &data, dt]
-      (const VectorX<T>& f) -> VectorX<T> {
+  problem_data.F_transpose_mult = [this, &contacts, &kinematics_cache,
+      &problem_data](const VectorX<T>& f) -> VectorX<T> {
     return TransposedContactTangentJacobianMult(contacts,
-        kinematics_cache, f, data.r) * dt;
+        kinematics_cache, f, problem_data.r);
   };
 
   // Set the range-of-motion (L) Jacobian multiplication operator and the
   // transpose_mult() operation. Note that Lᵀ is scaled by dt which makes the
   // contact forces non-impulsive.
-  data.L_mult = [&limits](const VectorX<T>& w) -> VectorX<T> {
+  problem_data.L_mult = [&limits](const VectorX<T>& w) -> VectorX<T> {
     VectorX<T> result(limits.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
@@ -1148,62 +1154,184 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
     }
     return result;
   };
-  data.L_transpose_mult = [this, &v, &limits, dt](const VectorX<T>& lambda) {
+  problem_data.L_transpose_mult = [this, &v, &limits](const VectorX<T>& lambda) {
     VectorX<T> result = VectorX<T>::Zero(v.size());
     for (int i = 0; static_cast<size_t>(i) < limits.size(); ++i) {
       const int index = limits[i].v_index;
       result[index] = (limits[i].lower_limit) ? lambda[i] : -lambda[i];
     }
-    return result * dt;
+    return result;
   };
 
   // Set the regularization and stabilization terms for contact tangent
   // directions (kF).
   const int total_friction_cone_edges = std::accumulate(
-      data.r.begin(), data.r.end(), 0);
-  data.kF.setZero(total_friction_cone_edges);
-  data.gammaF.setZero(total_friction_cone_edges);
-  data.gammaE.setZero(contacts.size());
+      problem_data.r.begin(), problem_data.r.end(), 0);
+  problem_data.kF.setZero(total_friction_cone_edges);
+  problem_data.gammaF.setZero(total_friction_cone_edges);
+  problem_data.gammaE.setZero(contacts.size());
 
   // Output the Jacobians.
-#ifdef SPDLOG_DEBUG_ON
+  #ifdef SPDLOG_DEBUG_ON
   MatrixX<T> N(contacts.size(), v.size()), L(limits.size(), v.size()),
       F(total_friction_cone_edges, v.size());
   for (int i = 0; i < v.size(); ++i) {
     VectorX<T> unit = VectorX<T>::Unit(v.size(), i);
-    N.col(i) = data.N_mult(unit);
-    F.col(i) = data.F_mult(unit);
-    L.col(i) = data.L_mult(unit);
+    N.col(i) = problem_data.N_mult(unit);
+    F.col(i) = problem_data.F_mult(unit);
+    L.col(i) = problem_data.L_mult(unit);
   }
   SPDLOG_DEBUG(drake::log(), "N: {}", N);
   SPDLOG_DEBUG(drake::log(), "F: {}", F);
   SPDLOG_DEBUG(drake::log(), "L: {}", L);
-#endif
+  #endif
 
-  // Set the regularization and stabilization terms for joint limit
-  // constraints (kL).
-  // TODO(edrumwri): Make cfm and erp individually settable.
-  const double default_limit_cfm = 1e-8;
-  const double default_limit_erp = 0.5;
-  data.kL.resize(limits.size());
-  for (int i = 0; i < static_cast<int>(limits.size()); ++i)
-    data.kL[i] = default_limit_erp * limits[i].signed_distance / dt;
-  data.gammaL.setOnes(limits.size()) *= default_limit_cfm;
+  // Zero gammas.
+  problem_data.gammaN.setZero();
+  problem_data.gammaF.setZero();
+  problem_data.gammaE.setZero();
+  problem_data.gammaL.setZero();
 
   // Set Jacobians for bilateral constraint terms.
   // TODO(edrumwri): Make erp individually settable.
-  const double default_bilateral_erp = 0.5;
-  data.kG = default_bilateral_erp *
-      tree.positionConstraints(kinematics_cache) / dt;
   const auto G = tree.positionConstraintsJacobian(kinematics_cache, false);
-  data.G_mult = [&G](const VectorX<T>& w) -> VectorX<T> { return G * w; };
-  data.G_transpose_mult = [&G](const VectorX<T>& lambda) {
+  problem_data.G_mult = [&G](const VectorX<T>& w) -> VectorX<T> {
+      return G * w; };
+  problem_data.G_transpose_mult = [&G](const VectorX<T>& lambda) {
     return G.transpose() * lambda;
   };
 
-  // Integrate the forces into the momentum.
-  data.Mv = H * v + right_hand_side * dt;
+  // Construct a "pure" problem data structure to permit solving the mixed
+  // linear complementarity problem (MLCP) with the solution to a linear
+  // complementarity problem, and construct the necessary MLCP solvers.
+  multibody::constraint::ConstraintVelProblemData<T> pure_problem_data(
+      0 /* no storage allocation */);
+  Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> delassus_QTZ;
+  std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
+  std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
 
+  // Construct the "base" time-discretized LCP. This is the part of the
+  // problem that will be reused repeatedly.
+  MatrixX<T> MM_base, MM;
+  VectorX<T> qq_base, qq;
+  multibody::constraint::ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
+      problem_data, right_hand_side, target_dt, &delassus_QTZ, &A_solve,
+      &fast_A_solve, &pure_problem_data, &MM_base, &qq_base);
+
+  // Iterate until dt is zero.
+  T dt = target_dt;
+  while (dt > 0) {
+    // (Re)set the stabilization term for contact normal direction (kN). Also,
+    // determine the friction coefficients and (half) the number of friction
+    // cone edges.
+    for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+      double stiffness, damping, mu;
+      int half_friction_cone_edges;
+      CalcContactStiffnessDampingMuAndNumHalfConeEdges(
+          contacts[i], &stiffness, &damping, &mu, &half_friction_cone_edges);
+      problem_data.mu[i] = mu;
+      problem_data.r[i] = half_friction_cone_edges;
+
+      // Set cfm and erp parameters for contacts.
+      const T denom = dt * stiffness + damping;
+      const T cfm = 1.0 / denom;
+      const T erp = (dt * stiffness) / denom;
+      problem_data.gammaN[i] = cfm;
+      problem_data.kN[i] = erp * contacts[i].distance / dt;
+    }
+
+    // Set the regularization and stabilization terms for joint limit
+    // constraints (kL).
+    // TODO(edrumwri): Make cfm and erp individually settable.
+    const double default_limit_cfm = 1e-8;
+    const double default_limit_erp = 0.5;
+    problem_data.kL.resize(limits.size());
+    for (int i = 0; i < static_cast<int>(limits.size()); ++i)
+      problem_data.kL[i] = default_limit_erp * limits[i].signed_distance / dt;
+    problem_data.gammaL.setOnes(limits.size()) *= default_limit_cfm;
+
+    // Set constraint stabilization terms for bilateral constraints. 
+    const double default_bilateral_erp = 0.5;
+    problem_data.kG = default_bilateral_erp *
+      tree.positionConstraints(kinematics_cache) / dt;
+
+    // Integrate the forces into the momentum and redetermine 'a'.
+    problem_data.Mv = H * v + right_hand_side * dt;
+
+    // Update the linear complementarity problem.
+    MM = MM_base;
+    qq = qq_base;
+    multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
+      problem_data, pure_problem_data, *A_solve, &a, &MM, &qq);
+
+    // Determine the zero tolerance.
+    const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
+
+    // Attempt to solve the linear complementarity problem.
+    int num_pivots;
+    VectorX<T> zz;
+    bool success = lemke_.SolveLcpLemke(MM, qq, &zz, &num_pivots); 
+    const VectorX<T> ww = MM*zz + qq;
+    const double max_dot = (zz.size() > 0) ?
+                           (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+
+    // Check for success.
+    const int num_vars = qq.size();
+    if (success && 
+        (zz.size() == 0 ||
+         (zz.minCoeff() > -num_vars * zero_tol && 
+          ww.minCoeff() > -num_vars * zero_tol && 
+          max_dot < max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
+              num_vars * zero_tol))) {
+      // Compute the new velocity and constraint forces.
+      VectorX<T> new_velocity, constraint_force;
+      constraint_solver_.PopulatePackConstraintForcesFromLCPSolution(
+        problem_data, pure_problem_data, A_solve, zz, a, &constraint_force);
+      constraint_solver_.ComputeGeneralizedVelocityChange(
+          problem_data, constraint_force, &new_velocity);
+
+      // Compute the updates.
+      // qn = q + dt*qdot.
+      VectorX<T> xn(this->get_num_states());
+      xn << q + dt * tree.transformVelocityToQDot(kinematics_cache,
+          new_velocity), new_velocity;
+      updates->get_mutable_vector(0).SetFromVector(xn);
+      updates->get_mutable_vector(1)[0] = t + dt;
+
+      // TODO(edrumwri): Relocate this block of code to the contact output
+      // function when caching is in place. Note that constraint forces have
+      // been made non-impulsive (by XXXFunction()), so scaling by dt is
+      // unnecessary. Note that these contact forces are zeroed on every major
+      // discretization step and accumulated on every recursive step. 
+      ComputeDiscretizedSystemContactResults(contacts, problem_data,
+          kinematics_cache, constraint_force,
+          &discretized_system_contact_results_);
+
+      // If dt is not equivalent to target_dt, recurse.
+      if (dt < target_dt)
+        DoCalcDiscreteVariableUpdatesImplRecursive(context, events, updates);
+
+      break;
+    }
+
+    // Report difficulty
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Unable to solve problem with "
+        "time discretization dt={}. ", dt);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
+        num_vars * zero_tol);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
+      max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
+      zero_tol);
+    SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
+
+    // Reduce dt.
+    dt *= 0.5;
+  }
+
+/*
   // Solve the rigid impact problem.
   VectorX<T> new_velocity, constraint_force;
   constraint_solver_.SolveImpactProblem(data, &constraint_force);
@@ -1235,20 +1363,13 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
   SPDLOG_DEBUG(drake::log(), "g(): {}",
       tree.positionConstraints(kinematics_cache).transpose());
 
-  // TODO(edrumwri): Relocate this block of code to the contact output function
-  // when caching is in place.
-  // Note that constraint forces are non-impulsive, so scaling by dt is
-  // unnecessary.
-  ComputeDiscretizedSystemContactResults(contacts, data, kinematics_cache,
-                                    constraint_force,
-                                    &discretized_system_contact_results_);
-
   // qn = q + dt*qdot.
   VectorX<T> xn(this->get_num_states());
   xn << q + dt * tree.transformVelocityToQDot(kinematics_cache, new_velocity),
       new_velocity;
   updates->get_mutable_vector(0).SetFromVector(xn);
   updates->get_mutable_vector(1)[0] = t + dt;
+*/
 }
 
 // Populates `contact_results` for the time stepping calculation using the
@@ -1334,6 +1455,7 @@ void RigidBodyPlant<T>::ComputeDiscretizedSystemContactResults(
   constraint_solver_.ComputeGeneralizedImpulseFromConstraintImpulses(
       data, contact_force, &generalized_contact_force);
   contact_results->set_generalized_contact_force(
+      contact_results->get_generalized_contact_force() +
       generalized_contact_force);
 }
 
