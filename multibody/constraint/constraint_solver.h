@@ -75,25 +75,108 @@ class ConstraintSolver {
   ConstraintSolver() = default;
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ConstraintSolver)
 
-  // TODO: Document me.
-  static void ConstructLinearEquationSolversForMLCP(
+  /// @name Velocity-level constraint problems formulated as MLCPs.
+  /// Constraint problems can be posed as mixed linear complementarity problems
+  /// (MLCP), which are problems that take the form:<pre>
+  /// (a)    Au + Xv + a = 0
+  /// (b)    Yu + Bv + b ≥ 0
+  /// (c)              v ≥ 0
+  /// (d) vᵀ(b + Yu + Bv) = 0
+  /// </pre>
+  /// where u are "free" variables. If the matrix A is nonsingular, u can be
+  /// solved for:<pre>
+  /// (e) u = -A⁻¹ (a + Xv)
+  /// </pre>
+  /// allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:<pre>
+  /// (f) q = b - YA⁻¹a
+  /// (g) M = B - YA⁻¹X
+  /// </pre>
+  ///
+  /// The constraint problems considered here take the specific form:<pre>
+  /// (1) | M  -Gᵀ  -Nᵀ  -Dᵀ  0  -Lᵀ | | v⁺ | + |-M v | = | 0 |
+  ///     | G   0    0    0   0   0  | | fG | + |  kᴳ | = | 0 |
+  ///     | N   0    0    0   0   0  | | fN | + |  kᴺ | = | α |
+  ///     | D   0    0    0   E   0  | | fD | + |  kᴰ | = | β |
+  ///     | 0   0    μ   -Eᵀ  0   0  | |  λ | + |   0 | = | γ |
+  ///     | L   0    0    0   0   0  | | fL | + |  kᴸ | = | δ |
+  /// (2) 0 ≤ fN  ⊥  α ≥ 0
+  /// (3) 0 ≤ fD  ⊥  β ≥ 0
+  /// (4) 0 ≤ λ   ⊥  γ ≥ 0
+  /// (5) 0 ≤ fL  ⊥  δ ≥ 0
+  /// </pre>
+  /// where
+  // TODO: fill in variables above.
+  ///
+  /// Converting the MLCP to a pure LCP:
+  ///
+  /// From the notation above in Equations (a)-(d):<pre>
+  /// A ≡ | M  -Ĝᵀ|   a ≡ |-M v |   X ≡ |-Nᵀ  -Dᵀ  0  -Lᵀ |
+  ///     | Ĝ   0 |       |  kᴳ |       | 0    0   0   0  |
+  ///
+  /// Y ≡ | N   0 |   b ≡ |  kᴺ |   B ≡ | 0    0   0   0  |
+  ///     | D   0 |       |  kᴰ |       | 0    0   E   0  |
+  ///     | 0   0 |       |  0  |       | μ   -Eᵀ  0   0  |
+  ///     | L   0 |       |  kᴸ |       | 0    0   0   0  |
+  ///
+  /// u ≡ | v⁺ |      v ≡ | fN |
+  ///     | fG |          | fD |
+  ///                     |  λ |
+  ///                     | fL |
+  /// </pre>
+  /// Therefore, using Equations (f) and (g) and defining C as the upper left
+  /// block of A⁻¹, the pure LCP (q,M) is defined as:<pre>
+  /// MM ≡ | NCNᵀ  NCDᵀ   0   NCLᵀ |
+  ///      | DCNᵀ  DCDᵀ   E   DCLᵀ |
+  ///      | μ      -Eᵀ   0   0    |
+  ///      | LCNᵀ  LCDᵀ   0   LCLᵀ |
+  ///
+  /// qq ≡ | kᴺ - |N 0|A⁻¹a |
+  ///      | kᴰ - |D 0|A⁻¹a |
+  ///      |       0        |
+  ///      | kᴸ - |L 0|A⁻¹a |
+  /// </pre>
+  ///
+  /// The matrix `A` and vector `a` will be used extensively in the following
+  /// documentation.
+
+  // @{
+  /// Computes the time-discretization of the system using the problem data,
+  /// generalized force `f`, intended time step `target_dt`.
+  /// @param problem_data the constraint problem data.
+  /// @param[out] delassus_QTZ a pointer to a valid
+  ///        CompleteOrthogonalDecomposition object; the caller must ensure
+  ///        that this pointer remains valid while the function pointers to
+  ///        `A_solve` and `fast_A_solve` are maintained.
+  /// @param[out] A_solve a pointer to a function pointer for solving linear
+  ///         systems using the "A" matrix from the MLCP.
+  /// @param[out] fast_A_solve a pointer to a function pointer for solving
+  ///        linear systems using only the upper left block of A⁻¹ to exploit
+  ///        zero blocks in common operations.
+  /// @param[out] pure_problem_data a pointer to a constraint data object; on
+  /// @param[out] MM a pointer to a matrix that will contain the parts of the
+  ///             LCP matrix not dependent upon the time step on return.
+  /// @param[out] qq a pointer to a vector that will contain the parts of the
+  ///             LCP vector not dependent upon the time step on return.
+  static void ConstructBaseDiscretizedTimeLCP(
       const ConstraintVelProblemData<T>& problem_data,
       Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
       std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
-      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve); 
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
+      ConstraintVelProblemData<T>* pure_problem_data,
+      MatrixX<T>* MM,
+      VectorX<T>* qq);
 
-  // TODO: Document me.
-  // TODO: Name 'a' better.
-  static void PopulatePackedConstraintForcesFromLCPSolution(
-      const ConstraintVelProblemData<T>& problem_data,
-      const ConstraintVelProblemData<T>& pure_problem_data,
-      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
-      const VectorX<T>& zz,
-      const VectorX<T>& a,
-      VectorX<T>* cf);
-
-  // TODO: Document me.
-  // TODO: Name 'a' better.
+  /// Updates the time-discretization of the LCP initially computed in
+  /// ConstructBaseDiscretizedTimeLCP() using the problem data, time step `dt`.
+  /// @param problem_data the constraint problem data.
+  /// @param pure_problem_data the constraint data using the eliminated
+  ///        bilateral constraints.
+  /// @param A_solve the function pointer for solving linear systems using the
+  ///        "A" matrix from the MLCP.
+  /// @param[out] a the vector corresponding to the MLCP vector `a`, on return.
+  /// @param[out] MM a pointer to the updated LCP matrix on return.
+  /// @param[out] qq a pointer to the updated LCP vector on return.
+  /// @pre `a`, `MM`, and `qq` are non-null on entry.
   static void UpdateDiscretizedTimeLCP(
       const ConstraintVelProblemData<T>& problem_data,
       const ConstraintVelProblemData<T>& pure_problem_data,
@@ -103,18 +186,26 @@ class ConstraintSolver {
       MatrixX<T>* MM,
       VectorX<T>* qq);
 
-  // TODO: Document me.
-  static void ConstructBaseDiscretizedTimeLCP(
+  /// Populates the packed constraint force vector from the solution to the
+  /// linear complementarity problem (LCP) constructed using
+  /// ConstructBaseDiscretizedTimeLCP() and UpdateDiscretizedTimeLCP().
+  /// @param problem_data the original constraint problem data.
+  /// @param pure_problem_data the constraint problem data without bilateral
+  ///        constraints used to construct the pure LCP,
+  /// @param A_solve a pointer to a function pointer for solving linear systems
+  ///        using the "A" matrix from the mixed linear complementarity problem.
+  /// @param a the vector `a` output from UpdateDiscretizedTimeLCP().
+  /// @param[out] cf the constraint forces, on return.
+  /// @pre cf is non-null.
+  static void PopulatePackedConstraintForcesFromLCPSolution(
       const ConstraintVelProblemData<T>& problem_data,
-      const VectorX<T>& f,
-      double target_dt,
-      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
-      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
-      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
-      ConstraintVelProblemData<T>* pure_problem_data,
-      MatrixX<T>* MM,
-      VectorX<T>* qq);
- 
+      const ConstraintVelProblemData<T>& pure_problem_data,
+      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+      const VectorX<T>& zz,
+      const VectorX<T>& a,
+      VectorX<T>* cf);
+  //@}
+
   /// Solves the appropriate constraint problem at the acceleration level.
   /// @param problem_data The data used to compute the constraint forces.
   /// @param cf The computed constraint forces, on return, in a packed storage
@@ -282,6 +373,11 @@ class ConstraintSolver {
       std::vector<Vector2<T>>* contact_impulses);
 
  private:
+  static void ConstructLinearEquationSolversForMLCP(
+      const ConstraintVelProblemData<T>& problem_data,
+      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve);
   void FormAndSolveConstraintLCP(
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& trunc_neg_invA_a,
@@ -520,6 +616,11 @@ ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
     // Copy most of the data unchanged.
     new_data = problem_data;
 
+    // Remove the bilateral constraints.
+    new_data.kG.resize(0);
+    new_data.G_mult = new_data.zero_fn;
+    new_data.G_transpose_mult = new_data.gv_dim_zero_fn;
+
     // Update the inertia function pointer.
     new_data.solve_inertia = modified_inertia_solve;
     return &new_data;
@@ -532,7 +633,7 @@ ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
 // active, this method will provide the correct solution rapidly.
 // @param problem_data The constraint data formulated at the acceleration
 //                     level.
-// @param trunc_neg_invA_a The firsg ngc elements of -A⁻¹a, where
+// @param trunc_neg_invA_a The first ngc elements of -A⁻¹a, where
 //        A ≡ | M Gᵀ |    (M is the generalized inertia matrix and G is the
 //            | G 0  |     Jacobian matrix for the bilateral constraints)
 //        and a ≡ | -τ |  (τ [tau] and kG are defined in `problem_data`).
@@ -972,7 +1073,7 @@ void ConstraintSolver<T>::SolveImpactProblem(
   const VectorX<T>& Mv = problem_data.Mv;
   VectorX<T> a(Mv.size() + num_eq_constraints);
   a.head(Mv.size()) = -Mv;
-  a.tail(num_eq_constraints) = data_ptr->kG;
+  a.tail(num_eq_constraints) = problem_data.kG;
   const VectorX<T> invA_a = A_solve(a);
   const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
 
@@ -1042,61 +1143,6 @@ void ConstraintSolver<T>::ConstructLinearEquationSolversForMLCP(
     Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
     std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
     std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve) {
-  // The constraint problem is a mixed linear complementarity problem of the
-  // form:
-  // (a)    Au + Xv + a = 0
-  // (b)    Yu + Bv + b ≥ 0
-  // (c)              v ≥ 0
-  // (d) vᵀ(b + Yu + Bv) = 0
-  // where u are "free" variables. If the matrix A is nonsingular, u can be
-  // solved for:
-  // (e) u = -A⁻¹ (a + Xv)
-  // allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:
-  // (f) q = b - YA⁻¹a
-  // (g) M = B - YA⁻¹X
-
-  // Our mixed linear complementarity problem takes the specific form:
-  // (1) | M  -Gᵀ  -Nᵀ  -Dᵀ  0  -Lᵀ | | v⁺ | + |-M v | = | 0 |
-  //     | G   0    0    0   0   0  | | fG | + |  kᴳ | = | 0 |
-  //     | N   0    0    0   0   0  | | fN | + |  kᴺ | = | α |
-  //     | D   0    0    0   E   0  | | fD | + |  kᴰ | = | β |
-  //     | 0   0    μ   -Eᵀ  0   0  | |  λ | + |   0 | = | γ |
-  //     | L   0    0    0   0   0  | | fL | + |  kᴸ | = | δ |
-  // (2) 0 ≤ fN  ⊥  α ≥ 0
-  // (3) 0 ≤ fD  ⊥  β ≥ 0
-  // (4) 0 ≤ λ   ⊥  γ ≥ 0
-  // (5) 0 ≤ fL  ⊥  δ ≥ 0
-
-  // --------------------------------------------------------------------------
-  // Converting the MLCP to a pure LCP:
-  // --------------------------------------------------------------------------
-
-  // From the notation above in Equations (a)-(d):
-  // A ≡ | M  -Ĝᵀ|   a ≡ |-M v |   X ≡ |-Nᵀ  -Dᵀ  0  -Lᵀ |
-  //     | Ĝ   0 |       |  kᴳ |       | 0    0   0   0  |
-  //
-  // Y ≡ | N   0 |   b ≡ |  kᴺ |   B ≡ | 0    0   0   0  |
-  //     | D   0 |       |  kᴰ |       | 0    0   E   0  |
-  //     | 0   0 |       |  0  |       | μ   -Eᵀ  0   0  |
-  //     | L   0 |       |  kᴸ |       | 0    0   0   0  |
-  //
-  // u ≡ | v⁺ |      v ≡ | fN |
-  //     | fG |          | fD |
-  //                     |  λ |
-  //                     | fL |
-  //
-  // Therefore, using Equations (f) and (g) and defining C as the upper left
-  // block of A⁻¹, the pure LCP (q,M) is defined as:
-  // MM ≡ | NCNᵀ  NCDᵀ   0   NCLᵀ |
-  //      | DCNᵀ  DCDᵀ   E   DCLᵀ |
-  //      | μ      -Eᵀ   0   0    |
-  //      | LCNᵀ  LCDᵀ   0   LCLᵀ |
-  //
-  // qq ≡ | kᴺ - |N 0|A⁻¹a |
-  //      | kᴰ - |D 0|A⁻¹a |
-  //      |       0        |
-  //      | kᴸ - |L 0|A⁻¹a |
-
   // --------------------------------------------------------------------------
   // Using the LCP solution to solve the MLCP.
   // --------------------------------------------------------------------------
@@ -1300,8 +1346,6 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
 template <typename T>
 void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
     const ConstraintVelProblemData<T>& problem_data,
-    const VectorX<T>& f,
-    double target_dt,
     Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
     std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
     std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
@@ -1335,8 +1379,7 @@ void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
   // and vector. (We avoid this possible shortcut if there are bilateral
   // constraints because it's too hard to determine a workable tolerance at
   // this point).
-  const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv +
-      f*target_dt);
+  const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv);
   const VectorX<T> N_eval = problem_data.N_mult(v) +
       problem_data.kN;
   const VectorX<T> L_eval = problem_data.L_mult(v) +

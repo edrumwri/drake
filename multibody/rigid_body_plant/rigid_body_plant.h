@@ -482,14 +482,16 @@ class RigidBodyPlant : public LeafSystem<T> {
       const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
       drake::systems::DiscreteValues<U>* updates) const;
 
-  void DoCalcDiscreteVariableUpdatesImplRecursive(
-      const drake::systems::Context<T>& context,
-      const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
-      drake::systems::DiscreteValues<T>* updates) const;
-
   template <typename U = T>
   std::enable_if_t<!std::is_same<U, double>::value, void>
   DoCalcDiscreteVariableUpdatesImpl(
+      const drake::systems::Context<U>& context,
+      const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
+      drake::systems::DiscreteValues<U>* updates) const;
+
+  template <typename U = T>
+  std::enable_if_t<std::is_same<U, double>::value, void>
+  DoCalcDiscreteVariableUpdatesImplRecursive(
       const drake::systems::Context<U>& context,
       const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
       drake::systems::DiscreteValues<U>* updates) const;

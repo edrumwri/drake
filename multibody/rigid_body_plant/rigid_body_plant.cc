@@ -1001,16 +1001,18 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImpl(
 }
 
 template <typename T>
-void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
-    const drake::systems::Context<T>& context,
-    const std::vector<const drake::systems::DiscreteUpdateEvent<T>*>& events,
-    drake::systems::DiscreteValues<T>* updates) const {
+template <typename U>
+std::enable_if_t<std::is_same<U, double>::value, void>
+RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
+    const drake::systems::Context<U>& context,
+    const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
+    drake::systems::DiscreteValues<U>* updates) const {
   using std::abs;
   using std::max;
 
   // Get the time step.
   const T t = updates->get_vector(1)[0];
-  double target_dt = context.get_time() - t;
+  T target_dt = context.get_time() - t;
   if (target_dt <= 0.0) target_dt = this->get_time_step();
 
   VectorX<T> u = this->EvaluateActuatorInputs(context);
@@ -1163,6 +1165,52 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     return result;
   };
 
+  // Zero gammas.
+  problem_data.gammaN.setZero();
+  problem_data.gammaF.setZero();
+  problem_data.gammaE.setZero();
+  problem_data.gammaL.setZero();
+
+  // Set Jacobians for bilateral constraint terms.
+  // TODO(edrumwri): Make erp individually settable.
+  const auto G = tree.positionConstraintsJacobian(kinematics_cache, false);
+  problem_data.G_mult = [&G](const VectorX<T>& w) -> VectorX<T> {
+      return G * w; };
+  problem_data.G_transpose_mult = [&G, target_dt](const VectorX<T>& lambda) {
+    return G.transpose() * lambda * target_dt;
+  };
+  const double default_bilateral_erp = 0.5;
+  problem_data.kG = default_bilateral_erp *
+      tree.positionConstraints(kinematics_cache) / target_dt;
+
+  // Construct a "pure" problem data structure to permit solving the mixed
+  // linear complementarity problem (MLCP) with the solution to a linear
+  // complementarity problem, and construct the necessary MLCP solvers.
+  multibody::constraint::ConstraintVelProblemData<T> pure_problem_data(
+      0 /* no storage allocation */);
+  Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> delassus_QTZ;
+  std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
+  std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
+
+  // (Re)set the stabilization term for contact normal direction (kN). Also,
+  // determine the friction coefficients and (half) the number of friction
+  // cone edges.
+  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+    double stiffness, damping, mu;
+    int half_friction_cone_edges;
+    CalcContactStiffnessDampingMuAndNumHalfConeEdges(
+        contacts[i], &stiffness, &damping, &mu, &half_friction_cone_edges);
+    problem_data.mu[i] = mu;
+    problem_data.r[i] = half_friction_cone_edges;
+
+    // Set cfm and erp parameters for contacts.
+    const T denom = target_dt * stiffness + damping;
+    const T cfm = 1.0 / denom;
+    const T erp = (target_dt * stiffness) / denom;
+    problem_data.gammaN[i] = cfm;
+    problem_data.kN[i] = erp * contacts[i].distance / target_dt;
+  }
+
   // Set the regularization and stabilization terms for contact tangent
   // directions (kF).
   const int total_friction_cone_edges = std::accumulate(
@@ -1170,6 +1218,19 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   problem_data.kF.setZero(total_friction_cone_edges);
   problem_data.gammaF.setZero(total_friction_cone_edges);
   problem_data.gammaE.setZero(contacts.size());
+
+  // Set the regularization and stabilization terms for joint limit
+  // constraints (kL).
+  // TODO(edrumwri): Make cfm and erp individually settable.
+  const double default_limit_cfm = 1e-8;
+  const double default_limit_erp = 0.5;
+  problem_data.kL.resize(limits.size());
+  for (int i = 0; i < static_cast<int>(limits.size()); ++i)
+    problem_data.kL[i] = default_limit_erp * limits[i].signed_distance / target_dt;
+  problem_data.gammaL.setOnes(limits.size()) *= default_limit_cfm;
+
+  // Integrate the forces into the momentum and redetermine 'a'.
+  problem_data.Mv = H * v + right_hand_side * target_dt;
 
   // Output the Jacobians.
   #ifdef SPDLOG_DEBUG_ON
@@ -1186,41 +1247,23 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   SPDLOG_DEBUG(drake::log(), "L: {}", L);
   #endif
 
-  // Zero gammas.
-  problem_data.gammaN.setZero();
-  problem_data.gammaF.setZero();
-  problem_data.gammaE.setZero();
-  problem_data.gammaL.setZero();
-
-  // Set Jacobians for bilateral constraint terms.
-  // TODO(edrumwri): Make erp individually settable.
-  const auto G = tree.positionConstraintsJacobian(kinematics_cache, false);
-  problem_data.G_mult = [&G](const VectorX<T>& w) -> VectorX<T> {
-      return G * w; };
-  problem_data.G_transpose_mult = [&G](const VectorX<T>& lambda) {
-    return G.transpose() * lambda;
-  };
-
-  // Construct a "pure" problem data structure to permit solving the mixed
-  // linear complementarity problem (MLCP) with the solution to a linear
-  // complementarity problem, and construct the necessary MLCP solvers.
-  multibody::constraint::ConstraintVelProblemData<T> pure_problem_data(
-      0 /* no storage allocation */);
-  Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> delassus_QTZ;
-  std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
-  std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
-
   // Construct the "base" time-discretized LCP. This is the part of the
   // problem that will be reused repeatedly.
   MatrixX<T> MM_base, MM;
-  VectorX<T> qq_base, qq;
+  VectorX<T> qq_base, qq, a;
   multibody::constraint::ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
-      problem_data, right_hand_side, target_dt, &delassus_QTZ, &A_solve,
+      problem_data, &delassus_QTZ, &A_solve,
       &fast_A_solve, &pure_problem_data, &MM_base, &qq_base);
 
   // Iterate until dt is zero.
+  VectorX<T> new_velocity, constraint_force;
   T dt = target_dt;
   while (dt > 0) {
+    // Redetermine GT.
+    problem_data.G_transpose_mult = [&G, dt](const VectorX<T>& lambda) {
+      return G.transpose() * lambda * dt;
+    };
+
     // (Re)set the stabilization term for contact normal direction (kN). Also,
     // determine the friction coefficients and (half) the number of friction
     // cone edges.
@@ -1243,15 +1286,12 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     // Set the regularization and stabilization terms for joint limit
     // constraints (kL).
     // TODO(edrumwri): Make cfm and erp individually settable.
-    const double default_limit_cfm = 1e-8;
-    const double default_limit_erp = 0.5;
     problem_data.kL.resize(limits.size());
     for (int i = 0; i < static_cast<int>(limits.size()); ++i)
       problem_data.kL[i] = default_limit_erp * limits[i].signed_distance / dt;
     problem_data.gammaL.setOnes(limits.size()) *= default_limit_cfm;
 
     // Set constraint stabilization terms for bilateral constraints. 
-    const double default_bilateral_erp = 0.5;
     problem_data.kG = default_bilateral_erp *
       tree.positionConstraints(kinematics_cache) / dt;
 
@@ -1262,7 +1302,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     MM = MM_base;
     qq = qq_base;
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
-      problem_data, pure_problem_data, *A_solve, &a, &MM, &qq);
+      problem_data, pure_problem_data, A_solve, dt, &a, &MM, &qq);
 
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
@@ -1272,8 +1312,8 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     VectorX<T> zz;
     bool success = lemke_.SolveLcpLemke(MM, qq, &zz, &num_pivots); 
     const VectorX<T> ww = MM*zz + qq;
-    const double max_dot = (zz.size() > 0) ?
-                           (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+    const T max_dot = (zz.size() > 0) ?
+                      (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
     // Check for success.
     const int num_vars = qq.size();
@@ -1284,8 +1324,7 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
           max_dot < max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
               num_vars * zero_tol))) {
       // Compute the new velocity and constraint forces.
-      VectorX<T> new_velocity, constraint_force;
-      constraint_solver_.PopulatePackConstraintForcesFromLCPSolution(
+      constraint_solver_.PopulatePackedConstraintForcesFromLCPSolution(
         problem_data, pure_problem_data, A_solve, zz, a, &constraint_force);
       constraint_solver_.ComputeGeneralizedVelocityChange(
           problem_data, constraint_force, &new_velocity);
@@ -1331,35 +1370,36 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     dt *= 0.5;
   }
 
-/*
-  // Solve the rigid impact problem.
-  VectorX<T> new_velocity, constraint_force;
-  constraint_solver_.SolveImpactProblem(data, &constraint_force);
-  constraint_solver_.ComputeGeneralizedVelocityChange(data, constraint_force,
-      &new_velocity);
+  // If unable to solve the problem, report as much.
+  if (dt <= 0.0) {
+    throw std::runtime_error("Unable to solve complementarity problem at any "
+                                 "time step.");
+  }
+  
+  // Output relevant data.
   SPDLOG_DEBUG(drake::log(), "Actuator forces: {} ", u.transpose());
   SPDLOG_DEBUG(drake::log(), "Transformed actuator forces: {} ",
       (tree.B * u).transpose());
   SPDLOG_DEBUG(drake::log(), "force: {}", right_hand_side.transpose());
   SPDLOG_DEBUG(drake::log(), "old velocity: {}", v.transpose());
   SPDLOG_DEBUG(drake::log(), "integrated forward velocity: {}",
-      data.solve_inertia(data.Mv).transpose());
+               problem_data.solve_inertia(problem_data.Mv).transpose());
   SPDLOG_DEBUG(drake::log(), "change in velocity: {}",
       new_velocity.transpose());
-  new_velocity += data.solve_inertia(data.Mv);
+  new_velocity += problem_data.solve_inertia(problem_data.Mv);
   SPDLOG_DEBUG(drake::log(), "new velocity: {}", new_velocity.transpose());
   SPDLOG_DEBUG(drake::log(), "new configuration: {}",
       (q + dt * tree.transformVelocityToQDot(kinematics_cache, new_velocity)).
       transpose());
-  SPDLOG_DEBUG(drake::log(), "N * new velocity: {} ", data.N_mult(new_velocity).
-      transpose());
-  SPDLOG_DEBUG(drake::log(), "F * new velocity: {} ", data.F_mult(new_velocity).
-      transpose());
-  SPDLOG_DEBUG(drake::log(), "L * new velocity: {} ", data.L_mult(new_velocity).
-      transpose());
-  SPDLOG_DEBUG(drake::log(), "G * new velocity: {} ", data.G_mult(new_velocity).
-      transpose());
-  SPDLOG_DEBUG(drake::log(), "G * v: {} ", data.G_mult(v).transpose());
+  SPDLOG_DEBUG(drake::log(), "N * new velocity: {} ",
+               problem_data.N_mult(new_velocity).transpose());
+  SPDLOG_DEBUG(drake::log(), "F * new velocity: {} ",
+               problem_data.F_mult(new_velocity).transpose());
+  SPDLOG_DEBUG(drake::log(), "L * new velocity: {} ",
+               problem_data.L_mult(new_velocity).transpose());
+  SPDLOG_DEBUG(drake::log(), "G * new velocity: {} ",
+               problem_data.G_mult(new_velocity).transpose());
+  SPDLOG_DEBUG(drake::log(), "G * v: {} ", problem_data.G_mult(v).transpose());
   SPDLOG_DEBUG(drake::log(), "g(): {}",
       tree.positionConstraints(kinematics_cache).transpose());
 
@@ -1369,7 +1409,6 @@ void RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
       new_velocity;
   updates->get_mutable_vector(0).SetFromVector(xn);
   updates->get_mutable_vector(1)[0] = t + dt;
-*/
 }
 
 // Populates `contact_results` for the time stepping calculation using the
