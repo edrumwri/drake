@@ -1405,13 +1405,6 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   SPDLOG_DEBUG(drake::log(), "G * v: {} ", problem_data.G_mult(v).transpose());
   SPDLOG_DEBUG(drake::log(), "g(): {}",
       tree.positionConstraints(kinematics_cache).transpose());
-
-  // qn = q + dt*qdot.
-  VectorX<T> xn(this->get_num_states());
-  xn << q + dt * tree.transformVelocityToQDot(kinematics_cache, new_velocity),
-      new_velocity;
-  updates->get_mutable_vector(0).SetFromVector(xn);
-  updates->get_mutable_vector(1)[0] = t + dt;
 }
 
 // Populates `contact_results` for the time stepping calculation using the

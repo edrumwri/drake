@@ -1268,6 +1268,15 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
   DRAKE_DEMAND(qq);
   DRAKE_DEMAND(a);
 
+  // Compute a and A⁻¹a.
+  const int num_eq_constraints = problem_data.kG.size();
+  const VectorX<T>& Mv = problem_data.Mv;
+  a->resize(Mv.size() + num_eq_constraints);
+  a->head(Mv.size()) = -Mv;
+  a->tail(num_eq_constraints) = problem_data.kG;
+  const VectorX<T> invA_a = A_solve(*a);
+  const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
+
   // Look for quick exit.
   if (qq->rows() == 0)
     return;
@@ -1288,15 +1297,6 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
   const auto N = problem_data.N_mult;
   const auto F = problem_data.F_mult;
   const auto L = problem_data.L_mult;
-
-  // Compute a and A⁻¹a.
-  const int num_eq_constraints = problem_data.kG.size();
-  const VectorX<T>& Mv = problem_data.Mv;
-  a->resize(Mv.size() + num_eq_constraints);
-  a->head(Mv.size()) = -Mv;
-  a->tail(num_eq_constraints) = problem_data.kG;
-  const VectorX<T> invA_a = A_solve(*a);
-  const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
 
   // Verify that all gamma vectors are either empty or non-negative.
   const VectorX<T>& gammaN = problem_data.gammaN;
