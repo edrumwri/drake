@@ -169,8 +169,6 @@ class ConstraintSolver {
   /// Updates the time-discretization of the LCP initially computed in
   /// ConstructBaseDiscretizedTimeLCP() using the problem data, time step `dt`.
   /// @param problem_data the constraint problem data.
-  /// @param pure_problem_data the constraint data using the eliminated
-  ///        bilateral constraints.
   /// @param A_solve the function pointer for solving linear systems using the
   ///        "A" matrix from the MLCP.
   /// @param[out] a the vector corresponding to the MLCP vector `a`, on return.
@@ -179,7 +177,6 @@ class ConstraintSolver {
   /// @pre `a`, `MM`, and `qq` are non-null on entry.
   static void UpdateDiscretizedTimeLCP(
       const ConstraintVelProblemData<T>& problem_data,
-      const ConstraintVelProblemData<T>& pure_problem_data,
       const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
       double dt,
       VectorX<T>* a,
@@ -1262,7 +1259,6 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
 template <typename T>
 void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
     const ConstraintVelProblemData<T>& problem_data,
-    const ConstraintVelProblemData<T>& pure_problem_data,
     const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
     double dt,
     VectorX<T>* a,
@@ -1320,9 +1316,10 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
   // L⋅M⁻¹⋅Nᵀ  L⋅M⁻¹⋅Dᵀ  0   L⋅M⁻¹⋅Lᵀ
   // where D = |  F |
   //           | -F |
-  MM->topLeftCorner(nc + nr, nc + nr) *= dt;
-  MM->bottomLeftCorner(nl, nc + nr) *= dt;
-  MM->topRightCorner(nc + nr, nl) *= dt;
+  const int nr2 = nr * 2;
+  MM->topLeftCorner(nc + nr2, nc + nr2) *= dt;
+  MM->bottomLeftCorner(nl, nc + nr2) *= dt;
+  MM->topRightCorner(nc + nr2, nl) *= dt;
   MM->bottomRightCorner(nl, nl) *= dt;  
 
   // Regularize the LCP matrix.
@@ -1870,12 +1867,12 @@ void ConstraintSolver<T>::FormImpactingConstraintLCP(
   ComputeConstraintSpaceComplianceMatrix(L, nl, iM_LT, L_iM_LT);
 
   // Construct the LCP matrix. First do the "normal contact direction" rows:
-  MM->block(0, nc + nr, nc, nr) = -MM->block(0, nc, nc, nr);
+  MM->block(0, nc + nr, nc, nr) = -MM->block(0, nc, nc, nr).eval();
   MM->block(0, nc + nk, nc, nc).setZero();
 
   // Now construct the un-negated tangent contact direction rows.
   MM->block(nc, 0, nr, nc) = MM->block(0, nc, nc, nr).transpose().eval();
-  MM->block(nc, nc + nr, nr, nr) = -MM->block(nc, nc, nr, nr);
+  MM->block(nc, nc + nr, nr, nr) = -MM->block(nc, nc, nr, nr).eval();
   MM->block(nc, nc + nk, num_spanning_vectors, nc) = E;
 
   // Now construct the negated tangent contact direction rows. These negated

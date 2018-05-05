@@ -1302,7 +1302,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     MM = MM_base;
     qq = qq_base;
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
-      problem_data, pure_problem_data, A_solve, dt, &a, &MM, &qq);
+      problem_data, A_solve, dt, &a, &MM, &qq);
 
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
@@ -1345,6 +1345,9 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
       ComputeDiscretizedSystemContactResults(contacts, problem_data,
           kinematics_cache, constraint_force,
           &discretized_system_contact_results_);
+      
+      DRAKE_SPDLOG_DEBUG(drake::log(), "Solved discretization problem with "
+          "dt={}", dt);
 
       // If dt is not equivalent to target_dt, recurse.
       if (dt < target_dt)
