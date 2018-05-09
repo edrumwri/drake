@@ -150,8 +150,8 @@ class ConstraintSolver {
   /// @param[out] A_solve a pointer to a function pointer for solving linear
   ///         systems using the "A" matrix from the MLCP.
   /// @param[out] fast_A_solve a pointer to a function pointer for solving
-  ///        linear systems using only the upper left block of A⁻¹ to exploit
-  ///        zero blocks in common operations.
+  ///        linear systems using only the upper left block of A⁻¹ in the MLCP
+  ///        to exploit zero blocks in common operations.
   /// @param[out] pure_problem_data a pointer to a constraint data object; on
   /// @param[out] MM a pointer to a matrix that will contain the parts of the
   ///             LCP matrix not dependent upon the time step on return.
@@ -169,16 +169,31 @@ class ConstraintSolver {
   /// Updates the time-discretization of the LCP initially computed in
   /// ConstructBaseDiscretizedTimeLCP() using the problem data, time step `dt`.
   /// @param problem_data the constraint problem data.
-  /// @param A_solve the function pointer for solving linear systems using the
-  ///        "A" matrix from the MLCP.
+  /// @param[in,out] delassus_QTZ a pointer to a valid
+  ///        CompleteOrthogonalDecomposition object; the caller must ensure
+  ///        that this pointer remains valid while the function pointers to
+  ///        `A_solve` and `fast_A_solve` are maintained. This object will
+  ///        be changed on return if `problem_data` contains any bilateral
+  ///        constraints.
+  /// @param[in,out] A_solve the function pointer for solving linear systems
+  ///                using the "A" matrix from the MLCP. This object will be
+  ///                 changed on return if `problem_data` contains any bilateral
+  ///                constraints.
+  /// @param[in,out] fast_A_solve a pointer to a function pointer for solving
+  ///        linear systems using only the upper left block of A⁻¹ in the MLCP
+  ///        to exploit zero blocks in common operations. This object will be
+  ///        changed on return if `problem_data` contains any bilateral
+  ///        constraints.
   /// @param[out] a the vector corresponding to the MLCP vector `a`, on return.
   /// @param[out] MM a pointer to the updated LCP matrix on return.
   /// @param[out] qq a pointer to the updated LCP vector on return.
   /// @pre `a`, `MM`, and `qq` are non-null on entry.
   static void UpdateDiscretizedTimeLCP(
       const ConstraintVelProblemData<T>& problem_data,
-      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
       double dt,
+      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
       VectorX<T>* a,
       MatrixX<T>* MM,
       VectorX<T>* qq);
@@ -186,9 +201,26 @@ class ConstraintSolver {
   /// Populates the packed constraint force vector from the solution to the
   /// linear complementarity problem (LCP) constructed using
   /// ConstructBaseDiscretizedTimeLCP() and UpdateDiscretizedTimeLCP().
-  /// @param problem_data the original constraint problem data.
-  /// @param pure_problem_data the constraint problem data without bilateral
-  ///        constraints used to construct the pure LCP,
+  /// @param problem_data the constraint problem data.
+  /// @param A_solve a pointer to a function pointer for solving linear systems
+  ///        using the "A" matrix from the mixed linear complementarity problem.
+  /// @param a the vector `a` output from UpdateDiscretizedTimeLCP().
+  /// @param dt the time step used to discretize the problem.
+  /// @param[out] cf the constraint forces, on return.
+  /// @pre cf is non-null.
+  static void PopulatePackedConstraintForcesFromLCPSolution(
+      const ConstraintVelProblemData<T>& problem_data,
+      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+      const VectorX<T>& zz,
+      const VectorX<T>& a,
+      double dt,
+      VectorX<T>* cf);
+  //@}
+
+  /// Populates the packed constraint force vector from the solution to the
+  /// linear complementarity problem (LCP) constructed using
+  /// ConstructBaseDiscretizedTimeLCP() and UpdateDiscretizedTimeLCP().
+  /// @param problem_data the constraint problem data.
   /// @param A_solve a pointer to a function pointer for solving linear systems
   ///        using the "A" matrix from the mixed linear complementarity problem.
   /// @param a the vector `a` output from UpdateDiscretizedTimeLCP().
@@ -196,12 +228,10 @@ class ConstraintSolver {
   /// @pre cf is non-null.
   static void PopulatePackedConstraintForcesFromLCPSolution(
       const ConstraintVelProblemData<T>& problem_data,
-      const ConstraintVelProblemData<T>& pure_problem_data,
       const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
       const VectorX<T>& zz,
       const VectorX<T>& a,
       VectorX<T>* cf);
-  //@}
 
   /// Solves the appropriate constraint problem at the acceleration level.
   /// @param problem_data The data used to compute the constraint forces.
@@ -955,15 +985,15 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   // Compute a and A⁻¹a.
   VectorX<T> a(problem_data.tau.size() + num_eq_constraints);
   a.head(problem_data.tau.size()) = -problem_data.tau;
-  a.tail(num_eq_constraints) = data_ptr->kG;
+  a.tail(num_eq_constraints) = problem_data.kG;
   const VectorX<T> invA_a = A_solve(a);
   const VectorX<T> trunc_neg_invA_a = -invA_a.head(problem_data.tau.size());
 
   // Determine which problem formulation to use.
   if (problem_data.use_complementarity_problem_solver) {
-    FormAndSolveConstraintLCP(*data_ptr, trunc_neg_invA_a, cf);
+    FormAndSolveConstraintLCP(problem_data, trunc_neg_invA_a, cf);
   } else {
-    FormAndSolveConstraintLinearSystem(*data_ptr, trunc_neg_invA_a, cf);
+    FormAndSolveConstraintLinearSystem(problem_data, trunc_neg_invA_a, cf);
   }
 
   // Alias constraint force segments.
@@ -1131,7 +1161,7 @@ void ConstraintSolver<T>::SolveImpactProblem(
 
   // Construct the packed force vector.
   PopulatePackedConstraintForcesFromLCPSolution(
-      problem_data, *data_ptr, A_solve, zz, a, cf);
+      problem_data, A_solve, zz, a, cf);
 }
 
 template <typename T>
@@ -1193,10 +1223,21 @@ void ConstraintSolver<T>::ConstructLinearEquationSolversForMLCP(
 template <typename T>
 void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
     const ConstraintVelProblemData<T>& problem_data,
-    const ConstraintVelProblemData<T>& pure_problem_data,
     const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
     const VectorX<T>& zz,
     const VectorX<T>& a,
+    VectorX<T>* cf) {
+  PopulatePackedConstraintForcesFromLCPSolution(
+      problem_data, A_solve, zz, a, 1.0, cf);
+}
+
+template <typename T>
+void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
+    const ConstraintVelProblemData<T>& problem_data,
+    const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+    const VectorX<T>& zz,
+    const VectorX<T>& a,
+    double dt,
     VectorX<T>* cf) {
   // Resize the force vector.
   const int num_contacts = problem_data.mu.size();
@@ -1242,9 +1283,9 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
   if (num_eq_constraints > 0) {
     // In this case, Xv = -NᵀfN - DᵀfD -LᵀfL and a = | -Mv(t) |.
     //                                               |   kG   |
-    const VectorX<T> Xv = -pure_problem_data.N_transpose_mult(fN)
-        -pure_problem_data.F_transpose_mult(fF)
-        -pure_problem_data.L_transpose_mult(fL);
+    const VectorX<T> Xv = (-problem_data.N_transpose_mult(fN)
+        -problem_data.F_transpose_mult(fF)
+        -problem_data.L_transpose_mult(fL)) * dt;
     VectorX<T> aug = a;
     aug.head(Xv.size()) += Xv;
     const VectorX<T> u = -A_solve(aug);
@@ -1259,8 +1300,10 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
 template <typename T>
 void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
     const ConstraintVelProblemData<T>& problem_data,
-    const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
     double dt,
+    Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
     VectorX<T>* a,
     MatrixX<T>* MM,
     VectorX<T>* qq) {
@@ -1268,13 +1311,19 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
   DRAKE_DEMAND(qq);
   DRAKE_DEMAND(a);
 
+  // Recompute the linear equation solvers, if necessary.
+  if (problem_data.kG.size() > 0) {
+    ConstructLinearEquationSolversForMLCP(
+        problem_data, delassus_QTZ, A_solve, fast_A_solve);
+  }
+
   // Compute a and A⁻¹a.
   const int num_eq_constraints = problem_data.kG.size();
   const VectorX<T>& Mv = problem_data.Mv;
   a->resize(Mv.size() + num_eq_constraints);
   a->head(Mv.size()) = -Mv;
   a->tail(num_eq_constraints) = problem_data.kG;
-  const VectorX<T> invA_a = A_solve(*a);
+  const VectorX<T> invA_a = (*A_solve)(*a);
   const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
 
   // Look for quick exit.
@@ -1996,10 +2045,10 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
       num_contacts + num_spanning_vectors + num_limits, num_bilat_constraints);
 
   /// Compute the generalized impules.
-  *generalized_impulse = problem_data.N_transpose_mult(f_normal)  +
-                         problem_data.F_transpose_mult(f_frictional) +
-                         problem_data.L_transpose_mult(f_limit) +
-                         problem_data.G_transpose_mult(f_bilat);
+  *generalized_impulse = problem_data.N_transpose_mult(f_normal);
+  *generalized_impulse += problem_data.F_transpose_mult(f_frictional);
+  *generalized_impulse += problem_data.L_transpose_mult(f_limit);
+  *generalized_impulse += problem_data.G_transpose_mult(f_bilat);
 }
 
 template <class T>

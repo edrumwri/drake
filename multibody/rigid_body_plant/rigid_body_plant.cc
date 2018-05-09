@@ -1176,8 +1176,8 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   const auto G = tree.positionConstraintsJacobian(kinematics_cache, false);
   problem_data.G_mult = [&G](const VectorX<T>& w) -> VectorX<T> {
       return G * w; };
-  problem_data.G_transpose_mult = [&G, target_dt](const VectorX<T>& lambda) {
-    return G.transpose() * lambda * target_dt;
+    problem_data.G_transpose_mult = [&G](const VectorX<T>& lambda) {
+    return G.transpose() * lambda;
   };
   const double default_bilateral_erp = 0.5;
   problem_data.kG = default_bilateral_erp *
@@ -1235,7 +1235,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   // Output the Jacobians.
   #ifdef SPDLOG_DEBUG_ON
   MatrixX<T> N(contacts.size(), v.size()), L(limits.size(), v.size()),
-      F(total_friction_cone_edges, v.size());
+      F(total_friction_cone_edges, v.size()), M(v.size(), v.size());
   for (int i = 0; i < v.size(); ++i) {
     VectorX<T> unit = VectorX<T>::Unit(v.size(), i);
     N.col(i) = problem_data.N_mult(unit);
@@ -1245,6 +1245,8 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   SPDLOG_DEBUG(drake::log(), "N: {}", N);
   SPDLOG_DEBUG(drake::log(), "F: {}", F);
   SPDLOG_DEBUG(drake::log(), "L: {}", L);
+  SPDLOG_DEBUG(drake::log(), "G: {}", G);
+  SPDLOG_DEBUG(drake::log(), "M: {}", H);
   #endif
 
   // Construct the "base" time-discretized LCP. This is the part of the
@@ -1259,11 +1261,6 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   VectorX<T> new_velocity, constraint_force;
   T dt = target_dt;
   while (dt > 0) {
-    // Redetermine GT.
-    problem_data.G_transpose_mult = [&G, dt](const VectorX<T>& lambda) {
-      return G.transpose() * lambda * dt;
-    };
-
     // (Re)set the stabilization term for contact normal direction (kN). Also,
     // determine the friction coefficients and (half) the number of friction
     // cone edges.
@@ -1302,7 +1299,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     MM = MM_base;
     qq = qq_base;
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
-      problem_data, A_solve, dt, &a, &MM, &qq);
+      problem_data, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
 
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
@@ -1325,7 +1322,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
               num_vars * zero_tol))) {
       // Compute the new velocity and constraint forces.
       constraint_solver_.PopulatePackedConstraintForcesFromLCPSolution(
-        problem_data, pure_problem_data, A_solve, zz, a, &constraint_force);
+        problem_data, A_solve, zz, a, dt, &constraint_force);
       constraint_solver_.ComputeGeneralizedVelocityChange(
           problem_data, constraint_force, &new_velocity);
 
