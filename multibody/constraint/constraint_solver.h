@@ -275,7 +275,7 @@ class ConstraintSolver {
   ///           final `b` values of `cf` correspond to the forces applied to
   ///           enforce generic bilateral constraints. This packed storage
   ///           format can be turned into more useful representations through
-  ///           ComputeGeneralizedImpulseFromConstraintImpulses() and
+  ///           ComputeGeneralizedForceFromConstraintForces() and
   ///           CalcImpactForcesInContactFrames(). `cf` will be resized as
   ///           necessary.
   /// @pre Constraint data has been computed.
@@ -316,7 +316,7 @@ class ConstraintSolver {
   ///             match the indices of `problem_data.v`.
   /// @throws std::logic_error if `generalized_impulse` is null or `cf`
   ///         vector is incorrectly sized.
-  static void ComputeGeneralizedImpulseFromConstraintImpulses(
+  static void ComputeGeneralizedForceFromConstraintForces(
       const ConstraintVelProblemData<T>& problem_data,
       const VectorX<T>& cf,
       VectorX<T>* generalized_impulse);
@@ -329,6 +329,17 @@ class ConstraintSolver {
   ///         @p cf vector is incorrectly sized.
   static void ComputeGeneralizedAcceleration(
       const ConstraintAccelProblemData<T>& problem_data,
+      const VectorX<T>& cf,
+      VectorX<T>* generalized_acceleration);
+
+  /// Computes the system generalized acceleration, given the external forces
+  /// (stored in `problem_data`) and the constraint forces.
+  /// @param cf The computed constraint forces, in the packed storage
+  ///           format described in documentation for SolveConstraintProblem.
+  /// @throws std::logic_error if @p generalized_acceleration is null or
+  ///         @p cf vector is incorrectly sized.
+  static void ComputeGeneralizedAccelerationFromConstraintForces(
+      const ConstraintVelProblemData<T>& problem_data,
       const VectorX<T>& cf,
       VectorX<T>* generalized_acceleration);
 
@@ -1261,12 +1272,12 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
   cf->segment(0, num_contacts) = fN;
   cf->segment(num_contacts, num_spanning_vectors) = fD_plus - fD_minus;
   cf->segment(num_contacts + num_spanning_vectors, num_limits) = fL;
-  DRAKE_SPDLOG_DEBUG(drake::log(), "Normal contact impulses: {}",
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Normal contact forces/impulses: {}",
       fN.transpose());
-  DRAKE_SPDLOG_DEBUG(drake::log(), "Frictional contact impulses: {}",
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Frictional contact forces/impulses: {}",
       (fD_plus - fD_minus).transpose());
-  DRAKE_SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
-      fL.transpose());
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint "
+      "forces/impulses: {}", fL.transpose());
 
   // Determine the new velocity and the bilateral constraint forces.
   //     Au + Xv + a = 0
@@ -1283,6 +1294,7 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
   if (num_eq_constraints > 0) {
     // In this case, Xv = -NᵀfN - DᵀfD -LᵀfL and a = | -Mv(t) |.
     //                                               |   kG   |
+    // First, make the forces impulsive.
     const VectorX<T> Xv = (-problem_data.N_transpose_mult(fN)
         -problem_data.F_transpose_mult(fF)
         -problem_data.L_transpose_mult(fL)) * dt;
@@ -1291,8 +1303,10 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
     const VectorX<T> u = -A_solve(aug);
     auto lambda = cf->segment(num_contacts +
         num_spanning_vectors + num_limits, num_eq_constraints);
-    lambda = u.tail(num_eq_constraints);
-    DRAKE_SPDLOG_DEBUG(drake::log(), "Bilateral constraint impulses: {}",
+
+    // Transform the impulsive forces back to non-impulsive forces.
+    lambda = u.tail(num_eq_constraints) / dt;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Bilateral constraint forces/impulses: {}",
                        lambda.transpose());
   }
 }
@@ -2003,16 +2017,16 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
 }
 
 template <class T>
-void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
+void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
     const ConstraintVelProblemData<T>& problem_data,
     const VectorX<T>& cf,
-    VectorX<T>* generalized_impulse) {
-  if (!generalized_impulse)
-    throw std::logic_error("generalized_impulse vector is null.");
+    VectorX<T>* generalized_force) {
+  if (!generalized_force)
+    throw std::logic_error("generalized_force vector is null.");
 
   // Look for fast exit.
   if (cf.size() == 0) {
-    generalized_impulse->setZero(problem_data.Mv.size(), 1);
+    generalized_force->setZero(problem_data.Mv.size(), 1);
     return;
   }
 
@@ -2031,7 +2045,7 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
                                " dimension.");
   }
 
-  /// Get the normal and tangential contact impulses.
+  /// Get the normal and tangential contact forces.
   const Eigen::Ref<const VectorX<T>> f_normal = cf.segment(0, num_contacts);
   const Eigen::Ref<const VectorX<T>> f_frictional = cf.segment(
       num_contacts, num_spanning_vectors);
@@ -2045,10 +2059,10 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
       num_contacts + num_spanning_vectors + num_limits, num_bilat_constraints);
 
   /// Compute the generalized impules.
-  *generalized_impulse = problem_data.N_transpose_mult(f_normal);
-  *generalized_impulse += problem_data.F_transpose_mult(f_frictional);
-  *generalized_impulse += problem_data.L_transpose_mult(f_limit);
-  *generalized_impulse += problem_data.G_transpose_mult(f_bilat);
+  *generalized_force = problem_data.N_transpose_mult(f_normal) +
+      problem_data.F_transpose_mult(f_frictional) +
+      problem_data.L_transpose_mult(f_limit) +
+      problem_data.G_transpose_mult(f_bilat);
 }
 
 template <class T>
@@ -2067,6 +2081,20 @@ void ConstraintSolver<T>::ComputeGeneralizedAcceleration(
 }
 
 template <class T>
+void ConstraintSolver<T>::ComputeGeneralizedAccelerationFromConstraintForces(
+    const ConstraintVelProblemData<T>& problem_data,
+    const VectorX<T>& cf,
+    VectorX<T>* generalized_acceleration) {
+  if (!generalized_acceleration)
+    throw std::logic_error("generalized_acceleration vector is null.");
+
+  VectorX<T> generalized_force;
+  ComputeGeneralizedForceFromConstraintForces(problem_data, cf,
+                                              &generalized_force);
+  *generalized_acceleration = problem_data.solve_inertia(generalized_force);
+}
+
+template <class T>
 void ConstraintSolver<T>::ComputeGeneralizedVelocityChange(
     const ConstraintVelProblemData<T>& problem_data,
     const VectorX<T>& cf,
@@ -2076,7 +2104,7 @@ void ConstraintSolver<T>::ComputeGeneralizedVelocityChange(
     throw std::logic_error("generalized_delta_v vector is null.");
 
   VectorX<T> generalized_impulse;
-  ComputeGeneralizedImpulseFromConstraintImpulses(problem_data, cf,
+  ComputeGeneralizedForceFromConstraintForces(problem_data, cf,
                                                   &generalized_impulse);
   *generalized_delta_v = problem_data.solve_inertia(generalized_impulse);
 }

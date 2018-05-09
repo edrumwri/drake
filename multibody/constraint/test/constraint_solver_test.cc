@@ -1314,7 +1314,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     CalcConstraintVelProblemData(vel_data_.get());
 
     // Set the discretization delta-t.
-    const double dt = 1.0;
+    const double dt = 1e-12;
 
     // Update Mv to slide to the given direction.
     const double rod_mass = rod_->get_rod_mass();
@@ -1349,8 +1349,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
         };
 
     // Set the normal compliance and damping.
-    const double stiffness = 1e18;
-    const double damping = 1.0;
+    const double stiffness = std::numeric_limits<double>::infinity();
+    const double damping = 0.0;
 
     const double denom = dt * stiffness + damping;
     const double cfm = 1.0 / denom;
@@ -1378,9 +1378,8 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     int num_pivots;
     VectorX<double> zz;
     bool success = lcp.SolveLcpLemke(MM, qq, &zz, &num_pivots);
-    const VectorX<double> ww = MM*zz + qq;
-    const double max_dot = (zz.size() > 0) ?
-                      (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+    VectorX<double> ww = MM*zz + qq;
+    double max_dot = (zz.array() * ww.array()).abs().maxCoeff();
 
     // Check for success.
     const int num_vars = qq.size();
@@ -1394,7 +1393,6 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     VectorX<double> cf;
     solver_.PopulatePackedConstraintForcesFromLCPSolution(*vel_data_, A_solve,
                                                           zz, a, dt, &cf);
-
 
     // Construct the contact frame(s).
     std::vector<Matrix2<double>> frames;
@@ -1427,20 +1425,43 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     EXPECT_NEAR(fN, fdown, lcp_eps_);
     EXPECT_NEAR(fF, sign * -fdown * rod_->get_mu_coulomb(), lcp_eps_);
 
-    // Get the change in generalized velocity and verify that there is no
-    // angular velocity.
-    VectorX<double> gv;
-    solver_.ComputeGeneralizedVelocityChange(*vel_data_, cf, &gv);
-    EXPECT_LT((v[2] + gv[2]), lcp_eps_ * cf.size());
+    // Get the generalized acceleration from the constraint forces and verify 
+    // that the moment is zero.
+    VectorX<double> ga;
+    solver_.ComputeGeneralizedAccelerationFromConstraintForces(
+        *vel_data_, cf, &ga);
+    EXPECT_LT(ga[2], lcp_eps_ * cf.size());
 
     // Indicate through modification of the kG term that the system already has
     // angular orientation (which violates our desire to keep the rod at
     // zero rotation) and solve again.
     vel_data_->kG[0] = 1.0;    // Indicate a ccw orientation..
-    solver_.SolveImpactProblem(*vel_data_, &cf);
-    solver_.ComputeGeneralizedVelocityChange(*vel_data_, cf, &gv);
-    EXPECT_NEAR(v[2] + gv[2], -vel_data_->kG[0],
-                lcp_eps_ * cf.size());
+    solver_.ConstructBaseDiscretizedTimeLCP(
+        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &pure_problem_data,
+        &MM, &qq);
+    solver_.UpdateDiscretizedTimeLCP(
+        *vel_data_, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
+
+    // Attempt to solve the LCP again.
+    success = lcp.SolveLcpLemke(MM, qq, &zz, &num_pivots);
+    ww = MM*zz + qq;
+    max_dot = (zz.array() * ww.array()).abs().maxCoeff();
+
+    // Check for success.
+    ASSERT_TRUE(success);
+    ASSERT_GT(zz.minCoeff(), -num_vars * zero_tol);
+    ASSERT_GT(ww.minCoeff(), -num_vars * zero_tol);
+    ASSERT_LT(max_dot, max(1.0, zz.maxCoeff()) * max(1.0, ww.maxCoeff()) *
+                    num_vars * zero_tol);
+
+    // Compute the constraint forces in packed storage format.
+    solver_.PopulatePackedConstraintForcesFromLCPSolution(*vel_data_, A_solve,
+                                                          zz, a, dt, &cf);
+
+    // Compute the generalized acceleration.
+    solver_.ComputeGeneralizedAccelerationFromConstraintForces(
+        *vel_data_, cf, &ga);
+    EXPECT_NEAR(ga[2] * dt, -vel_data_->kG[0], lcp_eps_ * cf.size());
   }
 
   // Tests the rod in a one-point sliding contact configuration with a second
