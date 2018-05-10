@@ -7,6 +7,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/examples/rod2d/rod2d.h"
+#include "drake/solvers/unrevised_lemke_solver.h"
 
 using drake::systems::ContinuousState;
 using drake::systems::Context;
@@ -274,7 +275,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     DRAKE_DEMAND(contact_points_dup >= 0);
     DRAKE_DEMAND(friction_directions_dup >= 0);
 
-    // Reset constraint acceleration data.
+    // Reset constraint velocity data.
     const int num_velocities = 3;
     *data = ConstraintVelProblemData<double>(num_velocities);
 
@@ -1297,6 +1298,172 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
                 lcp_eps_ * cf.size());
   }
 
+  // Tests the rod in an upright sliding and impacting state, with sliding
+  // velocity as specified. The rod will be constrained to prevent rotational
+  // velocity using a bilateral constraint as well.
+  void SlidingPlusBilateralDiscretization(bool sliding_to_right) {
+    using std::max;
+
+    SetRodToRestingVerticalConfig();
+
+    // Set the coefficient of friction. A nonzero coefficient of friction should
+    // cause the rod to rotate.
+    rod_->set_mu_coulomb(0.1);
+
+    // Compute the problem data.
+    CalcConstraintVelProblemData(vel_data_.get());
+
+    // Set the discretization delta-t.
+    const double dt = 1e-12;
+
+    // Update Mv to slide to the given direction.
+    const double rod_mass = rod_->get_rod_mass();
+    vel_data_->Mv += Vector3<double>((sliding_to_right) ? 1.0 : -1.0, 0, 0) *
+        rod_mass;
+
+    // Update Mv using the gravitational force.
+    vel_data_->Mv += Vector3<double>(0,
+        rod_->get_gravitational_acceleration() / rod_mass, 0) * dt;
+
+    // Compute the generalized velocity.
+    const VectorX<double> v = vel_data_->solve_inertia(vel_data_->Mv);
+
+    // Add in bilateral constraints on rotational motion.
+    vel_data_->kG.setZero(1);    // No right hand side term.
+    vel_data_->G_mult = [](const VectorX<double>& w) -> VectorX<double> {
+      VectorX<double> result(1);   // Only one constraint.
+
+      // Constrain the angular velocity to be zero.
+      result[0] = w[2];
+      return result;
+    };
+    vel_data_->G_transpose_mult =
+        [this](const VectorX<double>& f) -> VectorX<double> {
+          // An impulsive force (torque) applied to the third component needs no
+          // transformation.
+          DRAKE_DEMAND(f.size() == 1);
+          VectorX<double> result(get_rod_num_coordinates());
+          result.setZero();
+          result[2] = f[0];
+          return result;
+        };
+
+    // Set the normal compliance and damping.
+    const double stiffness = std::numeric_limits<double>::infinity();
+    const double damping = 0.0;
+
+    const double denom = dt * stiffness + damping;
+    const double cfm = 1.0 / denom;
+    vel_data_->gammaN.setOnes() *= cfm;
+
+    // Compute the constraint forces.
+    VectorX<double> qq, a;
+    MatrixX<double> MM;
+    multibody::constraint::ConstraintVelProblemData<double> pure_problem_data(
+        0 /* no storage allocation */);
+    Eigen::CompleteOrthogonalDecomposition<MatrixX<double>> delassus_QTZ;
+    std::function<MatrixX<double>(const MatrixX<double>&)> A_solve;
+    std::function<MatrixX<double>(const MatrixX<double>&)> fast_A_solve;
+    solver_.ConstructBaseDiscretizedTimeLCP(
+        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &pure_problem_data,
+        &MM, &qq);
+    solver_.UpdateDiscretizedTimeLCP(
+        *vel_data_, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
+
+    // Determine the zero tolerance.
+    solvers::UnrevisedLemkeSolver<double> lcp;
+    const double zero_tol = lcp.ComputeZeroTolerance(MM, qq);
+
+    // Attempt to solve the linear complementarity problem.
+    int num_pivots;
+    VectorX<double> zz;
+    bool success = lcp.SolveLcpLemke(MM, qq, &zz, &num_pivots);
+    VectorX<double> ww = MM*zz + qq;
+    double max_dot = (zz.array() * ww.array()).abs().maxCoeff();
+
+    // Check for success.
+    const int num_vars = qq.size();
+    ASSERT_TRUE(success);
+    ASSERT_GT(zz.minCoeff(), -num_vars * zero_tol);
+    ASSERT_GT(ww.minCoeff(), -num_vars * zero_tol);
+    ASSERT_LT(max_dot, max(1.0, zz.maxCoeff()) * max(1.0, ww.maxCoeff()) *
+                    num_vars * zero_tol);
+
+    // Compute the packed constraint forces.
+    VectorX<double> cf;
+    solver_.PopulatePackedConstraintForcesFromLCPSolution(*vel_data_, A_solve,
+                                                          zz, a, dt, &cf);
+
+    // Construct the contact frame(s).
+    std::vector<Matrix2<double>> frames;
+    frames.push_back(GetNonSlidingContactFrameToWorldTransform());
+
+    // Get the contact impulses expressed in the contact frame.
+    std::vector<Vector2<double>> contact_forces;
+    ConstraintSolver<double>::CalcImpactForcesInContactFrames(
+        cf, *vel_data_, frames, &contact_forces);
+
+    // Verify that the number of contact force vectors is correct.
+    ASSERT_EQ(contact_forces.size(), frames.size());
+
+    // Verify that there are no non-sliding frictional forces.
+    const int num_contacts = vel_data_->mu.size();
+    const int num_bilateral_eqns = vel_data_->kG.size();
+    EXPECT_EQ(cf.size(), num_contacts * 2 + num_bilateral_eqns);
+
+    // Determine the force that should be acting on the system.
+    const double fdown = -rod_->get_gravitational_acceleration() / rod_mass;
+
+    // Verify that the normal contact impulses exactly oppose the discretized
+    // force.
+    double fN = 0, fF = 0;
+    for (int i = 0; i < static_cast<int>(contact_forces.size()); ++i) {
+      fN += contact_forces[i][0];
+      fF += contact_forces[i][1];
+    }
+    const double sign = (sliding_to_right) ? 1 : -1;
+    EXPECT_NEAR(fN, fdown, lcp_eps_);
+    EXPECT_NEAR(fF, sign * -fdown * rod_->get_mu_coulomb(), lcp_eps_);
+
+    // Get the generalized acceleration from the constraint forces and verify 
+    // that the moment is zero.
+    VectorX<double> ga;
+    solver_.ComputeGeneralizedAccelerationFromConstraintForces(
+        *vel_data_, cf, &ga);
+    EXPECT_LT(ga[2], lcp_eps_ * cf.size());
+
+    // Indicate through modification of the kG term that the system already has
+    // angular orientation (which violates our desire to keep the rod at
+    // zero rotation) and solve again.
+    vel_data_->kG[0] = 1.0;    // Indicate a ccw orientation..
+    solver_.ConstructBaseDiscretizedTimeLCP(
+        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &pure_problem_data,
+        &MM, &qq);
+    solver_.UpdateDiscretizedTimeLCP(
+        *vel_data_, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
+
+    // Attempt to solve the LCP again.
+    success = lcp.SolveLcpLemke(MM, qq, &zz, &num_pivots);
+    ww = MM*zz + qq;
+    max_dot = (zz.array() * ww.array()).abs().maxCoeff();
+
+    // Check for success.
+    ASSERT_TRUE(success);
+    ASSERT_GT(zz.minCoeff(), -num_vars * zero_tol);
+    ASSERT_GT(ww.minCoeff(), -num_vars * zero_tol);
+    ASSERT_LT(max_dot, max(1.0, zz.maxCoeff()) * max(1.0, ww.maxCoeff()) *
+                    num_vars * zero_tol);
+
+    // Compute the constraint forces in packed storage format.
+    solver_.PopulatePackedConstraintForcesFromLCPSolution(*vel_data_, A_solve,
+                                                          zz, a, dt, &cf);
+
+    // Compute the generalized acceleration.
+    solver_.ComputeGeneralizedAccelerationFromConstraintForces(
+        *vel_data_, cf, &ga);
+    EXPECT_NEAR(ga[2] * dt, -vel_data_->kG[0], lcp_eps_ * cf.size());
+  }
+
   // Tests the rod in a one-point sliding contact configuration with a second
   // constraint that prevents horizontal acceleration. This test tests the
   // interaction between contact and limit constraints.
@@ -1680,6 +1847,8 @@ TEST_P(Constraint2DSolverTest, SinglePointSlidingPlusBilateralTest) {
 TEST_P(Constraint2DSolverTest, SinglePointSlidingImpactPlusBilateralTest) {
   SlidingPlusBilateralImpact(kSlideRight);
   SlidingPlusBilateralImpact(kSlideLeft);
+  SlidingPlusBilateralDiscretization(kSlideRight);
+  SlidingPlusBilateralDiscretization(kSlideLeft);
 }
 
 // Tests the rod in a one-point sliding contact configuration with a second

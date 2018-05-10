@@ -75,6 +75,164 @@ class ConstraintSolver {
   ConstraintSolver() = default;
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ConstraintSolver)
 
+  /// @name Velocity-level constraint problems formulated as MLCPs.
+  /// Constraint problems can be posed as mixed linear complementarity problems
+  /// (MLCP), which are problems that take the form:<pre>
+  /// (a)    Au + Xv + a = 0
+  /// (b)    Yu + Bv + b ≥ 0
+  /// (c)              v ≥ 0
+  /// (d) vᵀ(b + Yu + Bv) = 0
+  /// </pre>
+  /// where u are "free" variables. If the matrix A is nonsingular, u can be
+  /// solved for:<pre>
+  /// (e) u = -A⁻¹ (a + Xv)
+  /// </pre>
+  /// allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:<pre>
+  /// (f) q = b - YA⁻¹a
+  /// (g) M = B - YA⁻¹X
+  /// </pre>
+  ///
+  /// The constraint problems considered here take the specific form:<pre>
+  /// (1) | M  -Gᵀ  -Nᵀ  -Dᵀ  0  -Lᵀ | | v⁺ | + |-M v | = | 0 |
+  ///     | G   0    0    0   0   0  | | fG | + |  kᴳ | = | 0 |
+  ///     | N   0    0    0   0   0  | | fN | + |  kᴺ | = | α |
+  ///     | D   0    0    0   E   0  | | fD | + |  kᴰ | = | β |
+  ///     | 0   0    μ   -Eᵀ  0   0  | |  λ | + |   0 | = | γ |
+  ///     | L   0    0    0   0   0  | | fL | + |  kᴸ | = | δ |
+  /// (2) 0 ≤ fN  ⊥  α ≥ 0
+  /// (3) 0 ≤ fD  ⊥  β ≥ 0
+  /// (4) 0 ≤ λ   ⊥  γ ≥ 0
+  /// (5) 0 ≤ fL  ⊥  δ ≥ 0
+  /// </pre>
+  /// where
+  // TODO: fill in variables above.
+  ///
+  /// Converting the MLCP to a pure LCP:
+  ///
+  /// From the notation above in Equations (a)-(d):<pre>
+  /// A ≡ | M  -Ĝᵀ|   a ≡ |-M v |   X ≡ |-Nᵀ  -Dᵀ  0  -Lᵀ |
+  ///     | Ĝ   0 |       |  kᴳ |       | 0    0   0   0  |
+  ///
+  /// Y ≡ | N   0 |   b ≡ |  kᴺ |   B ≡ | 0    0   0   0  |
+  ///     | D   0 |       |  kᴰ |       | 0    0   E   0  |
+  ///     | 0   0 |       |  0  |       | μ   -Eᵀ  0   0  |
+  ///     | L   0 |       |  kᴸ |       | 0    0   0   0  |
+  ///
+  /// u ≡ | v⁺ |      v ≡ | fN |
+  ///     | fG |          | fD |
+  ///                     |  λ |
+  ///                     | fL |
+  /// </pre>
+  /// Therefore, using Equations (f) and (g) and defining C as the upper left
+  /// block of A⁻¹, the pure LCP (q,M) is defined as:<pre>
+  /// MM ≡ | NCNᵀ  NCDᵀ   0   NCLᵀ |
+  ///      | DCNᵀ  DCDᵀ   E   DCLᵀ |
+  ///      | μ      -Eᵀ   0   0    |
+  ///      | LCNᵀ  LCDᵀ   0   LCLᵀ |
+  ///
+  /// qq ≡ | kᴺ - |N 0|A⁻¹a |
+  ///      | kᴰ - |D 0|A⁻¹a |
+  ///      |       0        |
+  ///      | kᴸ - |L 0|A⁻¹a |
+  /// </pre>
+  ///
+  /// The matrix `A` and vector `a` will be used extensively in the following
+  /// documentation.
+
+  // @{
+  /// Computes the time-discretization of the system using the problem data,
+  /// generalized force `f`, intended time step `target_dt`.
+  /// @param problem_data the constraint problem data.
+  /// @param[out] delassus_QTZ a pointer to a valid
+  ///        CompleteOrthogonalDecomposition object; the caller must ensure
+  ///        that this pointer remains valid while the function pointers to
+  ///        `A_solve` and `fast_A_solve` are maintained.
+  /// @param[out] A_solve a pointer to a function pointer for solving linear
+  ///         systems using the "A" matrix from the MLCP.
+  /// @param[out] fast_A_solve a pointer to a function pointer for solving
+  ///        linear systems using only the upper left block of A⁻¹ in the MLCP
+  ///        to exploit zero blocks in common operations.
+  /// @param[out] pure_problem_data a pointer to a constraint data object; on
+  /// @param[out] MM a pointer to a matrix that will contain the parts of the
+  ///             LCP matrix not dependent upon the time step on return.
+  /// @param[out] qq a pointer to a vector that will contain the parts of the
+  ///             LCP vector not dependent upon the time step on return.
+  static void ConstructBaseDiscretizedTimeLCP(
+      const ConstraintVelProblemData<T>& problem_data,
+      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
+      ConstraintVelProblemData<T>* pure_problem_data,
+      MatrixX<T>* MM,
+      VectorX<T>* qq);
+
+  /// Updates the time-discretization of the LCP initially computed in
+  /// ConstructBaseDiscretizedTimeLCP() using the problem data, time step `dt`.
+  /// @param problem_data the constraint problem data.
+  /// @param[in,out] delassus_QTZ a pointer to a valid
+  ///        CompleteOrthogonalDecomposition object; the caller must ensure
+  ///        that this pointer remains valid while the function pointers to
+  ///        `A_solve` and `fast_A_solve` are maintained. This object will
+  ///        be changed on return if `problem_data` contains any bilateral
+  ///        constraints.
+  /// @param[in,out] A_solve the function pointer for solving linear systems
+  ///                using the "A" matrix from the MLCP. This object will be
+  ///                 changed on return if `problem_data` contains any bilateral
+  ///                constraints.
+  /// @param[in,out] fast_A_solve a pointer to a function pointer for solving
+  ///        linear systems using only the upper left block of A⁻¹ in the MLCP
+  ///        to exploit zero blocks in common operations. This object will be
+  ///        changed on return if `problem_data` contains any bilateral
+  ///        constraints.
+  /// @param[out] a the vector corresponding to the MLCP vector `a`, on return.
+  /// @param[out] MM a pointer to the updated LCP matrix on return.
+  /// @param[out] qq a pointer to the updated LCP vector on return.
+  /// @pre `a`, `MM`, and `qq` are non-null on entry.
+  static void UpdateDiscretizedTimeLCP(
+      const ConstraintVelProblemData<T>& problem_data,
+      double dt,
+      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
+      VectorX<T>* a,
+      MatrixX<T>* MM,
+      VectorX<T>* qq);
+
+  /// Populates the packed constraint force vector from the solution to the
+  /// linear complementarity problem (LCP) constructed using
+  /// ConstructBaseDiscretizedTimeLCP() and UpdateDiscretizedTimeLCP().
+  /// @param problem_data the constraint problem data.
+  /// @param A_solve a pointer to a function pointer for solving linear systems
+  ///        using the "A" matrix from the mixed linear complementarity problem.
+  /// @param a the vector `a` output from UpdateDiscretizedTimeLCP().
+  /// @param dt the time step used to discretize the problem.
+  /// @param[out] cf the constraint forces, on return.
+  /// @pre cf is non-null.
+  static void PopulatePackedConstraintForcesFromLCPSolution(
+      const ConstraintVelProblemData<T>& problem_data,
+      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+      const VectorX<T>& zz,
+      const VectorX<T>& a,
+      double dt,
+      VectorX<T>* cf);
+  //@}
+
+  /// Populates the packed constraint force vector from the solution to the
+  /// linear complementarity problem (LCP) constructed using
+  /// ConstructBaseDiscretizedTimeLCP() and UpdateDiscretizedTimeLCP().
+  /// @param problem_data the constraint problem data.
+  /// @param A_solve a pointer to a function pointer for solving linear systems
+  ///        using the "A" matrix from the mixed linear complementarity problem.
+  /// @param a the vector `a` output from UpdateDiscretizedTimeLCP().
+  /// @param[out] cf the constraint forces, on return.
+  /// @pre cf is non-null.
+  static void PopulatePackedConstraintForcesFromLCPSolution(
+      const ConstraintVelProblemData<T>& problem_data,
+      const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+      const VectorX<T>& zz,
+      const VectorX<T>& a,
+      VectorX<T>* cf);
+
   /// Solves the appropriate constraint problem at the acceleration level.
   /// @param problem_data The data used to compute the constraint forces.
   /// @param cf The computed constraint forces, on return, in a packed storage
@@ -174,6 +332,17 @@ class ConstraintSolver {
       const VectorX<T>& cf,
       VectorX<T>* generalized_acceleration);
 
+  /// Computes the system generalized acceleration, given the external forces
+  /// (stored in `problem_data`) and the constraint forces.
+  /// @param cf The computed constraint forces, in the packed storage
+  ///           format described in documentation for SolveConstraintProblem.
+  /// @throws std::logic_error if @p generalized_acceleration is null or
+  ///         @p cf vector is incorrectly sized.
+  static void ComputeGeneralizedAccelerationFromConstraintForces(
+      const ConstraintVelProblemData<T>& problem_data,
+      const VectorX<T>& cf,
+      VectorX<T>* generalized_acceleration);
+
   /// Computes the change to the system generalized velocity from constraint
   /// impulses.
   /// @param cf The computed constraint impulses, in the packed storage
@@ -242,6 +411,11 @@ class ConstraintSolver {
       std::vector<Vector2<T>>* contact_impulses);
 
  private:
+  static void ConstructLinearEquationSolversForMLCP(
+      const ConstraintVelProblemData<T>& problem_data,
+      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+      std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve);
   void FormAndSolveConstraintLCP(
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& trunc_neg_invA_a,
@@ -250,10 +424,10 @@ class ConstraintSolver {
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& trunc_neg_invA_a,
       VectorX<T>* cf) const;
-  void CheckAccelConstraintMatrix(
+  static void CheckAccelConstraintMatrix(
     const ConstraintAccelProblemData<T>& problem_data,
-    const MatrixX<T>& MM) const;
-  void CheckVelConstraintMatrix(
+    const MatrixX<T>& MM);
+  static void CheckVelConstraintMatrix(
     const ConstraintVelProblemData<T>& problem_data,
     const MatrixX<T>& MM) const;
 
@@ -277,38 +451,38 @@ class ConstraintSolver {
       int m,
       MatrixX<T>* iM_GT);
 
-  void FormImpactingConstraintLCP(
+  static void FormImpactingConstraintLCP(
       const ConstraintVelProblemData<T>& problem_data,
       const VectorX<T>& invA_a,
-      MatrixX<T>* MM, VectorX<T>* qq) const;
-  void FormSustainedConstraintLCP(
+      MatrixX<T>* MM, VectorX<T>* qq);
+  static void FormSustainedConstraintLCP(
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& invA_a,
-      MatrixX<T>* MM, VectorX<T>* qq) const;
-  void FormSustainedConstraintLinearSystem(
+      MatrixX<T>* MM, VectorX<T>* qq);
+  static void FormSustainedConstraintLinearSystem(
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& invA_a,
-      MatrixX<T>* MM, VectorX<T>* qq) const;
+      MatrixX<T>* MM, VectorX<T>* qq);
 
   template <typename ProblemData>
-  void DetermineNewPartialInertiaSolveOperator(
+  static void DetermineNewPartialInertiaSolveOperator(
     const ProblemData* problem_data,
     int num_generalized_velocities,
     const Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
-    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) const;
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve);
 
   template <typename ProblemData>
-  void DetermineNewFullInertiaSolveOperator(
+  static void DetermineNewFullInertiaSolveOperator(
     const ProblemData* problem_data,
     int num_generalized_velocities,
     const Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
-    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) const;
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve);
 
   template <typename ProblemData>
-  ProblemData* UpdateProblemDataForUnilateralConstraints(
+  static ProblemData* UpdateProblemDataForUnilateralConstraints(
       const ProblemData& problem_data,
       std::function<const MatrixX<T>(const MatrixX<T>&)> modified_inertia_solve,
-      ProblemData* modified_problem_data) const;
+      ProblemData* modified_problem_data);
 
   drake::solvers::MobyLCPSolver<T> lcp_;
 };
@@ -335,7 +509,7 @@ void ConstraintSolver<T>::DetermineNewPartialInertiaSolveOperator(
     const ProblemData* problem_data,
     int num_generalized_velocities,
     const Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
-    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) const {
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) {
   const int num_eq_constraints = problem_data->kG.size();
 
   *A_solve = [problem_data, delassus_QTZ, num_eq_constraints,
@@ -393,7 +567,7 @@ void ConstraintSolver<T>::DetermineNewFullInertiaSolveOperator(
     const ProblemData* problem_data,
     int num_generalized_velocities,
     const Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
-    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) const {
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve) {
   // Get the number of equality constraints.
   const int num_eq_constraints = problem_data->kG.size();
 
@@ -464,7 +638,7 @@ template <typename ProblemData>
 ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
     const ProblemData& problem_data,
     std::function<const MatrixX<T>(const MatrixX<T>&)> modified_inertia_solve,
-    ProblemData* modified_problem_data) const {
+    ProblemData* modified_problem_data) {
   // Verify that the modified problem data points to something.
   DRAKE_DEMAND(modified_problem_data);
 
@@ -483,6 +657,11 @@ ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
     // Copy most of the data unchanged.
     new_data = problem_data;
 
+    // Remove the bilateral constraints.
+    new_data.kG.resize(0);
+    new_data.G_mult = new_data.zero_fn;
+    new_data.G_transpose_mult = new_data.gv_dim_zero_fn;
+
     // Update the inertia function pointer.
     new_data.solve_inertia = modified_inertia_solve;
     return &new_data;
@@ -495,7 +674,7 @@ ProblemData* ConstraintSolver<T>::UpdateProblemDataForUnilateralConstraints(
 // active, this method will provide the correct solution rapidly.
 // @param problem_data The constraint data formulated at the acceleration
 //                     level.
-// @param trunc_neg_invA_a The firsg ngc elements of -A⁻¹a, where
+// @param trunc_neg_invA_a The first ngc elements of -A⁻¹a, where
 //        A ≡ | M Gᵀ |    (M is the generalized inertia matrix and G is the
 //            | G 0  |     Jacobian matrix for the bilateral constraints)
 //        and a ≡ | -τ |  (τ [tau] and kG are defined in `problem_data`).
@@ -681,7 +860,7 @@ void ConstraintSolver<T>::FormAndSolveConstraintLCP(
   FormSustainedConstraintLCP(problem_data, trunc_neg_invA_a, &MM, &qq);
 
   // Get the zero tolerance for solving the LCP.
-  const T zero_tol = lcp_.ComputeZeroTolerance(MM);
+  const T zero_tol = lcp_.ComputeZeroTolerance(MM, qq);
 
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
@@ -820,15 +999,15 @@ void ConstraintSolver<T>::SolveConstraintProblem(
   // Compute a and A⁻¹a.
   VectorX<T> a(problem_data.tau.size() + num_eq_constraints);
   a.head(problem_data.tau.size()) = -problem_data.tau;
-  a.tail(num_eq_constraints) = data_ptr->kG;
+  a.tail(num_eq_constraints) = problem_data.kG;
   const VectorX<T> invA_a = A_solve(a);
   const VectorX<T> trunc_neg_invA_a = -invA_a.head(problem_data.tau.size());
 
   // Determine which problem formulation to use.
   if (problem_data.use_complementarity_problem_solver) {
-    FormAndSolveConstraintLCP(*data_ptr, trunc_neg_invA_a, cf);
+    FormAndSolveConstraintLCP(problem_data, trunc_neg_invA_a, cf);
   } else {
-    FormAndSolveConstraintLinearSystem(*data_ptr, trunc_neg_invA_a, cf);
+    FormAndSolveConstraintLinearSystem(problem_data, trunc_neg_invA_a, cf);
   }
 
   // Alias constraint force segments.
@@ -881,7 +1060,6 @@ void ConstraintSolver<T>::SolveImpactProblem(
   }
   const int num_limits = problem_data.kL.size();
   const int num_eq_constraints = problem_data.kG.size();
-  const int num_generalized_velocities = problem_data.Mv.size();
 
   // Look for fast exit.
   if (num_contacts == 0 && num_limits == 0 && num_eq_constraints == 0) {
@@ -914,117 +1092,15 @@ void ConstraintSolver<T>::SolveImpactProblem(
   cf->resize(num_contacts + num_spanning_vectors + num_limits +
       num_eq_constraints);
 
-  // The constraint problem is a mixed linear complementarity problem of the
-  // form:
-  // (a)    Au + Xv + a = 0
-  // (b)    Yu + Bv + b ≥ 0
-  // (c)              v ≥ 0
-  // (d) vᵀ(b + Yu + Bv) = 0
-  // where u are "free" variables. If the matrix A is nonsingular, u can be
-  // solved for:
-  // (e) u = -A⁻¹ (a + Xv)
-  // allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:
-  // (f) q = b - YA⁻¹a
-  // (g) M = B - YA⁻¹X
-
-  // Our mixed linear complementarity problem takes the specific form:
-  // (1) | M  -Gᵀ  -Nᵀ  -Dᵀ  0  -Lᵀ | | v⁺ | + |-M v | = | 0 |
-  //     | G   0    0    0   0   0  | | fG | + |  kᴳ | = | 0 |
-  //     | N   0    0    0   0   0  | | fN | + |  kᴺ | = | α |
-  //     | D   0    0    0   E   0  | | fD | + |  kᴰ | = | β |
-  //     | 0   0    μ   -Eᵀ  0   0  | |  λ | + |   0 | = | γ |
-  //     | L   0    0    0   0   0  | | fL | + |  kᴸ | = | δ |
-  // (2) 0 ≤ fN  ⊥  α ≥ 0
-  // (3) 0 ≤ fD  ⊥  β ≥ 0
-  // (4) 0 ≤ λ   ⊥  γ ≥ 0
-  // (5) 0 ≤ fL  ⊥  δ ≥ 0
-
-  // --------------------------------------------------------------------------
-  // Converting the MLCP to a pure LCP:
-  // --------------------------------------------------------------------------
-
-  // From the notation above in Equations (a)-(d):
-  // A ≡ | M  -Ĝᵀ|   a ≡ |-M v |   X ≡ |-Nᵀ  -Dᵀ  0  -Lᵀ |
-  //     | Ĝ   0 |       |  kᴳ |       | 0    0   0   0  |
-  //
-  // Y ≡ | N   0 |   b ≡ |  kᴺ |   B ≡ | 0    0   0   0  |
-  //     | D   0 |       |  kᴰ |       | 0    0   E   0  |
-  //     | 0   0 |       |  0  |       | μ   -Eᵀ  0   0  |
-  //     | L   0 |       |  kᴸ |       | 0    0   0   0  |
-  //
-  // u ≡ | v⁺ |      v ≡ | fN |
-  //     | fG |          | fD |
-  //                     |  λ |
-  //                     | fL |
-  //
-  // Therefore, using Equations (f) and (g) and defining C as the upper left
-  // block of A⁻¹, the pure LCP (q,M) is defined as:
-  // MM ≡ | NCNᵀ  NCDᵀ   0   NCLᵀ |
-  //      | DCNᵀ  DCDᵀ   E   DCLᵀ |
-  //      | μ      -Eᵀ   0   0    |
-  //      | LCNᵀ  LCDᵀ   0   LCLᵀ |
-  //
-  // qq ≡ | kᴺ - |N 0|A⁻¹a |
-  //      | kᴰ - |D 0|A⁻¹a |
-  //      |       0        |
-  //      | kᴸ - |L 0|A⁻¹a |
-
-  // --------------------------------------------------------------------------
-  // Using the LCP solution to solve the MLCP.
-  // --------------------------------------------------------------------------
-
-  // From Equation (e) and the solution to the LCP (v), we can solve for u using
-  // the following equations:
-  // Xv + a = | -NᵀfN - DᵀfD - LᵀfL - Mv |
-  //          |            kᴳ            |
-  //
-
-  // TODO(edrumwri): Consider checking whether or not the constraints are
-  // satisfied to a user-specified tolerance; a set of constraint equations that
-  // are dependent upon time (e.g., prescribed motion constraints) might not be
-  // fully satisfiable.
-
-  // Prepare to set up the functionals to compute Ax = b, where A is the
-  // blocked saddle point matrix containing the generalized inertia matrix
-  // and the bilateral constraints *assuming there are bilateral constraints*.
-  // If there are no bilateral constraints, A_solve and fast_A_solve will
-  // simply point to the inertia solve operator.
+  // Construct the operators required to "factor out" the bilateral constraints
+  // through conversion of a mixed linear complementarity problem into a "pure"
+  // linear complementarity problem. See
+  // ConstructLinearEquationSolversForMLCP() for more information.
   std::function<MatrixX<T>(const MatrixX<T>&)> A_solve;
   std::function<MatrixX<T>(const MatrixX<T>&)> fast_A_solve;
-  std::unique_ptr<
-      Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>> delassus_QTZ;
-
-  // Form the Delassus matrix for the bilateral constraints.
-  if (num_eq_constraints > 0) {
-    MatrixX<T> Del(num_eq_constraints, num_eq_constraints);
-    MatrixX<T> iM_GT(num_generalized_velocities, num_eq_constraints);
-    ComputeInverseInertiaTimesGT(problem_data.solve_inertia,
-                                 problem_data.G_transpose_mult,
-                                 num_eq_constraints, &iM_GT);
-    ComputeConstraintSpaceComplianceMatrix(problem_data.G_mult,
-                                           num_eq_constraints,
-                                           iM_GT, Del);
-
-    // Compute the complete orthogonal factorization.
-    delassus_QTZ = std::make_unique<
-        Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>>(Del);
-
-    // Determine a new "inertia" solve operator, which solves AX = B, where
-    // A = | M  -Gᵀ |
-    //     | G   0  |
-    // using the newly reduced set of constraints. This will allow transforming
-    // the mixed LCP into a pure LCP.
-    DetermineNewFullInertiaSolveOperator(&problem_data,
-        num_generalized_velocities, delassus_QTZ.get(), &A_solve);
-
-    // Determine a new "inertia" solve operator, using only the upper left block
-    // of A⁻¹ to exploit zeros in common operations.
-    DetermineNewPartialInertiaSolveOperator(&problem_data,
-        num_generalized_velocities, delassus_QTZ.get(), &fast_A_solve);
-  } else {
-    A_solve = problem_data.solve_inertia;
-    fast_A_solve = problem_data.solve_inertia;
-  }
+  Eigen::CompleteOrthogonalDecomposition<MatrixX<T>> delassus_QTZ;
+  ConstructLinearEquationSolversForMLCP(
+      problem_data, &delassus_QTZ, &A_solve, &fast_A_solve);
 
   // Copy the problem data and then update it to account for bilateral
   // constraints.
@@ -1038,17 +1114,17 @@ void ConstraintSolver<T>::SolveImpactProblem(
   const VectorX<T>& Mv = problem_data.Mv;
   VectorX<T> a(Mv.size() + num_eq_constraints);
   a.head(Mv.size()) = -Mv;
-  a.tail(num_eq_constraints) = data_ptr->kG;
+  a.tail(num_eq_constraints) = problem_data.kG;
   const VectorX<T> invA_a = A_solve(a);
   const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
 
-  // Set up the linear complementarity problem.
+  // Construct the linear complementarity problem.
   MatrixX<T> MM;
   VectorX<T> qq;
   FormImpactingConstraintLCP(problem_data, trunc_neg_invA_a, &MM, &qq);
 
   // Get the tolerance for zero used by the LCP solver.
-  const T zero_tol = lcp_.ComputeZeroTolerance(MM);
+  const T zero_tol = lcp_.ComputeZeroTolerance(MM, qq);
 
   // Solve the LCP and compute the values of the slack variables.
   VectorX<T> zz;
@@ -1057,13 +1133,7 @@ void ConstraintSolver<T>::SolveImpactProblem(
   const T max_dot = (zz.size() > 0) ?
                          (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
-  // NOTE: This LCP should always be solvable.
-  // Check the answer and throw a runtime error if it's no good.
-  // LCP constraints are zz ≥ 0, ww ≥ 0, zzᵀww = 0. Since the zero tolerance
-  // is used to check a single element for zero (within a single pivoting
-  // operation), we must compensate for the number of pivoting operations and
-  // the problem size. zzᵀww must use a looser tolerance to account for the
-  // num_vars multiplies.
+  // Check the answer and solve using progressive regularization if necessary. 
   const int num_vars = qq.size();
   const int npivots = std::max(lcp_.get_num_pivots(), 1);
   if (!success ||
@@ -1103,6 +1173,95 @@ void ConstraintSolver<T>::SolveImpactProblem(
     }
   }
 
+  // Construct the packed force vector.
+  PopulatePackedConstraintForcesFromLCPSolution(
+      problem_data, A_solve, zz, a, cf);
+}
+
+template <typename T>
+void ConstraintSolver<T>::ConstructLinearEquationSolversForMLCP(
+    const ConstraintVelProblemData<T>& problem_data,
+    Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve) {
+  // --------------------------------------------------------------------------
+  // Using the LCP solution to solve the MLCP.
+  // --------------------------------------------------------------------------
+
+  // From Equation (e) and the solution to the LCP (v), we can solve for u using
+  // the following equations:
+  // Xv + a = | -NᵀfN - DᵀfD - LᵀfL - Mv |
+  //          |            kᴳ            |
+  //
+
+  // Prepare to set up the functionals to compute Ax = b, where A is the
+  // blocked saddle point matrix containing the generalized inertia matrix
+  // and the bilateral constraints *assuming there are bilateral constraints*.
+  // If there are no bilateral constraints, A_solve and fast_A_solve will
+  // simply point to the inertia solve operator.
+
+  // Form the Delassus matrix for the bilateral constraints.
+  const int num_generalized_velocities = problem_data.Mv.size();
+  const int num_eq_constraints = problem_data.kG.size();
+  if (num_eq_constraints > 0) {
+    MatrixX<T> Del(num_eq_constraints, num_eq_constraints);
+    MatrixX<T> iM_GT(num_generalized_velocities, num_eq_constraints);
+    ComputeInverseInertiaTimesGT(problem_data.solve_inertia,
+                                 problem_data.G_transpose_mult,
+                                 num_eq_constraints, &iM_GT);
+    ComputeConstraintSpaceComplianceMatrix(problem_data.G_mult,
+                                           num_eq_constraints,
+                                           iM_GT, Del);
+
+    // Compute the complete orthogonal factorization.
+    delassus_QTZ->compute(Del);
+
+    // Determine a new "inertia" solve operator, which solves AX = B, where
+    // A = | M  -Gᵀ |
+    //     | G   0  |
+    // using the newly reduced set of constraints. This will allow transforming
+    // the mixed LCP into a pure LCP.
+    DetermineNewFullInertiaSolveOperator(&problem_data,
+        num_generalized_velocities, delassus_QTZ, A_solve);
+
+    // Determine a new "inertia" solve operator, using only the upper left block
+    // of A⁻¹ to exploit zeros in common operations.
+    DetermineNewPartialInertiaSolveOperator(&problem_data,
+        num_generalized_velocities, delassus_QTZ, fast_A_solve);
+  } else {
+    *A_solve = problem_data.solve_inertia;
+    *fast_A_solve = problem_data.solve_inertia;
+  }
+}
+
+template <typename T>
+void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
+    const ConstraintVelProblemData<T>& problem_data,
+    const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+    const VectorX<T>& zz,
+    const VectorX<T>& a,
+    VectorX<T>* cf) {
+  PopulatePackedConstraintForcesFromLCPSolution(
+      problem_data, A_solve, zz, a, 1.0, cf);
+}
+
+template <typename T>
+void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
+    const ConstraintVelProblemData<T>& problem_data,
+    const std::function<MatrixX<T>(const MatrixX<T>&)>& A_solve,
+    const VectorX<T>& zz,
+    const VectorX<T>& a,
+    double dt,
+    VectorX<T>* cf) {
+  // Resize the force vector.
+  const int num_contacts = problem_data.mu.size();
+  const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
+                                                   problem_data.r.end(), 0);
+  const int num_limits = problem_data.kL.size();
+  const int num_eq_constraints = problem_data.kG.size();
+  cf->resize(num_contacts + num_spanning_vectors + num_limits +
+      num_eq_constraints);
+
   // Alias constraint force segments.
   const auto fN = zz.segment(0, num_contacts);
   const auto fD_plus = zz.segment(num_contacts, num_spanning_vectors);
@@ -1116,20 +1275,22 @@ void ConstraintSolver<T>::SolveImpactProblem(
   cf->segment(0, num_contacts) = fN;
   cf->segment(num_contacts, num_spanning_vectors) = fD_plus - fD_minus;
   cf->segment(num_contacts + num_spanning_vectors, num_limits) = fL;
-  SPDLOG_DEBUG(drake::log(), "Normal contact impulses: {}", fN.transpose());
-  SPDLOG_DEBUG(drake::log(), "Frictional contact impulses: {}",
-               (fD_plus - fD_minus).transpose());
-  SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint impulses: {}",
-               fL.transpose());
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Normal contact forces/impulses: {}",
+      fN.transpose());
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Frictional contact forces/impulses: {}",
+      (fD_plus - fD_minus).transpose());
+  DRAKE_SPDLOG_DEBUG(drake::log(), "Generic unilateral constraint "
+      "forces/impulses: {}", fL.transpose());
 
-  // Determine the new velocity and the bilateral constraint impulses.
+  // Determine the new velocity and the bilateral constraint forces/
+  // impulses.
   //     Au + Xv + a = 0
   //     Yu + Bv + b ≥ 0
   //               v ≥ 0
   // vᵀ(b + Yu + Bv) = 0
-  // where u are "free" variables (corresponding to new velocities concatenated
-  // with bilateral constraint impulses). If the matrix A is nonsingular, u can
-  // be solved for:
+  // where u are "free" variables (corresponding to new velocities
+  // concatenated with bilateral constraint forces/impulses). If
+  // the matrix A is nonsingular, u can be solved for:
   //      u = -A⁻¹ (a + Xv)
   // allowing the mixed LCP to be converted to a "pure" LCP (q, M) by:
   // q = b - DA⁻¹a
@@ -1137,18 +1298,192 @@ void ConstraintSolver<T>::SolveImpactProblem(
   if (num_eq_constraints > 0) {
     // In this case, Xv = -NᵀfN - DᵀfD -LᵀfL and a = | -Mv(t) |.
     //                                               |   kG   |
-    const VectorX<T> Xv = -data_ptr->N_transpose_mult(fN)
-        -data_ptr->F_transpose_mult(fF)
-        -data_ptr->L_transpose_mult(fL);
+    // First, make the forces impulsive.
+    const VectorX<T> Xv = (-problem_data.N_transpose_mult(fN)
+        -problem_data.F_transpose_mult(fF)
+        -problem_data.L_transpose_mult(fL)) * dt;
     VectorX<T> aug = a;
     aug.head(Xv.size()) += Xv;
     const VectorX<T> u = -A_solve(aug);
-    auto lambda = cf->segment(
-        num_contacts + num_spanning_vectors + num_limits, num_eq_constraints);
-    lambda = u.tail(num_eq_constraints);
-    SPDLOG_DEBUG(drake::log(), "Bilateral constraint impulses: {}",
-                 lambda.transpose());
+    auto lambda = cf->segment(num_contacts +
+        num_spanning_vectors + num_limits, num_eq_constraints);
+
+    // Transform the impulsive forces back to non-impulsive forces.
+    lambda = u.tail(num_eq_constraints) / dt;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "Bilateral constraint forces/impulses: {}",
+                       lambda.transpose());
   }
+}
+
+template <typename T>
+void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
+    const ConstraintVelProblemData<T>& problem_data,
+    double dt,
+    Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
+    VectorX<T>* a,
+    MatrixX<T>* MM,
+    VectorX<T>* qq) {
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
+  DRAKE_DEMAND(a);
+
+  // Recompute the linear equation solvers, if necessary.
+  if (problem_data.kG.size() > 0) {
+    ConstructLinearEquationSolversForMLCP(
+        problem_data, delassus_QTZ, A_solve, fast_A_solve);
+  }
+
+  // Compute a and A⁻¹a.
+  const int num_eq_constraints = problem_data.kG.size();
+  const VectorX<T>& Mv = problem_data.Mv;
+  a->resize(Mv.size() + num_eq_constraints);
+  a->head(Mv.size()) = -Mv;
+  a->tail(num_eq_constraints) = problem_data.kG;
+  const VectorX<T> invA_a = (*A_solve)(*a);
+  const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
+
+  // Look for quick exit.
+  if (qq->rows() == 0)
+    return;
+
+  // Get numbers of contacts.
+  const int num_contacts = problem_data.mu.size();
+  const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
+                                                   problem_data.r.end(), 0);
+  const int num_limits = problem_data.kL.size();
+
+  // Alias these variables for more readable construction of MM and qq.
+  const int nc = num_contacts;
+  const int nr = num_spanning_vectors;
+  const int nk = nr * 2;
+  const int nl = num_limits;
+
+  // Alias operators to make accessing them less clunky.
+  const auto N = problem_data.N_mult;
+  const auto F = problem_data.F_mult;
+  const auto L = problem_data.L_mult;
+
+  // Verify that all gamma vectors are either empty or non-negative.
+  const VectorX<T>& gammaN = problem_data.gammaN;
+  const VectorX<T>& gammaF = problem_data.gammaF;
+  const VectorX<T>& gammaE = problem_data.gammaE;
+  const VectorX<T>& gammaL = problem_data.gammaL;
+  DRAKE_DEMAND(gammaN.size() == 0 || gammaN.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaF.size() == 0 || gammaF.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaE.size() == 0 || gammaE.minCoeff() >= 0);
+  DRAKE_DEMAND(gammaL.size() == 0 || gammaL.minCoeff() >= 0);
+
+  // Scale the Delassus matrices, which are all but the third row (block) and
+  // third column (block) of the following matrix. 
+  // N⋅M⁻¹⋅Nᵀ  N⋅M⁻¹⋅Dᵀ  0   N⋅M⁻¹⋅Lᵀ
+  // D⋅M⁻¹⋅Nᵀ  D⋅M⁻¹⋅Dᵀ  E   D⋅M⁻¹⋅Lᵀ
+  // μ         -Eᵀ       0   0
+  // L⋅M⁻¹⋅Nᵀ  L⋅M⁻¹⋅Dᵀ  0   L⋅M⁻¹⋅Lᵀ
+  // where D = |  F |
+  //           | -F |
+  const int nr2 = nr * 2;
+  MM->topLeftCorner(nc + nr2, nc + nr2) *= dt;
+  MM->bottomLeftCorner(nl, nc + nr2) *= dt;
+  MM->topRightCorner(nc + nr2, nl) *= dt;
+  MM->bottomRightCorner(nl, nl) *= dt;  
+
+  // Regularize the LCP matrix.
+  MM->topLeftCorner(nc, nc) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaN);
+  MM->block(nc, nc, nr, nr) += Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
+  MM->block(nc + nr, nc + nr, nr, nr) +=
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaF);
+  MM->block(nc + nk, nc + nk, nc, nc) +=
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaE);
+  MM->block(nc * 2 + nk, nc * 2 + nk, nl, nl) +=
+      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(gammaL);
+
+  // Update qq.
+  qq->segment(0, nc) = N(trunc_neg_invA_a) + problem_data.kN;
+  qq->segment(nc, nr) = F(trunc_neg_invA_a) + problem_data.kF;
+  qq->segment(nc + nr, nr) = -qq->segment(nc, nr);
+  qq->segment(nc + nk, nc).setZero();
+  qq->segment(nc*2 + nk, num_limits) = L(trunc_neg_invA_a) + problem_data.kL;
+}
+
+template <typename T>
+void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
+    const ConstraintVelProblemData<T>& problem_data,
+    Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
+    std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
+    ConstraintVelProblemData<T>* pure_problem_data,
+    MatrixX<T>* MM,
+    VectorX<T>* qq) {
+  using std::max;
+  using std::abs;
+
+  DRAKE_DEMAND(MM);
+  DRAKE_DEMAND(qq);
+  DRAKE_DEMAND(delassus_QTZ);
+
+  // Get number of contacts and limits.
+  const int num_contacts = problem_data.mu.size();
+  if (static_cast<size_t>(num_contacts) != problem_data.r.size()) {
+    throw std::logic_error("Number of elements in 'r' does not match number"
+                               "of elements in 'mu'");
+  }
+  const int num_limits = problem_data.kL.size();
+  const int num_eq_constraints = problem_data.kG.size();
+
+  // Look for fast exit.
+  if (num_contacts == 0 && num_limits == 0 && num_eq_constraints == 0) {
+    MM->resize(0, 0);
+    qq->resize(0); 
+    return;
+  }
+
+  // If no impact and no bilateral constraints, construct an empty matrix
+  // and vector. (We avoid this possible shortcut if there are bilateral
+  // constraints because it's too hard to determine a workable tolerance at
+  // this point).
+  const VectorX<T> v = problem_data.solve_inertia(problem_data.Mv);
+  const VectorX<T> N_eval = problem_data.N_mult(v) +
+      problem_data.kN;
+  const VectorX<T> L_eval = problem_data.L_mult(v) +
+      problem_data.kL;
+  if ((num_contacts == 0 || N_eval.minCoeff() >= 0) &&
+      (num_limits == 0 || L_eval.minCoeff() >= 0) &&
+      (num_eq_constraints == 0)) {
+    MM->resize(0, 0);
+    qq->resize(0); 
+    return;
+  }
+
+  // Determine the "A" and fast "A" solution operators, which allow us to
+  // solve the mixed linear complementarity problem by first solving a "pure"
+  // linear complementarity problem. See 
+  ConstructLinearEquationSolversForMLCP(
+      problem_data, delassus_QTZ, A_solve, fast_A_solve);
+    
+  // Allocate storage for a.
+  VectorX<T> a(problem_data.Mv.size() + num_eq_constraints);
+
+  // Copy the problem data and then update it to account for bilateral
+  // constraints.
+  if (num_eq_constraints > 0) {
+    DRAKE_DEMAND(pure_problem_data);
+    pure_problem_data->Reinitialize(
+        problem_data.Mv.size() + num_eq_constraints);
+    pure_problem_data = UpdateProblemDataForUnilateralConstraints(
+        problem_data, *fast_A_solve, pure_problem_data);
+  }
+ 
+  // Compute a and A⁻¹a.
+  const VectorX<T>& Mv = problem_data.Mv;
+  a.head(Mv.size()) = -Mv;
+  a.tail(num_eq_constraints) = problem_data.kG;
+  const VectorX<T> invA_a = (*A_solve)(a);
+  const VectorX<T> trunc_neg_invA_a = -invA_a.head(Mv.size());
+
+  // Set up the linear complementarity problem.
+  FormImpactingConstraintLCP(problem_data, trunc_neg_invA_a, MM, qq);
 }
 
 template <class T>
@@ -1203,7 +1538,7 @@ void ConstraintSolver<T>::ComputeInverseInertiaTimesGT(
 template <class T>
 void ConstraintSolver<T>::CheckAccelConstraintMatrix(
     const ConstraintAccelProblemData<T>& problem_data,
-    const MatrixX<T>& MM) const {
+    const MatrixX<T>& MM) {
   // Get numbers of types of contacts.
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
                                                    problem_data.r.end(), 0);
@@ -1247,7 +1582,7 @@ template <class T>
 void ConstraintSolver<T>::FormSustainedConstraintLinearSystem(
     const ConstraintAccelProblemData<T>& problem_data,
     const VectorX<T>& trunc_neg_invA_a,
-    MatrixX<T>* MM, VectorX<T>* qq) const {
+    MatrixX<T>* MM, VectorX<T>* qq) {
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
 
@@ -1349,7 +1684,7 @@ template <class T>
 void ConstraintSolver<T>::FormSustainedConstraintLCP(
     const ConstraintAccelProblemData<T>& problem_data,
     const VectorX<T>& trunc_neg_invA_a,
-    MatrixX<T>* MM, VectorX<T>* qq) const {
+    MatrixX<T>* MM, VectorX<T>* qq) {
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
 
@@ -1516,7 +1851,7 @@ void ConstraintSolver<T>::FormSustainedConstraintLCP(
 template <class T>
 void ConstraintSolver<T>::CheckVelConstraintMatrix(
     const ConstraintVelProblemData<T>& problem_data,
-    const MatrixX<T>& MM) const {
+    const MatrixX<T>& MM) {
   // Get numbers of contacts.
   const int num_contacts = problem_data.mu.size();
   const int num_spanning_vectors = std::accumulate(problem_data.r.begin(),
@@ -1572,7 +1907,7 @@ template <class T>
 void ConstraintSolver<T>::FormImpactingConstraintLCP(
     const ConstraintVelProblemData<T>& problem_data,
     const VectorX<T>& trunc_neg_invA_a,
-    MatrixX<T>* MM, VectorX<T>* qq) const {
+    MatrixX<T>* MM, VectorX<T>* qq) {
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
 
@@ -1762,12 +2097,18 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
 }
 
 template <class T>
-void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
+void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
     const ConstraintVelProblemData<T>& problem_data,
     const VectorX<T>& cf,
-    VectorX<T>* generalized_impulse) {
-  if (!generalized_impulse)
-    throw std::logic_error("generalized_impulse vector is null.");
+    VectorX<T>* generalized_force) {
+  if (!generalized_force)
+    throw std::logic_error("generalized_force vector is null.");
+
+  // Look for fast exit.
+  if (cf.size() == 0) {
+    generalized_force->setZero(problem_data.Mv.size(), 1);
+    return;
+  }
 
   // Get number of contacts.
   const int num_contacts = problem_data.mu.size();
@@ -1784,7 +2125,7 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
                                " dimension.");
   }
 
-  /// Get the normal and tangential contact impulses.
+  /// Get the normal and tangential contact forces.
   const Eigen::Ref<const VectorX<T>> f_normal = cf.segment(0, num_contacts);
   const Eigen::Ref<const VectorX<T>> f_frictional = cf.segment(
       num_contacts, num_spanning_vectors);
@@ -1797,11 +2138,11 @@ void ConstraintSolver<T>::ComputeGeneralizedImpulseFromConstraintImpulses(
   const Eigen::Ref<const VectorX<T>> f_bilat = cf.segment(
       num_contacts + num_spanning_vectors + num_limits, num_bilat_constraints);
 
-  /// Compute the generalized impules.
-  *generalized_impulse = problem_data.N_transpose_mult(f_normal)  +
-                         problem_data.F_transpose_mult(f_frictional) +
-                         problem_data.L_transpose_mult(f_limit) +
-                         problem_data.G_transpose_mult(f_bilat);
+  /// Compute the generalized forces.
+  *generalized_force = problem_data.N_transpose_mult(f_normal) +
+      problem_data.F_transpose_mult(f_frictional) +
+      problem_data.L_transpose_mult(f_limit) +
+      problem_data.G_transpose_mult(f_bilat);
 }
 
 template <class T>
@@ -1829,7 +2170,7 @@ void ConstraintSolver<T>::ComputeGeneralizedVelocityChange(
     throw std::logic_error("generalized_delta_v vector is null.");
 
   VectorX<T> generalized_impulse;
-  ComputeGeneralizedImpulseFromConstraintImpulses(problem_data, cf,
+  ComputeGeneralizedForceFromConstraintForces(problem_data, cf,
                                                   &generalized_impulse);
   *generalized_delta_v = problem_data.solve_inertia(generalized_impulse);
 }
