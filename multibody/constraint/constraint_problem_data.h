@@ -287,8 +287,14 @@ struct ConstraintVelProblemData {
   /// Constructs velocity problem data for a system with a @p gv_dim dimensional
   /// generalized velocity.
   explicit ConstraintVelProblemData(int gv_dim) {
+    Reinitialize(gv_dim);
+  }
+
+  /// Reinitializes the constraint problem data using the specified dimension
+  /// of the generalized velocities.
+  void Reinitialize(int gv_dim) {
     // Set default for non-transpose operators- returns an empty vector.
-    auto zero_fn = [](const VectorX<T>&) -> VectorX<T> {
+    zero_fn = [](const VectorX<T>&) -> VectorX<T> {
       return VectorX<T>(0);
     };
     N_mult = zero_fn;
@@ -298,12 +304,12 @@ struct ConstraintVelProblemData {
 
     // Set default for transpose operators - returns the appropriately sized
     // zero vector.
-    auto zero_gv_dim_fn = [gv_dim](const VectorX<T>&) -> VectorX<T> {
+    gv_dim_zero_fn = [gv_dim](const VectorX<T>&) -> VectorX<T> {
       return VectorX<T>::Zero(gv_dim); };
-    N_transpose_mult = zero_gv_dim_fn;
-    F_transpose_mult = zero_gv_dim_fn;
-    L_transpose_mult = zero_gv_dim_fn;
-    G_transpose_mult = zero_gv_dim_fn;
+    N_transpose_mult = gv_dim_zero_fn;
+    F_transpose_mult = gv_dim_zero_fn;
+    L_transpose_mult = gv_dim_zero_fn;
+    G_transpose_mult = gv_dim_zero_fn;
   }
 
   /// The number of spanning vectors in the contact tangents (used to linearize
@@ -501,6 +507,12 @@ struct ConstraintVelProblemData {
   /// matrix B, where M is the generalized inertia matrix for the rigid body
   /// system.
   std::function<MatrixX<T>(const MatrixX<T>&)> solve_inertia;
+
+  /// The default "zero" function that forward operators are assigned to.
+  std::function<VectorX<T>(const VectorX<T>&)> zero_fn;
+
+  /// The default "zero" function that transpose operators are assigned to.
+  std::function<VectorX<T>(const VectorX<T>&)> gv_dim_zero_fn;
 };
 
 }  // namespace constraint
