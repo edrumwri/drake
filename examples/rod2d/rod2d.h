@@ -15,6 +15,30 @@ namespace drake {
 namespace examples {
 namespace rod2d {
 
+/// The type of sliding between a rod endpoint and the halfspace.
+enum class SlidingModeType {
+  // The mode has not been set.
+  kNotSet,
+
+  // The bodies are sliding at the contact.
+  kSliding,
+
+  // The bodies are not sliding at the contact. 
+  kNotSliding,
+
+  // The bodies are transitioning from not sliding to sliding at the contact.
+  kTransitioning,
+};
+
+/// The descriptor for a point contact between two rigid bodies.
+struct PointContact {
+  /// Whether the bodies are considered to be sliding at the point or not.
+  SlidingModeType sliding_type{SlidingModeType::kNotSet};
+
+  /// The unique identifier used to locate the point of contact on the bodies.
+  int id{-1};    // Indicate that the ID has not been set.
+};
+
 /** Dynamical system representation of a rod contacting a half-space in
 two dimensions.
 
@@ -142,7 +166,15 @@ States: planar position (state indices 0 and 1) and orientation (state
         index 2), and planar linear velocity (state indices 3 and 4) and
         scalar angular velocity (state index 5) in units of m, radians,
         m/s, and rad/s, respectively. Orientation is measured counter-
-        clockwise with respect to the x-axis. 
+        clockwise with respect to the x-axis. For simulations using the
+        piecewise DAE formulation, two abstract state variables are used.
+        The first abstract index corresponds to a vector of PointContact types
+        and corresponds to the points of contact used in force calculations. The
+        second abstract index corresponds to identifiers for the witness
+        functions that are active, which explicitly indicate the state of the
+        system. For example, if the only witness functions active are the signed
+        distance functions for both rod endpoints, the rod is moving
+        ballistically.
 
 Outputs: Output Port 0 corresponds to the state vector; Output Port 1
          corresponds to a PoseVector giving the 3D pose of the rod in the world
@@ -288,7 +320,10 @@ class Rod2D : public systems::LeafSystem<T> {
   double get_rod_half_length() const { return half_length_; }
 
   /// Sets the half-length h of the rod.
-  void set_rod_half_length(double half_length) { half_length_ = half_length; }
+  void set_rod_half_length(double half_length) { 
+    half_length_ = half_length;
+    SetContactCandidates();
+  }
 
   /// Gets the rod moment of inertia.
   double get_rod_moment_of_inertia() const { return J_; }
@@ -397,14 +432,32 @@ class Rod2D : public systems::LeafSystem<T> {
   Vector3<T> CalcCompliantContactForces(
       const systems::Context<T>& context) const;
 
-  /// Gets the number of witness functions for the system active in the system
-  /// for a given state (using @p context).
-  int DetermineNumWitnessFunctions(const systems::Context<T>& context) const;
+  const std::vector<PointContact>&
+      get_endpoints_used_in_force_calculations(
+      const systems::State<T>& state) const;
+  std::vector<PointContact>&
+      get_endpoints_used_in_force_calculations(systems::State<T>* state) const;
 
   /// Returns the 3D pose of this rod.
   const systems::OutputPort<T>& pose_output() const {
     return *pose_output_port_;
   }
+
+  /// Returns the 6D state output of this rod.
+  const systems::OutputPort<T>& state_output() const {
+    return *state_output_port_;
+  }
+
+  /// Returns the 3D generalized contact force acting on this rod.
+  const systems::OutputPort<T>& contact_force_output() const {
+    return *contact_force_output_port_;
+  }
+
+  /// Gets the index of the left endpoint in the contact candidates vector.
+  int get_left_endpoint_index() const { return 0; }
+
+  /// Gets the index of the right endpoint in the contact candidates vector.
+  int get_right_endpoint_index() const { return 1; }
 
   /// Utility method for determining the World frame location of one of three
   /// points on the rod whose origin is Ro. Let r be the half-length of the rod.
@@ -453,8 +506,9 @@ class Rod2D : public systems::LeafSystem<T> {
                         std::vector<Vector2<T>>* points) const;
 
   /// Gets the tangent velocities for all contact points.
-  /// @p context The context storing the current configuration and velocity of
-  ///            the rod.
+  /// @p context The current context.
+  /// @p state The state storing the current configuration and velocity of
+  ///          the rod.
   /// @p points The set of context points.
   /// @p vels Contains the velocities (measured along the x-axis) on return.
   ///         This function aborts if @p vels is null. @p vels will be resized
@@ -462,18 +516,21 @@ class Rod2D : public systems::LeafSystem<T> {
   ///         return.
   void GetContactPointsTangentVelocities(
       const systems::Context<T>& context,
+      const systems::State<T>& state,
       const std::vector<Vector2<T>>& points, std::vector<T>* vels) const;
 
   /// Initializes the contact data for the rod, given a set of contact points.
   /// Aborts if data is null or if `points.size() != tangent_vels.size()`.
   /// @param points a vector of contact points, expressed in the world frame.
   /// @param tangent_vels a vector of tangent velocities at the contact points,
-  ///        measured along the positive x-axis.
+  ///        measured along the positive x-axis. This data is only used to
+  ///        determine whether each contact should be treated as sliding. 
   /// @param[out] data the rigid contact problem data.
-  void CalcConstraintProblemData(const systems::Context<T>& context,
-                                   const std::vector<Vector2<T>>& points,
-                                   const std::vector<T>& tangent_vels,
-    multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      const std::vector<Vector2<T>>& points,
+      const std::vector<T>& tangent_vels,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
 
   /// Initializes the impacting contact data for the rod, given a set of contact
   /// points. Aborts if data is null.
@@ -484,10 +541,63 @@ class Rod2D : public systems::LeafSystem<T> {
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
- private:
-  friend class Rod2DDAETest;
-  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
+  /// Puts the rod's state into a ballistic mode.
+  /// @pre the continuous state is such that neither endpoint is
+  ///      contacting the halfspace.
+  void SetBallisticMode(systems::State<T>* state) const;
 
+  /// Puts the rod's state into a mode with a single endpoint contacting.
+  /// @pre the continuous state is such that the other endpoint is not
+  ///      contacting the halfspace.
+  void SetOneEndpointContacting(
+      int index, systems::State<T>* state,
+      SlidingModeType sliding_type) const;
+
+  /// Puts the rod's state into a mode with both endpoints contacting.
+  void SetBothEndpointsContacting(
+      systems::State<T>* state,
+      SlidingModeType sliding_type) const;
+
+  /// Gets the numerical threshold for the horizontal velocity at a contact
+  /// endpoint to be considered as not-sliding. Tighter thresholds indicate
+  /// higher accuracy and more computation. The threshold will be determined
+  /// using the context accuracy setting, if available, and will be set to
+  /// 1e-8 otherwise (a setting exponentially halfway to the tightest reasonable
+  /// setting of machine epsilon.
+  double GetSlidingVelocityThreshold(
+      const systems::Context<T>& context) const {
+    const optional<double>& accuracy = context.get_accuracy();
+    return accuracy ? accuracy.value() : 1e-8;
+  }
+
+  void ModelImpact(
+      const systems::Context<T>& context, systems::State<T>* state) const;
+  bool IsImpacting(const systems::State<T>& state) const;
+
+ private:
+  // Utility method for determining the location, in the world frame, of a
+  // vector expressed in the rod body frame.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, const Vector2<T>& u) const {
+    const T& theta = q[2];
+    Eigen::Rotation2D<T> R(theta); 
+    const Vector2<T> x = q.segment(0, 2);
+    return x + R * u;
+  }
+
+  // Utility method for determining the location, in the world frame, of a
+  // specified contact.
+  Vector2<T> GetPointInWorldFrame(
+      const Vector3<T>& q, int contact_index) const {
+    return GetPointInWorldFrame(q, contact_candidates_[contact_index]);
+  }
+
+  const Vector2<T>& get_contact_candidate(int index) const {
+      return contact_candidates_[index]; }
+  static std::string AppendEndpoint(const std::string& witness, int endpoint);
+  int GetActiveSetArrayIndex(const systems::State<T>& state,
+      int contact_candidate_index) const;
+  void SetContactCandidates();
   Vector3<T> GetJacobianRow(const systems::Context<T>& context,
                             const Vector2<T>& p,
                             const Vector2<T>& dir) const;
@@ -498,7 +608,6 @@ class Rod2D : public systems::LeafSystem<T> {
   Matrix3<T> GetInertiaMatrix() const;
   T GetSlidingVelocityTolerance() const;
   MatrixX<T> solve_inertia(const MatrixX<T>& B) const;
-  int get_k(const systems::Context<T>& context) const;
   std::unique_ptr<systems::AbstractValues> AllocateAbstractState()
       const override;
   void CopyStateOut(const systems::Context<T>& context,
@@ -515,6 +624,102 @@ class Rod2D : public systems::LeafSystem<T> {
   void SetDefaultState(const systems::Context<T>& context,
                        systems::State<T>* state) const override;
 
+ private:
+  friend class Rod2DDAETest;
+  friend class Rod2DDAETest_RigidContactProblemDataBallistic_Test;
+  friend class Rod2DDAETest_ImpactWorksTest_Test;
+  friend class Rod2DDAETest_ImpactNoChange_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact_Test;
+  friend class Rod2DDAETest_ImpactNoChange2_Test;
+  friend class Rod2DDAETest_InfFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_NoFrictionImpactThenNoImpact2_Test;
+  friend class Rod2DDAETest_BallisticNoImpact_Test;
+  friend class Rod2DDAETest_ConsistentDerivativesContacting_Test;
+  friend class Rod2DDAETest_DerivativesContactingAndSticking_Test;
+  friend class Rod2DDAETest_Inconsistent_Test;
+  friend class Rod2DDAETest_Inconsistent2_Test;
+  friend class Rod2DDAETest_MultiPoint_Test;
+  friend class Rod2DDAETest_SignedDistWitness_Test;
+  friend class Rod2DDAETest_SeparationWitness_Test;
+  friend class Rod2DDAETest_VelocityChangesWitness_Test;
+  friend class Rod2DDAETest_StickingSlidingWitness_Test;
+  friend class Rod2DDAETest_SlidingToNotSliding_Test;
+  friend class Rod2DDAETest_NotSlidingToSliding_Test;
+  friend class Rod2DDAETest_NotSlidingToSliding2_Test;
+  friend class Rod2DDAETest_ContactingAndMovingSlightlyUpward_Test;
+  friend class Rod2DDAETest_ContactingAndMovingUpward_Test;
+  friend class Rod2DDAETest_ContactingMovingUpwardAndSeparating_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpward_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpwardThenBreaks_Test;
+  friend class Rod2DDAETest_ContactingAndAcceleratingUpwardMomentarily_Test;
+  friend class Rod2DDAETest_ImpactThenSustainedContact_Test;
+  friend class
+      Rod2DDAETest_AcceleratingUpwardImpactThenImmediateSeparation_Test;
+
+  friend class Rod2DCrossValidationTest;
+  friend class Rod2DCrossValidationSlidingTest;
+  friend class Rod2DCrossValidationTest_Interval_Test;
+
+  void CalcConstraintProblemData(
+      const systems::Context<T>& context,
+      const systems::State<T>& state,
+      multibody::constraint::ConstraintAccelProblemData<T>* data) const;
+
+
+   // A structure indicating which rod witness functions are active for a
+  // single end point of the rod.
+  struct ActiveRodWitnesses {
+    bool signed_distance{false};
+    bool normal_force{false};
+    bool normal_velocity{false};
+    bool normal_acceleration{false};
+    bool positive_sliding{false};
+    bool negative_sliding{false};
+    bool sticking_friction_force_slack{false};
+  };
+
+  T CalcSignedDistance(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalAcceleration(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalVelocity(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcNormalForce(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcStickingFrictionForceSlack(
+      const systems::Context<T>& context, int contact_index) const;
+  T CalcSlidingVelocity(
+      const systems::Context<T>& context, int contact_index,
+      bool positive_direction) const;
+  const ActiveRodWitnesses& GetActiveWitnesses(
+      int endpoint_index, const systems::State<T>& state) const;
+  ActiveRodWitnesses& GetActiveWitnesses(
+      int endpoint_index, systems::State<T>* state) const;
+
+  // Gets the number of tangent directions used by the LCP formulation. If this
+  // problem were 3D, the number of tangent directions would be the number of
+  // edges in the polygonalization of the friction cone. In 2D, both tangent
+  // directions (+/-x) must be covered.
+  int get_num_tangent_directions_per_contact() const { return 2; }
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactLocationInWorldFrame(
+      const systems::State<T>& state,
+      int index) const;
+  Vector2<T> CalcContactVelocity(
+      const systems::Context<T>& context,
+      int index) const;
+  Vector2<T> CalcContactVelocity(
+      const systems::State<T>& state,
+      int index) const;
+  Vector2<T> CalcContactAccel(
+      const systems::Context<T>& context,
+      int index) const;
+  bool IsTangentVelocityZero(
+      const systems::Context<T>& state,
+      int contact_index) const;
   static void ConvertStateToPose(const VectorX<T>& state,
                                  systems::rendering::PoseVector<T>* pose);
   Vector3<T> ComputeExternalForces(const systems::Context<T>& context) const;
@@ -580,6 +785,54 @@ class Rod2D : public systems::LeafSystem<T> {
   // Output ports.
   const systems::OutputPort<T>* pose_output_port_{nullptr};
   const systems::OutputPort<T>* state_output_port_{nullptr};
+  const systems::OutputPort<T>* contact_force_output_port_{nullptr};
+
+  // IDs for the two endpoints in the piecewise DAE system.
+  enum EndpointID {
+    kLeft = 0,
+    kRight = 1,
+  };
+
+  // Abstract state variable constants.
+  enum AbstractIndices {
+    kContactAbstractIndex = 0,
+    kNumAbstractIndices = 3,
+  };
+
+  // Witness functions: one for each endpoint.
+  std::unique_ptr<systems::WitnessFunction<T>>
+      normal_acceleration_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> normal_force_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> normal_velocity_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> signed_distance_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>>
+      sticking_friction_force_slack_witnesses_[2];
+
+  // Witnesses for detecting sliding along +/- x-axis, respectively.
+  std::unique_ptr<systems::WitnessFunction<T>> positive_sliding_witnesses_[2];
+  std::unique_ptr<systems::WitnessFunction<T>> negative_sliding_witnesses_[2];
+
+  // The number of possible points in contact.
+  static const int kNumContactCandidates{2};
+
+  // Vector of possible contact points.
+  Vector2<T> contact_candidates_[kNumContactCandidates];
+
+  // Types of witness functions.
+  enum WitnessFunctionType {
+      kSignedDistance,
+      kNormalAcceleration,
+      kNormalForce,
+      kNormalVelocity,
+      kStickingFrictionForceSlack,
+      kPositiveSliding,
+      kNegativeSliding
+  };
+
+  // Mapping of witness function pointers to the type of witness function and
+  // the endpoint it is applied to.
+  std::map<const systems::WitnessFunction<T>*, std::pair<WitnessFunctionType,
+      EndpointID>> witness_function_info_; 
 };
 
 }  // namespace rod2d
