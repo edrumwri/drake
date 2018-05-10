@@ -1360,14 +1360,11 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     // Compute the constraint forces.
     VectorX<double> qq, a;
     MatrixX<double> MM;
-    multibody::constraint::ConstraintVelProblemData<double> pure_problem_data(
-        0 /* no storage allocation */);
     Eigen::CompleteOrthogonalDecomposition<MatrixX<double>> delassus_QTZ;
     std::function<MatrixX<double>(const MatrixX<double>&)> A_solve;
     std::function<MatrixX<double>(const MatrixX<double>&)> fast_A_solve;
     solver_.ConstructBaseDiscretizedTimeLCP(
-        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &pure_problem_data,
-        &MM, &qq);
+        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &MM, &qq);
     solver_.UpdateDiscretizedTimeLCP(
         *vel_data_, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
 
@@ -1444,8 +1441,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     // zero rotation) and solve again.
     vel_data_->kG[0] = 1.0;    // Indicate a ccw orientation..
     solver_.ConstructBaseDiscretizedTimeLCP(
-        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &pure_problem_data,
-        &MM, &qq);
+        *vel_data_, &delassus_QTZ, &A_solve, &fast_A_solve, &MM, &qq);
     solver_.UpdateDiscretizedTimeLCP(
         *vel_data_, dt, &delassus_QTZ, &A_solve, &fast_A_solve, &a, &MM, &qq);
 

@@ -152,7 +152,6 @@ class ConstraintSolver {
   /// @param[out] fast_A_solve a pointer to a function pointer for solving
   ///        linear systems using only the upper left block of A⁻¹ in the MLCP
   ///        to exploit zero blocks in common operations.
-  /// @param[out] pure_problem_data a pointer to a constraint data object; on
   /// @param[out] MM a pointer to a matrix that will contain the parts of the
   ///             LCP matrix not dependent upon the time step on return.
   /// @param[out] qq a pointer to a vector that will contain the parts of the
@@ -162,7 +161,6 @@ class ConstraintSolver {
       Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
       std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
       std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
-      ConstraintVelProblemData<T>* pure_problem_data,
       MatrixX<T>* MM,
       VectorX<T>* qq);
 
@@ -1447,7 +1445,6 @@ void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
     Eigen::CompleteOrthogonalDecomposition<MatrixX<T>>* delassus_QTZ,
     std::function<MatrixX<T>(const MatrixX<T>&)>* A_solve,
     std::function<MatrixX<T>(const MatrixX<T>&)>* fast_A_solve,
-    ConstraintVelProblemData<T>* pure_problem_data,
     MatrixX<T>* MM,
     VectorX<T>* qq) {
   using std::max;
@@ -1499,16 +1496,6 @@ void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
   // Allocate storage for a.
   VectorX<T> a(problem_data.Mv.size() + num_eq_constraints);
 
-  // Copy the problem data and then update it to account for bilateral
-  // constraints.
-  if (num_eq_constraints > 0) {
-    DRAKE_DEMAND(pure_problem_data);
-    pure_problem_data->Reinitialize(
-        problem_data.Mv.size() + num_eq_constraints);
-    pure_problem_data = UpdateProblemDataForUnilateralConstraints(
-        problem_data, *fast_A_solve, pure_problem_data);
-  }
- 
   // Compute a and A⁻¹a.
   const VectorX<T>& Mv = problem_data.Mv;
   a.head(Mv.size()) = -Mv;
