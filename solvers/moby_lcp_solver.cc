@@ -269,7 +269,7 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
   // set zero tolerance if necessary
   T mod_zero_tol = zero_tol;
   if (mod_zero_tol < 0)
-    mod_zero_tol = ComputeZeroTolerance(M);
+    mod_zero_tol = ComputeZeroTolerance(M, q);
 
   // prepare to setup basic and nonbasic variable indices for z
   nonbas_.clear();
@@ -452,7 +452,7 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
   // not discernible at this time.
 
   // Assign value for zero tolerance, if necessary.
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
 
   Log() << " zero tolerance: " << mod_zero_tol << std::endl;
 
@@ -649,7 +649,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   // come up with a sensible value for zero tolerance if none is given
   T mod_zero_tol = zero_tol;
   if (mod_zero_tol <= 0)
-    mod_zero_tol = ComputeZeroTolerance(M);
+    mod_zero_tol = ComputeZeroTolerance(M, q);
 
   if (CheckLemkeTrivial(n, mod_zero_tol, q, z)) {
     Log() << " -- trivial solution found" << std::endl;
@@ -938,7 +938,7 @@ bool MobyLCPSolver<T>::SolveLcpLemkeRegularized(const MatrixX<T>& M,
   // Assign value for zero tolerance, if necessary. See discussion in
   // SolveLcpFastRegularized() to see why this tolerance is computed here once,
   // rather than for each regularized version of M.
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
 
   Log() << " zero tolerance: " << mod_zero_tol << std::endl;
 

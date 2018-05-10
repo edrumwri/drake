@@ -705,7 +705,7 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
     T zero_tol) {
   using std::abs;
 
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M);
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
 
   // Find the minima of z and w.
   const T min_z = z.minCoeff();
@@ -761,7 +761,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   // Compute a sensible value for zero tolerance if none is given.
   T mod_zero_tol = zero_tol;
   if (mod_zero_tol <= 0)
-    mod_zero_tol = ComputeZeroTolerance(M);
+    mod_zero_tol = ComputeZeroTolerance(M, q);
 
   // Checks to see whether the trivial solution z = 0 to the LCP w = Mz + q
   // solves the LCP. This must be the case if q is non-negative, as w would then

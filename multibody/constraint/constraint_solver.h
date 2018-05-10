@@ -304,6 +304,24 @@ class ConstraintSolver {
       const VectorX<T>& cf,
       VectorX<T>* generalized_force);
 
+  /// Computes the generalized force on the system from the constraint forces
+  /// given in packed storage.
+  /// @param problem_data The data used to compute the contact forces.
+  /// @param cf The computed constraint forces, in the packed storage
+  ///           format described in documentation for
+  ///           PopulatePackedConstraintForcesFromLCPSolution().
+  /// @param[out] generalized_force The generalized force acting on the system
+  ///             from the total constraint wrench is stored here, on return.
+  ///             This method will resize `generalized_force` as necessary. The
+  ///             indices of `generalized_force` will exactly match the indices
+  ///             of `problem_data.f`.
+  /// @throws std::logic_error if `generalized_force` is null or `cf`
+  ///         vector is incorrectly sized.
+  static void ComputeGeneralizedForceFromConstraintForces(
+      const ConstraintVelProblemData<T>& problem_data,
+      const VectorX<T>& cf,
+      VectorX<T>* generalized_force);
+
   /// Computes the generalized impulse on the system from the constraint
   /// impulses given in packed storage.
   /// @param problem_data The data used to compute the constraint impulses.
@@ -321,8 +339,8 @@ class ConstraintSolver {
       const VectorX<T>& cf,
       VectorX<T>* generalized_impulse);
 
-  /// Computes the system generalized acceleration, given the external forces
-  /// (stored in `problem_data`) and the constraint forces.
+  /// Computes the system generalized acceleration due to both external forces
+  /// and constraint forces.
   /// @param cf The computed constraint forces, in the packed storage
   ///           format described in documentation for SolveConstraintProblem.
   /// @throws std::logic_error if @p generalized_acceleration is null or
@@ -330,10 +348,26 @@ class ConstraintSolver {
   static void ComputeGeneralizedAcceleration(
       const ConstraintAccelProblemData<T>& problem_data,
       const VectorX<T>& cf,
+      VectorX<T>* generalized_acceleration) {
+    ComputeGeneralizedAccelerationFromConstraintForces(
+        problem_data, cf, generalized_acceleration);
+    (*generalized_acceleration) += problem_data.solve_inertia(
+        problem_data.tau);
+  }
+
+  /// Computes the system generalized acceleration due *only* to constraint
+  /// forces.
+  /// @param cf The computed constraint forces, in the packed storage
+  ///           format described in documentation for SolveConstraintProblem.
+  /// @throws std::logic_error if @p generalized_acceleration is null or
+  ///         @p cf vector is incorrectly sized.
+  static void ComputeGeneralizedAccelerationFromConstraintForces(
+      const ConstraintAccelProblemData<T>& problem_data,
+      const VectorX<T>& cf,
       VectorX<T>* generalized_acceleration);
 
-  /// Computes the system generalized acceleration, given the external forces
-  /// (stored in `problem_data`) and the constraint forces.
+  /// Computes the system generalized acceleration due *only* to constraint
+  /// forces.
   /// @param cf The computed constraint forces, in the packed storage
   ///           format described in documentation for SolveConstraintProblem.
   /// @throws std::logic_error if @p generalized_acceleration is null or
@@ -429,7 +463,7 @@ class ConstraintSolver {
     const MatrixX<T>& MM);
   static void CheckVelConstraintMatrix(
     const ConstraintVelProblemData<T>& problem_data,
-    const MatrixX<T>& MM) const;
+    const MatrixX<T>& MM);
 
   // Computes a constraint space compliance matrix A⋅M⁻¹⋅Bᵀ, where A ∈ ℝᵃˣᵐ
   // (realized here using an operator) and B ∈ ℝᵇˣᵐ are both Jacobian matrices
@@ -2146,7 +2180,7 @@ void ConstraintSolver<T>::ComputeGeneralizedForceFromConstraintForces(
 }
 
 template <class T>
-void ConstraintSolver<T>::ComputeGeneralizedAcceleration(
+void ConstraintSolver<T>::ComputeGeneralizedAccelerationFromConstraintForces(
     const ConstraintAccelProblemData<T>& problem_data,
     const VectorX<T>& cf,
     VectorX<T>* generalized_acceleration) {
@@ -2156,8 +2190,21 @@ void ConstraintSolver<T>::ComputeGeneralizedAcceleration(
   VectorX<T> generalized_force;
   ComputeGeneralizedForceFromConstraintForces(problem_data, cf,
                                               &generalized_force);
-  *generalized_acceleration = problem_data.solve_inertia(problem_data.tau +
-                                                         generalized_force);
+  *generalized_acceleration = problem_data.solve_inertia(generalized_force);
+}
+
+template <class T>
+void ConstraintSolver<T>::ComputeGeneralizedAccelerationFromConstraintForces(
+    const ConstraintVelProblemData<T>& problem_data,
+    const VectorX<T>& cf,
+    VectorX<T>* generalized_acceleration) {
+  if (!generalized_acceleration)
+    throw std::logic_error("generalized_acceleration vector is null.");
+
+  VectorX<T> generalized_force;
+  ComputeGeneralizedForceFromConstraintForces(problem_data, cf,
+                                              &generalized_force);
+  *generalized_acceleration = problem_data.solve_inertia(generalized_force);
 }
 
 template <class T>

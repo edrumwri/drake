@@ -1298,9 +1298,9 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
                 lcp_eps_ * cf.size());
   }
 
-  // Tests the rod in an upright sliding and impacting state, with sliding
-  // velocity as specified. The rod will be constrained to prevent rotational
-  // velocity using a bilateral constraint as well.
+  // Tests the rod in an upright sliding state, with sliding
+  // direction as specified. The rod will be constrained to prevent rotational
+  // acceleration using a bilateral constraint as well.
   void SlidingPlusBilateralDiscretization(bool sliding_to_right) {
     using std::max;
 
@@ -1316,16 +1316,16 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     // Set the discretization delta-t.
     const double dt = 1e-12;
 
-    // Update Mv to slide to the given direction.
+    // Update Mv to slide to the given direction and to account for
+    // gravitational force.
     const double rod_mass = rod_->get_rod_mass();
     vel_data_->Mv += Vector3<double>((sliding_to_right) ? 1.0 : -1.0, 0, 0) *
         rod_mass;
-
-    // Update Mv using the gravitational force.
     vel_data_->Mv += Vector3<double>(0,
         rod_->get_gravitational_acceleration() / rod_mass, 0) * dt;
 
-    // Compute the generalized velocity.
+    // Compute the integrated-forward generalized velocity (i.e., v(t+dt))
+    // minus constraint forces.
     const VectorX<double> v = vel_data_->solve_inertia(vel_data_->Mv);
 
     // Add in bilateral constraints on rotational motion.
@@ -1348,10 +1348,11 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
           return result;
         };
 
-    // Set the normal compliance and damping.
+    // Set the normal compliance and damping to yield truly rigid contact.
     const double stiffness = std::numeric_limits<double>::infinity();
     const double damping = 0.0;
 
+    // Compute the softening coefficients.
     const double denom = dt * stiffness + damping;
     const double cfm = 1.0 / denom;
     vel_data_->gammaN.setOnes() *= cfm;
@@ -1393,6 +1394,12 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     VectorX<double> cf;
     solver_.PopulatePackedConstraintForcesFromLCPSolution(*vel_data_, A_solve,
                                                           zz, a, dt, &cf);
+
+    // cf should be 3-dimensional. First dimension is normal force (along
+    // global +y), second dimension is frictional force (along +x),
+    // third dimension is constraint force (along +theta).
+    ASSERT_EQ(cf.size(), 3);
+    EXPECT_NEAR(cf[1], -cf[2], zero_tol);
 
     // Construct the contact frame(s).
     std::vector<Matrix2<double>> frames;
