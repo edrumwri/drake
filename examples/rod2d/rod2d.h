@@ -541,23 +541,6 @@ class Rod2D : public systems::LeafSystem<T> {
       const std::vector<Vector2<T>>& points,
       multibody::constraint::ConstraintVelProblemData<T>* data) const;
 
-  /// Puts the rod's state into a ballistic mode.
-  /// @pre the continuous state is such that neither endpoint is
-  ///      contacting the halfspace.
-  void SetBallisticMode(systems::State<T>* state) const;
-
-  /// Puts the rod's state into a mode with a single endpoint contacting.
-  /// @pre the continuous state is such that the other endpoint is not
-  ///      contacting the halfspace.
-  void SetOneEndpointContacting(
-      int index, systems::State<T>* state,
-      SlidingModeType sliding_type) const;
-
-  /// Puts the rod's state into a mode with both endpoints contacting.
-  void SetBothEndpointsContacting(
-      systems::State<T>* state,
-      SlidingModeType sliding_type) const;
-
   /// Gets the numerical threshold for the horizontal velocity at a contact
   /// endpoint to be considered as not-sliding. Tighter thresholds indicate
   /// higher accuracy and more computation. The threshold will be determined
