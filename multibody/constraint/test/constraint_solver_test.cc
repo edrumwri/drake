@@ -265,9 +265,11 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
       double dt,
       ConstraintVelProblemData<double>* data,
       int contact_points_dup,
-      int friction_directions_dup) {
+      int friction_directions_dup,
+      VectorX<double>* v) {
     DRAKE_DEMAND(contact_points_dup >= 0);
     DRAKE_DEMAND(friction_directions_dup >= 0);
+    DRAKE_DEMAND(v);
 
     // Reset the constraint velocity data.
     const int num_velocities = 3;
@@ -288,6 +290,9 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
 
     // Compute the problem data.
     rod_->CalcImpactProblemData(*context_, contacts, data);
+
+    // Get the system velocity.
+    *v = data->solve_inertia(data->Mv);
 
     // Get old F.
     const int num_fdir = std::accumulate(data->r.begin(), data->r.end(), 0);
@@ -335,7 +340,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
 
     // Add in gravitational forces. 
     const double grav_accel = rod_->get_gravitational_acceleration();
-    data->Mv += Vector3<double>(0, -grav_accel / rod_->get_rod_mass(), 0) * dt;
+    data->Mv += Vector3<double>(0, grav_accel * rod_->get_rod_mass(), 0) * dt;
 
     // Check the consistency of the data.
     CheckProblemConsistency(*data, contacts.size());
@@ -363,14 +368,15 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
     VectorX<double> zz;
     bool success = lcp.SolveLcpLemke(MM, qq, &zz, &num_pivots);
     VectorX<double> ww = MM*zz + qq;
-    double max_dot = (zz.array() * ww.array()).abs().maxCoeff();
+    double max_dot = (zz.size() > 0) ?
+                     (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
 
     // Check for success.
     const int num_vars = qq.size();
     ASSERT_TRUE(success);
-    ASSERT_GT(zz.minCoeff(), -num_vars * zero_tol);
-    ASSERT_GT(ww.minCoeff(), -num_vars * zero_tol);
-    ASSERT_LT(max_dot, std::max(1.0, zz.maxCoeff()) *
+    ASSERT_TRUE(zz.size() == 0 || zz.minCoeff() > -num_vars * zero_tol);
+    ASSERT_TRUE(ww.size() == 0 || ww.minCoeff() > -num_vars * zero_tol);
+    ASSERT_TRUE(zz.size() == 0 || max_dot < std::max(1.0, zz.maxCoeff()) *
                            std::max(1.0, ww.maxCoeff()) * num_vars * zero_tol);
 
     // Compute the packed constraint forces.
@@ -701,17 +707,15 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
         SetRodToRestingVerticalConfig();
 
         // Compute the problem data.
+        VectorX<double> v;
         CalcConstraintAccelProblemData(
-          dt, vel_data_.get(), contact_dup, friction_dir_dup);
-
-        // Get the system velocity.
-        const VectorX<double> v = vel_data_->solve_inertia(vel_data_->Mv);
+          dt, vel_data_.get(), contact_dup, friction_dir_dup, &v);
 
         // Add a force, acting at the point of contact, that pulls the rod
         // horizontally.
         const double horz_f = (force_applied_to_right) ? 100 : -100;
         vel_data_->Mv += Vector3<double>(horz_f, 0,
-            horz_f * rod_->get_rod_half_length());
+            horz_f * rod_->get_rod_half_length()) * dt;
 
         // Set kN as if the bodies are not moving into each other along the
         // contact normal and verify that no contact forces are applied.
@@ -762,7 +766,7 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
 
         // Now, set kN as if the bodies are accelerating twice as hard into
         // each other along the contact normal.
-        vel_data_->kN.setOnes() *= -std::fabs(grav_accel);
+        vel_data_->kN.setOnes() *= -std::fabs(grav_accel) * dt;
 
         // Recompute the contact forces.
         SolveDiscretizationProblem(*vel_data_, dt, &cf);
@@ -796,7 +800,6 @@ class Constraint2DSolverTest : public ::testing::TestWithParam<double> {
       }
     }
   }
-
 
   // Tests the rod in a two-point sticking configuration (i.e., force should
   // be applied with no resulting tangential motion), with force applied either

@@ -1295,6 +1295,12 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
   cf->resize(num_contacts + num_spanning_vectors + num_limits +
       num_eq_constraints);
 
+  // Quit now if zz is empty.
+  if (zz.size() == 0) {
+    cf->setZero();
+    return;
+  }
+
   // Alias constraint force segments.
   const auto fN = zz.segment(0, num_contacts);
   const auto fD_plus = zz.segment(num_contacts, num_spanning_vectors);
@@ -1359,6 +1365,10 @@ void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
   DRAKE_DEMAND(MM);
   DRAKE_DEMAND(qq);
   DRAKE_DEMAND(a);
+
+  // Look for early exit.
+  if (qq->rows() == 0)
+    return;
 
   // Recompute the linear equation solvers, if necessary.
   if (problem_data.kG.size() > 0) {
@@ -1486,9 +1496,9 @@ void ConstraintSolver<T>::ConstructBaseDiscretizedTimeLCP(
 
   // Determine the "A" and fast "A" solution operators, which allow us to
   // solve the mixed linear complementarity problem by first solving a "pure"
-  // linear complementarity problem. See 
+  // linear complementarity problem. See
   ConstructLinearEquationSolversForMLCP(problem_data, mlcp_to_lcp_data);
-    
+
   // Allocate storage for a.
   VectorX<T> a(problem_data.Mv.size() + num_eq_constraints);
 
