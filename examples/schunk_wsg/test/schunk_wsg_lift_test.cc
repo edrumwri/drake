@@ -180,6 +180,9 @@ class SchunkWsgLiftTest : public ::testing::TestWithParam<bool> {
 TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   systems::DiagramBuilder<double> builder;
 
+  if (!GetParam())
+    return;
+
   int lifter_instance_id{};
   int gripper_instance_id{};
 

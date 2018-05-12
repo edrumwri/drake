@@ -265,7 +265,7 @@ class ConstraintSolver {
   ///           final `b` values of `cf` correspond to the forces applied to
   ///           enforce generic bilateral constraints. This packed storage
   ///           format can be turned into more useful representations through
-  ///           ComputeGeneralizedImpulseFromConstraintImpulses() and
+  ///           ComputeGeneralizedForceFromConstraintForces() and
   ///           CalcContactForcesInContactFrames(). `cf` will be resized as
   ///           necessary.
   /// @pre Constraint data has been computed.
@@ -311,23 +311,6 @@ class ConstraintSolver {
       const ConstraintVelProblemData<T>& problem_data,
       const VectorX<T>& cf,
       VectorX<T>* generalized_force);
-
-  /// Computes the generalized impulse on the system from the constraint
-  /// impulses given in packed storage.
-  /// @param problem_data The data used to compute the constraint impulses.
-  /// @param cf The computed constraint impulses, in the packed storage
-  ///           format described in documentation for SolveImpactProblem.
-  /// @param[out] generalized_impulse The generalized impulse acting on the
-  ///             system from the total constraint wrench is stored here, on
-  ///             return. This method will resize `generalized_impulse` as
-  ///             necessary. The indices of `generalized_impulse` will exactly
-  ///             match the indices of `problem_data.v`.
-  /// @throws std::logic_error if `generalized_impulse` is null or `cf`
-  ///         vector is incorrectly sized.
-  static void ComputeGeneralizedImpulseFromConstraintImpulses(
-      const ConstraintVelProblemData<T>& problem_data,
-      const VectorX<T>& cf,
-      VectorX<T>* generalized_impulse);
 
   /// Computes the system generalized acceleration due to both external forces
   /// and constraint forces.

@@ -22,6 +22,7 @@ using std::string;
 using std::unique_ptr;
 using std::vector;
 
+using drake::multibody::constraint::ConstraintVelProblemData;
 using drake::multibody::constraint::ConstraintSolver;
 using drake::multibody::collision::ElementId;
 
@@ -570,7 +571,7 @@ void RigidBodyPlant<T>::CalcContactStiffnessDampingMuAndNumHalfConeEdges(
   // discussion on converting Young's Modulus to a stiffness.
   // The "length" will be incorporated using the contact depth.
   *stiffness = material.youngs_modulus() *
-      compliant_contact_model_->characteristic_radius();
+      1e-2;
 
   // Get the damping value (b) from the compliant model dissipation (α).
   // Equation (16) from [Hunt 1975] yields b = 3/2 * α * k * x. We can assume
@@ -1011,6 +1012,7 @@ RigidBodyPlant<T>::ComputeTimeStepDependentData(
     const VectorX<T>& right_hand_side,
     const std::vector<JointLimit> limits,
     const RigidBodyTree<T>& tree,
+    const KinematicsCache<T>& kinematics_cache,
     drake::multibody::constraint::ConstraintVelProblemData<U>* data) const {
   // Integrate the forces into the momentum.
   data->Mv = Mv + right_hand_side * dt;
@@ -1030,7 +1032,7 @@ RigidBodyPlant<T>::ComputeTimeStepDependentData(
     const T denom = dt * stiffness + damping;
     const T cfm = 1.0 / denom;
     const T erp = (dt * stiffness) / denom;
-    data->data.gammaN[i] = cfm;
+    data->gammaN[i] = cfm;
     data->kN[i] = erp * contacts[i].distance / dt;
   }
 
@@ -1232,9 +1234,8 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   // Construct a "pure" problem data structure to permit solving the mixed
   // linear complementarity problem (MLCP) with the solution to a linear
   // complementarity problem, and construct the necessary MLCP solvers.
-  multibody::constraint::ConstraintVelProblemData<T> pure_problem_data;//(
-      //0 /* no storage allocation */);
-  ConstraintSolver<T>::MlcpToLcpData mlcp_to_lcp_data;
+  ConstraintVelProblemData<T> pure_problem_data(v.size());
+  typename drake::multibody::constraint::ConstraintSolver<T>::MlcpToLcpData mlcp_to_lcp_data;
 
   // Set the regularization and stabilization terms for contact tangent
   // directions (kF).
@@ -1247,7 +1248,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   // Compute the time-step dependent data.
   const VectorX<T> Mv = H * v;
   ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
-      tree, &problem_data);
+      limits, tree, kinematics_cache, &problem_data);
 
   // Output the Jacobians.
   #ifdef SPDLOG_DEBUG_ON
@@ -1278,7 +1279,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   T dt = target_dt;
   while (dt > 0) {
     ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
-       tree, &problem_data);
+       limits, tree, kinematics_cache, &problem_data);
 
     // Update the linear complementarity problem.
     MM = MM_base;
@@ -1312,7 +1313,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
       // Compute the acceleration.
       VectorX<double> vdot;
       ConstraintSolver<double>::ComputeGeneralizedAcceleration(
-          problem_data, v, cf, dt, &vdot);
+          problem_data, v, constraint_force, dt, &vdot);
 
       // Compute the new velocity.
       vn = v + dt * vdot;
@@ -1375,8 +1376,8 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   SPDLOG_DEBUG(drake::log(), "integrated forward velocity: {}",
                problem_data.solve_inertia(problem_data.Mv).transpose());
   SPDLOG_DEBUG(drake::log(), "new velocity: {}", vn.transpose());
-  SPDLOG_DEBUG(drake::log(), "new configuration: {}",
-      (q + dt * tree.transformVelocityToQDot(kinematics_cache, vn).transpose());
+  SPDLOG_DEBUG(drake::log(), "new configuration: {}", (q + dt *
+      tree.transformVelocityToQDot(kinematics_cache, vn).transpose()));
   SPDLOG_DEBUG(drake::log(), "N * new velocity: {} ",
                problem_data.N_mult(vn).transpose());
   SPDLOG_DEBUG(drake::log(), "F * new velocity: {} ",
@@ -1470,7 +1471,7 @@ void RigidBodyPlant<T>::ComputeDiscretizedSystemContactResults(
   VectorX<T> contact_force = constraint_force;
   contact_force.segment(
       limits_start, constraint_force.size() - limits_start).setZero();
-  constraint_solver_.ComputeGeneralizedImpulseFromConstraintImpulses(
+  constraint_solver_.ComputeGeneralizedForceFromConstraintForces(
       data, contact_force, &generalized_contact_force);
   contact_results->set_generalized_contact_force(
       contact_results->get_generalized_contact_force() +

@@ -13,6 +13,7 @@
 #include "drake/multibody/rigid_body_plant/compliant_contact_model.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
 #include "drake/multibody/rigid_body_tree.h"
+#include "drake/solvers/unrevised_lemke_solver.h"
 #include "drake/systems/framework/leaf_system.h"
 
 namespace drake {
@@ -394,6 +395,19 @@ class RigidBodyPlant : public LeafSystem<T> {
   /// (seconds per update).
   double get_time_step() const { return timestep_; }
 
+  /// Gets *half* the default number of edges in a polygonal approximation to
+  /// a friction cone.
+  int get_default_half_num_friction_cone_edges() const {
+    return default_half_num_friction_cone_edges_;
+  }
+
+  /// Sets *half* the default number of edges in a polygonal approximation to
+  /// a friction cone. Minimum number is 2.
+  void set_default_half_num_friction_cone_edges(int k) {
+    DRAKE_DEMAND(k >= 2);
+    default_half_num_friction_cone_edges_ = k;
+  }
+
  protected:
   // Constructor for derived classes to support system scalar conversion, as
   // mandated in the doxygen `system_scalar_conversion` documentation.
@@ -475,6 +489,13 @@ class RigidBodyPlant : public LeafSystem<T> {
       const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
       drake::systems::DiscreteValues<U>* updates) const;
 
+  template <typename U = T>
+  std::enable_if_t<std::is_same<U, double>::value, void>
+  DoCalcDiscreteVariableUpdatesImplRecursive(
+      const drake::systems::Context<U>& context,
+      const std::vector<const drake::systems::DiscreteUpdateEvent<U>*>& events,
+      drake::systems::DiscreteValues<U>* updates) const;
+
   OutputPortIndex DeclareContactResultsOutputPort();
 
   // These five are the output port calculator methods.
@@ -501,7 +522,14 @@ class RigidBodyPlant : public LeafSystem<T> {
 
   void ExportModelInstanceCentricPorts();
 
-  void CalcContactStiffnessDampingMuAndNumHalfConeEdges(
+  void ComputeDiscretizedSystemContactResults(
+      const std::vector<multibody::collision::PointPair<T>>& contacts,
+      const multibody::constraint::ConstraintVelProblemData<T>& data,
+      const KinematicsCache<T>& kinematics_cache,
+      const VectorX<T>& constraint_force,
+      ContactResults<T>* contact_results) const;
+
+    void CalcContactStiffnessDampingMuAndNumHalfConeEdges(
       const drake::multibody::collision::PointPair<T>& contact,
       double* stiffness, double* damping, double* mu,
       int* num_cone_edges) const;
@@ -539,7 +567,7 @@ class RigidBodyPlant : public LeafSystem<T> {
   std::unique_ptr<const RigidBodyTree<double>> tree_;
 
   // Object that performs all constraint computations.
-  multibody::constraint::ConstraintSolver<double> constraint_solver_;
+  multibody::constraint::ConstraintSolver<T> constraint_solver_;
 
   OutputPortIndex state_output_port_index_{};
   optional<OutputPortIndex> state_derivative_output_port_index_;
@@ -581,8 +609,15 @@ class RigidBodyPlant : public LeafSystem<T> {
   // Pointer to the class that encapsulates all the contact computations.
   const std::unique_ptr<CompliantContactModel<T>> compliant_contact_model_;
 
-  // Structure for storing joint limit data for the discretized version of the
-  // plant.
+  // TODO(edrumwri): Remove this variable once caching is in place.
+  // This variable stores the generalized force due to contact from the last
+  // discretized system time stepping computation (in
+  // DoCalcDiscreteVariableUpdatesImpl()). The computation should remain valid
+  // since the first-order discretized version of this system is only
+  // evaluated monotonically forward in time.
+  mutable ContactResults<T> discretized_system_contact_results_;
+
+  // Structure for storing joint limit data for discretized systems.
   struct JointLimit {
     // The index for the joint limit.
     int v_index{-1};
@@ -594,6 +629,25 @@ class RigidBodyPlant : public LeafSystem<T> {
     // to joint limit violations.
     T signed_distance{0};
   };
+
+  template <typename U = T>
+  std::enable_if_t<std::is_same<U, double>::value, void>
+  ComputeTimeStepDependentData(
+      const T& dt,
+      const std::vector<drake::multibody::collision::PointPair<T>>& contacts,
+      const VectorX<T>& Mv,
+      const VectorX<T>& right_hand_side,
+      const std::vector<JointLimit> limits,
+      const RigidBodyTree<T>& tree,
+      const KinematicsCache<T>& kinematics_cache,
+      drake::multibody::constraint::ConstraintVelProblemData<U>* data) const;
+
+  // Half the number of edges used in a polygonal approximation to a friction
+  // cone, when no such per-pair number has been specified.
+  int default_half_num_friction_cone_edges_{2};  // Default is friction pyramid.
+
+  // For solving linear complementarity problems.
+  drake::solvers::UnrevisedLemkeSolver<T> lemke_;
 
   template <typename U>
   friend class RigidBodyPlant;  // For scalar-converting copy constructor.
