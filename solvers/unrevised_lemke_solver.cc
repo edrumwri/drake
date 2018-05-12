@@ -497,8 +497,18 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   // @TODO(edrumwri) Institute a unit test that exercises the affirmative
   //   evaluation branch of the conditional when such a LCP has been
   //   identified.
-  if ((M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm() > zero_tol)
+  if ((M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm() > 10 * zero_tol) {
+    DRAKE_SPDLOG_DEBUG(log(), "M_alpha_beta: {}", M_alpha_beta_);
+    DRAKE_SPDLOG_DEBUG(log(), "q_prime_beta_prime: {}",
+        q_prime_beta_prime_.transpose());
+    DRAKE_SPDLOG_DEBUG(log(), "q_alpha: {}", q_alpha_.transpose());
+    DRAKE_SPDLOG_DEBUG(log(), "residual: {}",
+        (M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).transpose());
+    DRAKE_SPDLOG_DEBUG(log(), "residual norm: {}",
+        (M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm());
+    DRAKE_SPDLOG_DEBUG(log(), "tolerance: {}", zero_tol);
     return false;
+  }
 
   // Equation (3) from [Dai 2018].
   q_prime_alpha_bar_prime_ = M_alpha_bar_beta_ * q_prime_beta_prime_ +

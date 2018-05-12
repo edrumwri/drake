@@ -1237,18 +1237,19 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   ConstraintVelProblemData<T> pure_problem_data(v.size());
   typename drake::multibody::constraint::ConstraintSolver<T>::MlcpToLcpData mlcp_to_lcp_data;
 
+  // Compute the time-step dependent data.
+  const VectorX<T> Mv = H * v;
+  ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
+      limits, tree, kinematics_cache, &problem_data);
+
   // Set the regularization and stabilization terms for contact tangent
-  // directions (kF).
+  // directions (kF). Note: this must be done *after* the time-step dependent
+  // data is computed for the first time.
   const int total_friction_cone_edges = std::accumulate(
       problem_data.r.begin(), problem_data.r.end(), 0);
   problem_data.kF.setZero(total_friction_cone_edges);
   problem_data.gammaF.setZero(total_friction_cone_edges);
   problem_data.gammaE.setZero(contacts.size());
-
-  // Compute the time-step dependent data.
-  const VectorX<T> Mv = H * v;
-  ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
-      limits, tree, kinematics_cache, &problem_data);
 
   // Output the Jacobians.
   #ifdef SPDLOG_DEBUG_ON
@@ -1278,14 +1279,15 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
   VectorX<T> new_velocity, constraint_force, a;
   T dt = target_dt;
   while (dt > 0) {
-    ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
-       limits, tree, kinematics_cache, &problem_data);
-
     // Update the linear complementarity problem.
     MM = MM_base;
     qq = qq_base;
+    ComputeTimeStepDependentData(target_dt, contacts, Mv, right_hand_side,
+       limits, tree, kinematics_cache, &problem_data);
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
+
+MM += MatrixX<T>::Identity(qq.size(), qq.size()) * 1e-6;
 
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
@@ -1377,7 +1379,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
                problem_data.solve_inertia(problem_data.Mv).transpose());
   SPDLOG_DEBUG(drake::log(), "new velocity: {}", vn.transpose());
   SPDLOG_DEBUG(drake::log(), "new configuration: {}", (q + dt *
-      tree.transformVelocityToQDot(kinematics_cache, vn).transpose()));
+      tree.transformVelocityToQDot(kinematics_cache, vn)).transpose());
   SPDLOG_DEBUG(drake::log(), "N * new velocity: {} ",
                problem_data.N_mult(vn).transpose());
   SPDLOG_DEBUG(drake::log(), "F * new velocity: {} ",
