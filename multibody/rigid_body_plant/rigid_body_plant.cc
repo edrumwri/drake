@@ -1287,7 +1287,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
 
-MM += MatrixX<T>::Identity(qq.size(), qq.size()) * 1e-6;
+MM += MatrixX<T>::Identity(qq.size(), qq.size()) * 0;
 
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
