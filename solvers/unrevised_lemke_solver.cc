@@ -715,7 +715,7 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
     T zero_tol) {
   using std::abs;
 
-  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
+  const T mod_zero_tol = ((zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q)) * 100;
 
   // Find the minima of z and w.
   const T min_z = z.minCoeff();
@@ -725,6 +725,11 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
   // Compute the dot product of z and w.
   const T dot = w.dot(z);
   const int n = q.size();
+  DRAKE_SPDLOG_DEBUG(log(), "zero tolerance: {}", mod_zero_tol);
+  DRAKE_SPDLOG_DEBUG(log(), "minimum z: {}", min_z);
+  DRAKE_SPDLOG_DEBUG(log(), "minimum w: {}", min_w);
+  DRAKE_SPDLOG_DEBUG(log(), "z'w: {} vs. tolerance {}",
+      abs(dot), 10 * n * mod_zero_tol);
   return (min_z > -mod_zero_tol && min_w > -mod_zero_tol &&
           abs(dot) < 10 * n * mod_zero_tol);
 }

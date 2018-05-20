@@ -1036,6 +1036,23 @@ RigidBodyPlant<T>::ComputeTimeStepDependentData(
     data->kN[i] = erp * contacts[i].distance / dt;
   }
 
+  // Setup gammaF.
+  const int total_friction_cone_edges = std::accumulate(
+      data->r.begin(), data->r.end(), 0);
+  data->gammaF.resize(total_friction_cone_edges);
+  for (int i = 0, j = 0; i < static_cast<int>(contacts.size()); ++i) {
+    double stiffness, damping, mu;
+    int half_friction_cone_edges;
+    CalcContactStiffnessDampingMuAndNumHalfConeEdges(
+        contacts[i], &stiffness, &damping, &mu, &half_friction_cone_edges);
+
+    // Set cfm and erp parameters for contacts.
+    const T denom = dt * stiffness + damping;
+    const T cfm = 1.0 / denom;
+    for (; j < half_friction_cone_edges; ++j)
+      data->gammaF[j] = cfm;
+  }
+
   // Update kL and gammaL. 
   // TODO(edrumwri): Make cfm and erp individually settable.
   const double default_limit_cfm = 1e-8;
@@ -1287,8 +1304,13 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
 
-MM += MatrixX<T>::Identity(qq.size(), qq.size()) * 0;
-
+/*
+const int nc = static_cast<int>(contacts.size());
+const int nk = total_friction_cone_edges * 2;
+const int nl = static_cast<int>(limits.size()); 
+MM.topLeftCorner(nc + nk, nc + nk) += MatrixX<T>::Identity(nc + nk, nc + nk) * 1e-14;
+MM.bottomRows(nl).rightCols(nl) += MatrixX<T>::Identity(nl, nl) * 1e-14;
+*/
     // Determine the zero tolerance.
     const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
 
@@ -1347,6 +1369,7 @@ MM += MatrixX<T>::Identity(qq.size(), qq.size()) * 0;
     }
 
     // Report difficulty
+    DRAKE_ABORT();
     DRAKE_SPDLOG_DEBUG(drake::log(), "Unable to solve problem with "
         "time discretization dt={}. ", dt);
     DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
