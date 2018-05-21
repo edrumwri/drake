@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -485,6 +486,8 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   // [Dai 2018].
   LinearSolver<T> fMab(M_alpha_beta_);  // Factorized M_alpha_beta_.
   q_prime_beta_prime_ = -fMab.Solve(q_alpha_);
+  DRAKE_SPDLOG_DEBUG(log(), "Equation 2 solution: {}",
+      q_prime_beta_prime_.transpose());
 
   // Check whether the solution is sufficiently close. We need to do this
   // because partial pivoting LU does not estimate rank (and, from prior
@@ -497,7 +500,9 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   // @TODO(edrumwri) Institute a unit test that exercises the affirmative
   //   evaluation branch of the conditional when such a LCP has been
   //   identified.
-  if ((M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm() > 10 * zero_tol) {
+  const T residual = (M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm();
+  DRAKE_SPDLOG_DEBUG(log(), "Linear solve residual: {}", residual);
+  if (residual > 10 * zero_tol) {
     DRAKE_SPDLOG_DEBUG(log(), "M_alpha_beta: {}", M_alpha_beta_);
     DRAKE_SPDLOG_DEBUG(log(), "q_prime_beta_prime: {}",
         q_prime_beta_prime_.transpose());
@@ -693,6 +698,7 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
   // If there are multiple blocking variables, replace the blocking index with
   // the cycling selection.
   if (blocking_indices.size() > 1) {
+    DRAKE_SPDLOG_DEBUG(log(), "Multiple blocking candidates detected.");
     auto& index = selections_[indep_variables_];
 
     // Verify that we have not run out of indices to select, which means that
@@ -748,6 +754,14 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   DRAKE_SPDLOG_DEBUG(log(),
       "UnrevisedLemkeSolver::SolveLcpLemke() entered, M: {}, "
       "q: {}, ", M, q.transpose());
+  std::ofstream output("M.dat");
+  output << std::setprecision(15);
+  output << M << std::endl;
+  output.close();
+  output.open("q.dat");
+  output << std::setprecision(15);
+  output << q.transpose();
+  output.close();
 
   const int n = q.size();
   const int max_pivots = 50 * n;  // O(n) pivots expected for solvable problems.
@@ -870,6 +884,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   // Pivot up to the maximum number of times.
   VectorX<T> q_prime(n), M_prime_col(n);
   while (++(*num_pivots) < max_pivots) {
+    DRAKE_SPDLOG_DEBUG(log(), "Pivot {}", *num_pivots);
     DRAKE_SPDLOG_DEBUG(log(), "New driving variable {}{}",
                        ((indep_variables_[driving_index].is_z()) ? "z" : "w"),
                        indep_variables_[driving_index].index());
