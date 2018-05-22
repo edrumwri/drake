@@ -419,13 +419,13 @@ void UnrevisedLemkeSolver<T>::DetermineIndexSets() const {
   index_sets_.beta_prime.clear();
   index_sets_.beta_bar_prime.clear();
 
-  DetermineIndexSetsHelper(indep_variables_, false,
+  DetermineIndexSetsHelper(state_.indep_variables, false,
       &index_sets_.alpha, &index_sets_.alpha_prime);
-  DetermineIndexSetsHelper(dep_variables_, false,
+  DetermineIndexSetsHelper(state_.dep_variables, false,
       &index_sets_.alpha_bar, &index_sets_.alpha_bar_prime);
-  DetermineIndexSetsHelper(dep_variables_, true,
+  DetermineIndexSetsHelper(state_.dep_variables, true,
                            &index_sets_.beta, &index_sets_.beta_prime);
-  DetermineIndexSetsHelper(indep_variables_, true,
+  DetermineIndexSetsHelper(state_.indep_variables, true,
                            &index_sets_.beta_bar, &index_sets_.beta_bar_prime);
 }
 
@@ -457,12 +457,12 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   DRAKE_DEMAND(driving_index >= 0 && driving_index <= kArtificial);
 
   // Verify that each member in the independent and dependent sets is unique.
-  DRAKE_ASSERT(IsEachUnique(indep_variables_));
-  DRAKE_ASSERT(IsEachUnique(dep_variables_));
+  DRAKE_ASSERT(IsEachUnique(state_.indep_variables));
+  DRAKE_ASSERT(IsEachUnique(state_.dep_variables));
 
   // If the driving index does not correspond to the artificial variable,
   // M_prime_col must be non-null.
-  if (!IsArtificial(indep_variables_[driving_index]))
+  if (!IsArtificial(state_.indep_variables[driving_index]))
     DRAKE_DEMAND(M_prime_col);
 
   // Determine the sets.
@@ -486,8 +486,6 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   // [Dai 2018].
   LinearSolver<T> fMab(M_alpha_beta_);  // Factorized M_alpha_beta_.
   q_prime_beta_prime_ = -fMab.Solve(q_alpha_);
-  DRAKE_SPDLOG_DEBUG(log(), "Equation 2 solution: {}",
-      q_prime_beta_prime_.transpose());
 
   // Check whether the solution is sufficiently close. We need to do this
   // because partial pivoting LU does not estimate rank (and, from prior
@@ -530,17 +528,17 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
     return true;
 
   // Examine the driving variable.
-  if (!indep_variables_[driving_index].is_z()) {
+  if (!state_.indep_variables[driving_index].is_z()) {
     DRAKE_SPDLOG_DEBUG(log(), "Driving case #1: driving variable from w");
     // Case from Section 2.2.1.
     // Determine gamma by determining the position of the driving variable
     // in INDEPENDENT W (as defined in [Dai 2018]).
-    const int n = static_cast<int>(indep_variables_.size());
+    const int n = static_cast<int>(state_.indep_variables.size());
     int gamma = 0;
     for (int i = 0; i < n; ++i) {
-      if (!indep_variables_[i].is_z()) {
-        if (indep_variables_[i].index() <
-            indep_variables_[driving_index].index()) {
+      if (!state_.indep_variables[i].is_z()) {
+        if (state_.indep_variables[i].index() <
+            state_.indep_variables[driving_index].index()) {
           ++gamma;
         }
       }
@@ -549,7 +547,7 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
 
     // From Equation (4) in [Dai 2018].
     DRAKE_ASSERT(index_sets_.alpha[gamma] ==
-        indep_variables_[driving_index].index());
+        state_.indep_variables[driving_index].index());
 
     // Set the unit vector.
     e_.setZero(index_sets_.beta.size());
@@ -566,7 +564,7 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
 
     // Case from Section 2.2.2 of [Dai 2018].
     // Determine zeta.
-    const int zeta = indep_variables_[driving_index].index();
+    const int zeta = state_.indep_variables[driving_index].index();
 
     // Compute g_alpha and g_alpha_bar.
     SelectSubColumnWithCovering(M, index_sets_.alpha, zeta, &g_alpha_);
@@ -592,7 +590,7 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
 // Checks to see whether a given variable is the artificial variable.
 template <class T>
 bool UnrevisedLemkeSolver<T>::IsArtificial(const LCPVariable& v) const {
-  const int n = static_cast<int>(dep_variables_.size());
+  const int n = static_cast<int>(state_.dep_variables.size());
   return v.is_z() && v.index() == n;
 }
 
@@ -639,9 +637,9 @@ bool UnrevisedLemkeSolver<T>::ConstructLemkeSolution(
     return false;
 
   z->setZero(n);
-  for (int i = 0; i < static_cast<int>(dep_variables_.size()); ++i) {
-    if (dep_variables_[i].is_z())
-      (*z)[dep_variables_[i].index()] = q_prime[i];
+  for (int i = 0; i < static_cast<int>(state_.dep_variables.size()); ++i) {
+    if (state_.dep_variables[i].is_z())
+      (*z)[state_.dep_variables[i].index()] = q_prime[i];
   }
   return true;
 }
@@ -684,7 +682,7 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
     if (matrix_col[i] < -zero_tol) {
       DRAKE_SPDLOG_DEBUG(log(), "Ratio for index {}: {}", i, ratios[i]);
       if (ratios[i] < min_ratio + zero_tol) {
-        if (IsArtificial(dep_variables_[i])) {
+        if (IsArtificial(state_.dep_variables[i])) {
           // *Always* select the artificial variable, if multiple choices are
           // possible ([Cottle 1992] p. 280).
           *blocking_index = i;
@@ -699,20 +697,44 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
   // the cycling selection.
   if (blocking_indices.size() > 1) {
     DRAKE_SPDLOG_DEBUG(log(), "Multiple blocking candidates detected.");
-    auto& index = selections_[indep_variables_];
+    auto selections_iter = selections_.find(state_);
+    if (selections_iter == selections_.end()) {
+      selections_iter = selections_.insert(std::make_pair(
+          state_, static_cast<int>(blocking_indices.size()))).first;
+    }
+    auto& index = selections_iter->second;
+    --index;
 
     // Verify that we have not run out of indices to select, which means that
     // cycling would be occurring, in spite of cycling prevention.
-    if (index >= static_cast<int>(blocking_indices.size())) {
+    if (index < 0) {
       DRAKE_SPDLOG_DEBUG(log(), "Cycling detected- indicating failure.");
       *blocking_index = -1;
       return false;
     }
     *blocking_index = blocking_indices[index];
-    ++index;
   }
 
   return true;
+}
+
+template <typename T>
+bool UnrevisedLemkeSolver<T>::Restart() const {
+  for (auto selection : selections_) {
+    if (selection.second > 0) {
+      // Set the state.
+      state_ = selection.first;
+
+      // Update the index map.
+      indep_variables_indices_.clear();
+      for (int i = 0; i < static_cast<int>(state_.indep_variables.size()); ++i)
+        indep_variables_indices_[state_.indep_variables[i]] = i;
+
+      return true;
+    }
+  }
+
+  return false;
 }
 
 template <typename T>
@@ -721,7 +743,7 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
     T zero_tol) {
   using std::abs;
 
-  const T mod_zero_tol = ((zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q)) * 100;
+  const T mod_zero_tol = ((zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q)) * 1000;
 
   // Find the minima of z and w.
   const T min_z = z.minCoeff();
@@ -764,7 +786,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   output.close();
 
   const int n = q.size();
-  const int max_pivots = 50 * n;  // O(n) pivots expected for solvable problems.
+  const int max_pivots = std::numeric_limits<int>::max();//50 * n;  // O(n) pivots expected for solvable problems.
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");
@@ -807,13 +829,13 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // If 'n' is identical to the size of the last problem solved, try using the
   // indices from the last problem solved.
-  if (static_cast<size_t>(n) == dep_variables_.size()) {
+  if (static_cast<size_t>(n) == state_.dep_variables.size()) {
     // Verify that the last call found a solution (indicated by the presence
     // of the artificial variable (zn) in the independent set).
     int zn_index = -1;
     for (int i = 0;
-         i < static_cast<int>(indep_variables_.size()) && zn_index < 0; ++i) {
-      if (IsArtificial(indep_variables_[i]))
+         i < static_cast<int>(state_.indep_variables.size()) && zn_index < 0; ++i) {
+      if (IsArtificial(state_.indep_variables[i]))
         zn_index = i;
     }
 
@@ -835,15 +857,15 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // Set the LCP variables. Start with all z variables independent and all w
   // variables dependent.
-  indep_variables_.resize(n+1);
-  dep_variables_.resize(n);
+  state_.indep_variables.resize(n+1);
+  state_.dep_variables.resize(n);
   for (int i = 0; i < n; ++i) {
-    dep_variables_[i] = LCPVariable(false, i);
-    indep_variables_[i] = LCPVariable(true, i);
+    state_.dep_variables[i] = LCPVariable(false, i);
+    state_.indep_variables[i] = LCPVariable(true, i);
   }
   // z needs one more variable (the artificial variable), whose index we
   // denote as n to keep it from corresponding to any actual vector index.
-  indep_variables_[n] = LCPVariable(true, n);
+  state_.indep_variables[n] = LCPVariable(true, n);
 
   // Compute zn*, the smallest value of the artificial variable zn for which
   // w = q + zn >= 0. Let blocking denote a component of w that equals
@@ -855,17 +877,17 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // Pivot blocking, artificial. Note that we rely upon the dependent variables
   // being ordered sequentially in both arrays.
-  LCPVariable blocking = dep_variables_[blocking_index];
-  int driving_index = blocking.index();
-  std::swap(dep_variables_[blocking_index], indep_variables_[kArtificial]);
+  LCPVariable blocking = state_.dep_variables[blocking_index];
+  state_.driving_index = blocking.index();
+  std::swap(state_.dep_variables[blocking_index], state_.indep_variables[kArtificial]);
   DRAKE_SPDLOG_DEBUG(log(), "First blocking variable {}{}",
                      ((blocking.is_z()) ? "z" : "w"), blocking.index());
   DRAKE_SPDLOG_DEBUG(log(), "First driving variable (artificial)");
 
   // Initialize the independent variable indices. We do this after the initial
   // variable swap for simplicity.
-  for (int i = 0; i < static_cast<int>(indep_variables_.size()); ++i)
-    indep_variables_indices_[indep_variables_[i]] = i;
+  for (int i = 0; i < static_cast<int>(state_.indep_variables.size()); ++i)
+    indep_variables_indices_[state_.indep_variables[i]] = i;
 
   // Output the independent and dependent variable tuples.
   #ifdef SPDLOG_DEBUG_ON
@@ -876,9 +898,9 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     return oss.str();
   };
   DRAKE_SPDLOG_DEBUG(log(), "Independent set variables: {}",
-      to_string(indep_variables_));
+      to_string(state_.indep_variables));
   DRAKE_SPDLOG_DEBUG(log(), "Dependent set variables: {}",
-      to_string(dep_variables_));
+      to_string(state_.dep_variables));
   #endif
 
   // Pivot up to the maximum number of times.
@@ -886,13 +908,19 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   while (++(*num_pivots) < max_pivots) {
     DRAKE_SPDLOG_DEBUG(log(), "Pivot {}", *num_pivots);
     DRAKE_SPDLOG_DEBUG(log(), "New driving variable {}{}",
-                       ((indep_variables_[driving_index].is_z()) ? "z" : "w"),
-                       indep_variables_[driving_index].index());
+                       ((state_.indep_variables[state_.driving_index].is_z()) ? "z" : "w"),
+                       state_.indep_variables[state_.driving_index].index());
 
     // Compute the permuted q and driving column of the permuted M matrix.
     if (!LemkePivot(
-        M, q, driving_index, mod_zero_tol, &M_prime_col, &q_prime)) {
+        M, q, state_.driving_index, mod_zero_tol, &M_prime_col, &q_prime)) {
       DRAKE_SPDLOG_DEBUG(log(), "Linear system solve failed.");
+
+      if (Restart()) {
+        DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
+        continue;
+      }
+
       z->setZero(n);
       return false;
     }
@@ -901,10 +929,16 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     if (!FindBlockingIndex(
         mod_zero_tol, M_prime_col,
         -(q_prime.array() / M_prime_col.array()).matrix(), &blocking_index)) {
+
+      if (Restart()) {
+        DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
+        continue;
+      }
+
       z->setZero(n);
       return false;
     }
-    blocking = dep_variables_[blocking_index];
+    blocking = state_.dep_variables[blocking_index];
     DRAKE_SPDLOG_DEBUG(log(), "Blocking variable {}{}",
                        ((blocking.is_z()) ? "z" : "w"), blocking.index());
 
@@ -913,16 +947,22 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       DRAKE_DEMAND(blocking.is_z());
 
       // Pivot zn with the driving variable.
-      std::swap(dep_variables_[blocking_index],
-                indep_variables_[driving_index]);
+      std::swap(state_.dep_variables[blocking_index],
+                state_.indep_variables[state_.driving_index]);
 
       // Compute the permuted q, and convert it into a solution.
-      if (ConstructLemkeSolution(M, q, driving_index, mod_zero_tol, z)) {
+      if (ConstructLemkeSolution(M, q, state_.driving_index, mod_zero_tol, z)) {
         if (IsSolution(M, q, *z))
           return true;
 
         DRAKE_SPDLOG_DEBUG(log(),
-            "Solution not computed to requested tolerance");
+                           "Solution not computed to requested tolerance");
+
+        if (Restart()) {
+          DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
+          continue;
+        }
+
         z->setZero(n);
         return false;
       }
@@ -930,28 +970,34 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       // Otherwise, indicate failure.
       DRAKE_SPDLOG_DEBUG(log(),
           "Linear system solver failed to construct Lemke solution");
+
+      if (Restart()) {
+        DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
+        continue;
+      }
+
       z->setZero(n);
       return false;
     }
 
     // Pivot the blocking variable and the driving variable.
-    std::swap(dep_variables_[blocking_index],
-              indep_variables_[driving_index]);
+    std::swap(state_.dep_variables[blocking_index],
+              state_.indep_variables[state_.driving_index]);
 
     // Update the index map.
     auto indep_variables_indices_iter = indep_variables_indices_.find(
-        dep_variables_[blocking_index]);
+        state_.dep_variables[blocking_index]);
     indep_variables_indices_.erase(indep_variables_indices_iter);
-    indep_variables_indices_[indep_variables_[driving_index]] =
-        driving_index;
+    indep_variables_indices_[state_.indep_variables[state_.driving_index]] =
+        state_.driving_index;
 
     // Make the driving variable the complement of the blocking variable.
-    driving_index = FindComplementIndex(blocking);
+    state_.driving_index = FindComplementIndex(blocking);
 
     DRAKE_SPDLOG_DEBUG(log(), "Independent set variables: {}",
-        to_string(indep_variables_));
+        to_string(state_.indep_variables));
     DRAKE_SPDLOG_DEBUG(log(), "Dependent set variables: {}",
-        to_string(dep_variables_));
+        to_string(state_.dep_variables));
   }
 
   // If here, the maximum number of pivots has been exceeded.

@@ -194,21 +194,31 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
       const T& zero_tol, const VectorX<T>& matrix_col, const VectorX<T>& ratios,
       int* blocking_index) const;
   bool IsArtificial(const LCPVariable& v) const;
+  bool Restart() const;
 
   typedef std::vector<LCPVariable> LCPVariableVector;
 
+  // The state of the solver, used for backtracking. The partitions of
+  // independent and dependent variables (denoted z' and w', respectively, in
+  // [Dai 2018].
+  struct SolverState {
+    LCPVariableVector indep_variables;
+    LCPVariableVector dep_variables;
+    int driving_index{-1};
+  };
+
   // Structure for mapping a vector of independent variables to a selection
   // index.
-  class LCPVariableVectorComparator {
+  class SolverStateComparator {
    public:
     // This does a lexicographic comparison.
     bool operator()(
-        const LCPVariableVector& v1, const LCPVariableVector& v2) const {
-      DRAKE_DEMAND(v1.size() == v2.size());
+        const SolverState& v1, const SolverState& v2) const {
+      DRAKE_DEMAND(v1.indep_variables.size() == v2.indep_variables.size());
 
       // Copy the vectors.
-      sorted1_ = v1;
-      sorted2_ = v2;
+      sorted1_ = v1.indep_variables;
+      sorted2_ = v2.indep_variables;
 
       // Determine the variables in sorted order because we want to consider
       // all permutations of a set of variables as the same.
@@ -216,7 +226,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
       std::sort(sorted2_.begin(), sorted2_.end());
 
       // Now do the lexicographic comparison.
-      for (int i = 0; i < static_cast<int>(v1.size()); ++i) {
+      for (int i = 0; i < static_cast<int>(v1.indep_variables.size()); ++i) {
         if (sorted1_[i] < sorted2_[i]) {
           return true;
         } else {
@@ -254,7 +264,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   // such that a tuple of independent variables is detected that has been seen
   // before, we would call this "cycling". We eliminate cycling by never
   // selecting the same variable for pivoting twice *from a given pivot*.
-  mutable std::map<LCPVariableVector, int, LCPVariableVectorComparator>
+  mutable std::map<SolverState, int, SolverStateComparator>
       selections_;
 
   // These temporary matrices and vectors are members to facilitate minimizing
@@ -270,11 +280,10 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   // solver will not change the resulting computation.
   mutable LemkeIndexSets index_sets_;
 
-  // The partitions of independent and dependent variables (denoted z' and w',
-  // respectively, in [Dai 2018]. These have been made member
-  // variables to permit warmstarting. Changing these sets between invocations
-  // of the LCP solver will not change the resulting computation.
-  mutable std::vector<LCPVariable> indep_variables_, dep_variables_;
+  // These have been made member variables to permit warmstarting. Changing
+  // these state between invocations of the LCP solver will not change the
+  // resulting computation.
+  mutable SolverState state_;
 };
 
 }  // end namespace solvers
