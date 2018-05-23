@@ -1072,6 +1072,13 @@ RigidBodyPlant<T>::ComputeTimeStepDependentData(
       tree.positionConstraints(kinematics_cache) / dt;
 }
 
+template <class X>
+void output_stat(const char* fname, const X& stat) {
+  std::ofstream out(fname, std::ostream::app);
+  out << stat << std::endl;
+  out.close();
+}
+
 template <typename T>
 template <typename U>
 std::enable_if_t<std::is_same<U, double>::value, void>
@@ -1307,32 +1314,21 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
 
-/*
-const int nc = static_cast<int>(contacts.size());
-const int nk = total_friction_cone_edges * 2;
-const int nl = static_cast<int>(limits.size()); 
-MM.topLeftCorner(nc + nk, nc + nk) += MatrixX<T>::Identity(nc + nk, nc + nk) * 1e-14;
-MM.bottomRows(nl).rightCols(nl) += MatrixX<T>::Identity(nl, nl) * 1e-14;
-*/
-    // Determine the zero tolerance.
-    const T zero_tol = lemke_.ComputeZeroTolerance(MM, qq);
-
     // Attempt to solve the linear complementarity problem.
-    int num_pivots;
+    typename solvers::UnrevisedLemkeSolver<T>::SolverStatistics stats;
     VectorX<T> zz;
-    bool success = lemke_.SolveLcpLemke(MM, qq, &zz, &num_pivots); 
-    const VectorX<T> ww = MM*zz + qq;
-    const T max_dot = (zz.size() > 0) ?
-                      (zz.array() * ww.array()).abs().maxCoeff() : 0.0;
+    bool success = lemke_.SolveLcpLemke(MM, qq, &zz, &stats);
+
+    // Output the statistics.
+    output_stat("solves.dat", success);
+    output_stat("pivots.dat", stats.num_pivots);
+    output_stat("failed_solves.dat", stats.num_failed_linear_solves);
+    output_stat("rejected_solutions.dat", stats.num_rejected_solutions);
+    output_stat("degeneracy.dat", stats.degeneracy_detected);
+    output_stat("warmstarts.dat", stats.warmstarting_successful);
 
     // Check for success.
-    const int num_vars = qq.size();
-    if (success && 
-        (zz.size() == 0 ||
-         (zz.minCoeff() > -num_vars * zero_tol && 
-          ww.minCoeff() > -num_vars * zero_tol && 
-          max_dot < max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) *
-              num_vars * zero_tol))) {
+    if (success) {
       // Compute the new velocity and constraint forces.
       constraint_solver_.PopulatePackedConstraintForcesFromLCPSolution(
       problem_data, mlcp_to_lcp_data, zz, a, dt, &constraint_force);

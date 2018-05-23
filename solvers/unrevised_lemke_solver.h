@@ -41,6 +41,29 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   UnrevisedLemkeSolver() = default;
   ~UnrevisedLemkeSolver() override = default;
 
+  /// Structure for collecting LCP solver statistics.
+  struct SolverStatistics {
+    /// The zero tolerance used by the solver, specified by the user or computed
+    /// (if the user did not specify a value). Default value indicates the
+    /// tolerance is not set.
+    T zero_tol{-1.0};
+
+    /// The number of pivots used in the solver.
+    int num_pivots{-1};
+
+    /// The number of candidate solutions rejected.
+    int num_rejected_solutions{-1};
+
+    /// The number of failed linear solve operations.
+    int num_failed_linear_solves{-1};
+
+    /// Whether degeneracy was detected.
+    bool degeneracy_detected{false};
+
+    /// Whether warmstarting was successful.
+    bool warmstarting_successful{false};
+  };
+
   /// Calculates the zero tolerance that the solver would compute if the user
   /// does not specify a tolerance.
   template <class U>
@@ -75,7 +98,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   ///                fast if solutions differ little between successive calls.
   ///                If the solver fails (returns `false`),
   ///                `z` will be set to the zero vector on return.
-  /// @param[out] num_pivots the number of pivots used, on return.
+  /// @param[out] statistics the solver statistics, on return.
   /// @param[in] zero_tol The tolerance for testing against zero. If the
   ///            tolerance is negative (default) the solver will determine a
   ///            generally reasonable tolerance.
@@ -88,7 +111,7 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
   /// * [Cottle 1992]      R. Cottle, J.-S. Pang, and R. Stone. The Linear
   ///                      Complementarity Problem. Academic Press, 1992.
   bool SolveLcpLemke(const MatrixX<T>& M, const VectorX<T>& q,
-                     VectorX<T>* z, int* num_pivots,
+                     VectorX<T>* z, SolverStatistics* statistics,
                      const T& zero_tol = T(-1)) const;
 
   bool available() const override { return true; }

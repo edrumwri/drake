@@ -167,8 +167,8 @@ SolutionResult UnrevisedLemkeSolver<T>::Solve(MathematicalProgram& prog) const {
   // We don't actually indicate different results.
   SolverResult solver_result(UnrevisedLemkeSolverId::id());
 
-  // Create a dummy variable for the number of pivots used.
-  int num_pivots = 0;
+  // Create a dummy variable for solver statistics.
+  SolverStatistics stats;
 
   Eigen::VectorXd x_sol(prog.num_vars());
   for (const auto& binding : bindings) {
@@ -176,7 +176,7 @@ SolutionResult UnrevisedLemkeSolver<T>::Solve(MathematicalProgram& prog) const {
     const std::shared_ptr<LinearComplementarityConstraint> constraint =
         binding.evaluator();
     bool solved = SolveLcpLemke(
-        constraint->M(), constraint->q(), &constraint_solution, &num_pivots);
+        constraint->M(), constraint->q(), &constraint_solution, &stats);
     if (!solved) {
       prog.SetSolverResult(solver_result);
       return SolutionResult::kUnknownError;
@@ -771,23 +771,15 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
 template <typename T>
 bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
                                      const VectorX<T>& q, VectorX<T>* z,
-                                     int* num_pivots,
+                                     SolverStatistics* statistics,
                                      const T& zero_tol) const {
   using std::max;
   using std::abs;
-  DRAKE_DEMAND(num_pivots);
+  DRAKE_DEMAND(statistics);
 
   DRAKE_SPDLOG_DEBUG(log(),
       "UnrevisedLemkeSolver::SolveLcpLemke() entered, M: {}, "
       "q: {}, ", M, q.transpose());
-  std::ofstream output("M.dat");
-  output << std::setprecision(15);
-  output << M << std::endl;
-  output.close();
-  output.open("q.dat");
-  output << std::setprecision(15);
-  output << q.transpose();
-  output.close();
 
   const int n = q.size();
   const int max_pivots = 10000000;//50 * n;  // O(n) pivots expected for solvable problems.
@@ -795,8 +787,12 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");
 
-  // Update the pivots.
-  *num_pivots = 0;
+  // Clear the statistics.
+  statistics->num_pivots = 0;
+  statistics->num_failed_linear_solves = 0;
+  statistics->num_rejected_solutions = 0;
+  statistics->degeneracy_detected = false;
+  statistics->warmstarting_successful = false;
 
   // Look for immediate exit.
   if (n == 0) {
@@ -814,14 +810,14 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   const int kArtificial = n;
 
   // Compute a sensible value for zero tolerance if none is given.
-  T mod_zero_tol = zero_tol;
-  if (mod_zero_tol <= 0)
-    mod_zero_tol = ComputeZeroTolerance(M, q);
+  statistics->zero_tol = zero_tol;
+  if (statistics->zero_tol <= 0)
+    statistics->zero_tol = ComputeZeroTolerance(M, q);
 
   // Checks to see whether the trivial solution z = 0 to the LCP w = Mz + q
   // solves the LCP. This must be the case if q is non-negative, as w would then
   // be non-negative, z would be non-negative (zero), and w'z = 0.
-  if (q.minCoeff() > -mod_zero_tol) {
+  if (q.minCoeff() > -statistics->zero_tol) {
     z->setZero(q.size());
     SPDLOG_DEBUG(log(), " -- trivial solution found");
     SPDLOG_DEBUG(log(), "UnrevisedLemkeSolver::SolveLcpLemke() exited");
@@ -845,11 +841,12 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
     if (zn_index >= 0) {
       // Compute the candidate solution.
-      if (ConstructLemkeSolution(M, q, zn_index, mod_zero_tol, z)) {
-        if (IsSolution(M, q, *z, mod_zero_tol)) {
+      if (ConstructLemkeSolution(M, q, zn_index, statistics->zero_tol, z)) {
+        if (IsSolution(M, q, *z, statistics->zero_tol)) {
           // If z truly is the solution, return now, indicating only one pivot
           // (in the solution construction) was performed.
-          ++(*num_pivots);
+          ++statistics->num_pivots;
+          statistics->warmstarting_successful = true;
           return true;
         }
       } else {
@@ -876,7 +873,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   // zero when zn = zn*.
   int blocking_index = -1;
   bool blocking_index_found = FindBlockingIndex(
-      mod_zero_tol, q, q, &blocking_index);
+      statistics->zero_tol, q, q, &blocking_index);
   DRAKE_DEMAND(blocking_index_found);
 
   // Pivot blocking, artificial. Note that we rely upon the dependent variables
@@ -909,15 +906,18 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // Pivot up to the maximum number of times.
   VectorX<T> q_prime(n), M_prime_col(n);
-  while (++(*num_pivots) < max_pivots) {
-    DRAKE_SPDLOG_DEBUG(log(), "Pivot {}", *num_pivots);
+  while (++statistics->num_pivots < max_pivots) {
+    if (++statistics->num_pivots % 50 *n == 0 && !selections_.empty())
+      Restart();
+
+    DRAKE_SPDLOG_DEBUG(log(), "Pivot {}", statistics->num_pivots);
     DRAKE_SPDLOG_DEBUG(log(), "New driving variable {}{}",
                        ((state_.indep_variables[state_.driving_index].is_z()) ? "z" : "w"),
                        state_.indep_variables[state_.driving_index].index());
 
     // Compute the permuted q and driving column of the permuted M matrix.
-    if (!LemkePivot(
-        M, q, state_.driving_index, mod_zero_tol, &M_prime_col, &q_prime)) {
+    if (!LemkePivot(M, q, state_.driving_index, statistics->zero_tol,
+                    &M_prime_col, &q_prime)) {
       DRAKE_SPDLOG_DEBUG(log(), "Linear system solve failed.");
 
       if (Restart()) {
@@ -931,7 +931,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
     // Find the blocking variable.
     if (!FindBlockingIndex(
-        mod_zero_tol, M_prime_col,
+        statistics->zero_tol, M_prime_col,
         -(q_prime.array() / M_prime_col.array()).matrix(), &blocking_index)) {
 
       if (Restart()) {
@@ -942,6 +942,8 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       z->setZero(n);
       return false;
     }
+    if (!selections_.empty())
+      statistics->degeneracy_detected = true;
     blocking = state_.dep_variables[blocking_index];
     DRAKE_SPDLOG_DEBUG(log(), "Blocking variable {}{}",
                        ((blocking.is_z()) ? "z" : "w"), blocking.index());
@@ -955,12 +957,14 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
                 state_.indep_variables[state_.driving_index]);
 
       // Compute the permuted q, and convert it into a solution.
-      if (ConstructLemkeSolution(M, q, state_.driving_index, mod_zero_tol, z)) {
+      if (ConstructLemkeSolution(
+          M, q, state_.driving_index, statistics->zero_tol, z)) {
         if (IsSolution(M, q, *z))
           return true;
 
         DRAKE_SPDLOG_DEBUG(log(),
                            "Solution not computed to requested tolerance");
+        ++statistics->num_rejected_solutions;
 
         if (Restart()) {
           DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
@@ -974,6 +978,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       // Otherwise, indicate failure.
       DRAKE_SPDLOG_DEBUG(log(),
           "Linear system solver failed to construct Lemke solution");
+      ++statistics->num_failed_linear_solves;
 
       if (Restart()) {
         DRAKE_SPDLOG_DEBUG(log(), "Restarting...");
