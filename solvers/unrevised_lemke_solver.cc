@@ -699,11 +699,15 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
     DRAKE_SPDLOG_DEBUG(log(), "Multiple blocking candidates detected.");
     auto selections_iter = selections_.find(state_);
     if (selections_iter == selections_.end()) {
-      selections_iter = selections_.insert(std::make_pair(
-          state_, static_cast<int>(blocking_indices.size()))).first;
+      DRAKE_SPDLOG_DEBUG(log(), "First detected degeneracy.");
+      auto insert_op = selections_.insert(std::make_pair(
+          state_, static_cast<int>(blocking_indices.size())));
+      selections_iter = insert_op.first;
     }
+    DRAKE_SPDLOG_DEBUG(log(), "Map key: {}", reinterpret_cast<long>(&selections_iter->first));
     auto& index = selections_iter->second;
     --index;
+    DRAKE_DEMAND(index < static_cast<int>(blocking_indices.size()));
 
     // Verify that we have not run out of indices to select, which means that
     // cycling would be occurring, in spite of cycling prevention.
@@ -743,7 +747,7 @@ bool UnrevisedLemkeSolver<T>::IsSolution(
     T zero_tol) {
   using std::abs;
 
-  const T mod_zero_tol = ((zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q)) * 1000;
+  const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
 
   // Find the minima of z and w.
   const T min_z = z.minCoeff();
@@ -786,7 +790,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   output.close();
 
   const int n = q.size();
-  const int max_pivots = std::numeric_limits<int>::max();//50 * n;  // O(n) pivots expected for solvable problems.
+  const int max_pivots = 10000000;//50 * n;  // O(n) pivots expected for solvable problems.
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");

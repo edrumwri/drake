@@ -216,21 +216,12 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
         const SolverState& v1, const SolverState& v2) const {
       DRAKE_DEMAND(v1.indep_variables.size() == v2.indep_variables.size());
 
-      // Copy the vectors.
-      sorted1_ = v1.indep_variables;
-      sorted2_ = v2.indep_variables;
-
-      // Determine the variables in sorted order because we want to consider
-      // all permutations of a set of variables as the same.
-      std::sort(sorted1_.begin(), sorted1_.end());
-      std::sort(sorted2_.begin(), sorted2_.end());
-
       // Now do the lexicographic comparison.
       for (int i = 0; i < static_cast<int>(v1.indep_variables.size()); ++i) {
-        if (sorted1_[i] < sorted2_[i]) {
+        if (v1.indep_variables[i] < v2.indep_variables[i]) {
           return true;
         } else {
-          if (sorted2_[i] < sorted1_[i])
+          if (v1.indep_variables[i] < v2.indep_variables[i])
             return false;
         }
       }
@@ -238,10 +229,6 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
       // If still here, they're equal.
       return false;
     }
-
-   private:
-    // Two temporary vectors for storing sorted versions of vectors.
-    mutable LCPVariableVector sorted1_, sorted2_;
   };
 
   // Note: the mutable variables below are used in place of local variables both

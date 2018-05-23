@@ -1,8 +1,11 @@
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 
 #include <algorithm>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <stdexcept>
+#include <strstream>
 #include <vector>
 
 #include "drake/common/default_scalars.h"
@@ -1369,7 +1372,20 @@ MM.bottomRows(nl).rightCols(nl) += MatrixX<T>::Identity(nl, nl) * 1e-14;
     }
 
     // Report difficulty
-    DRAKE_ABORT();
+    srand(time(NULL));
+    int unique_id = rand() % RAND_MAX; 
+    std::ostringstream mat_fname, vec_fname;
+    mat_fname << "M-" << unique_id << ".dat";    
+    vec_fname << "q-" << unique_id << ".dat";    
+    std::ofstream mat_out(mat_fname.str());
+    std::ofstream vec_out(vec_fname.str());
+    mat_out << std::setprecision(16);
+    vec_out << std::setprecision(16);
+    mat_out << MM;
+    vec_out << qq;
+    mat_out.close();
+    vec_out.close();
+
     DRAKE_SPDLOG_DEBUG(drake::log(), "Unable to solve problem with "
         "time discretization dt={}. ", dt);
     DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
