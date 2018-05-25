@@ -1313,7 +1313,6 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
        limits, tree, kinematics_cache, &problem_data);
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
-MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * 1e-4;
 
     // Attempt to solve the linear complementarity problem.
     typename solvers::UnrevisedLemkeSolver<T>::SolverStatistics stats;
