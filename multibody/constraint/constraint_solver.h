@@ -445,10 +445,24 @@ class ConstraintSolver {
       std::vector<Vector2<T>>* contact_forces);
 
  private:
-  void SelectSubMatrix(const Eigen::Ref<const MatrixX<T>>& m, const std::vector<int>& row_indices, EigenPtr<MatrixX<T>> n);
-  void SelectSubVector(const Eigen::Ref<const VectorX<T>>& v, const std::vector<int>& indices, EigenPtr<VectorX<T>> n);
-  void SelectSubMatrix(const Eigen::Ref<const MatrixX<T>>& m, const std::vector<int>& row_indices, const std::vector<int>& col_indices, EigenPtr<MatrixX<T>> n);
-
+  /*
+  static void FillSolution(
+      const ConstraintVelProblemData<T>& problem_data,
+      const std::vector<int>& active_contacts,
+      const std::vector<int>& active_unilateral_constraints,
+      const VectorX<T>& z,
+      VectorX<T>* zz);
+  static bool ValidateIndices(
+      const std::vector<int>& row_indices, int vector_size);
+  static void SelectSubVector(
+      const Eigen::Ref<const VectorX<T>>& in,
+      const std::vector<int>& indices,
+      EigenPtr<VectorX<T>> out);
+  static void SelectSubMatrix(
+      const Eigen::Ref<const MatrixX<T>>& in,
+      const std::vector<int>& row_indices,
+      const std::vector<int>& col_indices,
+      EigenPtr<MatrixX<T>> out);
   void ConstructSubLCP(
       const ConstraintVelProblemData<T>& problem_data,
       const MatrixX<T>& MM,
@@ -457,6 +471,7 @@ class ConstraintSolver {
       const std::vector<int>& active_unilateral_constraints,
       MatrixX<T>* MM_prime,
       VectorX<T>* qq_prime);
+      */
   static void ConstructLinearEquationSolversForMLCP(
       const ConstraintVelProblemData<T>& problem_data,
       MlcpToLcpData* mlcp_to_lcp_data);
@@ -1360,180 +1375,308 @@ void ConstraintSolver<T>::PopulatePackedConstraintForcesFromLCPSolution(
   }
 }
 
+/*
+// Function for checking whether a set of indices that specify a view into
+// a vector is valid. Returns `true` if row_indices are unique and each element
+// lies in [0, vector_size-1] and `false` otherwise.
+template <class T>
+bool ConstraintSolver<T>::ValidateIndices(
+  const std::vector<int>& row_indices, int vector_size) {
+// Don't check anything for empty vectors.
+if (row_indices.empty())
+  return true;
+
+// Sort the vector first.
+std::vector<int> sorted_row_indices = row_indices;
+std::sort(sorted_row_indices.begin(), sorted_row_indices.end());
+
+// Validate the maximum and minimum elements.
+if (sorted_row_indices.back() >= vector_size)
+  return false;
+if (sorted_row_indices.front() < 0)
+  return false;
+
+// Make sure that the vector is unique.
+return std::unique(sorted_row_indices.begin(), sorted_row_indices.end()) ==
+    sorted_row_indices.end();
+}
+
+template <class T>
+void ConstraintSolver<T>::SelectSubVector(
+  const Eigen::Ref<const VectorX<T>>& in,
+  const std::vector<int>& row_indices,
+  EigenPtr<VectorX<T>> out) {
+DRAKE_ASSERT(ValidateIndices(row_indices, in.rows()));
+
+const int num_rows = row_indices.size();
+out->resize(num_rows);
+for (int i = 0; i < num_rows; i++) {
+  DRAKE_ASSERT(row_indices[i] < in.rows());
+  (*out)(i) = in(row_indices[i]);
+}
+}
+
+template <class T>
+void ConstraintSolver<T>::SelectSubMatrix(
+  const Eigen::Ref<const MatrixX<T>>& in,
+  const std::vector<int>& row_indices,
+  const std::vector<int>& col_indices,
+  EigenPtr<MatrixX<T>> out) {
+DRAKE_ASSERT(ValidateIndices(row_indices, in.rows()));
+DRAKE_ASSERT(ValidateIndices(col_indices, in.cols()));
+
+const int num_rows = row_indices.size();
+const int num_cols = col_indices.size();
+out->resize(num_rows, num_cols);
+for (int i = 0; i < num_rows; ++i) {
+  DRAKE_ASSERT(row_indices[i] < in.rows());
+  for (int j = 0; j < num_cols; ++j) {
+    DRAKE_ASSERT(col_indices[i] < in.cols());
+    (*out)(i,j) = in(row_indices[i], col_indices[j]);
+  }
+}
+}
+
+// NOTE: Does not compute lambda.
+template <typename T>
+void ConstraintSolver<T>::FillSolution(
+  const ConstraintVelProblemData<T>& problem_data,
+  const std::vector<int>& active_contacts,
+  const std::vector<int>& active_unilateral_constraints,
+  const VectorX<T>& z,
+  VectorX<T>* zz) {
+DRAKE_DEMAND(zz);
+
+// Alias full variables.
+const int full_num_contacts = problem_data.mu.size();
+const int full_num_generic_unilateral_constraints = problem_data.kL.size();
+const int full_num_spanning_directions = std::accumulate(
+    problem_data.r.begin(), problem_data.r.end(), 0);
+const int full_num_vars = full_num_contacts * 2 +
+    full_num_generic_unilateral_constraints +
+    full_num_spanning_directions * 2;
+
+// Fill in zz.
+zz->setZero(full_num_vars);
+
+// Get the full components of z, neglecting the lambda components.
+Eigen::Ref<VectorX<T>> full_fN = zz->head(full_num_contacts);
+Eigen::Ref<VectorX<T>> full_fF = zz->segment(full_num_contacts,
+                                             full_num_spanning_directions);
+Eigen::Ref<VectorX<T>> full_fL = zz->tail(
+    full_num_generic_unilateral_constraints);
+
+// Get the reduced components of z.
+const int num_contacts = static_cast<int>(active_contacts.size());
+const int num_generic_unilateral_constraints =
+    active_unilateral_constraints.size();
+const int num_spanning_directions = z.rows() - num_contacts -
+    num_generic_unilateral_constraints;
+const auto fN = z.head(num_contacts);
+const auto fF = z.segment(num_contacts, num_spanning_directions);
+const auto fL = z.tail(num_generic_unilateral_constraints);
+
+// Fill in normal force magnitudes.
+for (int i = 0; i < num_contacts; ++i)
+  full_fN[active_contacts[i]] = fN[i];
+
+// Fill in tangential force magnitudes.
+for (int i = 0, full_index = 0, index = 0; i < full_num_contacts; ++i) {
+  if (std::binary_search(active_contacts.begin(), active_contacts.end(), i)) {
+    for (int j = 0; j < problem_data.r[i]; ++j, ++index, ++full_index)
+      full_fF[full_index] = fF[index];
+  } else {
+    full_index += problem_data.r[i];
+  }
+}
+
+// Fill in generic unilateral constraint magnitudes.
+for (int i = 0; i < num_generic_unilateral_constraints; ++i)
+  full_fL[active_contacts[i]] = fL[i];
+}
+
 template <typename T>
 void ConstraintSolver<T>::ConstructSubLCP(
-    const ConstraintVelProblemData<T>& problem_data,
-    const MatrixX<T>& MM,
-    const VectorX<T>& qq,
-    const std::vector<int>& active_contacts,
-    const std::vector<int>& active_unilateral_constraints,
-    MatrixX<T>* MM_prime,
-    VectorX<T>* qq_prime) {
-  DRAKE_DEMAND(MM_prime);
-  DRAKE_DEMAND(qq_prime);
+  const ConstraintVelProblemData<T>& problem_data,
+  const MatrixX<T>& MM,
+  const VectorX<T>& qq,
+  const std::vector<int>& active_contacts,
+  const std::vector<int>& active_unilateral_constraints,
+  MatrixX<T>* MM_prime,
+  VectorX<T>* qq_prime) {
+DRAKE_DEMAND(MM_prime);
+DRAKE_DEMAND(qq_prime);
 
-  // Alias full variables.
-  const int full_nc = problem_data.mu.size();
-  const int full_nl = problem_data.kL.size();
-  const int full_nr = std::accumulate(
-      problem_data.r.begin(), problem_data.r.end(), 0);
-  const int full_nk = full_nr * 2;
+// Alias full variables.
+const int full_nc = problem_data.mu.size();
+const int full_nl = problem_data.kL.size();
+const int full_nr = std::accumulate(
+    problem_data.r.begin(), problem_data.r.end(), 0);
+const int full_nk = full_nr * 2;
 
-  // Verify that the active contact indices are sorted.
-  DRAKE_DEMAND(std::is_sorted(active_contacts.begin(), active_contacts.end()));
+// Verify that the active contact indices are sorted.
+DRAKE_DEMAND(std::is_sorted(active_contacts.begin(), active_contacts.end()));
 
-  // Get the number of contacts, number of spanning vectors, and number of
-  // limits.
-  std::vector<int> active_spanning_directions;
-  const int num_contacts = static_cast<int>(active_contacts.size());
-  int num_spanning_vectors = 0;
-  for (int i = 0; i < num_contacts; ++i)
-    num_spanning_vectors += problem_data.r[active_contacts[i]];
-  for (int i = 0, j = 0; i < full_nc; ++i) {
-    if (std::binary_search(active_contacts.begin(), active_contacts.end(), i)) {
-      for (int k = 0; k < problem_data.r[i]; ++j, ++k)
-        active_spanning_directions.push_back(j);
-    } else {
-      j += problem_data.r[i];
-    }
+// Get the number of contacts, number of spanning vectors, and number of
+// limits.
+std::vector<int> active_spanning_directions;
+const int num_contacts = static_cast<int>(active_contacts.size());
+int num_spanning_vectors = 0;
+for (int i = 0; i < num_contacts; ++i)
+  num_spanning_vectors += problem_data.r[active_contacts[i]];
+for (int i = 0, j = 0; i < full_nc; ++i) {
+  if (std::binary_search(active_contacts.begin(), active_contacts.end(), i)) {
+    for (int k = 0; k < problem_data.r[i]; ++j, ++k)
+      active_spanning_directions.push_back(j);
+  } else {
+    j += problem_data.r[i];
   }
-  const int num_generic_unilateral_constraints = static_cast<int>(
-      active_unilateral_constraints.size());
+}
+const int num_generic_unilateral_constraints = static_cast<int>(
+    active_unilateral_constraints.size());
 
-  // Construct the reduced mu.
-  VectorX<T> mu_reduced(num_contacts);
-  for (int i = 0; i < num_contacts; ++i)
-    mu_reduced[i] = problem_data.mu[active_contacts[i]];
+// Construct the reduced mu.
+VectorX<T> mu_reduced(num_contacts);
+for (int i = 0; i < num_contacts; ++i)
+  mu_reduced[i] = problem_data.mu[active_contacts[i]];
 
-  // Construct the matrix E in [Anitescu 1997].
-  MatrixX<T> E = MatrixX<T>::Zero(num_spanning_vectors, num_contacts);
-  for (int i = 0, j = 0; i < num_contacts; ++i) {
-    E.col(i).segment(j, problem_data.r[active_contacts[i]]).setOnes();
-    j += problem_data.r[active_contacts[i]];
-  }
-
-  // Alias these variables for more readable construction of MM and qq.
-  const int nc = num_contacts;
-  const int nr = num_spanning_vectors;
-  const int nk = nr * 2;
-  const int nl = num_generic_unilateral_constraints;
-
-  // Resize MM_prime and qq_prime appropriately.
-  const int num_vars = nc * 2 + nk + nl;
-  MM_prime->resize(num_vars, num_vars);
-  qq_prime->resize(num_vars);
-
-  // Get blocks of the reduced problem LCP matrix.
-  Eigen::Ref<MatrixX<T>> N_iM_NT = MM_prime->block(0, 0, nc, nc);
-  Eigen::Ref<MatrixX<T>> N_iM_FT = MM_prime->block(0, nc, nc, nr);
-  Eigen::Ref<MatrixX<T>> N_iM_LT = MM_prime->block(0, nc * 2 + nk, nc, nl);
-  Eigen::Ref<MatrixX<T>> F_iM_FT = MM_prime->block(nc, nc, nr, nr);
-  Eigen::Ref<MatrixX<T>> F_iM_LT = MM_prime->block(nc, nc * 2 + nk, nr, nl);
-  Eigen::Ref<MatrixX<T>> L_iM_LT =
-      MM_prime->block(nc * 2 + nk, nc * 2 + nk, nl, nl);
-
-  // Get blocks of the full problem LCP matrix.
-  const auto full_N_iM_NT = MM.topLeftCorner(full_nc, full_nc);
-  const auto full_N_iM_FT = MM.block(0, full_nc, full_nc, full_nr);
-  const auto full_N_iM_LT =
-      MM.block(0, full_nc * 2 + full_nk, full_nc, full_nl);
-  const auto full_F_iM_FT = MM.block(full_nc, full_nc, full_nr, full_nr);
-  const auto full_F_iM_LT =
-      MM.block(full_nc, full_nc * 2 + full_nk, full_nr, full_nl);
-  const auto full_L_iM_LT =
-      MM.block(full_nc * 2 + full_nk, full_nc * 2 + full_nk, full_nl, full_nl);
-
-  // Copy parts of the full problem LCP matrix to the reduced LCP matrix.
-  SelectSubMatrix(full_N_iM_NT, active_contacts, &N_iM_NT);
-  SelectSubMatrix(
-      full_N_iM_FT, active_contacts, active_spanning_directions, &N_iM_FT);
-  SelectSubMatrix(
-      full_N_iM_LT, active_contacts, active_unilateral_constraints, &N_iM_LT);
-  SelectSubMatrix(full_F_iM_FT, active_spanning_directions,
-                  active_spanning_directions, &F_iM_FT);
-  SelectSubMatrix(full_F_iM_LT, active_spanning_directions,
-               active_unilateral_constraints, &F_iM_LT);
-  SelectSubMatrix(full_L_iM_LT,active_unilateral_constraints,
-               active_unilateral_constraints, &L_iM_LT);
-
-  // TODO: Make sure gammaF is properly incorporated.
-
-  // Construct the remainder of the matrix.
-  // 1. Copy and negate the F columns of the N and F row blocks.
-  MM_prime->block(0, nc + nr, nc + nr, nr) =
-      -MM_prime->block(0, nc, nc + nr, nr);
-
-  // 2. Zero the appropriate columns of the N row block and the lambda row
-  // block.
-  MM_prime->block(0, nc + nk, nc, nc).setZero();
-  MM_prime->block(nc + nk, nc + nk, nl + nc, nc).setZero();
-
-  // 3. Construct F⋅M⁻¹⋅Nᵀ
-  MM_prime->block(nc, 0, nr, nc) =
-      MM_prime->block(0, nc, nc, nr).transpose().eval();
-
-  // 3. Construct the remainder of D⋅M⁻¹⋅Nᵀ.
-  MM_prime->block(nc + nr, 0, nr, num_vars) =
-      -MM_prime->block(nc, 0, nr, num_vars);
-
-  // 4. Construct the L row block.
-  MM_prime->bottomLeftCorner(nl, nc + nk) =
-      MM_prime->topRightCorner(nc + nk, nl).transpose().eval();
-
-  // 5. Construct the remainder of the lambda row block.
-  MM_prime->rightCols(nl).block(nc + nk, 0, nc, nl).setZero();
-  MM_prime->leftCols(nc).block(nc + nk, 0, nc, nc) =
-      Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu_reduced);
-
-  // Get segments of the reduced problem LCP vector.
-  Eigen::Ref<VectorX<T>> Na = qq_prime->segment(0, nc);
-  Eigen::Ref<VectorX<T>> Fa = qq_prime->segment(nc, nr);
-  Eigen::Ref<VectorX<T>> La = qq_prime->segment(nc * 2 + nk, nl);
-
-  // Get segments of the full problem LCP vector.
-  const auto full_Na = qq.segment(0, full_nc);
-  const auto full_Fa = qq.segment(full_nc, full_nr);
-  const auto full_La = qq.segment(full_nc * 2 + full_nk, full_nl);
-
-  // Copy parts of the full problem LCP vector to the reduced LCP vector.
-  SelectSubVector(full_Na, active_contacts, &Na);
-  SelectSubVector(full_Fa, active_spanning_directions, &Fa);
-  SelectSubVector(full_La, active_unilateral_constraints, &La);
-
-  // Construct the rest of the vector.
-  qq_prime->segment(nc + nr, nr) = -Fa;
-  qq_prime->segment(nc + nk, nc).setZero();
+// Construct the matrix E in [Anitescu 1997].
+MatrixX<T> E = MatrixX<T>::Zero(num_spanning_vectors, num_contacts);
+for (int i = 0, j = 0; i < num_contacts; ++i) {
+  E.col(i).segment(j, problem_data.r[active_contacts[i]]).setOnes();
+  j += problem_data.r[active_contacts[i]];
 }
 
-  /*
+// Alias these variables for more readable construction of MM and qq.
+const int nc = num_contacts;
+const int nr = num_spanning_vectors;
+const int nk = nr * 2;
+const int nl = num_generic_unilateral_constraints;
+
+// Resize MM_prime and qq_prime appropriately.
+const int num_vars = nc * 2 + nk + nl;
+MM_prime->resize(num_vars, num_vars);
+qq_prime->resize(num_vars);
+
+// Get blocks of the reduced problem LCP matrix.
+Eigen::Ref<MatrixX<T>> N_iM_NT = MM_prime->block(0, 0, nc, nc);
+Eigen::Ref<MatrixX<T>> N_iM_FT = MM_prime->block(0, nc, nc, nr);
+Eigen::Ref<MatrixX<T>> N_iM_LT = MM_prime->block(0, nc * 2 + nk, nc, nl);
+Eigen::Ref<MatrixX<T>> F_iM_FT = MM_prime->block(nc, nc, nr, nr);
+Eigen::Ref<MatrixX<T>> F_iM_LT = MM_prime->block(nc, nc * 2 + nk, nr, nl);
+Eigen::Ref<MatrixX<T>> L_iM_LT =
+    MM_prime->block(nc * 2 + nk, nc * 2 + nk, nl, nl);
+
+// Get blocks of the full problem LCP matrix.
+const auto full_N_iM_NT = MM.topLeftCorner(full_nc, full_nc);
+const auto full_N_iM_FT = MM.block(0, full_nc, full_nc, full_nr);
+const auto full_N_iM_LT =
+    MM.block(0, full_nc * 2 + full_nk, full_nc, full_nl);
+const auto full_F_iM_FT = MM.block(full_nc, full_nc, full_nr, full_nr);
+const auto full_F_iM_LT =
+    MM.block(full_nc, full_nc * 2 + full_nk, full_nr, full_nl);
+const auto full_L_iM_LT =
+    MM.block(full_nc * 2 + full_nk, full_nc * 2 + full_nk, full_nl, full_nl);
+
+// Copy parts of the full problem LCP matrix to the reduced LCP matrix.
+SelectSubMatrix(full_N_iM_NT, active_contacts, active_contacts, &N_iM_NT);
+SelectSubMatrix(
+    full_N_iM_FT, active_contacts, active_spanning_directions, &N_iM_FT);
+SelectSubMatrix(
+    full_N_iM_LT, active_contacts, active_unilateral_constraints, &N_iM_LT);
+SelectSubMatrix(full_F_iM_FT, active_spanning_directions,
+                active_spanning_directions, &F_iM_FT);
+SelectSubMatrix(full_F_iM_LT, active_spanning_directions,
+             active_unilateral_constraints, &F_iM_LT);
+SelectSubMatrix(full_L_iM_LT, active_unilateral_constraints,
+             active_unilateral_constraints, &L_iM_LT);
+
+// TODO: Make sure gammaF is properly incorporated.
+
+// Construct the remainder of the matrix.
+// 1. Copy and negate the F columns of the N and F row blocks.
+MM_prime->block(0, nc + nr, nc + nr, nr) =
+    -MM_prime->block(0, nc, nc + nr, nr);
+
+// 2. Zero the appropriate columns of the N row block and the lambda row
+// block.
+MM_prime->block(0, nc + nk, nc, nc).setZero();
+MM_prime->block(nc + nk, nc + nk, nl + nc, nc).setZero();
+
+// 3. Construct F⋅M⁻¹⋅Nᵀ
+MM_prime->block(nc, 0, nr, nc) =
+    MM_prime->block(0, nc, nc, nr).transpose().eval();
+
+// 3. Construct the remainder of D⋅M⁻¹⋅Nᵀ.
+MM_prime->block(nc + nr, 0, nr, num_vars) =
+    -MM_prime->block(nc, 0, nr, num_vars);
+
+// 4. Construct the L row block.
+MM_prime->bottomLeftCorner(nl, nc + nk) =
+    MM_prime->topRightCorner(nc + nk, nl).transpose().eval();
+
+// 5. Construct the remainder of the lambda row block.
+MM_prime->rightCols(nl).block(nc + nk, 0, nc, nl).setZero();
+MM_prime->leftCols(nc).block(nc + nk, 0, nc, nc) =
+    Eigen::DiagonalMatrix<T, Eigen::Dynamic>(mu_reduced);
+
+// Get segments of the reduced problem LCP vector.
+Eigen::Ref<VectorX<T>> Na = qq_prime->segment(0, nc);
+Eigen::Ref<VectorX<T>> Fa = qq_prime->segment(nc, nr);
+Eigen::Ref<VectorX<T>> La = qq_prime->segment(nc * 2 + nk, nl);
+
+// Get segments of the full problem LCP vector.
+const auto full_Na = qq.segment(0, full_nc);
+const auto full_Fa = qq.segment(full_nc, full_nr);
+const auto full_La = qq.segment(full_nc * 2 + full_nk, full_nl);
+
+// Copy parts of the full problem LCP vector to the reduced LCP vector.
+SelectSubVector(full_Na, active_contacts, &Na);
+SelectSubVector(full_Fa, active_spanning_directions, &Fa);
+SelectSubVector(full_La, active_unilateral_constraints, &La);
+
+// Construct the rest of the vector.
+qq_prime->segment(nc + nr, nr) = -Fa;
+qq_prime->segment(nc + nk, nc).setZero();
+}
+
 template <typename T>
 bool ConstraintSolver<T>::SolveDiscretizedTimeLCP(
-    const ConstraintVelProblemData<T>& problem_data,
-    const UnrevisedLemkeSolver<T>& solver,
-    const MatrixX<T>& MM,
-    const VectorX<T>& qq,
-    std::vector<int>* active_contacts,
-    std::vector<int>* active_unilateral_constraints,
-    VectorX<T>* zz) {
-  DRAKE_DEMAND(active_contacts);
-  DRAKE_DEMAND(active_unilateral_constraints);
-  DRAKE_DEMAND(zz);
+  const ConstraintVelProblemData<T>& problem_data,
+  const UnrevisedLemkeSolver<T>& solver,
+  const MatrixX<T>& MM,
+  const VectorX<T>& qq,
+  std::vector<int>* active_contacts,
+  std::vector<int>* active_unilateral_constraints,
+  VectorX<T>* zz) {
+DRAKE_DEMAND(active_contacts);
+DRAKE_DEMAND(active_unilateral_constraints);
+DRAKE_DEMAND(zz);
 
-  // Try to use warm-starting to compute a solution.
+// Try to use warm-starting to compute a solution.
 
-  // Select the parts of MM and qq that correspond to the active set of
-  // constraints.
+// Select the parts of MM and qq that correspond to the active set of
+// constraints.
 
-  // Try to solve the LCP.
+// Try to solve the LCP.
 
-  // If the LCP wasn't solvable, quit now.
+// If the LCP wasn't solvable, quit now.
 
-  // If the remainder of the constraints are satisfied, fill in zeros for the
-  // remaining constraint forces.
+// Get the maximum constraint error; we'll use this to check additional
+// constraints.
+T max_violation = min(0, (MM_prime * zz_prime + qq_prime).minCoeff());
 
-  // Add a violated constraint at random.
+ // Fill in zeros for the remaining constraint forces.
+
+ // Check whether the remainder of the constraints are satisfied.
+
+// If the remainder of the constraints are satisfied, fill in zeros for the
+// remaining constraint forces.
+
+// Add a violated constraint at random.
 }
 */
+
 template <typename T>
 void ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
     const ConstraintVelProblemData<T>& problem_data,

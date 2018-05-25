@@ -782,7 +782,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       "q: {}, ", M, q.transpose());
 
   const int n = q.size();
-  const int max_pivots = 10000000;//50 * n;  // O(n) pivots expected for solvable problems.
+  const int max_pivots = 50 * n;  // O(n) pivots expected for solvable problems.
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");
@@ -907,9 +907,6 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   // Pivot up to the maximum number of times.
   VectorX<T> q_prime(n), M_prime_col(n);
   while (++statistics->num_pivots < max_pivots) {
-    if (++statistics->num_pivots % 50 *n == 0 && !selections_.empty())
-      Restart();
-
     DRAKE_SPDLOG_DEBUG(log(), "Pivot {}", statistics->num_pivots);
     DRAKE_SPDLOG_DEBUG(log(), "New driving variable {}{}",
                        ((state_.indep_variables[state_.driving_index].is_z()) ? "z" : "w"),

@@ -1313,6 +1313,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
        limits, tree, kinematics_cache, &problem_data);
     multibody::constraint::ConstraintSolver<T>::UpdateDiscretizedTimeLCP(
       problem_data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
+MM += MatrixX<T>::Identity(MM.rows(), MM.rows()) * 1e-4;
 
     // Attempt to solve the linear complementarity problem.
     typename solvers::UnrevisedLemkeSolver<T>::SolverStatistics stats;
@@ -1384,15 +1385,7 @@ RigidBodyPlant<T>::DoCalcDiscreteVariableUpdatesImplRecursive(
 
     DRAKE_SPDLOG_DEBUG(drake::log(), "Unable to solve problem with "
         "time discretization dt={}. ", dt);
-    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for z/w: {}",
-        num_vars * zero_tol);
     DRAKE_SPDLOG_DEBUG(drake::log(), "Solver reports success? {}", success);
-    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum z: {}", zz.minCoeff());
-    DRAKE_SPDLOG_DEBUG(drake::log(), "minimum w: {}", ww.minCoeff());
-    DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance for <z,w>: {}",
-      max(T(1), zz.maxCoeff()) * max(T(1), ww.maxCoeff()) * num_vars *
-      zero_tol);
-    SPDLOG_DEBUG(drake::log(), "z'w: {}", max_dot);
 
     // Reduce dt.
     dt *= 0.5;
