@@ -20,6 +20,7 @@ drake_cc_binary(
     ],
     deps = [
         "//common:find_resource",
+        "//common:text_logging_gflags",
         "//lcm",
         "//multibody:rigid_body_tree_construction",
         "//multibody/parsers",
@@ -45,6 +46,7 @@ drake_cc_binary(
     ],
     deps = [
         "//common:find_resource",
+        "//common:text_logging_gflags",
         "//lcm",
         "//multibody:rigid_body_tree_construction",
         "//multibody/parsers",
@@ -68,6 +70,7 @@ drake_cc_binary(
     ],
     deps = [
         "//common:find_resource",
+        "//common:text_logging_gflags",
         "//geometry:geometry_visualization",
         "//geometry:scene_graph",
         "//lcm",
