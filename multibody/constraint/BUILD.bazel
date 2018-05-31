@@ -51,4 +51,11 @@ drake_cc_googletest(
     ],
 )
 
+drake_cc_googletest(
+    name = "constraint_solver_stress_test",
+    deps = [
+        ":constraint_solver",
+    ],
+)
+
 add_lint_tests()
