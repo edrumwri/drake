@@ -20,6 +20,7 @@ namespace {
 Eigen::LLT<MatrixXd> lltM;
 MatrixXd M, N, F;
 VectorXd v, rhs, phi;
+solvers::UnrevisedLemkeSolver<double> lemke;
 
 // Gets a random double number in the interval [0, 1].
 double GetRandomDouble() {
@@ -74,30 +75,6 @@ void ConstructPhi(int num_contacts) {
     phi[i] = GetRandomDouble() * 2.0 - 1.0;
 }
 
-void ConstructTimeStepDependentData(
-    ConstraintVelProblemData<double>* data, double dt) {
-  // Set stiffness and damping to arbitrary values.
-  const double k = 1e10;
-  const double b = 1e5;
-
-  // Construct gammaN.
-  const int num_contacts = data->mu.size();
-  data->gammaN.resize(num_contacts);
-  const double denom = dt * k + b;
-  const double cfm = 1.0 / denom;
-  const double erp = (dt * k) / denom;
-  data->gammaN.setOnes() *= cfm;
-
-  // Construct kN.
-  data->kN.resize(num_contacts);
-  for (int i = 0; i < num_contacts; ++i)
-   data->kN[i] = erp * phi[i] / dt;
-
-  // Update Mv.
-  data->Mv = M * v + rhs * dt;
-
-}
-
 void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
   const int num_contacts = N.rows();
   const int total_friction_directions = F.rows();
@@ -142,6 +119,92 @@ void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
   data->solve_inertia = [&](const MatrixXd& m) -> MatrixXd {
     return lltM.solve(m);
   };
+}
+
+void ConstructTimeStepDependentData(
+    ConstraintVelProblemData<double>* data, double dt) {
+  // Set stiffness and damping to arbitrary values.
+  const double k = 1e10;
+  const double b = 1e5;
+
+  // Construct gammaN.
+  const int num_contacts = data->mu.size();
+  data->gammaN.resize(num_contacts);
+  const double denom = dt * k + b;
+  const double cfm = 1.0 / denom;
+  const double erp = (dt * k) / denom;
+  data->gammaN.setOnes() *= cfm;
+
+  // Construct kN.
+  data->kN.resize(num_contacts);
+  for (int i = 0; i < num_contacts; ++i)
+    data->kN[i] = erp * phi[i] / dt;
+
+  // Update Mv.
+  data->Mv = M * v + rhs * dt;
+}
+
+bool ConstructAndSolveProblem(double eigenvalue_range) {
+  const int num_contacts = rand() % 19 + 2;
+  const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
+  const int num_friction_dirs_per_contact = 2;
+  ConstraintVelProblemData<double> data(nv);
+
+  ConstructGeneralizedInertiaMatrix(nv, eigenvalue_range);
+  ConstructGeneralizedVelocityAndRhs(nv);
+  ConstructJacobians(num_contacts, num_friction_dirs_per_contact, nv);
+  ConstructPhi(num_contacts);
+  ConstructBaseProblemData(&data);
+
+  // Construct the base MM and qq.
+  MatrixXd MM_base, MM;
+  VectorXd qq_base, qq;
+  ConstraintSolver<double>::MlcpToLcpData mlcp_to_lcp_data;
+  ConstraintSolver<double>::ConstructBaseDiscretizedTimeLCP(
+      data, &mlcp_to_lcp_data, &MM_base, &qq_base);
+
+  double dt = 1.0;
+  VectorX<double> a;
+  while (dt > std::numeric_limits<double>::epsilon()) {
+    // Construct the time-step dependent data.
+    ConstructTimeStepDependentData(&data, dt);
+    MM = MM_base;
+    qq = qq_base;
+    ConstraintSolver<double>::UpdateDiscretizedTimeLCP(
+        data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
+
+    // Attempt to solve the linear complementarity problem.
+    solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
+    VectorXd zz;
+    if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
+      return true;
+    dt *= 0.5;
+  }
+
+  return false;
+}
+
+int main(int argc, char* argv[]) {
+  // Get the number of trials to run and the eigenvalue range.
+  DRAKE_DEMAND(argc == 2);
+  const int num_trials = std::atoi(argv[1]);
+  const double eigenvalue_range = std::atof(argv[2]);
+
+  // Randomize.
+  srand(time(NULL));
+
+  // Reset the number of successes.
+  int num_successes = 0;
+
+  // Run the specified number of trials.
+  for (int i = 0; i < num_trials; ++i) {
+    // Construct and solve the problem.
+    if (ConstructAndSolveProblem(eigenvalue_range))
+      ++num_successes;
+  }
+
+  std::cout << num_successes << " / " << num_trials << std::endl;
+  return 0;
 }
 
 }  // namespace
