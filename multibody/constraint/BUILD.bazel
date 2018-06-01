@@ -41,6 +41,15 @@ drake_cc_library(
     ],
 )
 
+drake_cc_binary(
+    name = "constraint_solver_randomized_stress_test",
+    srcs = ["test/constraint_solver_randomized_stress_test.cc"],
+    deps = [
+        ":constraint_solver",
+        "//common:text_logging_gflags",
+    ]
+)
+
 # === test/ ===
 
 drake_cc_googletest(
@@ -48,13 +57,6 @@ drake_cc_googletest(
     deps = [
         ":constraint_solver",
         "//examples/rod2d",
-    ],
-)
-
-drake_cc_googletest(
-    name = "constraint_solver_stress_test",
-    deps = [
-        ":constraint_solver",
     ],
 )
 

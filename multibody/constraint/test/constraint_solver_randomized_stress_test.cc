@@ -1,26 +1,24 @@
 #include "drake/multibody/constraint/constraint_solver.h"
 
+#include <gflags/gflags.h>
+
 #include <cmath>
 #include <memory>
 
-#include <gtest/gtest.h>
-
 #include "drake/common/drake_assert.h"
+#include "drake/common/text_logging_gflags.h"
 #include "drake/solvers/unrevised_lemke_solver.h"
 
 using Vector2d = Eigen::Vector2d;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-
-namespace drake {
-namespace multibody {
-namespace constraint {
-namespace {
+using drake::multibody::constraint::ConstraintSolver;
+using drake::multibody::constraint::ConstraintVelProblemData;
 
 Eigen::LLT<MatrixXd> lltM;
 MatrixXd M, N, F;
 VectorXd v, rhs, phi;
-solvers::UnrevisedLemkeSolver<double> lemke;
+drake::solvers::UnrevisedLemkeSolver<double> lemke;
 
 // Gets a random double number in the interval [0, 1].
 double GetRandomDouble() {
@@ -33,7 +31,7 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   J.setZero();
 
   // Compute nv rank-1 updates.
-  VectorX<double> x(nv), y(nv);
+  VectorXd x(nv), y(nv);
   for (int i = 0; i < nv; ++i) {
     for (int j = 0; j < nv; ++j) {
       x[i] = GetRandomDouble() * 2.0 - 1.0;
@@ -45,7 +43,13 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   // Compute the singular value decomposition.
   Eigen::JacobiSVD<MatrixXd> svd(J, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
+  // Get the singular values.
+  VectorXd sigma = svd.singularValues();
+
   // Space the eigenvalues so that they lie within the specified range.
+  M = svd.matrixU() * 
+      Eigen::DiagonalMatrix<double, Eigen::Dynamic, Eigen::Dynamic>(sigma) *
+      svd.matrixV().transpose();
 }
 
 void ConstructGeneralizedVelocityAndRhs(int nv) {
@@ -66,6 +70,8 @@ void ConstructJacobians(int nc, int nr, int nv) {
     for (int j = 0; j< nc * nr; ++j)
       F(j, i) = GetRandomDouble() * 2.0 - 1.0;
   }
+  N.setIdentity();
+  F.setIdentity();
 }
 
 void ConstructPhi(int num_contacts) {
@@ -79,27 +85,30 @@ void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
   const int num_contacts = N.rows();
   const int total_friction_directions = F.rows();
 
-  // Construct mu.
+  // Construct mu and r.
   data->mu.resize(num_contacts);
-  for (int i = 0; i < num_contacts; ++i)
+  data->r.resize(num_contacts);
+  for (int i = 0; i < num_contacts; ++i) {
     data->mu[i] = GetRandomDouble() * 1.0;
+    data->r[i] = 2;
+  }
 
   // NOTE: We keep the bilateral constraints and generic unilateral constraints
   // empty, consistent with [Drumwright and Shell, 2011].
 
   // Construct normal contact Jacobian operators.
-  data->N_mult = [&](const MatrixX<double>& m) -> MatrixX<double> {
+  data->N_mult = [&](const MatrixXd& m) -> MatrixXd {
     return N * m;
   };
-  data->N_transpose_mult = [&](const MatrixX<double>& m) -> MatrixX<double> {
+  data->N_transpose_mult = [&](const MatrixXd& m) -> MatrixXd {
     return N.transpose() * m;
   };
 
   // Construct tangential contact Jacobian operators.
-  data->F_mult = [&](const MatrixX<double>& m) -> MatrixX<double> {
+  data->F_mult = [&](const MatrixXd& m) -> MatrixXd {
     return F * m;
   };
-  data->F_transpose_mult = [&](const MatrixXd& m) -> MatrixX<double> {
+  data->F_transpose_mult = [&](const MatrixXd& m) -> MatrixXd {
     return F.transpose() * m;
   };
 
@@ -107,7 +116,7 @@ void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
   data->kF.setZero(total_friction_directions);
 
   // Note: gammaF is not zero in RigidBodyPlant!
-  // Construct gammaF and gammaN.
+  // Construct gammaF and gammaE.
   data->gammaF.setZero(total_friction_directions);
   data->gammaE.setZero(num_contacts);
 
@@ -155,6 +164,7 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
   ConstructJacobians(num_contacts, num_friction_dirs_per_contact, nv);
   ConstructPhi(num_contacts);
   ConstructBaseProblemData(&data);
+  ConstructTimeStepDependentData(&data, 1.0);
 
   // Construct the base MM and qq.
   MatrixXd MM_base, MM;
@@ -164,7 +174,7 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
       data, &mlcp_to_lcp_data, &MM_base, &qq_base);
 
   double dt = 1.0;
-  VectorX<double> a;
+  VectorXd a;
   while (dt > std::numeric_limits<double>::epsilon()) {
     // Construct the time-step dependent data.
     ConstructTimeStepDependentData(&data, dt);
@@ -174,19 +184,22 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
         data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
 
     // Attempt to solve the linear complementarity problem.
-    solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
+    drake::solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
     VectorXd zz;
     if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
       return true;
-    dt *= 0.5;
+    dt *= 0.125;
   }
 
   return false;
 }
 
 int main(int argc, char* argv[]) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  drake::logging::HandleSpdlogGflags();
+
   // Get the number of trials to run and the eigenvalue range.
-  DRAKE_DEMAND(argc == 2);
+  DRAKE_DEMAND(argc == 3);
   const int num_trials = std::atoi(argv[1]);
   const double eigenvalue_range = std::atof(argv[2]);
 
@@ -199,15 +212,15 @@ int main(int argc, char* argv[]) {
   // Run the specified number of trials.
   for (int i = 0; i < num_trials; ++i) {
     // Construct and solve the problem.
-    if (ConstructAndSolveProblem(eigenvalue_range))
+    if (ConstructAndSolveProblem(eigenvalue_range)) {
       ++num_successes;
+      std::cout << "+" << std::flush;
+    } else {
+      std::cout << "-" << std::flush;
+    }
   }
 
   std::cout << num_successes << " / " << num_trials << std::endl;
   return 0;
 }
 
-}  // namespace
-}  // namespace constraint
-}  // namespace multibody
-}  // namespace drake
