@@ -50,6 +50,8 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   M = svd.matrixU() * 
       Eigen::DiagonalMatrix<double, Eigen::Dynamic, Eigen::Dynamic>(sigma) *
       svd.matrixV().transpose();
+
+  M.setIdentity();
 }
 
 void ConstructGeneralizedVelocityAndRhs(int nv) {
@@ -70,8 +72,6 @@ void ConstructJacobians(int nc, int nr, int nv) {
     for (int j = 0; j< nc * nr; ++j)
       F(j, i) = GetRandomDouble() * 2.0 - 1.0;
   }
-  N.setIdentity();
-  F.setIdentity();
 }
 
 void ConstructPhi(int num_contacts) {
@@ -89,7 +89,7 @@ void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
   data->mu.resize(num_contacts);
   data->r.resize(num_contacts);
   for (int i = 0; i < num_contacts; ++i) {
-    data->mu[i] = GetRandomDouble() * 1.0;
+    data->mu[i] = GetRandomDouble();
     data->r[i] = 2;
   }
 
@@ -154,8 +154,10 @@ void ConstructTimeStepDependentData(
 }
 
 bool ConstructAndSolveProblem(double eigenvalue_range) {
-  const int num_contacts = rand() % 19 + 2;
-  const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
+//  const int num_contacts = rand() % 19 + 2;
+//  const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
+  const int num_contacts = 6;
+  const int nv = 6;
   const int num_friction_dirs_per_contact = 2;
   ConstraintVelProblemData<double> data(nv);
 
