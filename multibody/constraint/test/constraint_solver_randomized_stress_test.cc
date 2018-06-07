@@ -8,6 +8,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/text_logging_gflags.h"
 #include "drake/solvers/unrevised_lemke_solver.h"
+#include "drake/solvers/moby_lcp_solver.h"
 
 using Vector2d = Eigen::Vector2d;
 using Eigen::MatrixXd;
@@ -19,6 +20,7 @@ Eigen::LLT<MatrixXd> lltM;
 MatrixXd M, N, F;
 VectorXd v, rhs, phi;
 drake::solvers::UnrevisedLemkeSolver<double> lemke;
+drake::solvers::MobyLCPSolver<double> moby;
 
 // Gets a random double number in the interval [0, 1].
 double GetRandomDouble() {
@@ -154,10 +156,8 @@ void ConstructTimeStepDependentData(
 }
 
 bool ConstructAndSolveProblem(double eigenvalue_range) {
-//  const int num_contacts = rand() % 19 + 2;
-//  const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
-  const int num_contacts = 6;
-  const int nv = 6;
+  const int num_contacts = rand() % 19 + 2;
+  const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
   const int num_friction_dirs_per_contact = 2;
   ConstraintVelProblemData<double> data(nv);
 
@@ -189,6 +189,7 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
     drake::solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
     VectorXd zz;
     if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
+//    if (moby.SolveLcpLemke(MM, qq, &zz))
       return true;
     dt *= 0.125;
   }
