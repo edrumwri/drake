@@ -645,7 +645,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   }
 
   const unsigned n = q.size();
-  const unsigned max_iter = std::min(unsigned{1000}, 50 * n);
+  const unsigned max_iter = 50 * n;
 
   if (M.rows() != n || M.cols() != n)
     throw std::logic_error("M's dimensions do not match that of q.");

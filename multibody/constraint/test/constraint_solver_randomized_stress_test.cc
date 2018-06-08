@@ -21,6 +21,8 @@ MatrixXd M, N, F;
 VectorXd v, rhs, phi;
 drake::solvers::UnrevisedLemkeSolver<double> lemke;
 drake::solvers::MobyLCPSolver<double> moby;
+std::vector<double> constraint_violation;
+std::vector<double> dts;
 
 // Gets a random double number in the interval [0, 1].
 double GetRandomDouble() {
@@ -36,8 +38,8 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   VectorXd x(nv), y(nv);
   for (int i = 0; i < nv; ++i) {
     for (int j = 0; j < nv; ++j) {
-      x[i] = GetRandomDouble() * 2.0 - 1.0;
-      y[i] = GetRandomDouble() * 2.0 - 1.0;
+      x[j] = GetRandomDouble() * 2.0 - 1.0;
+      y[j] = GetRandomDouble() * 2.0 - 1.0;
     }
     J += x * y.transpose();
   }
@@ -49,11 +51,16 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   VectorXd sigma = svd.singularValues();
 
   // Space the eigenvalues so that they lie within the specified range.
+  const int n = sigma.size();
+  const double alpha = std::exp(std::log(eigenvalue_range) / n);
+  sigma[n - 1] = alpha;
+  for (int i = n - 2; i >= 0; --i)
+    sigma[i] = sigma[i + 1] * alpha;
+
+  // Form the generalized inertia matrix.
   M = svd.matrixU() * 
       Eigen::DiagonalMatrix<double, Eigen::Dynamic, Eigen::Dynamic>(sigma) *
       svd.matrixV().transpose();
-
-  M.setIdentity();
 }
 
 void ConstructGeneralizedVelocityAndRhs(int nv) {
@@ -74,6 +81,22 @@ void ConstructJacobians(int nc, int nr, int nv) {
     for (int j = 0; j< nc * nr; ++j)
       F(j, i) = GetRandomDouble() * 2.0 - 1.0;
   }
+
+  // Construct redundant rows of N.
+  const int N_redundant_rows = rand() % nc;
+  for (int i = nc - N_redundant_rows; i < nc; ++i) {
+      N.row(i).setZero();
+      for (int j = 0; j < nc - N_redundant_rows; ++j)
+          N.row(i) += N.row(j) * (GetRandomDouble() * 2.0 - 1.0);
+  }
+
+  // Construct redundant rows of F.
+  const int F_redundant_rows = rand() % nr;
+  for (int i = nr - F_redundant_rows; i < nr; ++i) {
+        F.row(i).setZero();
+        for (int j = 0; j < nr - F_redundant_rows; ++j)
+            F.row(i) += F.row(j) * (GetRandomDouble() * 2.0 - 1.0);
+    }
 }
 
 void ConstructPhi(int num_contacts) {
@@ -155,6 +178,15 @@ void ConstructTimeStepDependentData(
   data->Mv = M * v + rhs * dt;
 }
 
+void UpdateStats(const MatrixXd& MM, const VectorXd& qq, const VectorXd& zz, double dt) {
+  if (qq.rows() == 0)
+    return;
+  const VectorXd ww = MM * zz + qq;
+  double cvio = std::min(0.0, std::min(ww.minCoeff(), std::min(zz.maxCoeff(), zz.dot(ww))));
+  constraint_violation.push_back(cvio);
+  dts.push_back(dt);
+}
+
 bool ConstructAndSolveProblem(double eigenvalue_range) {
   const int num_contacts = rand() % 19 + 2;
   const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
@@ -188,9 +220,11 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
     // Attempt to solve the linear complementarity problem.
     drake::solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
     VectorXd zz;
-    if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
-//    if (moby.SolveLcpLemke(MM, qq, &zz))
+    if (lemke.SolveLcpLemke(MM, qq, &zz, &stats)) {
+//    if (moby.SolveLcpLemke(MM, qq, &zz)) {
+      UpdateStats(MM, qq, zz, dt);
       return true;
+    }
     dt *= 0.125;
   }
 
@@ -223,7 +257,14 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  std::cout << num_successes << " / " << num_trials << std::endl;
+  std::cout << std::endl << "Solve %: " << num_successes << " / " << num_trials
+            << std::endl;
+  std::cout << "Constraint violations:";
+  for (size_t i = 0; i < constraint_violation.size(); ++i)
+    std::cout << " " << constraint_violation[i];
+  std::cout << std::endl;
+  std::cout << "dt sum: " << std::accumulate(dts.begin(), dts.end(), 0.0) << std::endl;
+  std::cout << "# of dts: " << dts.size() << std::endl;
   return 0;
 }
 
