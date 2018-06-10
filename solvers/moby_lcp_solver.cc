@@ -270,11 +270,11 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
   if (M.rows() != N || M.cols() != N)
     throw std::logic_error("M's dimensions do not match that of q.");
 
-  Log() << "MobyLCPSolver::SolveLcpFast() entered" << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() entered");
 
   // look for trivial solution
   if (N == 0) {
-    Log() << "MobyLCPSolver::SolveLcpFast() - empty problem" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - empty problem");
     z->resize(0);
     return true;
   }
@@ -290,8 +290,8 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
 
   // see whether to warm-start
   if (z->size() == q.size()) {
-    Log() << "MobyLCPSolver::SolveLcpFast() - warm starting activated"
-          << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - warm starting activated"
+         );
 
     for (unsigned i = 0; i < z->size(); i++) {
       if (abs((*z)[i]) < mod_zero_tol) {
@@ -305,15 +305,15 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
       std::ostringstream str;
       str << " -- non-basic indices:";
       for (unsigned i = 0; i < nonbas_.size(); i++) str << " " << nonbas_[i];
-      Log() << str.str() << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), str.str());
     }
   } else {
     // get minimum element of q (really w)
     Eigen::Index minw;
     const T minw_val = q.minCoeff(&minw);
     if (minw_val > -mod_zero_tol) {
-      Log() << "MobyLCPSolver::SolveLcpFast() - trivial solution found"
-            << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - trivial solution found"
+           );
       z->resize(N);
       z->fill(0);
       return true;
@@ -356,15 +356,14 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
 
     // TODO(sammy-tri) this log can't print when minw is UINF.
     // LOG() << "MobyLCPSolver::SolveLcpFast() - minimum w after pivot: "
-    // << _w[minw] << std::endl;
+    // << _w[minw]);
 
     // if w >= 0, check whether any component of z < 0
     if (minw == UINF || w[minw] > -mod_zero_tol) {
       // find the (a) minimum of z
       unsigned minz = (zz.rows() > 0) ? minCoeffIdx(zz) : UINF;
       if (log_enabled_ && zz.rows() > 0) {
-        Log() << "MobyLCPSolver::SolveLcpFast() - minimum z after pivot: "
-              << zz[minz] << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - minimum z after pivot: {}", zz[minz]);
       }
       if (minz < UINF && zz[minz] < -mod_zero_tol) {
         // get the original index and remove it from the nonbasic set
@@ -384,11 +383,11 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
           (*z)[nonbas_[j]] = zz[i];
         }
 
-        Log() << "MobyLCPSolver::SolveLcpFast() - solution found!" << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - solution found!");
         return true;
       }
     } else {
-      Log() << "(minimum w too negative)" << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "(minimum w too negative)");
 
       // one or more components of w violating w >= 0
       // move component of w from basic set to nonbasic set
@@ -400,14 +399,12 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
       // look whether any component of z needs to move to basic set
       unsigned minz = (zz.rows() > 0) ? minCoeffIdx(zz) : UINF;
       if (log_enabled_ && zz.rows() > 0) {
-        Log() << "MobyLCPSolver::SolveLcpFast() - minimum z after pivot: "
-              << zz[minz] << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - minimum z after pivot: {}", zz[minz]);
       }
       if (minz < UINF && zz[minz] < -mod_zero_tol) {
         // move index to basic set and continue looping
         unsigned k = nonbas_[minz];
-        Log() << "MobyLCPSolver::SolveLcpFast() - moving index " << k
-              << " to basic set" << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - moving index {} to basic set", k);
 
         nonbas_.erase(nonbas_.begin() + minz);
         bas_.push_back(k);
@@ -416,8 +413,8 @@ bool MobyLCPSolver<T>::SolveLcpFast(const MatrixX<T>& M,
     }
   }
 
-  Log() << "MobyLCPSolver::SolveLcpFast() - maximum allowable pivots exceeded"
-        << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFast() - maximum allowable pivots exceeded"
+       );
 
   // if we're here, then the maximum number of pivots has been exceeded
   z->setZero(N);
@@ -430,7 +427,7 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
                                                VectorX<T>* z, int min_exp,
                                                unsigned step_exp, int max_exp,
                                                const T& zero_tol) const {
-  Log() << "MobyLCPSolver::SolveLcpFastRegularized() entered" << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() entered");
 
   // Variables that will be reused multiple times, thus hopefully allowing
   // Eigen to keep from freeing/reallocating memory repeatedly.
@@ -467,7 +464,7 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
   // Assign value for zero tolerance, if necessary.
   const T mod_zero_tol = (zero_tol > 0) ? zero_tol : ComputeZeroTolerance(M, q);
 
-  Log() << " zero tolerance: " << mod_zero_tol << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), " zero tolerance: {}", mod_zero_tol);
 
   // store the total pivots
   unsigned total_piv = 0;
@@ -486,31 +483,28 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
         const T wx_max = wx.maxCoeff();
 
         if (wx_min >= -mod_zero_tol && wx_max < mod_zero_tol) {
-          Log() << "  solved with no regularization necessary!" << std::endl;
-          Log() << "  pivots / total pivots: " << pivots_ << " " << pivots_
-                << std::endl;
-          Log() << "MobyLCPSolver::SolveLcpFastRegularized() exited"
-                << std::endl;
+          DRAKE_SPDLOG_DEBUG(drake::log(), "  solved with no regularization necessary!");
+          DRAKE_SPDLOG_DEBUG(drake::log(), "  pivots: {}, total pivots: {}", pivots_, pivots_);
+          DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() exited"
+               );
 
           return true;
         } else {
-          Log() << "MobyLCPSolver::SolveLcpFastRegularized() - "
-                << "'<w, z> not within tolerance(min value: " << wx_min
-                << " max value: " << wx_max << ")" << std::endl;
+          DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() - "
+               , "'<w, z> not within tolerance(min value: {}, max value: {}", wx_min, wx_max);
         }
       } else {
-        Log() << "  MobyLCPSolver::SolveLcpFastRegularized() - "
-              << "'w' not solved to desired tolerance" << std::endl;
-        Log() << "  minimum w: " << wx.minCoeff() << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  MobyLCPSolver::SolveLcpFastRegularized() - "
+             , "'w' not solved to desired tolerance");
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  minimum w: {}", wx.minCoeff());
       }
     } else {
-      Log() << "  MobyLCPSolver::SolveLcpFastRegularized() - "
-            << "'z' not solved to desired tolerance" << std::endl;
-      Log() << "  minimum z: " << z->minCoeff() << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "  MobyLCPSolver::SolveLcpFastRegularized() - "
+           , "'z' not solved to desired tolerance");
+      DRAKE_SPDLOG_DEBUG(drake::log(), "  minimum z: {}", z->minCoeff());
     }
   } else {
-    Log() << "  MobyLCPSolver::SolveLcpFastRegularized() "
-          << "- solver failed with zero regularization" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  MobyLCPSolver::SolveLcpFastRegularized() - solver failed with zero regularization");
   }
 
   // update the pivots
@@ -523,8 +517,7 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
     double lambda =
         std::pow(static_cast<double>(10.0), static_cast<double>(rf));
 
-    Log() << "  trying to solve LCP with regularization factor: " << lambda
-          << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  trying to solve LCP with regularization factor: {}", lambda);
 
     // regularize M
     MM = M;
@@ -550,28 +543,25 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
           const T wx_max = wx.maxCoeff();
 
           if (wx_min > -mod_zero_tol && wx_max < mod_zero_tol) {
-            Log() << "  solved with regularization factor: " << lambda
-                  << std::endl;
-            Log() << "  pivots / total pivots: " << pivots_ << " " << total_piv
-                  << std::endl;
-            Log() << "MobyLCPSolver::SolveLcpFastRegularized() exited"
-                  << std::endl;
+            DRAKE_SPDLOG_DEBUG(drake::log(), "  solved with regularization factor: {}", lambda);
+            DRAKE_SPDLOG_DEBUG(drake::log(), "  pivots: {}   total pivots: {}", pivots_, total_piv);
+            DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() exited"
+                 );
             pivots_ = total_piv;
             return true;
           } else {
-            Log() << "MobyLCPSolver::SolveLcpFastRegularized() - "
-                  << "'<w, z> not within tolerance(min value: " << wx_min
-                  << " max value: " << wx_max << ")" << std::endl;
+            DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() - "
+                 , "'<w, z> not within tolerance(min value: {}, max value: {}", wx_min, wx_max);
           }
         } else {
-          Log() << "  MobyLCPSolver::SolveLcpFastRegularized() - "
-                << "'w' not solved to desired tolerance" << std::endl;
-          Log() << "  minimum w: " << wx.minCoeff() << std::endl;
+          DRAKE_SPDLOG_DEBUG(drake::log(), "  MobyLCPSolver::SolveLcpFastRegularized() - "
+               , "'w' not solved to desired tolerance");
+          DRAKE_SPDLOG_DEBUG(drake::log(), "  minimum w: {}", wx.minCoeff());
         }
       } else {
-        Log() << "  MobyLCPSolver::SolveLcpFastRegularized() - "
-              << "'z' not solved to desired tolerance" << std::endl;
-        Log() << "  minimum z: " << z->minCoeff() << std::endl;
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  MobyLCPSolver::SolveLcpFastRegularized() - "
+             , "'z' not solved to desired tolerance");
+        DRAKE_SPDLOG_DEBUG(drake::log(), "  minimum z: {}", z->minCoeff());
       }
     }
 
@@ -579,8 +569,8 @@ bool MobyLCPSolver<T>::SolveLcpFastRegularized(const MatrixX<T>& M,
     rf += step_exp;
   }
 
-  Log() << "  unable to solve given any regularization!" << std::endl;
-  Log() << "MobyLCPSolver::SolveLcpFastRegularized() exited" << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), "  unable to solve given any regularization!");
+  DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpFastRegularized() exited");
 
   // store total pivots
   pivots_ = total_piv;
@@ -619,10 +609,10 @@ void MobyLCPSolver<T>::FinishLemkeSolution(const MatrixType& M,
     VectorX<T> wl = (M * (*z)) + q;
     const T minw = wl.minCoeff();
     const T w_dot_z = abs(wl.dot(*z));
-    Log() << "  z: " << z << std::endl;
-    Log() << "  w: " << wl << std::endl;
-    Log() << "  minimum w: " << minw << std::endl;
-    Log() << "  w'z: " << w_dot_z << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  z: {}", z->transpose());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  w: {}", wl.transpose());
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  minimum w: {}", minw);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  w'z: {}", w_dot_z);
   }
 }
 
@@ -639,9 +629,9 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   MatrixX<T> Bl, t1, t2;
 
   if (log_enabled_) {
-    Log() << "MobyLCPSolver::SolveLcpLemke() entered" << std::endl;
-    Log() << "  M: " << std::endl << M;
-    Log() << "  q: " << q << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() entered");
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  M: {}", M);
+    DRAKE_SPDLOG_DEBUG(drake::log(), "  q: {}", q.transpose());
   }
 
   const unsigned n = q.size();
@@ -665,8 +655,8 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     mod_zero_tol = ComputeZeroTolerance(M, q);
 
   if (CheckLemkeTrivial(n, mod_zero_tol, q, z)) {
-    Log() << " -- trivial solution found" << std::endl;
-    Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), " -- trivial solution found");
+    DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exited");
     return true;
   }
 
@@ -710,7 +700,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // determine initial values
   if (!bas_.empty()) {
-    Log() << "-- initial basis not empty (warmstarting)" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "-- initial basis not empty (warmstarting)");
 
     // start from good initial basis
     Bl.resize(n, n);
@@ -731,7 +721,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     // Solve B*x = -q.
     x = LinearSolve(Bl, q);
   } else {
-    Log() << "-- using basis of -1 (no warmstarting)" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "-- using basis of -1 (no warmstarting)");
 
     // use standard initial basis
     Bl.resize(n, n);
@@ -742,16 +732,16 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
   // check whether initial basis provides a solution
   if (x.minCoeff() >= 0.0) {
-    Log() << " -- initial basis provides a solution!" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), " -- initial basis provides a solution!");
     FinishLemkeSolution(M, q, x, z);
-    Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exited");
     return true;
   }
 
   // use a new pivot tolerance if necessary
-  const T naive_piv_tol = n * max(T(1), M.template lpNorm<Eigen::Infinity>()) *
+//  const T naive_piv_tol = n * max(T(1), M.template lpNorm<Eigen::Infinity>()) *
       std::numeric_limits<double>::epsilon();
-  const T mod_piv_tol = (piv_tol > 0) ? piv_tol : naive_piv_tol;
+  const T mod_piv_tol = 0.0;//(piv_tol > 0) ? piv_tol : naive_piv_tol;
 
   // determine initial leaving variable
   Eigen::Index min_x;
@@ -764,10 +754,8 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   iiter = bas_.begin();
   std::advance(iiter, lvindex);
   leaving = *iiter;
-  Log() << " -- x: " << x << std::endl;
-  Log() << " -- first pivot: leaving index=" << lvindex
-        << "  entering index=" << entering << " minimum value: " << tval
-        << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), " -- x: {}", x);
+  DRAKE_SPDLOG_DEBUG(drake::log(), " -- first pivot: leaving index={}, entering index={}, minimum value: {}", lvindex, entering, tval);
 
   // pivot in the artificial variable
   *iiter = t;  // replace w var with _z0 in basic indices
@@ -780,7 +768,7 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   x += u;
   x[lvindex] = tval;
   Bl.col(lvindex) = Be;
-  Log() << "  new q: " << x << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), "  new q: {}", x);
 
   // main iterations begin here
   for (pivots_ = 0; pivots_ < max_iter; pivots_++) {
@@ -789,15 +777,15 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       for (unsigned i = 0; i < bas_.size(); i++) {
         basic << " " << bas_[i];
       }
-      Log() << "basic variables:" << basic.str() << std::endl;
-      Log() << "leaving: " << leaving << " t:" << t << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "basic variables:{}",  basic.str());
+      DRAKE_SPDLOG_DEBUG(drake::log(), "leaving: {}, t: {}", leaving, t);
     }
 
     // check whether done; if not, get new entering variable
     if (leaving == t) {
-      Log() << "-- solved LCP successfully!" << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "-- solved LCP successfully!");
       FinishLemkeSolution(M, q, x, z);
-      Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exited");
       return true;
     } else if (leaving < n) {
       entering = n + leaving;
@@ -823,10 +811,9 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
 
     // check for no new pivots; ray termination
     if (j_.empty()) {
-      Log()
-          << "MobyLCPSolver::SolveLcpLemke() - no new pivots (ray termination)"
-          << std::endl;
-      Log() << "MobyLCPSolver::SolveLcpLemke() exiting" << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(),
+          "MobyLCPSolver::SolveLcpLemke() - no new pivots (ray termination)");
+      DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exiting");
       z->setZero(n);
       return false;
     }
@@ -834,8 +821,8 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     if (log_enabled_) {
       std::ostringstream j;
       for (unsigned i = 0; i < j_.size(); i++) j << " " << j_[i];
-      Log() << "d: " << dl << std::endl;
-      Log() << "j (before min ratio):" << j.str() << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "d: {}", dl);
+      DRAKE_SPDLOG_DEBUG(drake::log(), "j (before min ratio): {}", j.str());
     }
 
     // select elements j from x and d
@@ -875,13 +862,13 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
       for (unsigned i = 0; i < j_.size(); i++) {
         j << " " << j_[i];
       }
-      Log() << "j (after min ratio):" << j.str() << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "j (after min ratio): {}", j.str());
     }
 
     // if j is empty, then likely the zero tolerance is too low
     if (j_.empty()) {
-      Log() << "zero tolerance too low?" << std::endl;
-      Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+      DRAKE_SPDLOG_DEBUG(drake::log(), "zero tolerance too low?");
+      DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exited");
       z->setZero(n);
       return false;
     }
@@ -915,13 +902,11 @@ bool MobyLCPSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     x[lvindex] = ratio;
     Bl.col(lvindex) = Be;
     *iiter = entering;
-    Log() << " -- pivoting: leaving index=" << lvindex
-          << "  entering index=" << entering << std::endl;
+    DRAKE_SPDLOG_DEBUG(drake::log(), " -- pivoting: leaving index={}, entering index={}", lvindex, entering);
   }
 
-  Log() << " -- maximum number of iterations exceeded (n=" << n
-        << ", max=" << max_iter << ")" << std::endl;
-  Log() << "MobyLCPSolver::SolveLcpLemke() exited" << std::endl;
+  DRAKE_SPDLOG_DEBUG(drake::log(), " -- maximum number of iterations exceeded (n={}, max={})", n, max_iter);
+  DRAKE_SPDLOG_DEBUG(drake::log(), "MobyLCPSolver::SolveLcpLemke() exited");
   z->setZero(n);
   return false;
 }

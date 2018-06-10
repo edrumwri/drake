@@ -188,8 +188,8 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
     // Attempt to solve the linear complementarity problem.
     drake::solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
     VectorXd zz;
-    if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
-//    if (moby.SolveLcpLemke(MM, qq, &zz))
+//    if (lemke.SolveLcpLemke(MM, qq, &zz, &stats))
+    if (moby.SolveLcpLemke(MM, qq, &zz))
       return true;
     dt *= 0.125;
   }
@@ -207,7 +207,7 @@ int main(int argc, char* argv[]) {
   const double eigenvalue_range = std::atof(argv[2]);
 
   // Randomize.
-  srand(time(NULL));
+//  srand(time(NULL));
 
   // Reset the number of successes.
   int num_successes = 0;
