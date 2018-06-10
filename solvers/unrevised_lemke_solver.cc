@@ -682,6 +682,8 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
     if (matrix_col[i] < -zero_tol) {
       DRAKE_SPDLOG_DEBUG(log(), "Ratio for index {}: {}", i, ratios[i]);
       if (ratios[i] < min_ratio + zero_tol) {
+        DRAKE_SPDLOG_DEBUG(log(),"Index {} corresponds to the artificial "
+            "variable - selecting it.", i);
         if (IsArtificial(state_.dep_variables[i])) {
           // *Always* select the artificial variable, if multiple choices are
           // possible ([Cottle 1992] p. 280).

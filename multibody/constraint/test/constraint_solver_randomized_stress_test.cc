@@ -21,8 +21,14 @@ MatrixXd M, N, F;
 VectorXd v, rhs, phi;
 drake::solvers::UnrevisedLemkeSolver<double> lemke;
 drake::solvers::MobyLCPSolver<double> moby;
-std::vector<double> constraint_violation;
-std::vector<double> dts;
+
+struct SolverStats {
+  double dt{-1};                        // The dt the problem was solved with.
+  double constraint_violation{-1};
+  int num_pivots{-1};                   // The number of pivots required.
+};
+std::vector<SolverStats> moby_stats;
+std::vector<SolverStats> unrevised_stats;
 
 // Gets a random double number in the interval [0, 1].
 double GetRandomDouble() {
@@ -53,9 +59,9 @@ void ConstructGeneralizedInertiaMatrix(int nv, double eigenvalue_range) {
   // Space the eigenvalues so that they lie within the specified range.
   const int n = sigma.size();
   const double alpha = std::exp(std::log(eigenvalue_range) / n);
-  sigma[n - 1] = alpha;
+  sigma[n - 1] = 1.0;
   for (int i = n - 2; i >= 0; --i)
-    sigma[i] = sigma[i + 1] * alpha;
+    sigma[i] = sigma[i + 1] / alpha;
 
   // Form the generalized inertia matrix.
   M = svd.matrixU() * 
@@ -104,6 +110,7 @@ void ConstructPhi(int num_contacts) {
   phi.resize(num_contacts);
   for (int i = 0; i < num_contacts; ++i)
     phi[i] = GetRandomDouble() * 2.0 - 1.0;
+  phi.setZero();
 }
 
 void ConstructBaseProblemData(ConstraintVelProblemData<double>* data) {
@@ -178,16 +185,54 @@ void ConstructTimeStepDependentData(
   data->Mv = M * v + rhs * dt;
 }
 
-void UpdateStats(const MatrixXd& MM, const VectorXd& qq, const VectorXd& zz, double dt) {
+void UpdateStats(const MatrixXd& MM, const VectorXd& qq, const VectorXd& zz, double dt, int num_pivots, SolverStats* stats) {
   if (qq.rows() == 0)
     return;
   const VectorXd ww = MM * zz + qq;
-  double cvio = std::min(0.0, std::min(ww.minCoeff(), std::min(zz.maxCoeff(), zz.dot(ww))));
-  constraint_violation.push_back(cvio);
-  dts.push_back(dt);
+  stats->constraint_violation = std::min(0.0, std::min(ww.minCoeff(), std::min(zz.maxCoeff(), zz.dot(ww))));
+  stats->dt = dt;
+  stats->num_pivots = num_pivots;
 }
 
-bool ConstructAndSolveProblem(double eigenvalue_range) {
+void Output(int num_successes) {
+  switch (num_successes) {
+    case 2:
+      std::cout << "+";
+      break;
+
+    case 1:
+    std::cout << "1";
+      break;
+
+    case 0:
+    std::cout << "0";
+      break;
+
+    default:
+      DRAKE_ABORT();
+  }
+
+  std::cout << std::flush;
+}
+
+void OutputStats(const std::vector<SolverStats>& stats) {
+  std::cout << "dt:";
+  for (size_t i = 0; i < stats.size(); ++i)
+    std::cout << " " << stats[i].dt;
+  std::cout << std::endl;
+
+  std::cout << "constraint violation:";
+  for (size_t i = 0; i < stats.size(); ++i)
+    std::cout << " " << stats[i].constraint_violation;
+  std::cout << std::endl;
+
+  std::cout << "pivots:";
+  for (size_t i = 0; i < stats.size(); ++i)
+    std::cout << " " << stats[i].num_pivots;
+  std::cout << std::endl;
+}
+
+int ConstructAndSolveProblem(double eigenvalue_range) {
   const int num_contacts = rand() % 19 + 2;
   const int nv = rand() % 10 + 6;  // Uniform from [6, 15].
   const int num_friction_dirs_per_contact = 2;
@@ -207,8 +252,33 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
   ConstraintSolver<double>::ConstructBaseDiscretizedTimeLCP(
       data, &mlcp_to_lcp_data, &MM_base, &qq_base);
 
+  // Initialize the number of successes.
+  int num_successes = 0;
+
+  // Try solving with Moby first.
   double dt = 1.0;
   VectorXd a;
+  while (dt > std::numeric_limits<double>::epsilon()) {
+    // Construct the time-step dependent data.
+    ConstructTimeStepDependentData(&data, dt);
+    MM = MM_base;
+    qq = qq_base;
+    ConstraintSolver<double>::UpdateDiscretizedTimeLCP(
+        data, dt, &mlcp_to_lcp_data, &a, &MM, &qq);
+
+    // Attempt to solve the linear complementarity problem.
+    VectorXd zz;
+    if (moby.SolveLcpLemke(MM, qq, &zz)) {
+      moby_stats.push_back(SolverStats());
+      UpdateStats(MM, qq, zz, dt, moby.get_num_pivots(), &moby_stats.back());
+      ++num_successes;
+      break;
+    }
+    dt *= 0.125;
+  }
+
+  // Try solving with unrevised Lemke.
+  dt = 1.0;
   while (dt > std::numeric_limits<double>::epsilon()) {
     // Construct the time-step dependent data.
     ConstructTimeStepDependentData(&data, dt);
@@ -221,14 +291,15 @@ bool ConstructAndSolveProblem(double eigenvalue_range) {
     drake::solvers::UnrevisedLemkeSolver<double>::SolverStatistics stats;
     VectorXd zz;
     if (lemke.SolveLcpLemke(MM, qq, &zz, &stats)) {
-//    if (moby.SolveLcpLemke(MM, qq, &zz)) {
-      UpdateStats(MM, qq, zz, dt);
-      return true;
+      unrevised_stats.push_back(SolverStats());
+      UpdateStats(MM, qq, zz, dt, stats.num_pivots, &unrevised_stats.back());
+      ++num_successes;
+      break;
     }
     dt *= 0.125;
   }
 
-  return false;
+  return num_successes;
 }
 
 int main(int argc, char* argv[]) {
@@ -241,30 +312,26 @@ int main(int argc, char* argv[]) {
   const double eigenvalue_range = std::atof(argv[2]);
 
   // Randomize.
-  srand(time(NULL));
-
-  // Reset the number of successes.
-  int num_successes = 0;
+//  srand(time(NULL));
 
   // Run the specified number of trials.
+  std::vector<int> outputs;
   for (int i = 0; i < num_trials; ++i) {
     // Construct and solve the problem.
-    if (ConstructAndSolveProblem(eigenvalue_range)) {
-      ++num_successes;
-      std::cout << "+" << std::flush;
-    } else {
-      std::cout << "-" << std::flush;
-    }
+    outputs.push_back(ConstructAndSolveProblem(eigenvalue_range));
   }
 
-  std::cout << std::endl << "Solve %: " << num_successes << " / " << num_trials
-            << std::endl;
-  std::cout << "Constraint violations:";
-  for (size_t i = 0; i < constraint_violation.size(); ++i)
-    std::cout << " " << constraint_violation[i];
+  // We do this separately so that logging does not get in the way.
+  std::cout << "Test outputs: ";
+  for (int i = 0; i < num_trials; ++i)
+    Output(outputs[i]);
   std::cout << std::endl;
-  std::cout << "dt sum: " << std::accumulate(dts.begin(), dts.end(), 0.0) << std::endl;
-  std::cout << "# of dts: " << dts.size() << std::endl;
+
+  std::cout << "Moby stats:" << std::endl;
+  OutputStats(moby_stats);
+  std::cout << "-------";
+  std::cout << "Lemke stats:" << std::endl;
+  OutputStats(unrevised_stats);
   return 0;
 }
 
