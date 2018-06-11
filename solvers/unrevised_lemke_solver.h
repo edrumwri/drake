@@ -208,7 +208,8 @@ class UnrevisedLemkeSolver : public MathematicalProgramSolverInterface {
     const std::vector<int>& row_indices, int vector_size);
   static bool IsEachUnique(const std::vector<LCPVariable>& vars);
   bool LemkePivot(const MatrixX<T>& M, const VectorX<T>& q, int driving_index,
-                  T zero_tol, VectorX<T>* M_bar_col, VectorX<T>* q_bar) const;
+                  T zero_tol, VectorX<T>* M_bar_col, VectorX<T>* q_bar,
+                  T* solve_residual) const;
   bool ConstructLemkeSolution(const MatrixX<T>& M, const VectorX<T>& q,
       int artificial_index, T zero_tol, VectorX<T>* z) const;
   int FindComplementIndex(const LCPVariable& query) const;

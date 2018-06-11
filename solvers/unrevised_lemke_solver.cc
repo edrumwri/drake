@@ -450,8 +450,10 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
     int driving_index,
     T zero_tol,
     VectorX<T>* M_prime_col,
-    VectorX<T>* q_prime) const {
+    VectorX<T>* q_prime,
+    T* solve_residual) const {
   DRAKE_DEMAND(q_prime);
+  DRAKE_DEMAND(solve_residual);
 
   const int kArtificial = M.rows();
   DRAKE_DEMAND(driving_index >= 0 && driving_index <= kArtificial);
@@ -498,9 +500,11 @@ bool UnrevisedLemkeSolver<T>::LemkePivot(
   // @TODO(edrumwri) Institute a unit test that exercises the affirmative
   //   evaluation branch of the conditional when such a LCP has been
   //   identified.
-  const T residual = (M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).norm();
-  DRAKE_SPDLOG_DEBUG(log(), "Linear solve residual: {}", residual);
-  if (false && residual > 10 * zero_tol) {
+  *solve_residual = (M_alpha_beta_ * q_prime_beta_prime_ + q_alpha_).
+      template lpNorm<Eigen::Infinity>();
+
+  DRAKE_SPDLOG_DEBUG(log(), "Linear solve residual: {}", *solve_residual);
+  if (false && *solve_residual > 10 * zero_tol) {
     DRAKE_SPDLOG_DEBUG(log(), "M_alpha_beta: {}", M_alpha_beta_);
     DRAKE_SPDLOG_DEBUG(log(), "q_prime_beta_prime: {}",
         q_prime_beta_prime_.transpose());
@@ -633,14 +637,18 @@ bool UnrevisedLemkeSolver<T>::ConstructLemkeSolution(
   // identified as the blocking variable, from the set of dependent variables
   // to the set of independent variables.
   VectorX<T> q_prime(n);
-  if (!LemkePivot(M, q, artificial_index, zero_tol, nullptr, &q_prime))
+  T solve_residual;
+  if (!LemkePivot(M, q, artificial_index, zero_tol, nullptr, &q_prime,
+      &solve_residual)) {
     return false;
+  }
 
   z->setZero(n);
   for (int i = 0; i < static_cast<int>(state_.dep_variables.size()); ++i) {
     if (state_.dep_variables[i].is_z())
       (*z)[state_.dep_variables[i].index()] = q_prime[i];
   }
+
   return true;
 }
 
@@ -654,7 +662,7 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
     int* blocking_index) const {
   DRAKE_DEMAND(blocking_index);
   DRAKE_DEMAND(ratios.size() == matrix_col.size());
-  DRAKE_DEMAND(zero_tol > 0);
+  DRAKE_DEMAND(zero_tol >= 0);
 
   const int n = matrix_col.size();
   T min_ratio = std::numeric_limits<double>::infinity();
@@ -683,6 +691,8 @@ bool UnrevisedLemkeSolver<T>::FindBlockingIndex(
       DRAKE_SPDLOG_DEBUG(log(), "Ratio for index {}: {}", i, ratios[i]);
       if (ratios[i] < min_ratio + zero_tol) {
         if (IsArtificial(state_.dep_variables[i])) {
+          DRAKE_SPDLOG_DEBUG(log(),"Index {} corresponds to the artificial "
+              "variable - selecting it.", i);
           // *Always* select the artificial variable, if multiple choices are
           // possible ([Cottle 1992] p. 280).
           *blocking_index = i;
@@ -775,6 +785,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
                                      SolverStatistics* statistics,
                                      const T& zero_tol) const {
   using std::max;
+  using std::min;
   using std::abs;
   DRAKE_DEMAND(statistics);
 
@@ -814,6 +825,7 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
   statistics->zero_tol = zero_tol;
   if (statistics->zero_tol <= 0)
     statistics->zero_tol = ComputeZeroTolerance(M, q);
+  DRAKE_SPDLOG_DEBUG(log(), "Zero tolerance: {}", statistics->zero_tol);
 
   // Checks to see whether the trivial solution z = 0 to the LCP w = Mz + q
   // solves the LCP. This must be the case if q is non-negative, as w would then
@@ -914,8 +926,9 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
                        state_.indep_variables[state_.driving_index].index());
 
     // Compute the permuted q and driving column of the permuted M matrix.
+    T solve_residual;
     if (!LemkePivot(M, q, state_.driving_index, statistics->zero_tol,
-                    &M_prime_col, &q_prime)) {
+                    &M_prime_col, &q_prime, &solve_residual)) {
       DRAKE_SPDLOG_DEBUG(log(), "Linear system solve failed.");
 
       if (Restart()) {
@@ -928,8 +941,10 @@ bool UnrevisedLemkeSolver<T>::SolveLcpLemke(const MatrixX<T>& M,
     }
 
     // Find the blocking variable.
+    const T pivot_tol = min(
+        solve_residual, statistics->zero_tol);
     if (!FindBlockingIndex(
-        statistics->zero_tol, M_prime_col,
+        pivot_tol, M_prime_col,
         -(q_prime.array() / M_prime_col.array()).matrix(), &blocking_index)) {
 
       if (Restart()) {
