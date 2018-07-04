@@ -29,12 +29,16 @@ class TestSystem : public LeafSystem<T> {
  public:
   TestSystem() {
     this->set_name("TestSystem");
+    this->DeclareContinuousState(state_vector_size());
     this->DeclareNumericParameter(BasicVector<T>{13.0, 7.0});
     this->DeclareAbstractParameter(Value<std::string>("parameter value"));
   }
   ~TestSystem() override {}
 
   using LeafSystem<T>::DeclareContinuousState;
+
+  // Gets the size of the state vector for the system.
+  static int state_vector_size() { return 3; }
 
   void AddPeriodicUpdate() {
     const double period = 10.0;
@@ -191,17 +195,66 @@ class TestSystem : public LeafSystem<T> {
 class LeafSystemTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    context_ = system_.CreateDefaultContext();
     event_info_ = system_.AllocateCompositeEventCollection();
     leaf_info_ = dynamic_cast<const LeafCompositeEventCollection<double>*>(
         event_info_.get());
   }
 
   TestSystem<double> system_;
-  LeafContext<double> context_;
+  std::unique_ptr<Context<double>> context_;
 
   std::unique_ptr<CompositeEventCollection<double>> event_info_;
   const LeafCompositeEventCollection<double>* leaf_info_;
 };
+
+TEST_F(LeafSystemTest, MapVelocityToConfigurationDerivatives) {
+  auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
+  BasicVector<double> state_vec2(system_.state_vector_size());
+
+  system_.MapVelocityToQDot(*context_, *state_vec1, &state_vec2);
+  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
+  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
+  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+
+  // Test Eigen specialized function specially.
+  system_.MapVelocityToQDot(*context_, state_vec1->CopyToVector(), &state_vec2);
+  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
+  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
+  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+}
+
+TEST_F(LeafSystemTest, MapConfigurationDerivativesToVelocity) {
+  auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
+  BasicVector<double> state_vec2(system_.state_vector_size());
+
+  system_.MapQDotToVelocity(*context_, *state_vec1, &state_vec2);
+  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
+  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
+  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+
+  // Test Eigen specialized function specially.
+  system_.MapQDotToVelocity(*context_, state_vec1->CopyToVector(), &state_vec2);
+  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
+  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
+  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+}
+
+TEST_F(LeafSystemTest, ConfigurationDerivativeVelocitySizeMismatch) {
+  auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
+  BasicVector<double> state_vec2(system_.state_vector_size() + 1);
+
+  EXPECT_THROW(system_.MapQDotToVelocity(*context_, *state_vec1, &state_vec2),
+               std::runtime_error);
+}
+
+TEST_F(LeafSystemTest, VelocityConfigurationDerivativeSizeMismatch) {
+  auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
+  BasicVector<double> state_vec2(system_.state_vector_size() + 1);
+
+  EXPECT_THROW(system_.MapVelocityToQDot(*context_, *state_vec1, &state_vec2),
+               std::runtime_error);
+}
 
 // Tests that witness functions can be declared. Tests that witness functions
 // stop Simulator at desired points (i.e., the raison d'etre of a witness
@@ -214,14 +267,14 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness1->direction_type(),
       WitnessFunctionDirection::kCrossesZero);
   EXPECT_FALSE(witness1->get_event());
-  EXPECT_EQ(witness1->CalcWitnessValue(context_), 1.0);
+  EXPECT_EQ(witness1->CalcWitnessValue(*context_), 1.0);
 
   auto witness2 = system_.DeclareWitnessWithEvent();
   ASSERT_TRUE(witness2);
   EXPECT_EQ(witness2->description(), "dummy2");
   EXPECT_EQ(witness2->direction_type(), WitnessFunctionDirection::kNone);
   EXPECT_TRUE(witness2->get_event());
-  EXPECT_EQ(witness2->CalcWitnessValue(context_), 2.0);
+  EXPECT_EQ(witness2->CalcWitnessValue(*context_), 2.0);
 
   auto witness3 = system_.DeclareWitnessWithPublish();
   ASSERT_TRUE(witness3);
@@ -229,10 +282,10 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness3->direction_type(),
       WitnessFunctionDirection::kNone);
   EXPECT_TRUE(witness3->get_event());
-  EXPECT_EQ(witness3->CalcWitnessValue(context_), 3.0);
+  EXPECT_EQ(witness3->CalcWitnessValue(*context_), 3.0);
   auto pe = dynamic_cast<const PublishEvent<double>*>(witness3->get_event());
   ASSERT_TRUE(pe);
-  pe->handle(context_);
+  pe->handle(*context_);
   EXPECT_TRUE(system_.publish_callback_called());
 
   auto witness4 = system_.DeclareWitnessWithDiscreteUpdate();
@@ -241,11 +294,11 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness4->direction_type(),
       WitnessFunctionDirection::kNone);
   EXPECT_TRUE(witness4->get_event());
-  EXPECT_EQ(witness4->CalcWitnessValue(context_), 4.0);
+  EXPECT_EQ(witness4->CalcWitnessValue(*context_), 4.0);
   auto de = dynamic_cast<const DiscreteUpdateEvent<double>*>(
       witness4->get_event());
   ASSERT_TRUE(de);
-  de->handle(context_, nullptr);
+  de->handle(*context_, nullptr);
   EXPECT_TRUE(system_.discrete_update_callback_called());
 
   auto witness5 = system_.DeclareWitnessWithUnrestrictedUpdate();
@@ -254,11 +307,11 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness5->direction_type(),
       WitnessFunctionDirection::kNone);
   EXPECT_TRUE(witness5->get_event());
-  EXPECT_EQ(witness5->CalcWitnessValue(context_), 5.0);
+  EXPECT_EQ(witness5->CalcWitnessValue(*context_), 5.0);
   auto ue = dynamic_cast<const UnrestrictedUpdateEvent<double>*>(
       witness5->get_event());
   ASSERT_TRUE(ue);
-  ue->handle(context_, nullptr);
+  ue->handle(*context_, nullptr);
   EXPECT_TRUE(system_.unrestricted_update_callback_called());
 
   auto witness6 = system_.DeclareLambdaWitnessWithoutEvent();
@@ -266,7 +319,7 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness6->description(), "dummy6");
   EXPECT_EQ(witness6->direction_type(),
             WitnessFunctionDirection::kCrossesZero);
-  EXPECT_EQ(witness6->CalcWitnessValue(context_), 7.0);
+  EXPECT_EQ(witness6->CalcWitnessValue(*context_), 7.0);
 
   auto witness7 = system_.DeclareLambdaWitnessWithUnrestrictedUpdate();
   ASSERT_TRUE(witness7);
@@ -274,7 +327,7 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
   EXPECT_EQ(witness7->direction_type(),
             WitnessFunctionDirection::kPositiveThenNonPositive);
   EXPECT_TRUE(witness7->get_event());
-  EXPECT_EQ(witness7->CalcWitnessValue(context_), 11.0);
+  EXPECT_EQ(witness7->CalcWitnessValue(*context_), 11.0);
   ue = dynamic_cast<const UnrestrictedUpdateEvent<double>*>(
       witness7->get_event());
   ASSERT_TRUE(ue);
@@ -282,8 +335,8 @@ TEST_F(LeafSystemTest, WitnessDeclarations) {
 
 // Tests that if no update events are configured, none are reported.
 TEST_F(LeafSystemTest, NoUpdateEvents) {
-  context_.set_time(25.0);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(25.0);
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(std::numeric_limits<double>::infinity(), time);
   EXPECT_TRUE(!leaf_info_->HasEvents());
 }
@@ -316,9 +369,9 @@ TEST_F(LeafSystemTest, MultipleNonUniquePeriods) {
 // Tests that if the current time is smaller than the offset, the next
 // update time is the offset.
 TEST_F(LeafSystemTest, OffsetHasNotArrivedYet) {
-  context_.set_time(2.0);
+  context_->set_time(2.0);
   system_.AddPeriodicUpdate();
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
 
   EXPECT_EQ(5.0, time);
   const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -331,11 +384,11 @@ TEST_F(LeafSystemTest, OffsetHasNotArrivedYet) {
 // update time is the offset, DiscreteUpdate and UnrestrictedUpdate happen
 // at the same time.
 TEST_F(LeafSystemTest, EventsAtTheSameTime) {
-  context_.set_time(2.0);
+  context_->set_time(2.0);
   // Both actions happen at t = 5.
   system_.AddPeriodicUpdate();
   system_.AddPeriodicUnrestrictedUpdate(3, 5);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
 
   EXPECT_EQ(5.0, time);
   {
@@ -356,9 +409,9 @@ TEST_F(LeafSystemTest, EventsAtTheSameTime) {
 // Tests that if the current time is exactly the offset, the next
 // update time is in the future.
 TEST_F(LeafSystemTest, ExactlyAtOffset) {
-  context_.set_time(5.0);
+  context_->set_time(5.0);
   system_.AddPeriodicUpdate();
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
 
   EXPECT_EQ(15.0, time);
   const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -370,9 +423,9 @@ TEST_F(LeafSystemTest, ExactlyAtOffset) {
 // Tests that if the current time is larger than the offset, the next
 // update time is determined by the period.
 TEST_F(LeafSystemTest, OffsetIsInThePast) {
-  context_.set_time(23.0);
+  context_->set_time(23.0);
   system_.AddPeriodicUpdate();
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
 
   EXPECT_EQ(25.0, time);
   const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -384,9 +437,9 @@ TEST_F(LeafSystemTest, OffsetIsInThePast) {
 // Tests that if the current time is exactly an update time, the next update
 // time is in the future.
 TEST_F(LeafSystemTest, ExactlyOnUpdateTime) {
-  context_.set_time(25.0);
+  context_->set_time(25.0);
   system_.AddPeriodicUpdate();
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
 
   EXPECT_EQ(35.0, time);
   const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -399,16 +452,16 @@ TEST_F(LeafSystemTest, ExactlyOnUpdateTime) {
 TEST_F(LeafSystemTest, PeriodicUpdateZeroOffset) {
   system_.AddPeriodicUpdate(2.0);
 
-  context_.set_time(0.0);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(0.0);
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(2.0, time);
 
-  context_.set_time(1.0);
-  time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(1.0);
+  time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(2.0, time);
 
-  context_.set_time(2.1);
-  time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(2.1);
+  time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(4.0, time);
 }
 
@@ -419,8 +472,8 @@ TEST_F(LeafSystemTest, UpdateAndPublish) {
   system_.AddPublish(12.0);
 
   // The publish event fires at 12sec.
-  context_.set_time(9.0);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(9.0);
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(12.0, time);
   {
     const auto& events = leaf_info_->get_publish_events().get_events();
@@ -430,8 +483,8 @@ TEST_F(LeafSystemTest, UpdateAndPublish) {
   }
 
   // The update event fires at 15sec.
-  context_.set_time(14.0);
-  time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(14.0);
+  time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(15.0, time);
   {
     const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -441,8 +494,8 @@ TEST_F(LeafSystemTest, UpdateAndPublish) {
   }
 
   // Both events fire at 60sec.
-  context_.set_time(59.0);
-  time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  context_->set_time(59.0);
+  time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_EQ(60.0, time);
   {
     const auto& events = leaf_info_->get_discrete_update_events().get_events();
@@ -462,9 +515,9 @@ TEST_F(LeafSystemTest, UpdateAndPublish) {
 // time for that sample is slightly less than k * period due to floating point
 // rounding, the next sample time is (k + 1) * period.
 TEST_F(LeafSystemTest, FloatingPointRoundingZeroPointZeroOneFive) {
-  context_.set_time(0.015 * 11);  // Slightly less than 0.165.
+  context_->set_time(0.015 * 11);  // Slightly less than 0.165.
   system_.AddPeriodicUpdate(0.015);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   // 0.015 * 12 = 0.18.
   EXPECT_NEAR(0.18, time, 1e-8);
 }
@@ -473,22 +526,21 @@ TEST_F(LeafSystemTest, FloatingPointRoundingZeroPointZeroOneFive) {
 // time for that sample is slightly less than k * period due to floating point
 // rounding, the next sample time is (k + 1) * period.
 TEST_F(LeafSystemTest, FloatingPointRoundingZeroPointZeroZeroTwoFive) {
-  context_.set_time(0.0025 * 977);  // Slightly less than 2.4425
+  context_->set_time(0.0025 * 977);  // Slightly less than 2.4425
   system_.AddPeriodicUpdate(0.0025);
-  double time = system_.CalcNextUpdateTime(context_, event_info_.get());
+  double time = system_.CalcNextUpdateTime(*context_, event_info_.get());
   EXPECT_NEAR(2.445, time, 1e-8);
 }
 
 // Tests that the leaf system reserved the declared Parameters with default
 // values, and that they are modifiable.
 TEST_F(LeafSystemTest, NumericParameters) {
-  std::unique_ptr<Context<double>> context = system_.CreateDefaultContext();
   const BasicVector<double>& vec =
-      system_.GetVanillaNumericParameters(*context);
+      system_.GetVanillaNumericParameters(*context_);
   EXPECT_EQ(13.0, vec[0]);
   EXPECT_EQ(7.0, vec[1]);
   BasicVector<double>& mutable_vec =
-      system_.GetVanillaMutableNumericParameters(context.get());
+      system_.GetVanillaMutableNumericParameters(context_.get());
   mutable_vec.SetAtIndex(1, 42.0);
   EXPECT_EQ(42.0, vec[1]);
 }
@@ -496,12 +548,11 @@ TEST_F(LeafSystemTest, NumericParameters) {
 // Tests that the leaf system reserved the declared abstract Parameters with
 // default values, and that they are modifiable.
 TEST_F(LeafSystemTest, AbstractParameters) {
-  std::unique_ptr<Context<double>> context = system_.CreateDefaultContext();
-  const std::string& param = context->get_abstract_parameter(0 /*index*/)
+  const std::string& param = context_->get_abstract_parameter(0 /*index*/)
                                  .GetValueOrThrow<std::string>();
   EXPECT_EQ(param, "parameter value");
   std::string& mutable_param =
-      context->get_mutable_abstract_parameter(0 /*index*/)
+      context_->get_mutable_abstract_parameter(0 /*index*/)
           .GetMutableValueOrThrow<std::string>();
   mutable_param = "modified parameter value";
   EXPECT_EQ("modified parameter value", param);
@@ -563,13 +614,11 @@ TEST_F(LeafSystemTest, DeclareTypedContinuousState) {
 }
 
 TEST_F(LeafSystemTest, DeclarePerStepEvents) {
-  std::unique_ptr<Context<double>> context = system_.CreateDefaultContext();
-
   system_.AddPerStepEvent<PublishEvent<double>>();
   system_.AddPerStepEvent<DiscreteUpdateEvent<double>>();
   system_.AddPerStepEvent<UnrestrictedUpdateEvent<double>>();
 
-  system_.GetPerStepEvents(*context, event_info_.get());
+  system_.GetPerStepEvents(*context_, event_info_.get());
 
   {
     const auto& events = leaf_info_->get_publish_events().get_events();
