@@ -833,7 +833,8 @@ class System : public SystemBase {
       const Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& generalized_velocity,
       VectorBase<T>* qdot) const {
-    DoMapVelocityToQDot(context, generalized_velocity, qdot);
+    if (context.get_continuous_state().size() > 0)
+      DoMapVelocityToQDot(context, generalized_velocity, qdot);
   }
 
   /// Transforms the time derivative `qdot` of the generalized configuration `q`
@@ -865,7 +866,8 @@ class System : public SystemBase {
   void MapQDotToVelocity(const Context<T>& context,
                          const Eigen::Ref<const VectorX<T>>& qdot,
                          VectorBase<T>* generalized_velocity) const {
-    DoMapQDotToVelocity(context, qdot, generalized_velocity);
+    if (context.get_continuous_state().size() > 0)
+      DoMapQDotToVelocity(context, qdot, generalized_velocity);
   }
 
   // TODO(edrumwri): MapAccelerationToQDotDot.
