@@ -17,6 +17,7 @@ using systems::LeafSystem;
 class TargetShifter : public LeafSystem<double> {
 
  public:
+  bool use_cartesian = false;
   TargetShifter();
  private:
   void DoControlCalc(const Context<double>& context, BasicVector<double>* output) const;

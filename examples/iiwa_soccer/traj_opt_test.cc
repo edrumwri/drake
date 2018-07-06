@@ -1,3 +1,6 @@
+#include <iostream>
+#include <chrono>
+
 #include "drake/manipulation/util/sim_diagram_builder.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/examples/iiwa_soccer/source_switcher.h"
@@ -29,6 +32,8 @@
 #include "drake/multibody/constraint_wrappers.h"
 #include "drake/multibody/kinematics_cache_helper.h"
 #include "drake/solvers/binding.h"
+#include "drake/common/temp_directory.h"
+#include "drake/solvers/snopt_solver.h"
 
 
 
@@ -124,32 +129,37 @@ void DoTrajTest() {
   xf.setZero();
   xf[0] = 0.5;
   xf[1] = -0.1;
-  xf[2] = 0.1;
 
 
 
 
-  // TRYING WORLD CONSTRAINT
+//   TRYING WORLD CONSTRAINT
   auto tree_for_constraints = tree_->Clone();
   WorldPositionConstraint wpc(tree_for_constraints.get(), tree_for_constraints->FindBody("iiwa_link_7", "iiwa14")->get_body_index(),
-                          Vector3d(0,0,1), Vector3d(0,0,0.5), Vector3d(0,0,1.5), Vector2d(NAN, NAN));
+                          Vector3d(0,0,0.9), Vector3d(-0.1,-0.1,0.8), Vector3d(0.1,0.1,1), Vector2d(NAN, NAN));
 
   KinematicsCacheHelper<double> cache_helper(*tree_for_constraints);
   auto kine_constraint_wrapper = std::make_shared<SingleTimeKinematicConstraintWrapper>(&wpc, &cache_helper);
-
-  //Binding<SingleTimeKinematicConstraintWrapper> con_bind(kine_constraint_wrapper, DECISIONVARS);
-  for (int i = 10; i < 20; i++){
+//
+//  //Binding<SingleTimeKinematicConstraintWrapper> con_bind(kine_constraint_wrapper, DECISIONVARS);
+for (int i = 15; i < 20; i++){
 
     dircol.AddConstraint(kine_constraint_wrapper, dircol.state(i).topRows(7));
-  }
+}
+
+//  dircol.AddConstraintToAllKnotPoints(kine_constraint_wrapper);
 
 
 
+  const std::string print_file = "/tmp/snopt.out";
+  std::cout << print_file << std::endl;
+  dircol.SetSolverOption(solvers::SnoptSolver::id(), "Print file", print_file);
+  dircol.SetSolverOption(solvers::SnoptSolver::id(), "Major optimality tolerance", 1e-4);
 
 
 
-//  dircol.AddLinearConstraint(dircol.initial_state() == x0);
-//  dircol.AddLinearConstraint(dircol.final_state() == xf);
+  dircol.AddLinearConstraint(dircol.initial_state() == x0);
+ // dircol.AddLinearConstraint(dircol.final_state() == xf);
 
   dircol.AddEqualTimeIntervalsConstraints();
 
@@ -160,10 +170,22 @@ void DoTrajTest() {
   auto traj_init_x =
       PiecewisePolynomialType::FirstOrderHold({0, timespan_init}, {x0, xf});
   dircol.SetInitialTrajectory(PiecewisePolynomialType(), traj_init_x);
+
+
+  // Do optim and time it.
+  std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
   solvers::SolutionResult result = dircol.Solve();
+  std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+
+  auto duration = std::chrono::duration_cast<std::chrono::seconds>( t2 - t1 ).count();
+  std::cout << "Trajectory optimization time: \n";
+  std::cout << duration;
+  std::cout << " seconds.\n";
 
   const trajectories::PiecewisePolynomial<double> pp_xtraj =
       dircol.ReconstructStateTrajectory();
+
+  dircol.
   auto source_x = builder.AddSystem<systems::TrajectorySource>(pp_xtraj);
   const trajectories::PiecewisePolynomial<double> pp_torque =
     dircol.ReconstructInputTrajectory();

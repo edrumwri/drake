@@ -1,3 +1,4 @@
+#include <gflags/gflags.h>
 #include "drake/systems/framework/diagram.h"
 #include "drake/examples/iiwa_soccer/source_switcher.h"
 #include "drake/systems/primitives/pass_through.h"
@@ -23,6 +24,7 @@
 #include "drake/examples/iiwa_soccer/target_shifter.h"
 #include "drake/examples/iiwa_soccer/nonconstant_vector_source.h"
 #include "drake/examples/iiwa_soccer/nonconstant_abstract_source.h"
+#include "drake/common/text_logging_gflags.h"
 
 namespace drake {
 namespace examples {
@@ -41,6 +43,15 @@ using manipulation::util::SimDiagramBuilder;
 using systems::RigidBodyPlant;
 using systems::Simulator;
 using systems::ConstantVectorSource;
+
+
+
+DEFINE_double(direction_multiply_target, 0, "");
+DEFINE_double(direction_multiply_waypoint, 10, "");
+DEFINE_double(waypoint_time, 1, "");
+DEFINE_double(target_time, 4, "");
+DEFINE_double(target_offset_height, 0.09, "");
+
 
 
 switches control_switches;
@@ -83,7 +94,7 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
   auto& SWITCH_torque_adder_imped_w_grav = SWITCH_torque->add_selectable_output("control_adder");
   auto& SWITCH_torque_imped = SWITCH_torque->add_selectable_output("imped_ctrl_alone");
   auto& SWITCH_torque_grav = SWITCH_torque->add_selectable_output("gravity_comp_alone");
-  auto& SWITCH_torque_adder_invdyn_w_grav = SWITCH_torque->add_selectable_output("inv_dyn_w_grav_comp");
+  //auto& SWITCH_torque_adder_invdyn_w_grav = SWITCH_torque->add_selectable_output("inv_dyn_w_grav_comp");
 
   auto torque_adder_imped = builder.AddSystem<Adder<double>>(2, 7); // num inputs, size.
   auto torque_adder_invdyn = builder.AddSystem<Adder<double>>(2, 7); // num inputs, size.
@@ -99,9 +110,9 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
   // Gains in cartesian-land.
   Vector3<double> k_p;
-  k_p << 500, 500, 500;
+  k_p << 50, 50, 50;
   Vector3<double> k_d;
-  k_d << 100, 100, 100;
+  k_d << 15, 15, 15;
 
   // Joint gains.
   VectorX<double> iiwa_kp(7);
@@ -113,7 +124,7 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
 
   // Gravity compensation controller.
- auto grav_comp = builder.AddSystem<InverseDynamics<double>>(tree_for_control, true);
+  auto grav_comp = builder.AddSystem<InverseDynamics<double>>(tree_for_control, true);
 
   // Target tracking controller.
   auto imped_controller = builder.AddSystem<ImpedanceController>(tree_for_control,
@@ -122,9 +133,9 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
                                                                  k_d,
                                                                  lcm);
   // Inverse dynamics controller for full joint trajectory tracking.
-  auto inv_dyn_controller = builder.AddSystem<systems::controllers::InverseDynamicsController<double>>(
-      tree_for_control.Clone(), iiwa_kp, iiwa_ki, iiwa_kd,
-      false /* no feedforward acceleration */);
+//  auto inv_dyn_controller = builder.AddSystem<systems::controllers::InverseDynamicsController<double>>(
+//      tree_for_control.Clone(), iiwa_kp, iiwa_ki, iiwa_kd,
+//      false /* no feedforward acceleration */);
 
   // Grav comp torque to switch.
   builder.Connect(grav_comp->get_output_port_torque(), SWITCH_torque_grav);
@@ -139,43 +150,17 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
   builder.Connect(arm_state_in->get_output_port(), grav_comp->get_input_port_estimated_state());
   builder.Connect(arm_state_in->get_output_port(), imped_controller->get_input_port_estimated_state());
-  builder.Connect(arm_state_in->get_output_port(), inv_dyn_controller->get_input_port_estimated_state());
+//  builder.Connect(arm_state_in->get_output_port(), inv_dyn_controller->get_input_port_estimated_state());
 
   builder.Connect(grav_comp->get_output_port_torque(), torque_adder_invdyn->get_input_port(0));
-  builder.Connect(inv_dyn_controller->get_output_port_control(), torque_adder_invdyn->get_input_port(1));
-  builder.Connect(torque_adder_invdyn->get_output_port(), SWITCH_torque_adder_invdyn_w_grav);
+//  builder.Connect(inv_dyn_controller->get_output_port_control(), torque_adder_invdyn->get_input_port(1));
+//  builder.Connect(torque_adder_invdyn->get_output_port(), SWITCH_torque_adder_invdyn_w_grav);
 
   // Torque output port to motors.
   builder.ExportOutput(SWITCH_torque->get_output_port(0));
   // Hand position. TODO stop making this part of imped controller.
   builder.ExportOutput(imped_controller->get_output_port_hand_pos());
 
-  /**** Trajectory generation. ****/
-  // Dummy origin
-  auto origin = Eigen::Vector3d();
-  origin << 0, 0, 1.5;
-  auto origin_src = builder.AddSystem<ConstantVectorSource>(origin);
-
-  // Spline trajectory
-  double reach_duration = 5;
-  auto spline_reach_maker = builder.AddSystem<SplineTrajectories>(0, reach_duration, lcm);
-  auto spline_reach_evaluator = builder.AddSystem<TrajectoryEvaluator>(3);
-
-  // Start position to spline maker.
-  builder.Connect(origin_src->get_output_port(), spline_reach_maker->get_input_port(0));
-
-  // Ball position to spline maker.
-  builder.Connect(ball_position->get_output_port(), spline_reach_maker->get_input_port(1));
-
-  // Spline maker to spline evaluator.
-  builder.Connect(spline_reach_maker->get_output_port(0), spline_reach_evaluator->get_input_port(0));
-
-  auto ik_traj_receiver = builder.AddSystem<NonconstantAbstractSource<PiecewisePolynomial<double>>>();
-  auto ik_traj_evaluator = builder.AddSystem<TrajectoryEvaluator>(14);
-
-  // Connect ik trajectory evaluator to the inverse dynamics controller.
-  builder.Connect(ik_traj_receiver->get_output_port(0), ik_traj_evaluator->get_input_port(0));
-  builder.Connect(ik_traj_evaluator->get_output_port(0), inv_dyn_controller->get_input_port_desired_state());
 
 
 
@@ -193,14 +178,51 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
 
   // Offset from ball.
-  auto ball_offset = Eigen::Vector3d();
-  ball_offset << -0.2, 0, 0;
   NonconstantVectorSource* ball_offset_src = builder.AddSystem<NonconstantVectorSource>(3);
 
   TargetShifter* ball_offset_shifter = builder.AddSystem<TargetShifter>();
   builder.Connect(ball_offset_src->get_output_port(0), ball_offset_shifter->get_input_port(0));
   builder.Connect(ball_position->get_output_port(), ball_offset_shifter->get_input_port(1));
   builder.Connect(ball_offset_shifter->get_output_port(0), SWITCH_offset_ball);
+
+  Adder<double>* ball_offset_adder = builder.AddSystem<Adder<double>>(2,3);
+  builder.Connect(ball_offset_shifter->get_output_port(0), ball_offset_adder->get_input_port(0));
+  builder.Connect(ball_position->get_output_port(), ball_offset_adder->get_input_port(1));
+
+
+  /**** Trajectory generation. ****/
+  // Spline trajectory
+  double reach_duration = 5;
+  auto spline_maker = builder.AddSystem<SplineTrajectories>(0, reach_duration, lcm);
+  auto spline_evaluator = builder.AddSystem<TrajectoryEvaluator>(3);
+  spline_maker->debug_draw = false;
+
+  // Waypoint position to spline maker.
+
+  NonconstantVectorSource* waypoint_offset_src = builder.AddSystem<NonconstantVectorSource>(3);
+  TargetShifter* waypoint_offset = builder.AddSystem<TargetShifter>();
+  Adder<double>* waypoint_offset_adder = builder.AddSystem<Adder<double>>(2,3);
+  builder.Connect(waypoint_offset_src->get_output_port(0), waypoint_offset->get_input_port(0));
+  builder.Connect(ball_position->get_output_port(), waypoint_offset->get_input_port(1));
+  builder.Connect(waypoint_offset->get_output_port(0), waypoint_offset_adder->get_input_port(0));
+  builder.Connect(ball_position->get_output_port(), waypoint_offset_adder->get_input_port(1));
+
+  builder.Connect(waypoint_offset_adder->get_output_port(), spline_maker->get_input_port(0));
+
+  // Ball position to spline maker.
+  builder.Connect(ball_offset_adder->get_output_port(), spline_maker->get_input_port(1));
+
+  // Spline maker to spline evaluator.
+  builder.Connect(spline_maker->get_output_port(0), spline_evaluator->get_input_port(0));
+
+//  auto ik_traj_receiver = builder.AddSystem<NonconstantAbstractSource<PiecewisePolynomial<double>>>();
+//  auto ik_traj_evaluator = builder.AddSystem<TrajectoryEvaluator>(14);
+//
+//  // Connect ik trajectory evaluator to the inverse dynamics controller.
+//  builder.Connect(ik_traj_receiver->get_output_port(0), ik_traj_evaluator->get_input_port(0));
+//  builder.Connect(ik_traj_evaluator->get_output_port(0), inv_dyn_controller->get_input_port_desired_state());
+
+
 
 
 
@@ -220,7 +242,7 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
   builder.Connect(const_src->get_output_port(), SWITCH_setpt_fixed);
   builder.Connect(ball_position->get_output_port(), SWITCH_setpt_follow);
-  builder.Connect(spline_reach_evaluator->get_output_port(0), SWITCH_setpt_spline);
+  builder.Connect(spline_evaluator->get_output_port(0), SWITCH_setpt_spline);
 
   Adder<double>* offset_adder = builder.AddSystem<Adder<double>>(2, 3);
   builder.Connect(SWITCH_setpt->get_output_port(0), offset_adder->get_input_port(0));
@@ -229,13 +251,26 @@ std::unique_ptr<Diagram<double>> make_junction_box() {
 
 
   control_switches = {SWITCH_torque, SWITCH_setpt, SWITCH_offset,
-                      ball_offset_src, ik_traj_receiver, &tree_for_control};
+                      ball_offset_src, waypoint_offset_src, spline_maker, &tree_for_control};
+
+
+  // Don't want this for all.
+  waypoint_offset->use_cartesian = true;
+  ball_offset_shifter->use_cartesian = true;
+
 
   return builder.Build();
 }
 
 
 void DoMain() {
+  direction_multiply_target = FLAGS_direction_multiply_target;
+  direction_multiply_waypoint = FLAGS_direction_multiply_waypoint;
+  waypoint_time = FLAGS_waypoint_time;
+  target_time = FLAGS_target_time;
+  target_offset_height = FLAGS_target_offset_height;
+
+
   /******** Setup the world. ********/
   SimDiagramBuilder<double> builder; // Wraps normal DiagramBuilder. Has additional utility stuff for controlled systems.
 
@@ -322,8 +357,8 @@ void DoMain() {
 }  // namespace drake}
 
 int main(int argc, char* argv[]) {
-//  gflags::ParseCommandLineFlags(&argc, &argv, true);
-//  drake::logging::HandleSpdlogGflags();
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  drake::logging::HandleSpdlogGflags();
   drake::examples::iiwa_soccer::DoMain();
   return 0;
 }

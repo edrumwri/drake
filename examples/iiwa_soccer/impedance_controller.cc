@@ -114,7 +114,7 @@ void ImpedanceController::DoControlCalc(const Context<double>& context, BasicVec
 
 
   BasicVector<double> torque_out(torque); // Convert to BasicVector for some reason.
-
+  torque_out.SetAtIndex(2, -st_vector->GetAtIndex(2) - st_vector->GetAtIndex(9) + torque_out.GetAtIndex(2)); // TMP TMP TMP kills arm tilting too much.
   //torque_out.SetAtIndex(5, -ctrl_angle * 10 + torque_out.GetAtIndex(5));
   // Don't flip out if NaN somehow comes out.
   for (int i = 0; i < torque_out.size(); i++) {

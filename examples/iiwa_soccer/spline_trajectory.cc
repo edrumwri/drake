@@ -10,47 +10,61 @@ using systems::BasicVector;
 using systems::Context;
 using trajectories::PiecewisePolynomial;
 using systems::PublishEvent;
+using Eigen::Vector3d;
 
 
-SplineTrajectories::SplineTrajectories(double start_time, double duration, lcm::DrakeLcm& lcm, bool lock_start_pos) : start_time_(start_time),
-                                                                                                                      end_time_(start_time + duration),
-                                                                                                                      lock_start_pos_(lock_start_pos),
-                                                                                                                      current_origin_(3) {
-  this->DeclareVectorInputPort(BasicVector<double>(3)); // Origin.
+SplineTrajectories::SplineTrajectories(double start_time, double duration, lcm::DrakeLcm& lcm) : start_time_(start_time),
+                                                                                                 end_time_(start_time + duration),
+                                                                                                 current_origin_(3),
+                                                                                                 start_pt_(0., 0., 1.) {
+  this->DeclareVectorInputPort(BasicVector<double>(3)); // A waypoint.
   this->DeclareVectorInputPort(BasicVector<double>(3)); // Destination.
 
   this->DeclareAbstractOutputPort(&SplineTrajectories::CalcTrajectory);
   lcm_ = &lcm;
   current_origin_.SetZero();
+}
+
+
+void SplineTrajectories::set_start_pt(const Vector3d& new_start_pt, double time_to_waypt, double time_to_destination) {
+  start_pt_[0] = new_start_pt[0];
+  start_pt_[1] = new_start_pt[1];
+  start_pt_[2] = new_start_pt[2];
+
+  start_time_ = current_time_;
+  waypoint_time_ = current_time_ + time_to_waypt;
+  end_time_ = current_time_ + time_to_destination;
 
 }
 
 void SplineTrajectories::CalcTrajectory(const Context<double>& context, PiecewisePolynomial<double>* output) const {
-  if (!lock_start_pos_ || (current_origin_[0] == 0 &&
-  current_origin_[1] == 0 && current_origin_[2] == 0) ) {
-    current_origin_.SetFromVector(this->EvalVectorInput(context, 0)->CopyToVector());
-  }
+//  if (!lock_start_pos_ || (current_origin_[0] == 0 &&
+//  current_origin_[1] == 0 && current_origin_[2] == 0) ) {
+//    current_origin_.SetFromVector(this->EvalVectorInput(context, 0)->CopyToVector());
+//  }
 
+  current_time_ = context.get_time();
+
+  const systems::BasicVector<double>* waypt = this->EvalVectorInput(context, 0);
   const systems::BasicVector<double>* destination = this->EvalVectorInput(context, 1);
-
 
   std::vector<double> breaks; // The "phase" or "time" along the polynomial.
   std::vector<MatrixX<double>> knots; // Points we want to go through.
 
   breaks.push_back(start_time_);
-  breaks.push_back((start_time_ + end_time_)/2);//context.get_time() + 15);
-  breaks.push_back(end_time_);//context.get_time() + 30);
+  breaks.push_back(waypoint_time_);
+  breaks.push_back(end_time_);
 
   MatrixX<double> pt1 = MatrixX<double>::Zero(3,1);
-  pt1(0,0) = current_origin_.GetAtIndex(0);
-  pt1(1,0) = current_origin_.GetAtIndex(1);
-  pt1(2,0) = current_origin_.GetAtIndex(2);
+  pt1(0,0) = start_pt_[0];
+  pt1(1,0) = start_pt_[1];
+  pt1(2,0) = start_pt_[2];
   knots.push_back(pt1);
 
   MatrixX<double> pt2 = MatrixX<double>::Zero(3,1);
-  pt2(0,0) = (destination->GetAtIndex(0) - current_origin_.GetAtIndex(0))*2/3; // Go 2/3 the distance in the first half the time.
-  pt2(1,0) = (destination->GetAtIndex(1) - current_origin_.GetAtIndex(1))*2/3;
-  pt2(2,0) = std::max(current_origin_.GetAtIndex(2) + (destination->GetAtIndex(2) - current_origin_.GetAtIndex(2))*1/3 + 0.2, 0.2);
+  pt2(0,0) = waypt->GetAtIndex(0);
+  pt2(1,0) = waypt->GetAtIndex(1);
+  pt2(2,0) = waypt->GetAtIndex(2);
   knots.push_back(pt2);
 
   MatrixX<double> pt3 = MatrixX<double>::Zero(3,1);
@@ -61,7 +75,7 @@ void SplineTrajectories::CalcTrajectory(const Context<double>& context, Piecewis
 
   breaks_ = breaks;
   knots_ = knots;
-  current_trajectory_= PiecewisePolynomial<double>::Cubic(breaks_, knots_);
+  current_trajectory_= PiecewisePolynomial<double>::Pchip(breaks_, knots_);
   *output = current_trajectory_;
 
 }
