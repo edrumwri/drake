@@ -56,6 +56,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "composite_multibody_plant_scene_graph_diagram",
+    hdrs = [
+        "composite_multibody_plant_scene_graph_diagram.h",
+    ],
+    deps = [
+        ":scene_graph",
+        "//multibody/multibody_tree/multibody_plant",
+    ],
+)
+
+drake_cc_library(
     name = "frame_kinematics",
     srcs = [
         "frame_kinematics_vector.cc",
