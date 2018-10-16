@@ -56,9 +56,12 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "composite_multibody_plant_scene_graph_diagram",
+    name = "multibody_plant_scenegraph",
+    srcs = [
+        "multibody_plant_scenegraph.cc",
+    ],
     hdrs = [
-        "composite_multibody_plant_scene_graph_diagram.h",
+        "multibody_plant_scenegraph.h",
     ],
     deps = [
         ":scene_graph",
@@ -254,6 +257,13 @@ drake_cc_library(
 )
 
 # -----------------------------------------------------
+
+drake_cc_googletest(
+    name = "multibody_plant_scenegraph_test",
+    deps = [
+        ":multibody_plant_scenegraph",
+    ],
+)
 
 drake_cc_googletest(
     name = "proximity_engine_test",

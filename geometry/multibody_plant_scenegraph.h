@@ -6,34 +6,15 @@
 
 #pragma once
 
-#include "drake/geometry/geometry_state.h"
 #include "drake/geometry/scene_graph.h"
-#include "drake/lcm/drake_lcm_interface.h"
-#include "drake/lcmt_viewer_load_robot.hpp"
+#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
 #include "drake/systems/framework/diagram_builder.h"
-#include "drake/systems/lcm/lcm_publisher_system.h"
 
 namespace drake {
 namespace geometry {
 
-#ifndef DRAKE_DOXYGEN_CXX
-namespace internal {
-
-// Simple class declared as a friend to GeometryState to facilitate the creation
-// of visualization artifacts directly from the contents of GeometryState.
-class GeometryVisualizationImpl {
- public:
-  // Given an instance of GeometryState, returns an lcm message sufficient
-  // to load the state's geometry.
-  static lcmt_viewer_load_robot BuildLoadMessage(
-      const GeometryState<double>& state);
-};
-
-}  // namespace internal
-#endif  // DRAKE_DOXYGEN_CXX
-
 /** Extends a Diagram with the required components to interface with
- drake_visualizer. This must be called _during_ Diagram building and
+ DrakeVisualizer. This must be called _during_ Diagram building and
  uses the given `builder` to add relevant subsystems and connections.
 
  This is a convenience method to simplify some common boilerplate for adding
@@ -70,17 +51,19 @@ class GeometryVisualizationImpl {
  @ingroup visualization
  */
 template <class T>
-class CompositeMultibodyPlantSceneGraphDiagram : public systems::Diagram<T> {
+class MultibodyPlantSceneGraph : public systems::Diagram<T> {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CompositeMultibodyPlantSceneGraphDiagram)
-  explicit CompositeMultibodyPlantSceneGraphDiagram(
-      double time_discretization_quantum);
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultibodyPlantSceneGraph)
+  explicit MultibodyPlantSceneGraph(
+      double time_step);
 
-  const MultibodyPlant<T>& multibody_plant() const {
+  const multibody::multibody_plant::MultibodyPlant<T>& multibody_plant() const {
     return *multibody_plant_;
   }
 
-  MultibodyPlant<T>& mutable_multibody_plant() { return *multibody_plant_; }
+  multibody::multibody_plant::MultibodyPlant<T>& mutable_multibody_plant() {
+    return *multibody_plant_;
+  }
 
   const SceneGraph<T>& scene_graph() const { return *scene_graph_; }
 
@@ -94,28 +77,47 @@ class CompositeMultibodyPlantSceneGraphDiagram : public systems::Diagram<T> {
   void Finalize();
 
  private:
-  multibody::multibody_plant::MultibodyPlant* multibody_plant_{nullptr};
-  geometry::SceneGraph* scene_graph_{nullptr};
+  multibody::multibody_plant::MultibodyPlant<T>* multibody_plant_{nullptr};
+  geometry::SceneGraph<T>* scene_graph_{nullptr};
   std::unique_ptr<systems::DiagramBuilder<T>> builder_;
 };
 
 template <class T>
-CompositeMultibodyPlantSceneGraphDiagram::
-CompositeMultibodyPlantSceneGraphDiagram(double time_discretization_quantum) {
+MultibodyPlantSceneGraph<T>::MultibodyPlantSceneGraph(double time_step) {
   builder_ = std::make_unique<systems::DiagramBuilder<T>>();
 
-  scene_graph_ = builder_->AddSystem<SceneGraph>();
+  scene_graph_ = builder_->template AddSystem<SceneGraph<T>>();
   scene_graph_->set_name("scene_graph");
 
   multibody_plant_ =
-      builder_->AddSystem<multibody::multibody_plant::MultibodyPlant>(
-          time_discretization_quantum);
+      builder_->template AddSystem<
+          multibody::multibody_plant::MultibodyPlant<T>>(time_step);
 }
 
 template <class T>
-void CompositeMultibodyPlantSceneGraphDiagram::Finalize() {
+void MultibodyPlantSceneGraph<T>::Finalize() {
   // MultibodyPlant must be finalized first.
   multibody_plant_->Finalize(scene_graph_);
+
+  // Export all outputs from MultibodyPlant.
+  for (int i = 0; i < multibody_plant_->get_num_output_ports(); ++i)
+    builder_->ExportOutput(multibody_plant_->get_output_port(i));
+
+  // Export all outputs from SceneGraph.
+  for (int i = 0; i < scene_graph_->get_num_output_ports(); ++i)
+    builder_->ExportOutput(scene_graph_->get_output_port(i));
+
+  // Exports the pose bundle output and query output ports from Scene Graph.
+  builder_->ExportOutput(scene_graph_->get_pose_bundle_output_port());
+  builder_->ExportOutput(scene_graph_->get_query_output_port());
+
+  // Exports the actuation input ports for multi-body plant.
+
+  // Exports the continuous state output ports.
+
+  // Exports the generalized contact forces output ports.
+
+  // Exports the contact results output port.
 
   // Create the necessary connections.
   builder_->Connect(multibody_plant_->get_geometry_poses_output_port(),
@@ -124,37 +126,7 @@ void CompositeMultibodyPlantSceneGraphDiagram::Finalize() {
 
   builder_->Connect(scene_graph_->get_query_output_port(),
                     multibody_plant_->get_geometry_query_input_port());
-
-  builder_->
 }
-
-/** Implements ConnectDrakeVisualizer, but using @p pose_bundle_output_port to
- explicitly specify the output port used to get pose bundles for
- @p scene_graph.  This is required, for instance, when the SceneGraph is
- inside a Diagram, and the Diagram exports the pose bundle port.
-
- @pre pose_bundle_output_port must be connected directly to the
- pose_bundle_output_port of @p scene_graph.
-
- @see ConnectDrakeVisualizer().
- */
-systems::lcm::LcmPublisherSystem* ConnectDrakeVisualizer(
-    systems::DiagramBuilder<double>* builder,
-    const SceneGraph<double>& scene_graph,
-    const systems::OutputPort<double>& pose_bundle_output_port,
-    lcm::DrakeLcmInterface* lcm = nullptr);
-
-/** (Advanced) Explicitly dispatches an LCM load message based on the registered
- geometry. Normally this is done automatically at Simulator initialization. But
- if you have to do it yourself (likely because you are not using a Simulator),
- it should be invoked _after_ registration is complete. Typically this is used
- after ConnectDrakeVisualizer() has been used to add visualization to the
- Diagram that contains the given `scene_graph`. The message goes to
- LCM channel "DRAKE_VIEWER_LOAD_ROBOT".
-
- @see geometry::ConnectDrakeVisualizer() */
-void DispatchLoadMessage(
-    const SceneGraph<double>& scene_graph, lcm::DrakeLcmInterface* lcm);
 
 }  // namespace geometry
 }  // namespace drake
