@@ -112,6 +112,8 @@ void MultibodyPlantSceneGraph<T>::Finalize() {
   builder_->ExportOutput(scene_graph_->get_query_output_port());
 
   // Exports the actuation input ports for multi-body plant.
+  builder_->ExportOutput(multibody_plant_->get_actuation_input_port());
+  for (int i = 0; i < )
 
   // Exports the continuous state output ports.
 
