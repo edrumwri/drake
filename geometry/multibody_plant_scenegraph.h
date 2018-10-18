@@ -13,6 +13,17 @@
 namespace drake {
 namespace geometry {
 
+/// @cond
+// Helper macro to throw an exception within methods that should not be called
+// post-finalize.
+#define DRAKE_MBPSG_THROW_IF_FINALIZED() ThrowIfFinalized(__func__)
+
+// Helper macro to throw an exception within methods that should not be called
+// pre-finalize.
+#define DRAKE_MBPSG_THROW_IF_NOT_FINALIZED() ThrowIfNotFinalized(__func__)
+/// @endcond
+
+
 /** Extends a Diagram with the required components to interface with
  DrakeVisualizer. This must be called _during_ Diagram building and
  uses the given `builder` to add relevant subsystems and connections.
@@ -69,6 +80,62 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
 
   SceneGraph<T>& mutable_scene_graph() { return *scene_graph_; }
 
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_actuation_input_port().
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::InputPort<T>& get_actuation_input_port() const {
+    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    return this->get_input_port(single_actuated_port_);
+  }
+
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_actuation_input_port(ModelInstanceIndex).
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::InputPort<T>& get_actuation_input_port(
+      multibody::ModelInstanceIndex model_instance) const {
+    CheckModelInstanceIsValid(model_instance);
+    return this->get_input_port(
+        instance_continuous_state_output_ports_.at(model_instance));
+  }
+
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_continuous_state_output_port().
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::OutputPort<T>& get_continuous_state_output_port() const {
+    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    return this->get_output_port(continuous_state_output_port_);
+  }
+
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_continuous_state_output_port(ModelInstanceIndex).
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::OutputPort<T>& get_continuous_state_output_port(
+      multibody::ModelInstanceIndex model_instance) const {
+    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    CheckModelInstanceIsValid(model_instance);
+    return this->get_output_port(
+        instance_continuous_state_output_ports_.at(model_instance));
+  }
+
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_generalized_contact_forces_output_port().
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::OutputPort<T>& get_generalized_contact_forces_output_port(
+      multibody::ModelInstanceIndex model_instance) const {
+    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    CheckModelInstanceIsValid(model_instance);
+    return this->get_output_port(
+        instance_generalized_contact_forces_output_ports_.at(model_instance));
+  }
+
+  /// Gets the exported port of the same name from MultibodyPlant.
+  /// @see MultibodyPlant::get_contact_results_output_port().
+  /// @pre Finalize() was already called on `this` plant.
+  const systems::OutputPort<T>& get_contact_results_output_port() const {
+    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    return this->get_output_port(contact_results_port_);
+  }
+
   /// Users *must* call Finalize() after making any additions to the
   /// multibody plant and before using this class in the Systems framework.
   /// This should be called exactly once.
@@ -76,10 +143,70 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
   /// @see multibody::multibody_plant::MultibodyPlant<T>::Finalize()
   void Finalize();
 
+  /// Determines whether this system has been finalized (via a call to
+  /// Finalize()).
+  bool is_finalized() const {
+    return finalized_;
+  }
+
  private:
+  void CheckModelInstanceIsValid(
+      multibody::ModelInstanceIndex model_instance) const {
+    DRAKE_THROW_UNLESS(model_instance.is_valid());
+    DRAKE_THROW_UNLESS(model_instance <
+        multibody_plant_->num_model_instances());
+    DRAKE_THROW_UNLESS(multibody_plant_->tree().num_states(model_instance) > 0);
+  }
+
+  // Helper method for throwing an exception within public methods that should
+  // not be called post-finalize. The invoking method should pass its name so
+  // that the error message can include that detail.
+  void ThrowIfFinalized(const char* source_method) const;
+
+  // Helper method for throwing an exception within public methods that should
+  // not be called pre-finalize. The invoking method should pass its name so
+  // that the error message can include that detail.
+  void ThrowIfNotFinalized(const char* source_method) const;
+
   multibody::multibody_plant::MultibodyPlant<T>* multibody_plant_{nullptr};
   geometry::SceneGraph<T>* scene_graph_{nullptr};
   std::unique_ptr<systems::DiagramBuilder<T>> builder_;
+
+  // Index for the output port of ContactResults.
+  systems::OutputPortIndex contact_results_port_;
+
+  // A vector containing the index for the generalized contact forces port for
+  // each model instance. This vector is indexed by ModelInstanceIndex. An
+  // invalid value indicates that the model instance has no generalized
+  // velocities and thus no generalized forces.
+  std::vector<systems::OutputPortIndex>
+      instance_generalized_contact_forces_output_ports_;
+
+  // A vector containing actuation ports for each model instance indexed by
+  // ModelInstanceIndex.  An invalid value indicates that the model instance has
+  // no actuated DOFs.
+  std::vector<systems::InputPortIndex> instance_actuation_ports_;
+
+  // If only one model instance has actuated DOFs, remember it here.  If
+  // multiple instances have actuated DOFs, this index will not be valid.
+  systems::InputPortIndex single_actuated_port_;
+
+  // Port for output of all continuous state from MultibodyPlant.
+  systems::OutputPortIndex continuous_state_output_port_;
+
+  // Port for PoseBundle outputs from SceneGraph.
+  systems::OutputPortIndex pose_bundle_output_port_;
+
+  // Output port for queries from SceneGraph.
+  systems::OutputPortIndex query_output_port_;
+
+  // A vector containing state output ports for each model instance indexed by
+  // ModelInstanceIndex. An invalid value indicates that the model instance has
+  // no state.
+  std::vector<systems::OutputPortIndex> instance_continuous_state_output_ports_;
+
+  // Whether this system has been finalized.
+  bool finalized_{false};
 };
 
 template <class T>
@@ -99,27 +226,39 @@ void MultibodyPlantSceneGraph<T>::Finalize() {
   // MultibodyPlant must be finalized first.
   multibody_plant_->Finalize(scene_graph_);
 
-  // Export all outputs from MultibodyPlant.
-  for (int i = 0; i < multibody_plant_->get_num_output_ports(); ++i)
-    builder_->ExportOutput(multibody_plant_->get_output_port(i));
-
-  // Export all outputs from SceneGraph.
-  for (int i = 0; i < scene_graph_->get_num_output_ports(); ++i)
-    builder_->ExportOutput(scene_graph_->get_output_port(i));
-
   // Exports the pose bundle output and query output ports from Scene Graph.
-  builder_->ExportOutput(scene_graph_->get_pose_bundle_output_port());
-  builder_->ExportOutput(scene_graph_->get_query_output_port());
+  pose_bundle_output_port_ = builder_->ExportOutput(
+      scene_graph_->get_pose_bundle_output_port());
+  query_output_port_ = builder_->ExportOutput(
+      scene_graph_->get_query_output_port());
 
-  // Exports the actuation input ports for multi-body plant.
-  builder_->ExportOutput(multibody_plant_->get_actuation_input_port());
-  for (int i = 0; i < )
+  // Export the contact results port for MultibodyPlant.
+  contact_results_port_ = builder_->ExportOutput(
+      multibody_plant_->get_contact_results_output_port());
 
-  // Exports the continuous state output ports.
+  // Exports the model-instance based ports for MultibodyPlant.
+  continuous_state_output_port_ = builder_->ExportOutput(
+      multibody_plant_->get_continuous_state_output_port());
+  int num_actuated_instances = 0;
+  for (multibody::ModelInstanceIndex i(0);
+       i < multibody_plant_->num_model_instances(); ++i) {
+    if (multibody_plant_->num_actuated_dofs(i) > 0) {
+      instance_actuation_ports_.push_back(builder_->ExportInput(
+          multibody_plant_->get_actuation_input_port(i)));
+      ++num_actuated_instances;
+    }
+    instance_generalized_contact_forces_output_ports_.push_back(
+        builder_->ExportOutput(
+            multibody_plant_->get_generalized_contact_forces_output_port(i)));
+    instance_continuous_state_output_ports_.push_back(builder_->
+        ExportOutput(multibody_plant_->get_continuous_state_output_port(i)));
+  }
 
-  // Exports the generalized contact forces output ports.
-
-  // Exports the contact results output port.
+  // Export the model instance index, if possible.
+  if (num_actuated_instances > 0) {
+    single_actuated_port_ = builder_->ExportInput(
+        multibody_plant_->get_actuation_input_port());
+  }
 
   // Create the necessary connections.
   builder_->Connect(multibody_plant_->get_geometry_poses_output_port(),
