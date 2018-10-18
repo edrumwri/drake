@@ -286,6 +286,20 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     }
   }
 
+  /// Retrieves a reference to the subsystem with name @p name returned by
+  /// get_name().
+  /// @throws std::logic_error if a match cannot be found.
+  /// @see System<T>::get_name()
+  const System<T>& GetSubsystemByName(const std::string& name) const {
+    for (const auto& child : registered_systems_) {
+      if (child->get_name() == name) {
+        return *child;
+      }
+    }
+    throw std::logic_error("System " + this->GetSystemName() +
+                           " does not have a subsystem named " + name);
+  }
+
   /// Retrieves the state derivatives for a particular subsystem from the
   /// derivatives for the entire diagram. Aborts if @p subsystem is not
   /// actually a subsystem of this diagram. Returns a 0-length ContinuousState
@@ -345,13 +359,12 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     return *ret;
   }
 
+  // TODO(david-german-tri): Provide finer-grained accessors for finer-grained
+  // invalidation.
   /// Retrieves the state for a particular subsystem from the context for the
   /// entire diagram. Invalidates all entries in that subsystem's cache that
   /// depend on State. Aborts if @p subsystem is not actually a subsystem of
   /// this diagram.
-  ///
-  /// TODO(david-german-tri): Provide finer-grained accessors for finer-grained
-  /// invalidation.
   State<T>& GetMutableSubsystemState(const System<T>& subsystem,
                                      Context<T>* context) const {
     Context<T>& subcontext = GetMutableSubsystemContext(subsystem, context);

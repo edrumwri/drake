@@ -61,6 +61,7 @@ generate_pybind_documentation_header(
         "//:drake_shared_library",
         "//examples/acrobot:acrobot_plant",
         "//examples/compass_gait:compass_gait",
+        "//examples/manipulation_station:station_simulation",
         "//examples/pendulum:pendulum_plant",
         "//examples/rimless_wheel:rimless_wheel",
         "//examples/van_der_pol:van_der_pol",
@@ -136,6 +137,7 @@ drake_pybind_library(
     name = "geometry_py",
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
+        "//bindings/pydrake/util:deprecation_pybind",
         "//lcmtypes:viewer",
     ],
     cc_so_name = "geometry",
@@ -326,6 +328,13 @@ drake_py_unittest(
 drake_py_unittest(
     name = "forward_diff_test",
     deps = [":autodiffutils_py"],
+)
+
+drake_py_unittest(
+    name = "geometry_test",
+    deps = [
+        ":geometry_py",
+    ],
 )
 
 drake_py_unittest(
