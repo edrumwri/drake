@@ -56,12 +56,12 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "multibody_plant_scenegraph",
+    name = "multibody_plant_scene_graph",
     srcs = [
-        "multibody_plant_scenegraph.cc",
+        "multibody_plant_scene_graph.cc",
     ],
     hdrs = [
-        "multibody_plant_scenegraph.h",
+        "multibody_plant_scene_graph.h",
     ],
     deps = [
         ":scene_graph",
@@ -259,9 +259,9 @@ drake_cc_library(
 # -----------------------------------------------------
 
 drake_cc_googletest(
-    name = "multibody_plant_scenegraph_test",
+    name = "multibody_plant_scene_graph_test",
     deps = [
-        ":multibody_plant_scenegraph",
+        ":multibody_plant_scene_graph",
     ],
 )
 

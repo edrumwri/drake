@@ -20,6 +20,7 @@ drake_cc_binary(
     deps = [
         "//common:text_logging_gflags",
         "//geometry:geometry_visualization",
+        "//geometry:multibody_plant_scene_graph",
         "//multibody/benchmarks/acrobot:make_acrobot_plant",
         "//systems/analysis:implicit_euler_integrator",
         "//systems/analysis:runge_kutta3_integrator",

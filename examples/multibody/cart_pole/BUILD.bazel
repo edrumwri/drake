@@ -34,6 +34,7 @@ drake_cc_binary(
         "//common:find_resource",
         "//common:text_logging_gflags",
         "//geometry:geometry_visualization",
+        "//geometry:multibody_plant_scene_graph",
         "//multibody/multibody_tree/multibody_plant",
         "//multibody/multibody_tree/parsing:multibody_plant_sdf_parser",
         "//systems/analysis:simulator",
