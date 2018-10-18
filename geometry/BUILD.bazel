@@ -65,7 +65,10 @@ drake_cc_library(
     ],
     deps = [
         ":scene_graph",
+        "//lcm",
         "//multibody/multibody_tree/multibody_plant",
+        "//systems/lcm",
+        "//systems/rendering:pose_bundle_to_draw_message",
     ],
 )
 

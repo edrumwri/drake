@@ -64,7 +64,10 @@ int do_main() {
   // Now the model is complete.
   mbp_sg.Finalize();
 
-//  geometry::ConnectDrakeVisualizer(&builder, scene_graph);
+  // We can now connect to DrakeVisualizer.
+  mbp_sg.ConnectDrakeVisualizer(&builder);
+
+  // Create the Diagram.
   auto diagram = builder.Build();
 
   // Create a context for this system:
