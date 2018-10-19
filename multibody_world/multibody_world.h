@@ -18,84 +18,86 @@
 #include "drake/systems/rendering/pose_bundle_to_draw_message.h"
 
 namespace drake {
-namespace geometry {
 
 /// @cond
 // Helper macro to throw an exception within methods that should not be called
 // pre-finalize.
-#define DRAKE_MBPSG_THROW_IF_NOT_FINALIZED() ThrowIfNotFinalized(__func__)
+#define DRAKE_MBW_THROW_IF_NOT_FINALIZED() ThrowIfNotFinalized(__func__)
 /// @endcond
 
+/** Extends a Diagram in order to wrap and connect a MultibodyPlant and a
+ SceneGraph, thereby allowing users to easily pose geometric queries for
+ arbitrary multibody configurations. All ports from SceneGraph and
+ MultibodyPlant are exported for convenience. Functionality for connecting
+ to DrakeVisualizer is also provided.
 
-/** Extends a Diagram with the required components to interface with
- DrakeVisualizer. This must be called _during_ Diagram building and
- uses the given `builder` to add relevant subsystems and connections.
+ Like MultibodyPlant, MultibodyWorld must be constructed in two
+ phases: construction and finalization. This two-phase construction is necessary
+ so that the MultibodyPlant can be initialized in the requisite manner.
+ Connection to DrakeVisualizer requires yet another phase. A sketch of code for
+ the typical process follows:
+ @code
+ systems::DiagramBuilder<double> builder;
 
- This is a convenience method to simplify some common boilerplate for adding
- visualization capability to a Diagram. What it does is:
- - adds an initialization event that sends the required load message to set up
-   the visualizer with the relevant geometry,
- - adds systems PoseBundleToDrawMessage and LcmPublisherSystem to
-   the Diagram and connects the draw message output to the publisher input,
- - connects the `scene_graph` pose bundle output to the PoseBundleToDrawMessage
-   system, and
- - sets the publishing rate to 1/60 of a second (simulated time).
+ auto& mbw = *builder.AddSystem<MultibodyWorld<double>>();
+ auto& mb_plant = mbw.mutable_multibody_plant();
 
- @note The initialization event occurs when Simulator::Initialize() is called
- (explicitly or implicitly at the start of a simulation). If you aren't going
- to be using a Simulator, use DispatchLoadMessage() to send the message
- yourself.
+ // Make and add the cart_pole model.
+ AddModelFromSdfFile(filename, &mb_plant, &mbw.mutable_scene_graph());
 
- @param builder      The diagram builder being used to construct the Diagram.
- @param scene_graph  The System in `builder` containing the geometry to be
-                     visualized.
- @param lcm          An optional lcm interface through which lcm messages will
-                     be dispatched. Will be allocated internally if none is
-                     supplied.
+ // Add gravity to the model.
+ mb_plant.AddForceElement<UniformGravityFieldElement>(
+     -9.81 * Vector3<double>::UnitZ());
 
- @pre This method has not been previously called while building the
-      builder's current Diagram.
- @pre The given `scene_graph` must be contained within the supplied
-      DiagramBuilder.
+ // Now the model is complete.
+ mbw.Finalize();
 
- @returns the LcmPublisherSystem (in case callers, e.g., need to change the
- default publishing rate).
-
- @see geometry::DispatchLoadMessage()
- @ingroup visualization
+ // We can now connect to DrakeVisualizer.
+ mbw.ConnectDrakeVisualizer(&builder);
+ @endcode
  */
 template <class T>
-class MultibodyPlantSceneGraph : public systems::Diagram<T> {
+class MultibodyWorld : public systems::Diagram<T> {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultibodyPlantSceneGraph)
-  explicit MultibodyPlantSceneGraph(
-      double time_step);
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultibodyWorld)
+  explicit MultibodyWorld(
+      double time_step = 0.0);
 
+  /// Gets a constant reference to the MultibodyPlant. This function can be
+  /// called pre-Finalize.
   const multibody::multibody_plant::MultibodyPlant<T>& multibody_plant() const {
     return *multibody_plant_;
   }
 
+  /// Gets a mutable reference to the MultibodyPlant. This function can be
+  /// called pre-Finalize.
   multibody::multibody_plant::MultibodyPlant<T>& mutable_multibody_plant() {
     return *multibody_plant_;
   }
 
-  const SceneGraph<T>& scene_graph() const { return *scene_graph_; }
+  /// Gets a constant reference to the SceneGraph. This function can be
+  /// called pre-Finalize.
+  const geometry::SceneGraph<T>& scene_graph() const { return *scene_graph_; }
 
-  SceneGraph<T>& mutable_scene_graph() { return *scene_graph_; }
+  /// Gets a mutable reference to the SceneGraph. This function can be
+  /// called pre-Finalize.
+  geometry::SceneGraph<T>& mutable_scene_graph() { return *scene_graph_; }
 
   /// Gets the exported port of the same name from SceneGraph.
-  /// @see SceneGraph::get_pose_bundle_output_port().
+  /// @see SceneGraph::get_pose_bundle_output_port() for further documentation
+  ///      (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::OutputPort<T>& get_pose_bundle_output_port() const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     return this->get_output_port(pose_bundle_output_port_);
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_actuation_input_port().
+  /// @see MultibodyPlant::get_actuation_input_port() for further documentation
+  ///      (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::InputPort<T>& get_actuation_input_port() const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     if (instance_actuation_ports_.size() != 1) {
       throw std::logic_error(
           "Requested actuation input port when there are "
@@ -107,7 +109,8 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_actuation_input_port(ModelInstanceIndex).
+  /// @see MultibodyPlant::get_actuation_input_port(ModelInstanceIndex) for
+  ///      further documentation (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::InputPort<T>& get_actuation_input_port(
       multibody::ModelInstanceIndex model_instance) const {
@@ -117,40 +120,44 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_continuous_state_output_port().
+  /// @see MultibodyPlant::get_continuous_state_output_port() for further
+  ///      documentation (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::OutputPort<T>& get_continuous_state_output_port() const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     return this->get_output_port(continuous_state_output_port_);
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_continuous_state_output_port(ModelInstanceIndex).
+  /// @see MultibodyPlant::get_continuous_state_output_port(ModelInstanceIndex)
+  ///      for further documentation (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::OutputPort<T>& get_continuous_state_output_port(
       multibody::ModelInstanceIndex model_instance) const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     CheckModelInstanceIsValid(model_instance);
     return this->get_output_port(
         instance_continuous_state_output_ports_.at(model_instance));
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_generalized_contact_forces_output_port().
+  /// @see MultibodyPlant::get_generalized_contact_forces_output_port() for
+  ///      further documentation (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::OutputPort<T>& get_generalized_contact_forces_output_port(
       multibody::ModelInstanceIndex model_instance) const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     CheckModelInstanceIsValid(model_instance);
     return this->get_output_port(
         instance_generalized_contact_forces_output_ports_.at(model_instance));
   }
 
   /// Gets the exported port of the same name from MultibodyPlant.
-  /// @see MultibodyPlant::get_contact_results_output_port().
+  /// @see MultibodyPlant::get_contact_results_output_port() for further
+  ///      documentation (including preconditions).
   /// @pre Finalize() was already called on `this` system.
   const systems::OutputPort<T>& get_contact_results_output_port() const {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
     return this->get_output_port(contact_results_port_);
   }
 
@@ -171,23 +178,55 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
   /// @pre Finalize() was already called on `this` system.
   systems::Context<T>& GetMutableMultibodyPlantContext(
       systems::Diagram<T>* diagram, systems::Context<T>* diagram_context) {
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
 
-    auto& mbp_sg_context = diagram->GetMutableSubsystemContext(
+    auto& mbw_context = diagram->GetMutableSubsystemContext(
         *this, diagram_context);
-    return this->GetMutableSubsystemContext(*multibody_plant_, &mbp_sg_context);
+    return this->GetMutableSubsystemContext(*multibody_plant_, &mbw_context);
   }
 
-  /// Connects this Diagram to the DrakeVisualizer.
-  systems::lcm::LcmPublisherSystem* ConnectDrakeVisualizer(
+  /// Convenience method for setting the positions of the underlying
+  /// MultibodyPlant.
+  /// @pre Finalize() was already called on `this` system.
+  void SetPositions(
+      const VectorX<T>& q,
+      systems::Context<T>* multibody_world_context,
+      multibody::ModelInstanceIndex model_instance =
+          multibody::ModelInstanceIndex(-1)) const {
+    // Get the state vector.
+    auto& multibody_plant_context = this->GetMutableSubsystemContext(
+        *multibody_plant_, multibody_world_context);
+    Eigen::VectorBlock<VectorX<T>> qfull = multibody_plant_->tree().
+        get_mutable_multibody_positions_vector(&multibody_plant_context);
+    if (model_instance < 0) {
+      qfull = q;
+    } else {
+      multibody_plant_->tree().set_positions_in_array(
+          model_instance, q, &qfull);
+    }
+  }
+
+  /// Connects this Diagram to the DrakeVisualizer. This method must be called
+  /// _during_ Diagram building and uses the given `builder` to add relevant
+  /// subsystems and connections. Code is modified from
+  /// geometry::ConnectDrakeVisualizer(), and provides identical functionality.
+  /// @see geometry::ConnectDrakeVisualizer() for a description of the overall
+  ///      process.
+  /// @param builder  The diagram builder being used to construct the  Diagram.
+  /// @param lcm  An optional lcm interface through which lcm messages
+  ///        will be dispatched. Will be allocated internally if
+  ///        none is supplied.
+  template <typename U = T>
+  std::enable_if_t<std::is_same<U, double>::value,
+                   systems::lcm::LcmPublisherSystem*> ConnectDrakeVisualizer(
       systems::DiagramBuilder<T>* builder,
       lcm::DrakeLcmInterface* lcm_optional = nullptr) const {
     using systems::lcm::LcmPublisherSystem;
     using systems::lcm::Serializer;
     using systems::rendering::PoseBundleToDrawMessage;
-    DRAKE_MBPSG_THROW_IF_NOT_FINALIZED();
+    DRAKE_MBW_THROW_IF_NOT_FINALIZED();
 
-        PoseBundleToDrawMessage* converter =
+    PoseBundleToDrawMessage* converter =
         builder->template AddSystem<PoseBundleToDrawMessage>();
 
     LcmPublisherSystem* publisher =
@@ -284,10 +323,10 @@ class MultibodyPlantSceneGraph : public systems::Diagram<T> {
 };
 
 template <class T>
-MultibodyPlantSceneGraph<T>::MultibodyPlantSceneGraph(double time_step) {
+MultibodyWorld<T>::MultibodyWorld(double time_step) {
   builder_ = std::make_unique<systems::DiagramBuilder<T>>();
 
-  scene_graph_ = builder_->template AddSystem<SceneGraph<T>>();
+  scene_graph_ = builder_->template AddSystem<geometry::SceneGraph<T>>();
   scene_graph_->set_name("scene_graph");
 
   multibody_plant_ =
@@ -296,11 +335,17 @@ MultibodyPlantSceneGraph<T>::MultibodyPlantSceneGraph(double time_step) {
 }
 
 template <class T>
-void MultibodyPlantSceneGraph<T>::Finalize() {
+void MultibodyWorld<T>::Finalize() {
   // Verify that the system is not already finalized.
   if (is_finalized())
-    throw std::logic_error("MultibodyPlantSceneGraph::Finalize() has already"
+    throw std::logic_error("MultibodyWorld::Finalize() has already"
                                " been called");
+
+  // Verify that a source has been registered.
+  if (!multibody_plant_->get_source_id()) {
+    throw std::logic_error("MultibodyPlant source ID not defined; have you "
+                               "forgotten to add geometries?");
+  }
 
   // MultibodyPlant must be finalized first.
   multibody_plant_->Finalize(scene_graph_);
@@ -356,5 +401,4 @@ void MultibodyPlantSceneGraph<T>::Finalize() {
   finalized_ = true;
 }
 
-}  // namespace geometry
 }  // namespace drake

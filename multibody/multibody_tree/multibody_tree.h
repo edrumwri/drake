@@ -1500,12 +1500,36 @@ class MultibodyTree {
   Eigen::VectorBlock<const VectorX<T>> get_multibody_state_vector(
       const systems::Context<T>& context) const;
 
+  /// Returns a const Eigen vector containing the multibody generalized
+  /// velocities (`v`).
+  Eigen::VectorBlock<const VectorX<T>> get_multibody_positions_vector(
+      const systems::Context<T>& context) const;
+
+  /// Returns a const Eigen vector containing the multibody generalized
+  /// positions (`q`).
+  Eigen::VectorBlock<const VectorX<T>> get_multibody_velocities_vector(
+      const systems::Context<T>& context) const;
+
   /// Returns a mutable Eigen vector containing the multibody state `x = [q; v]`
   /// of the model with q the vector of generalized positions and v the vector
   /// of generalized velocities.
   /// @throws std::exception if the `context` is nullptr or if it does not
   /// correspond to the context for a multibody model.
   Eigen::VectorBlock<VectorX<T>> get_mutable_multibody_state_vector(
+      systems::Context<T>* context) const;
+
+  /// Returns a mutable Eigen vector containing the multibody generalized
+  /// positions (`q`).
+  /// @throws std::exception if the `context` is nullptr or if it does not
+  /// correspond to the context for a multibody model.
+  Eigen::VectorBlock<VectorX<T>> get_mutable_multibody_positions_vector(
+      systems::Context<T>* context) const;
+
+  /// Returns a mutable Eigen vector containing the multibody generalized
+  /// velocities (`v`).
+  /// @throws std::exception if the `context` is nullptr or if it does not
+  /// correspond to the context for a multibody model.
+  Eigen::VectorBlock<VectorX<T>> get_mutable_multibody_velocities_vector(
       systems::Context<T>* context) const;
 
   /// Sets `context` to store the pose `X_WB` of a given `body` B in the world

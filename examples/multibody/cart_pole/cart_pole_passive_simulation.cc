@@ -6,7 +6,7 @@
 #include "drake/common/find_resource.h"
 #include "drake/common/text_logging_gflags.h"
 #include "drake/geometry/geometry_visualization.h"
-#include "drake/geometry/multibody_plant_scene_graph.h"
+#include "drake/multibody_world/multibody_world.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/multibody/multibody_tree/joints/prismatic_joint.h"
 #include "drake/multibody/multibody_tree/joints/revolute_joint.h"
@@ -22,7 +22,6 @@ namespace multibody {
 namespace cart_pole {
 namespace {
 
-using geometry::MultibodyPlantSceneGraph;
 using geometry::SceneGraph;
 using lcm::DrakeLcm;
 
@@ -48,7 +47,7 @@ DEFINE_double(time_step, 0,
 int do_main() {
   systems::DiagramBuilder<double> builder;
 
-  auto& mbp_sg = *builder.AddSystem<MultibodyPlantSceneGraph<double>>(
+  auto& mbp_sg = *builder.AddSystem<MultibodyWorld<double>>(
       FLAGS_time_step);
   auto& cart_pole = mbp_sg.mutable_multibody_plant();
 
