@@ -35,6 +35,16 @@ drake_cc_package_library(
 )
 
 drake_cc_library(
+    name = "polygonal_mesh",
+    hdrs = [
+        "polygonal_mesh.h",
+    ],
+    deps = [
+        "@fcl",
+    ],
+)
+
+drake_cc_library(
     name = "proximity_engine",
     srcs = [
         "proximity_engine.cc",

@@ -1168,6 +1168,36 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
   derivatives->SetFromVector(xdot);
 }
 
+template <class T>
+VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
+    const Context<T>& context) const {
+  if (num_collision_geometries() > 0) {
+    if (!geometry_query_port_.is_valid()) {
+      throw std::logic_error(
+          "This MultibodyPlant registered geometry for contact handling. "
+              "However its query input port (get_geometry_query_input_port()) "
+              "is not connected. ");
+    }
+    const geometry::QueryObject<double>& query_object =
+        this->EvalAbstractInput(context, geometry_query_port_)
+            ->template GetValue<geometry::QueryObject<double>>();
+
+    // Determine the contact surfaces, pressure distribution, and slip
+    // velocities.
+    std::vector<geometry::ContactSurface<T>> contact_surfaces;
+    query_object.ComputeContactSurfaces(&contact_surfaces);
+
+    // Apply the hydrostatic model to compute generalized forces.
+    return hydrostatic_model.ComputeForcesOnCores(context, contact_surfaces);
+  }
+}
+
+// Outputs the contact surface and all fields defined over it.
+template <class T>
+void MultibodyPlant<T>::OutputContactInfo(
+    const Context<T>& context, BasicVector<T>* output) const {
+}
+
 template<typename T>
 implicit_stribeck::ComputationInfo MultibodyPlant<T>::SolveUsingSubStepping(
     int num_substeps,
