@@ -24,6 +24,27 @@ template <class T>
 VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
       const Context<T>& context,
       const std::vector<geometry::ContactSurfaces<T>>& contact_surfaces) const {
+  // Note: we use a very simple algorithm that computes the stress at the center
+  // of a polygon (using the already computed pressure distribution) and
+  // integrates that stress over the surface of the polygon using a very simple
+  // quadrature formula: the net force on the body (due to deformation of over
+  // that particular polygon) is computed as the area of the contact polygon
+  // times the stress at the center of the polygon. I call this vector the
+  //  "normal force". The moment on the core is computed using this force
+  // vector (with the moment arm being the vector from the rigid core to the
+  // polygon centroid). The sliding frictional force is computed using the
+  // velocity at the polygon centroid and the normal force.
 
+  // Iterate over each contact surface.
+
+    // Compute the centroid of the contact surface polygon.
+
+    // Compute the area of the contact surface polygon.
+
+    // Evaluate the pressure distribution at the polygon centroid.
+
+    // Compute the normal force.
+
+    // 
 }
 
