@@ -45,6 +45,6 @@ VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
 
     // Compute the normal force.
 
-    // 
+    //  
 }
 
