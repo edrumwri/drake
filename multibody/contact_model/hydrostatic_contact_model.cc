@@ -35,6 +35,8 @@ VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
   // polygon centroid). The sliding frictional force is computed using the
   // velocity at the polygon centroid and the normal force.
 
+  // Start with a zero generalized force vector.
+
   // Iterate over each contact surface.
 
     // Compute the centroid of the contact surface polygon.
@@ -43,8 +45,15 @@ VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
 
     // Evaluate the pressure distribution at the polygon centroid.
 
+    // Get the contact normal from the contact surface polygon.
+
     // Compute the normal force.
 
-    //  
+    // Evaluate the slip velocity field at the polygon centroid.
+
+    // Compute the frictional force.
+
+    // Update the generalized force vector to account for the effect of applying
+    // the force at the contact surface on both bodies.
 }
 
