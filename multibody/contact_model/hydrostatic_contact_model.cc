@@ -17,6 +17,14 @@ void HydrostaticContactModel::ComputePressureDistribution(
   }
 }
 
+template <class T>
+void HydrostaticContactModel::CalcSlipVelocityAtPoint(
+    const Context<T>& context,
+    const Vector3<T>& point,
+    const Frame<T>& frame_A, const Frame<T>& frame_B, const Vector3<T>& contact_normal) const  {
+
+}
+
 // @pre pressure distribution, slip velocity has been computed
 template <class T>
 VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(

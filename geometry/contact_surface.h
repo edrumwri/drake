@@ -43,16 +43,86 @@ class ContactSurfaceFace {
 
   }
 
-  // TODO: Fill me in.
+  // Evaluates the pressure at a point using interpolation.
   T EvaluatePressure(const Vector3<T>& p) const {
 
   }
 
-  // TODO: Fill me in.
+  // Evaluates the slip velocity at a point using interpolation.
   T EvaluateSlipVelocity(const Vector3<T>& p) const {
 
   }
 
+  // Gets the specified vertex
+  ContactSurfaceVertex* vertex(int i) const {
+    switch (i) {
+      case 0: return vA_;
+      case 1: return vB_;
+      case 2: return vC_;
+      default:
+        DRAKE_ABORT();
+    }
+  }
+
+  // Integrates the traction vectors over the surface of the triangle.
+  Vector3<T> IntegrateTraction(
+      std::function<T(const Vector3<T>&)> pressure_function,
+      std::function<Vector2<T>(const Vector3<T>&)> slip_velocity_function)
+  const {
+  }
+
+  Vector3<T> IntegrateTractionSimple() const {
+    // The tolerance below which contact is assumed to be not-sliding.
+    const double slip_tol = std::numeric_limits<double>::epsilon();
+
+    // Construct a matrix for projecting two-dimensional vectors in the plane
+    // orthogonal to the contact normal to 3D.
+    const Matrix<3, 2, T> P = Get2DTo3DProjectionMatrix();
+
+    // Get the area of the contact surface triangle.
+    const T triangle_area = area();
+
+    // Evaluate the pressure distribution at the triangle centroid.
+    const T pressure = EvaluatePressure(centroid);
+
+    // Get the contact normal from the contact surface triangle and expressed
+    // in the global frame using the convention that the normal points toward
+    // Body A.
+    const Vector3<T>& nhat_W = normal();
+
+    // Compute the normal force, expressed in the global frame.
+    const Vector3<T> fN_W = nhat_W * pressure * area;
+
+    // Get the slip velocity at the centroid.
+    const Vector2<T> slip_vel_W = EvaluateSlipVelocity(centroid);
+
+    // Get the direction of slip.
+    const T slip_speed = slip_vel_W.norm();
+
+    // Determine the slip direction expressed in the global frame.
+    const Vector3<T> slip_dir_W = (slip_speed > slip_tol) ?
+                                  P * (slip_vel_W / slip_speed) :
+                                  Vector3<T>::Zero();
+
+    // Compute the frictional force.
+    const Vector3<T> fF_W = (slip_speed > slip_tol) ?
+                            mu_coulomb_ * pressure * -slip_dir_W :
+                            Vector3<T>::Zero();
+
+    // Increment the traction vector integral.
+    return fN_W + fF_W;
+  }
+
+  // Constructs a matrix for projecting two-dimensional vectors in the plane
+  // orthogonal to the contact normal to 3D.
+  Matrix<3, 2, T> Get2DTo3DProjectionMatrix() const {
+    const int axis = 2;
+    Matrix3<T> PT = math::ComputeBasisFromAxis(axis, normal);
+    PT.col(axis).setZero();
+    return PT.transpose().block<3, 2>(0, 0);
+  }
+
+  T mu_coulomb_{0.0};        // The coefficient of friction between the bodies.
   const Vector3<T> normal() const { return normal_; }
   const T area() const { return area_; }
   const ContactSurfaceVertex<T>* vertex_A() const { return vA_; }
