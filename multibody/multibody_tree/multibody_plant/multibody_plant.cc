@@ -1187,6 +1187,12 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     std::vector<geometry::ContactSurface<T>> contact_surfaces;
     query_object.ComputeContactSurfaces(&contact_surfaces);
 
+    // Allow the hydrostatic model to
+
+    // TODO: Get the first of the two geometries in contact.
+
+    //
+
     // Apply the hydrostatic model to compute generalized forces.
     return hydrostatic_model.ComputeForcesOnCores(context, contact_surfaces);
   }
