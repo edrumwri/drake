@@ -2,33 +2,63 @@
 
 #include "drake/math/orthonormal_basis.h"
 
+// TODO: How would this class be cloned / scalar copy constructed, assuming
+// that it maintains pointers to multibody plant and multibody plant maintains
+// a pointer to it.
+
+// (Perhaps no longer relevant)
 // TODO: Use a different way to index the fields than string?
 
-template <class T>
-void HydrostaticContactModel::ComputePressureDistribution(
-    const Context<T>& context,
-    const Field<T, T>& pressure_field,
-    geometry::ContactSurface<T>* contact_surface) const {
 
-  // Iterate over every triangle in the contact surface.
-  for (auto& tri : contact_surface->faces()) {
-    // Create a pressure field over the surface of the triangle.
-    tri.AddField<T, T>(&pressure_field, "pressure");
-  }
+template <class T>
+Vector2<T> HydrostaticContactModel::CalcSlipVelocityAtPoint(
+    const Context<T>& multibody_plant_context,
+    const MatrixX<T>& J_Wp,
+    const Vector3<T>& normal_W) const  {
+  // Get the multibody velocity.
+  Eigen::VectorBlock<const VectorX<T>> v = plant_->GetVelocities();
+
+  // Compute a projection matrix from 3D to 2D.
+  const int kXAxisIndex = 0;
+  const int kYAxisIndex = 1;
+  const int kZAxisIndex = 2;
+  Matrix3<T> R_WP = math::ComputeBasisFromAxis(kXAxisIndex, normal_W);
+  const Matrix<2, 3, T> P = R_WP.block<2, 3>(0, 0);
+
+  // Calculate the slip velocity.
+  return P * J_Wp.bottomRows(3) * v;
 }
 
 template <class T>
-void HydrostaticContactModel::CalcSlipVelocityAtPoint(
-    const Context<T>& context,
-    const Vector3<T>& point,
-    const Frame<T>& frame_A, const Frame<T>& frame_B, const Vector3<T>& contact_normal) const  {
+MatrixX<T> HydrostaticContactModel::CalcContactPointJacobian(
+    const Context<T>& multibody_plant_context,
+    const Vector3<T>& point_W,
+    const Body<T>& body_A,
+    const Body<T>& frame_B) const  {
+  const int num_spatial_dim = 6;
 
+  // TODO: Convert point_W to point_A and point_B frames.
+
+  // Get the geometric Jacobian for the velocity of the point
+  // as moving with Body A.
+  MatrixX<T> J_WAp(num_spatial_dim, plant_->num_velocities());
+  tree_.CalcFrameGeometricJacobianExpressedInWorld(
+      multibody_plant_context, body_A.body_frame(), point_A, &J_WAp);
+
+  // Get the geometric Jacobian for the velocity of the point
+  // as moving with Body B.
+  MatrixX<T> J_WBp(num_spatial_dim, plant_->num_velocities());
+  tree_.CalcFrameGeometricJacobianExpressedInWorld(
+      multibody_plant_context, body_B.body_frame(), point_B, &J_WBp);
+
+  // Compute the Jacobian.
+  return J_WAp - J_WBp;
 }
 
 // @pre pressure distribution, slip velocity has been computed
 template <class T>
 VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
-      const Context<T>& context,
+      const Context<T>& multibody_plant_context,
       const std::vector<geometry::ContactSurfaces<T>>& contact_surfaces) const {
   // Note: we use a very simple algorithm that computes the stress at the center
   // of a triangle (using the already computed pressure distribution) and
@@ -48,58 +78,20 @@ VectorX<T> HydrostaticContactModel::ComputeGeneralizedForces(
   for (const auto& surface : contact_surfaces) {
     // Iterate over every triangle in the contact surface.
     for (const auto& triangle : surface.get_triangles()) {
-      // Get the centroid of the contact surface triangle.
-      const Vector3<T>& centroid = triangle.get_centroid();
-
-      // Get the area of the contact surface triangle.
-      const T triangle_area = triangle.get_area();
-
-      // Evaluate the pressure distribution at the triangle centroid.
-      const T pressure = triangle.EvaluatePressure(centroid);
-
-      // Get the contact normal from the contact surface triangle and expressed
-      // in the global frame using the convention that the normal points toward
-      // Body A.
-      const Vector3<T>& normal = triangle.normal();
-
-      // Compute the normal force, expressed in the global frame.
-      const Vector3<T> fN_W = normal * pressure;
-
-      // Evaluate the slip velocity field at the triangle centroid.
-      const Vector2<T> slip_vel_W = triangle.EvaluateSlipVelocity(centroid);
-
-      // The tolerance below which contact is assumed to be not-sticking.
-      const double slip_tol = std::numeric_limits<double>::epsilon();
-
-      // Get the direction of slip.
-      const T slip_speed = slip_vel_W.norm();
-
-      // Construct a matrix for projecting two-dimensional vectors in the plane
-      // orthogonal to the contact normal to 3D.
-      const int axis = 2;
-      Matrix3<T> PT = math::ComputeBasisFromAxis(axis, normal);
-      PT.col(axis).setZero();
-      const Matrix<3, 2, T> P = PT.transpose().block<3, 2>(0, 0);
-
-      // TODO: Get the coefficient of friction.
-
-      // Determine the slip direction expressed in the global frame.
-      const Vector3<T> slip_dir_W = (slip_speed > slip_tol) ?
-                                    P * (slip_vel_W / slip_speed) :
-                                    Vector3<T>::Zero();
-
-      // Compute the frictional force.
-      const Vector3<T> fF_W = (slip_speed > slip_tol) ?
-                              mu_coulomb * pressure * -slip_dir_W :
-                              Vector3<T>::Zero();
-
-      // TODO:
       // Get the Jacobian matrix for applying a force at the centroid of the
       // contact surface.
+      const MatrixX<T> J_Wp =  CalcContactPointJacobian(
+          multibody_plant_context, centroid_W, body_A, body_B);
+
+      // Set the spatial force using the force on the bottom and moment on the
+      // top in order to make it compatible with the Jacobian matrix.
+      const Matrix<6, 1, T> f_spatial;
+      f_spatial.head(3).setZero();
+      f_spatial.tail(3) = triangle.IntegrateTractionSimple();
 
       // Update the generalized force vector to account for the effect of
       // applying the force at the contact surface on both bodies.
-      gf += J.transpose() * (fN_W + fF_W);
+      gf += J_Wp.transpose() * f_spatial;
     }
   }
 

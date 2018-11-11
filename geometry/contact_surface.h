@@ -5,7 +5,12 @@ struct ContactSurfaceVertex {
   // The Cartesian location in space of the vertex.
   Eigen::Vector3<T> location;
 
-  // The traction at the vertex.
+  // Note: the values below are evaluated at the vertex to permit simple
+  // approximation of the respective fields using interpolation.
+  /// The pressure evaluated at this vertex.
+  T pressure;
+
+  // The traction evaluated at this vertex.
   Eigen::Vector3<T> traction;
 
   // The slip velocity at the vertex.
@@ -34,23 +39,32 @@ class ContactSurfaceFace {
     const T s3 = (*vA->location - *vC->location).norm();
     const T sp = (s1 + s2 + s3) / 2;  // semiparameter.
     area_ = sqrt(sp*(sp - s1)*(sp - s2)*(sp - s3));
+
+    // Compute the centroid.
+    centroid_ = (vA->location + vB->location + vC->location)/3;
   }
 
-  // TODO: Re-evaluate: do we still need to store values at vertices.
-
-  // TODO: Calculates traction at a point.
+  // Evaluates the traction at a point using interpolation over the values
+  // defined at the vertices.
   T CalculateTraction(const Vector3<T>& p) const {
-
+    const Vector3<T> u = ConvertFromCartesianToBarycentricCoords(p);
+    return u[0] * vA_->traction + u[1] * vB_->traction +
+        u[2] * vC_->traction;
   }
 
-  // Evaluates the pressure at a point using interpolation.
+  // Evaluates the pressure at a point using interpolation over the values
+  // defined at the vertices.
   T EvaluatePressure(const Vector3<T>& p) const {
-
+    const Vector3<T> u = ConvertFromCartesianToBarycentricCoords(p);
+    return u[0] * vA_->pressure + u[1] * vB_->pressure + u[2] * vC_->pressure;
   }
 
-  // Evaluates the slip velocity at a point using interpolation.
-  T EvaluateSlipVelocity(const Vector3<T>& p) const {
-
+  // Evaluates the slip velocity at a point using interpolation over the values
+  // defined at the vertices.
+  Vector2<T> EvaluateSlipVelocity(const Vector3<T>& p) const {
+    const Vector3<T> u = ConvertFromCartesianToBarycentricCoords(p);
+    return u[0] * vA_->slip_velocity + u[1] * vB_->slip_velocity +
+        u[2] * vC_->slip_velocity;
   }
 
   // Gets the specified vertex
@@ -71,6 +85,8 @@ class ContactSurfaceFace {
   const {
   }
 
+  // Integrates the traction vectors over the surface of the triangle using a
+  // simple quadrature rule.
   Vector3<T> IntegrateTractionSimple() const {
     // The tolerance below which contact is assumed to be not-sliding.
     const double slip_tol = std::numeric_limits<double>::epsilon();
@@ -83,7 +99,7 @@ class ContactSurfaceFace {
     const T triangle_area = area();
 
     // Evaluate the pressure distribution at the triangle centroid.
-    const T pressure = EvaluatePressure(centroid);
+    const T pressure = EvaluatePressure(centroid_);
 
     // Get the contact normal from the contact surface triangle and expressed
     // in the global frame using the convention that the normal points toward
@@ -94,7 +110,7 @@ class ContactSurfaceFace {
     const Vector3<T> fN_W = nhat_W * pressure * area;
 
     // Get the slip velocity at the centroid.
-    const Vector2<T> slip_vel_W = EvaluateSlipVelocity(centroid);
+    const Vector2<T> slip_vel_W = EvaluateSlipVelocity(centroid_);
 
     // Get the direction of slip.
     const T slip_speed = slip_vel_W.norm();
@@ -149,6 +165,9 @@ class ContactSurfaceFace {
 
   // The area, computed only once.
   const T area_;
+
+  // The centroid, computed only once.
+  const Vector3<T> centroid_;
 };
 
 template <class T>
