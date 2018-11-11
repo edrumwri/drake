@@ -20,6 +20,9 @@ drake_cc_package_library(
         ":contact_results",
         ":coulomb_friction",
         ":multibody_plant_core",
+        "//geometry:geometry_ids",
+        "//geometry:scene_graph_inspector",
+        "//geometry/query_results:contact_surface",
     ],
 )
 

@@ -7,12 +7,15 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_throw.h"
+#include "drake/geometry/query_results/contact_surface.h"
+#include "drake/geometry/scene_graph_inspector.h"
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
 #include "drake/math/orthonormal_basis.h"
 #include "drake/multibody/multibody_tree/joints/prismatic_joint.h"
 #include "drake/multibody/multibody_tree/joints/revolute_joint.h"
+#include "drake/multibody/multibody_tree/rigid_body.h"
 
 namespace drake {
 namespace multibody {
@@ -1168,7 +1171,109 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
   derivatives->SetFromVector(xdot);
 }
 
-/*
+// This method is used to calculate the slip velocity for populating the
+// ContactSurfaceVertex field samples. It can also be used to enable
+// accurate quadrature over triangles as well.
+template <class T>
+Vector2<T> MultibodyPlant<T>::CalcSlipVelocityAtPointForHydrostaticModel(
+    const systems::Context<T>& multibody_plant_context,
+    const MatrixX<T>& J_Wp,
+    const Vector3<T>& normal_W) const  {
+  // Get the multibody velocity.
+  // TODO: Re-enable this.
+//  Eigen::VectorBlock<const VectorX<T>> v = GetVelocities(
+//      multibody_plant_context);
+  VectorX<T> v;
+
+  // Compute a projection matrix from 3D to 2D.
+  const int kZAxisIndex = 2;
+  Matrix3<T> R_WP = math::ComputeBasisFromAxis(kZAxisIndex, normal_W);
+  const Eigen::Matrix<T, 2, 3> P = R_WP.template block<2, 3>(0, 0);
+
+  // Calculate the slip velocity.
+  return P * J_Wp.bottomRows(3) * v;
+}
+
+template <class T>
+MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
+    const systems::Context<T>& multibody_plant_context,
+    const Vector3<T>& point_W,
+    const Body<T>& body_A,
+    const Body<T>& body_B) const  {
+  const int num_spatial_dim = 6;
+
+  // TODO: Convert point_W to point_A and point_B frames.
+  const Vector3<T> point_A = point_W;
+  const Vector3<T> point_B = point_W;
+
+  // Get the geometric Jacobian for the velocity of the point
+  // as moving with Body A.
+  MatrixX<T> J_WAp(num_spatial_dim, num_velocities());
+  tree().CalcFrameGeometricJacobianExpressedInWorld(
+      multibody_plant_context, body_A.body_frame(), point_A, &J_WAp);
+
+  // Get the geometric Jacobian for the velocity of the point
+  // as moving with Body B.
+  MatrixX<T> J_WBp(num_spatial_dim, num_velocities());
+  tree().CalcFrameGeometricJacobianExpressedInWorld(
+      multibody_plant_context, body_B.body_frame(), point_B, &J_WBp);
+
+  // Compute the Jacobian.
+  return J_WAp - J_WBp;
+}
+
+// @pre pressure distribution, slip velocity has been computed
+template <class T>
+VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
+    const systems::Context<T>& multibody_plant_context,
+    const geometry::SceneGraphInspector<T>& inspector,
+    const std::vector<geometry::ContactSurface<T>>& contact_surfaces) const {
+  // Note: we use a very simple algorithm that computes the stress at the center
+  // of a triangle (using the already computed pressure distribution) and
+  // integrates that stress over the surface of the triangle using a very simple
+  // quadrature formula: the net force on the body (due to deformation of over
+  // that particular triangle) is computed as the area of the contact triangle
+  // times the stress at the center of the triangle. I call this vector the
+  //  "normal force". The moment on the core is computed using this force
+  // vector (with the moment arm being the vector from the rigid core to the
+  // triangle centroid). The sliding frictional force is computed using the
+  // velocity at the triangle centroid and the normal force.
+
+  // Start with a zero generalized force vector.
+  VectorX<T> gf = VectorX<T>::Zero(num_velocities());
+
+  // Iterate over all contact surfaces.
+  for (const auto& surface : contact_surfaces) {
+    // Get the two bodies.
+    geometry::GeometryId geometry_A_id = surface.id_A();
+    geometry::GeometryId geometry_B_id = surface.id_B();
+    auto frame_A_id = inspector.GetFrameId(geometry_A_id);
+    auto frame_B_id = inspector.GetFrameId(geometry_B_id);
+    const Body<T>& body_A = *GetBodyFromFrameId(frame_A_id);
+    const Body<T>& body_B = *GetBodyFromFrameId(frame_B_id);
+
+    // Iterate over every triangle in the contact surface.
+    for (const auto& triangle : surface.triangles()) {
+      // Get the Jacobian matrix for applying a force at the centroid of the
+      // contact surface.
+      const MatrixX<T> J_Wp =  CalcContactPointJacobianForHydrostaticModel(
+          multibody_plant_context, triangle.centroid_W(), body_A, body_B);
+
+      // Set the spatial force using the force on the bottom and moment on the
+      // top in order to make it compatible with the Jacobian matrix.
+      Eigen::Matrix<T, 6, 1> f_spatial;
+      f_spatial.head(3).setZero();
+      f_spatial.tail(3) = triangle.IntegrateTractionSimple();
+
+      // Update the generalized force vector to account for the effect of
+      // applying the force at the contact surface on both bodies.
+      gf += J_Wp.transpose() * f_spatial;
+    }
+  }
+
+  return gf;
+}
+
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
@@ -1183,22 +1288,21 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
         this->EvalAbstractInput(context, geometry_query_port_)
             ->template GetValue<geometry::QueryObject<double>>();
 
-    // Determine the contact surfaces, pressure distribution, and slip
-    // velocities.
+    // Compute the contact surfaces.
     std::vector<geometry::ContactSurface<T>> contact_surfaces;
     query_object.ComputeContactSurfaces(&contact_surfaces);
 
-    // Allow the hydrostatic model to
-
-    // TODO: Get the first of the two geometries in contact.
-
-    //
+    // Compute the pressure distribution, and slip
+    // velocities.
 
     // Apply the hydrostatic model to compute generalized forces.
-    return hydrostatic_model.ComputeForcesOnCores(context, contact_surfaces);
+    return ComputeGeneralizedForcesFromHydrostaticModel(
+        context, query_object.inspector(), contact_surfaces);
   }
+
+  // No geometries, no force.
+  return VectorX<T>::Zero(num_velocities());
 }
-*/
 
 // Outputs the contact surface and all fields defined over it.
 template <class T>

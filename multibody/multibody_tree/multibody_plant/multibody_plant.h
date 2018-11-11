@@ -26,6 +26,7 @@
 
 namespace drake {
 namespace multibody {
+
 namespace multibody_plant {
 
 /// @cond
@@ -1429,6 +1430,23 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // Friend class to facilitate testing.
   friend class MultibodyPlantTester;
 
+  // Functions for the hydrostatic contact model.
+  VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
+      const systems::Context<T>& context) const;
+  Vector2<T> CalcSlipVelocityAtPointForHydrostaticModel(
+      const systems::Context<T>& multibody_plant_context,
+      const MatrixX<T>& J_Wp,
+      const Vector3<T>& normal_W) const;
+  VectorX<T> ComputeGeneralizedForcesFromHydrostaticModel(
+      const systems::Context<T>& context,
+      const geometry::SceneGraphInspector<T>& inspector,
+      const std::vector<geometry::ContactSurface<T>>& contact_surfaces) const;
+  MatrixX<T> CalcContactPointJacobianForHydrostaticModel(
+      const systems::Context<T>& multibody_plant_context,
+      const Vector3<T>& point_W,
+      const Body<T>& body_A,
+      const Body<T>& frame_B) const;
+
   // Helper method for throwing an exception within public methods that should
   // not be called post-finalize. The invoking method should pass its name so
   // that the error message can include that detail.
@@ -1502,10 +1520,6 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   void DoCalcTimeDerivatives(
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const override;
-
-  // Hydrostatic contact model force computation.
-  VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
-      const systems::Context<T>& context) const;
 
   // If the plant is modeled as a discrete system with periodic updates (see
   // is_discrete()), this method computes the periodic updates of the state

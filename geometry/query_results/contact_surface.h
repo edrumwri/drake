@@ -3,7 +3,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/eigen_types.h"
 #include "drake/geometry/geometry_ids.h"
-#include "drake/geometry/tetrahedron.h"
+#include "drake/geometry/query_results/tetrahedron.h"
 #include "drake/math/orthonormal_basis.h"
 
 // TODO: Interface for GeometryWorld computing the contact surface.

@@ -28,9 +28,6 @@ drake_cc_library(
         "hydrostatic_contact_model.h",
     ],
     deps = [
-        "//geometry:contact_surface",
-        "//geometry:geometry_ids",
-        "//geometry:scene_graph_inspector",
         "//multibody/multibody_tree/multibody_plant",
     ],
 )

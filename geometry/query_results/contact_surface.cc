@@ -1,4 +1,4 @@
-#include "drake/geometry/contact_surface.h"
+#include "drake/geometry/query_results/contact_surface.h"
 
 #include "drake/common/autodiff.h"
 

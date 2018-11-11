@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "drake/geometry/geometry_context.h"
+#include "drake/geometry/query_results/contact_surface.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/geometry/query_results/signed_distance_pair.h"
 #include "drake/geometry/scene_graph_inspector.h"
@@ -91,6 +92,12 @@ class QueryObject {
    those colliding cases, characterize them, and report the essential
    characteristics of that collision.  */
   //@{
+
+  /**
+   * @note Assumes that QueryObject has access to elastic moduli.
+   */
+  void ComputeContactSurfaces(
+      std::vector<ContactSurface<T>>* contact_surfaces) const;
 
   /** Computes the penetrations across all pairs of geometries in the world.
    Only reports results for _penetrating_ geometries; if two geometries are
