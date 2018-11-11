@@ -1168,6 +1168,7 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
   derivatives->SetFromVector(xdot);
 }
 
+/*
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
@@ -1197,6 +1198,7 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     return hydrostatic_model.ComputeForcesOnCores(context, contact_surfaces);
   }
 }
+*/
 
 // Outputs the contact surface and all fields defined over it.
 template <class T>

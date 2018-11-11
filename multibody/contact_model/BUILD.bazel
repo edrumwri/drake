@@ -21,12 +21,17 @@ drake_cc_package_library(
 
 drake_cc_library(
     name = "hydrostatic_contact_model",
-    srcs = [],
+    srcs = [
+        "hydrostatic_contact_model.cc",
+    ],
     hdrs = [
         "hydrostatic_contact_model.h",
     ],
     deps = [
-        "//multibody/multibody_tree",
+        "//geometry:contact_surface",
+        "//geometry:geometry_ids",
+        "//geometry:scene_graph_inspector",
+        "//multibody/multibody_tree/multibody_plant",
     ],
 )
 

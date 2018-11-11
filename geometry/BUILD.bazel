@@ -35,11 +35,18 @@ drake_cc_package_library(
 )
 
 drake_cc_library(
-    name = "polygonal_mesh",
+    name = "contact_surface",
+    srcs = [
+        "contact_surface.cc",
+    ],
     hdrs = [
-        "polygonal_mesh.h",
+        "contact_surface.h",
+        "tetrahedron.h",
     ],
     deps = [
+        ":geometry_ids",
+        "//common",
+        "//math:orthonormal_basis",
         "@fcl",
     ],
 )

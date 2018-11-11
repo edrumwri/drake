@@ -1,24 +1,37 @@
 #pragma once
 
+#include "drake/common/drake_assert.h"
+#include "drake/common/eigen_types.h"
+#include "drake/geometry/geometry_ids.h"
+#include "drake/geometry/tetrahedron.h"
+#include "drake/math/orthonormal_basis.h"
+
+// TODO: Interface for GeometryWorld computing the contact surface.
+
+namespace drake {
+namespace geometry {
+
 template <class T>
 struct ContactSurfaceVertex {
   // The Cartesian location in space of the vertex.
-  Eigen::Vector3<T> location;
+  Vector3<T> location;
 
-  // Note: the values below are evaluated at the vertex to permit simple
-  // approximation of the respective fields using interpolation.
+  // Note: the values below have been evaluated at the vertex to permit simple
+  // approximation of the true fields using interpolation.
   /// The pressure evaluated at this vertex.
   T pressure;
 
   // The traction evaluated at this vertex.
-  Eigen::Vector3<T> traction;
+  Vector3<T> traction;
 
   // The slip velocity at the vertex.
-  Eigen::Vector2<T> slip_velocity;
+  Vector2<T> slip_velocity;
 };
 
 template <class T>
 class ContactSurfaceFace {
+ public:
+
   // TODO: vertices must be specified in the proper order so that the normal
   // and area is correct.
   ContactSurfaceFace(
@@ -30,7 +43,7 @@ class ContactSurfaceFace {
     using std::sqrt;
 
     // Compute the normal.
-    normal_ = (*vB->location - *vA->location).cross(
+    normal_W_ = (*vB->location - *vA->location).cross(
         *vC->location - *vB->location);
 
     // Compute the area.
@@ -41,7 +54,7 @@ class ContactSurfaceFace {
     area_ = sqrt(sp*(sp - s1)*(sp - s2)*(sp - s3));
 
     // Compute the centroid.
-    centroid_ = (vA->location + vB->location + vC->location)/3;
+    centroid_W_ = (vA->location + vB->location + vC->location)/3;
   }
 
   // Evaluates the traction at a point using interpolation over the values
@@ -67,22 +80,16 @@ class ContactSurfaceFace {
         u[2] * vC_->slip_velocity;
   }
 
-  // Gets the specified vertex
-  ContactSurfaceVertex* vertex(int i) const {
-    switch (i) {
-      case 0: return vA_;
-      case 1: return vB_;
-      case 2: return vC_;
-      default:
-        DRAKE_ABORT();
-    }
-  }
-
   // Integrates the traction vectors over the surface of the triangle.
+  // Note: geometry world provides the first argument (presumably
+  // through a lambda function; HydrostaticContactModel provides the second.
   Vector3<T> IntegrateTraction(
       std::function<T(const Vector3<T>&)> pressure_function,
       std::function<Vector2<T>(const Vector3<T>&)> slip_velocity_function)
   const {
+    // TODO: Implement this if I want a higher order quadrature method.
+    DRAKE_ABORT();
+    return Vector3<T>::Zero();
   }
 
   // Integrates the traction vectors over the surface of the triangle using a
@@ -91,39 +98,37 @@ class ContactSurfaceFace {
     // The tolerance below which contact is assumed to be not-sliding.
     const double slip_tol = std::numeric_limits<double>::epsilon();
 
-    // Construct a matrix for projecting two-dimensional vectors in the plane
-    // orthogonal to the contact normal to 3D.
-    const Matrix<3, 2, T> P = Get2DTo3DProjectionMatrix();
-
-    // Get the area of the contact surface triangle.
-    const T triangle_area = area();
-
-    // Evaluate the pressure distribution at the triangle centroid.
-    const T pressure = EvaluatePressure(centroid_);
-
     // Get the contact normal from the contact surface triangle and expressed
     // in the global frame using the convention that the normal points toward
     // Body A.
-    const Vector3<T>& nhat_W = normal();
+    const Vector3<T>& nhat_W = normal_W();
+
+    // Construct a matrix for projecting two-dimensional vectors in the plane
+    // orthogonal to the contact normal to 3D.
+    const Eigen::Matrix<T, 3, 2> P = Get2DTo3DProjectionMatrix(nhat_W);
+
+    // Evaluate the pressure distribution at the triangle centroid.
+    const T pressure = EvaluatePressure(centroid_W_);
 
     // Compute the normal force, expressed in the global frame.
-    const Vector3<T> fN_W = nhat_W * pressure * area;
+    const Vector3<T> fN_W = nhat_W * pressure * area();
 
     // Get the slip velocity at the centroid.
-    const Vector2<T> slip_vel_W = EvaluateSlipVelocity(centroid_);
+    const Vector2<T> slip_vel_W = EvaluateSlipVelocity(centroid_W_);
 
     // Get the direction of slip.
     const T slip_speed = slip_vel_W.norm();
 
     // Determine the slip direction expressed in the global frame.
+    const Vector3<T> zeros_3 = Vector3<T>::Zero();
     const Vector3<T> slip_dir_W = (slip_speed > slip_tol) ?
                                   P * (slip_vel_W / slip_speed) :
-                                  Vector3<T>::Zero();
+                                  zeros_3;
 
     // Compute the frictional force.
     const Vector3<T> fF_W = (slip_speed > slip_tol) ?
-                            mu_coulomb_ * pressure * -slip_dir_W :
-                            Vector3<T>::Zero();
+                            (mu_coulomb_ * pressure * -slip_dir_W) :
+                            zeros_3;
 
     // Increment the traction vector integral.
     return fN_W + fF_W;
@@ -131,16 +136,18 @@ class ContactSurfaceFace {
 
   // Constructs a matrix for projecting two-dimensional vectors in the plane
   // orthogonal to the contact normal to 3D.
-  Matrix<3, 2, T> Get2DTo3DProjectionMatrix() const {
+  Eigen::Matrix<T, 3, 2> Get2DTo3DProjectionMatrix(
+      const Vector3<T>& normal) const {
     const int axis = 2;
     Matrix3<T> PT = math::ComputeBasisFromAxis(axis, normal);
     PT.col(axis).setZero();
-    return PT.transpose().block<3, 2>(0, 0);
+    return PT.transpose().template block<3, 2>(0, 0);
   }
 
   T mu_coulomb_{0.0};        // The coefficient of friction between the bodies.
-  const Vector3<T> normal() const { return normal_; }
+  const Vector3<T> normal_W() const { return normal_W_; }
   const T area() const { return area_; }
+  const Vector3<T> centroid_W() const { return centroid_W_; }
   const ContactSurfaceVertex<T>* vertex_A() const { return vA_; }
   const ContactSurfaceVertex<T>* vertex_B() const { return vB_; }
   const ContactSurfaceVertex<T>* vertex_C() const { return vC_; }
@@ -149,7 +156,7 @@ class ContactSurfaceFace {
 
  private:
   // TODO: Fill me in.
-  Vector3<T> ConvertFromCartesianToBarycentricCoords(const Vector3<T>& p);
+  Vector3<T> ConvertFromCartesianToBarycentricCoords(const Vector3<T>& p) const;
 
   // The vertices of the face.
   ContactSurfaceVertex<T>* vA_{nullptr};
@@ -160,29 +167,39 @@ class ContactSurfaceFace {
   Tetrahedron<T>* tA_{nullptr};
   Tetrahedron<T>* tB_{nullptr};
 
-  // The normal, computed only once.
-  const Vector3<T> normal_;
+  // The normal, computed only once, expressed in the world frame.
+  const Vector3<T> normal_W_;
 
   // The area, computed only once.
   const T area_;
 
-  // The centroid, computed only once.
-  const Vector3<T> centroid_;
+  // The centroid, computed only once, which is defined as an offset expressed
+  // in the world frame.
+  const Vector3<T> centroid_W_;
 };
 
+/// The contact surface computed by GeometryWorld.
 template <class T>
 class ContactSurface {
+ public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactSurface)
+  const std::vector<ContactSurfaceFace<T>> triangles() const { return faces_; }
+  GeometryId id_A() const { return id_A_; }
+  GeometryId id_B() const { return id_B_; }
 
+ private:
   /// The id of the first geometry in the contact.
-  GeometryId id_A;
+  GeometryId id_A_;
 
   /// The id of the second geometry in the contact.
-  GeometryId id_B;
+  GeometryId id_B_;
 
   /// Vertices comprising the contact surface.
-  std::vector<std::unique_ptr<ContactSurfaceVertex<T>>> vertices_;
+  std::vector<ContactSurfaceVertex<T>> vertices_;
 
   /// Triangles comprising the contact surface.
-  std::vector<std::unique_ptr<ContactSurfaceFace<T>>> faces_;
+  std::vector<ContactSurfaceFace<T>> faces_;
 };
+
+}  // namespace geometry
+}  // namespace drake

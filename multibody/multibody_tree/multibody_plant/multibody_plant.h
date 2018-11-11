@@ -1503,6 +1503,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const systems::Context<T>& context,
       systems::ContinuousState<T>* derivatives) const override;
 
+  // Hydrostatic contact model force computation.
+  VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
+      const systems::Context<T>& context) const;
+
   // If the plant is modeled as a discrete system with periodic updates (see
   // is_discrete()), this method computes the periodic updates of the state
   // using a semi-explicit Euler strategy, that is:
