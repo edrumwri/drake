@@ -12,6 +12,7 @@
 #include "drake/common/nice_type_name.h"
 #include "drake/geometry/geometry_set.h"
 #include "drake/geometry/scene_graph.h"
+#include "drake/multibody/multibody_tree/multibody_plant/contact_surface_plus_interpolated_fields.h"
 #include "drake/multibody/multibody_tree/force_element.h"
 #include "drake/multibody/multibody_tree/implicit_stribeck/implicit_stribeck_solver.h"
 #include "drake/multibody/multibody_tree/joints/weld_joint.h"
@@ -1440,7 +1441,8 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   VectorX<T> ComputeGeneralizedForcesFromHydrostaticModel(
       const systems::Context<T>& context,
       const geometry::SceneGraphInspector<T>& inspector,
-      const std::vector<geometry::ContactSurface<T>>& contact_surfaces) const;
+      const std::vector<ContactSurfacePlusInterpolatedFields<T>>&
+          contact_surfaces) const;
   MatrixX<T> CalcContactPointJacobianForHydrostaticModel(
       const systems::Context<T>& multibody_plant_context,
       const Vector3<T>& point_W,
@@ -1617,6 +1619,10 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   void CalcContactResultsOutput(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
+
+  void CalcHydrostaticContactOutput(
+      const systems::Context<T>& context,
+      systems::BasicVector<T>* output) const;
 
   // Helper to evaluate if a GeometryId corresponds to a collision model.
   bool is_collision_geometry(geometry::GeometryId id) const {
@@ -1897,6 +1903,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // The solver used when the plant is modeled as a discrete system.
   std::unique_ptr<implicit_stribeck::ImplicitStribeckSolver<T>>
       implicit_stribeck_solver_;
+
+  // Cache entries for the hydrostatic contact model.
+  systems::CacheIndex contact_surface_cache_index_;
 
   // TODO(sherm1) Add CacheIndex members here for cache entries that belong to
   //              MBPlant, not MBTree.

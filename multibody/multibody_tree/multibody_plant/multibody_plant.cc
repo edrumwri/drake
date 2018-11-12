@@ -7,7 +7,6 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_throw.h"
-#include "drake/geometry/query_results/contact_surface.h"
 #include "drake/geometry/scene_graph_inspector.h"
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
@@ -232,6 +231,72 @@ MultibodyPlant<T>::MultibodyPlant(double time_step)
   DRAKE_THROW_UNLESS(time_step >= 0);
   visual_geometries_.emplace_back();  // Entries for the "world" body.
   collision_geometries_.emplace_back();
+
+  // Allocate contact surface cache.
+  auto& contact_surface_cache_entry = this->DeclareCacheEntry(
+      std::string("contact_surface"),
+      []() {
+        return systems::AbstractValue::Make(
+            std::vector<geometry::ContactSurface<T>>());
+      },
+      [this](const systems::ContextBase& context_base,
+             systems::AbstractValue* cache_value) {
+        auto& context = dynamic_cast<const Context<T>&>(context_base);
+        auto& cached_contact_surfaces =
+            cache_value->GetMutableValue<
+                std::vector<geometry::ContactSurface<T>>>();
+
+        if (num_collision_geometries() > 0) {
+          if (!geometry_query_port_.is_valid()) {
+            throw std::logic_error(
+                "This MultibodyPlant registered geometry for contact handling. "
+                    "However its query input port (get_geometry_query_input_port())"
+                    " is not connected. ");
+          }
+          const geometry::QueryObject<T>& query_object =
+              this->EvalAbstractInput(context, geometry_query_port_)
+                  ->template GetValue<geometry::QueryObject<T>>();
+
+          // Compute the contact surfaces.
+          query_object.ComputeContactSurfaces(&cached_contact_surfaces);
+        }
+      },
+      {this->configuration_ticket()});
+  contact_surface_cache_index_ =
+      contact_surface_cache_entry.cache_index();
+
+  // Allocate contact surface + fields cache.
+  auto& augmented_contact_surface_cache_entry = this->DeclareCacheEntry(
+      std::string("augmented_contact_surface"),
+      []() {
+        return systems::AbstractValue::Make(
+            std::vector<geometry::ContactSurface<T>>());
+      },
+      [this](const systems::ContextBase& context_base,
+             systems::AbstractValue* cache_value) {
+        auto& context = dynamic_cast<const Context<T>&>(context_base);
+        auto& cached_contact_surfaces =
+            cache_value->GetMutableValue<
+                std::vector<geometry::ContactSurface<T>>>();
+
+        if (num_collision_geometries() > 0) {
+          if (!geometry_query_port_.is_valid()) {
+            throw std::logic_error(
+                "This MultibodyPlant registered geometry for contact handling. "
+                    "However its query input port (get_geometry_query_input_port())"
+                    " is not connected. ");
+          }
+          const geometry::QueryObject<T>& query_object =
+              this->EvalAbstractInput(context, geometry_query_port_)
+                  ->template GetValue<geometry::QueryObject<T>>();
+
+          // Compute the contact surfaces.
+          query_object.ComputeContactSurfaces(&cached_contact_surfaces);
+        }
+      },
+      {this->configuration_ticket()});
+  contact_surface_cache_index_ =
+      contact_surface_cache_entry.cache_index();
 }
 
 template<typename T>
@@ -1227,7 +1292,8 @@ template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
     const systems::Context<T>& multibody_plant_context,
     const geometry::SceneGraphInspector<T>& inspector,
-    const std::vector<geometry::ContactSurface<T>>& contact_surfaces) const {
+    const std::vector<ContactSurfacePlusInterpolatedFields<T>>&
+        contact_surfaces) const {
   // Note: we use a very simple algorithm that computes the stress at the center
   // of a triangle (using the already computed pressure distribution) and
   // integrates that stress over the surface of the triangle using a very simple
@@ -1278,26 +1344,14 @@ template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
   if (num_collision_geometries() > 0) {
-    if (!geometry_query_port_.is_valid()) {
-      throw std::logic_error(
-          "This MultibodyPlant registered geometry for contact handling. "
-              "However its query input port (get_geometry_query_input_port()) "
-              "is not connected. ");
-    }
-    const geometry::QueryObject<double>& query_object =
-        this->EvalAbstractInput(context, geometry_query_port_)
-            ->template GetValue<geometry::QueryObject<double>>();
-
-    // Compute the contact surfaces.
-    std::vector<geometry::ContactSurface<T>> contact_surfaces;
-    query_object.ComputeContactSurfaces(&contact_surfaces);
-
-    // Compute the pressure distribution, and slip
-    // velocities.
+    // Get the contact surface.
+    const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
+            get_cache_entry(contact_surface_cache_index_)
+        .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 
     // Apply the hydrostatic model to compute generalized forces.
-    return ComputeGeneralizedForcesFromHydrostaticModel(
-        context, query_object.inspector(), contact_surfaces);
+//    return ComputeGeneralizedForcesFromHydrostaticModel(
+//        context, query_object.inspector(), contact_surfaces);
   }
 
   // No geometries, no force.
@@ -1306,7 +1360,7 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
 
 // Outputs the contact surface and all fields defined over it.
 template <class T>
-void MultibodyPlant<T>::OutputContactInfo(
+void MultibodyPlant<T>::CalcHydrostaticContactOutput(
     const Context<T>& context, BasicVector<T>* output) const {
 }
 
