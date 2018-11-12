@@ -332,7 +332,12 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                     CalcContactPointJacobianForHydrostaticModel(
                         context, old_vertex.location, body_A, body_B);
 
+                // Convert the vertex location to the body frame.
+
                 // Sample the pressure at the vertex.
+
+
+                // Sample the slip velocity at the vertex.
                 new_vertex->slip_velocity = this->
                     CalcSlipVelocityUsingJacobianForHydrostaticModel(
                     context, J_Wp, normal_W);
@@ -1467,26 +1472,53 @@ VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
-  DRAKE_DEMAND(&context);
   if (num_collision_geometries() > 0) {
     // Get the contact surface.
-//    const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
-//            get_cache_entry(contact_surface_cache_index_)
-//        .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
+    const std::vector<AugmentedContactSurface<T>>& contact_surface = this->
+            get_cache_entry(augmented_contact_surface_cache_index_)
+        .template Eval<std::vector<AugmentedContactSurface<T>>>(context);
+
+    // Get the query object.
+    DRAKE_DEMAND(geometry_query_port_.is_valid());
+    const geometry::QueryObject<T>& query_object =
+        this->EvalAbstractInput(context, geometry_query_port_)
+            ->template GetValue<geometry::QueryObject<T>>();
 
     // Apply the hydrostatic model to compute generalized forces.
-//    return ComputeGeneralizedForcesFromHydrostaticModel(
-//        context, query_object.inspector(), contact_surfaces);
+    return ComputeGeneralizedForcesFromHydrostaticModel(
+        context, query_object.inspector(), contact_surface);
   }
 
   // No geometries, no force.
   return VectorX<T>::Zero(num_velocities());
 }
 
+/// Outputs the contact surface only.
+template <class T>
+void MultibodyPlant<T>::CalcHydrostaticContactSurface(
+    const Context<T>& context,
+    std::vector<geometry::ContactSurface<T>>* output) const {
+  // Get the contact surface.
+  const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
+          get_cache_entry(contact_surface_cache_index_)
+      .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
+
+  // Set the output.
+  *output = contact_surface;
+}
+
 // Outputs the contact surface and all fields defined over it.
 template <class T>
-void MultibodyPlant<T>::CalcHydrostaticContactOutput(
-    const Context<T>&, BasicVector<T>*) const {
+void MultibodyPlant<T>::CalcAllHydrostaticContactOutputs(
+    const Context<T>& context,
+    std::vector<AugmentedContactSurface<T>>* output) const {
+  // Get the contact surface.
+  const std::vector<AugmentedContactSurface<T>>& contact_surface = this->
+          get_cache_entry(augmented_contact_surface_cache_index_)
+      .template Eval<std::vector<AugmentedContactSurface<T>>>(context);
+
+  // Set the output.
+  *output = contact_surface;
 }
 
 template<typename T>

@@ -1450,6 +1450,13 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const Vector3<T>& point_W,
       const Body<T>& body_A,
       const Body<T>& body_B) const;
+  void CalcHydrostaticContactSurface(
+      const systems::Context<T>& context,
+      std::vector<geometry::ContactSurface<T>>* output) const;
+  void CalcAllHydrostaticContactOutputs(
+      const systems::Context<T>& context,
+      std::vector<AugmentedContactSurface<T>>* output) const;
+
 
   // Helper method for throwing an exception within public methods that should
   // not be called post-finalize. The invoking method should pass its name so
@@ -1621,10 +1628,6 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   void CalcContactResultsOutput(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
-
-  void CalcHydrostaticContactOutput(
-      const systems::Context<T>& context,
-      systems::BasicVector<T>* output) const;
 
   // Helper to evaluate if a GeometryId corresponds to a collision model.
   bool is_collision_geometry(geometry::GeometryId id) const {

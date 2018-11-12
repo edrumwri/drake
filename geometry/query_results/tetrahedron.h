@@ -6,7 +6,9 @@ namespace geometry {
 template <class T>
 class Tetrahedron {
  public:
-  T EvaluateField(const Vector3<T>& p) const;
+  /// Evaluates the field defined over the domain of this tetrahedron, and
+  /// sampled at the vertices, using interpolation.
+  T EvaluateField(const Vector3<T>& p_F) const;
 };
 
 }  // namespace geometry

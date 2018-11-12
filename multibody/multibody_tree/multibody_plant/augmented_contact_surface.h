@@ -10,6 +10,8 @@
 namespace drake {
 namespace multibody {
 
+/// A ContactSurfaceVertex augmented with samples taken from respective fields
+/// at the vertices.
 template <class T>
 class AugmentedContactSurfaceVertex :
     public geometry::ContactSurfaceVertex<T> {
@@ -26,13 +28,13 @@ class AugmentedContactSurfaceVertex :
   Vector2<T> slip_velocity;
 };
 
+/// A ContactSurfaceFace augmented with methods to evaluate various fields
+/// defined over the domain of the triangle using linear interpolation.
 template <class T>
 class AugmentedContactSurfaceFace :
     public geometry::ContactSurfaceFace<T> {
  public:
 
-  // TODO: vertices must be specified in the proper order so that the normal
-  // and area is correct.
   AugmentedContactSurfaceFace(
       const AugmentedContactSurfaceVertex<T>& vA,
       const AugmentedContactSurfaceVertex<T>& vB,
@@ -142,9 +144,6 @@ class AugmentedContactSurfaceFace :
     // Increment the traction vector integral.
     return fN_W + fF_W;
   }
-
- private:
-  T mu_coulomb_{0.0};        // The coefficient of friction between the bodies.
 };
 
 /// A geometry::ContactSurface<T> that has been augmented with field information
