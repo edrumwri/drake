@@ -27,18 +27,18 @@ class ContactSurfaceFace {
       ContactSurfaceVertex<T>* vA,
       ContactSurfaceVertex<T>* vB,
       ContactSurfaceVertex<T>* vC,
-      Tetrahedron<T>* tA,
-      Tetrahedron<T>* tB) : vA_(vA), vB_(vB), vC_(vC), tA_(tA), tB_(tB) {
+      const Tetrahedron<T>* tA,
+      const Tetrahedron<T>* tB) : vA_(vA), vB_(vB), vC_(vC), tA_(tA), tB_(tB) {
     using std::sqrt;
 
     // Compute the normal.
-    normal_W_ = (*vB->location - *vA->location).cross(
-        *vC->location - *vB->location);
+    normal_W_ = (vB->location - vA->location).cross(
+        vC->location - vB->location);
 
     // Compute the area.
-    const T s1 = (*vB->location - *vA->location).norm();
-    const T s2 = (*vC->location - *vB->location).norm();
-    const T s3 = (*vA->location - *vC->location).norm();
+    const T s1 = (vB->location - vA->location).norm();
+    const T s2 = (vC->location - vB->location).norm();
+    const T s3 = (vA->location - vC->location).norm();
     const T sp = (s1 + s2 + s3) / 2;  // semiparameter.
     area_ = sqrt(sp*(sp - s1)*(sp - s2)*(sp - s3));
 
@@ -65,8 +65,8 @@ class ContactSurfaceFace {
   ContactSurfaceVertex<T>* vC_{nullptr};
 
   // The tetrahedra that the triangle was constructed from.
-  Tetrahedron<T>* tA_{nullptr};
-  Tetrahedron<T>* tB_{nullptr};
+  const Tetrahedron<T>* tA_{nullptr};
+  const Tetrahedron<T>* tB_{nullptr};
 
   // The normal, computed only once, expressed in the world frame.
   Vector3<T> normal_W_;
@@ -80,12 +80,19 @@ class ContactSurfaceFace {
 };
 
 /// The contact surface computed by GeometryWorld.
-template <class T>
-class ContactSurface {
+template <class FaceType, class VertexType>
+class ContactSurfaceType {
  public:
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactSurface)
-  ContactSurface(GeometryId A, GeometryId B) : id_A_(A), id_B_(B) {}
-  const std::vector<ContactSurfaceFace<T>> triangles() const { return faces_; }
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactSurfaceType)
+  ContactSurfaceType(
+      GeometryId A, GeometryId B, std::vector<FaceType>& faces,
+      std::vector<VertexType>& vertices) :  id_A_(A), id_B_(B),
+                                             faces_(faces),
+                                             vertices_(vertices) {}
+  ContactSurfaceType(
+      GeometryId A, GeometryId B) :  id_A_(A), id_B_(B) {}
+  const std::vector<FaceType> triangles() const { return faces_; }
+  const std::vector<VertexType> vertices() const { return vertices_; }
   GeometryId id_A() const { return id_A_; }
   GeometryId id_B() const { return id_B_; }
 
@@ -96,12 +103,16 @@ class ContactSurface {
   /// The id of the second geometry in the contact.
   GeometryId id_B_;
 
-  /// Vertices comprising the contact surface.
-  std::vector<ContactSurfaceVertex<T>> vertices_;
-
   /// Triangles comprising the contact surface.
-  std::vector<ContactSurfaceFace<T>> faces_;
+  std::vector<FaceType> faces_;
+
+  /// Vertices comprising the contact surface.
+  std::vector<VertexType> vertices_;
 };
+
+template <class T>
+using ContactSurface =
+    ContactSurfaceType<ContactSurfaceFace<T>, ContactSurfaceVertex<T>>;
 
 }  // namespace geometry
 }  // namespace drake

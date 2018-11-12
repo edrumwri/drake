@@ -270,33 +270,68 @@ MultibodyPlant<T>::MultibodyPlant(double time_step)
       std::string("augmented_contact_surface"),
       []() {
         return systems::AbstractValue::Make(
-            std::vector<geometry::ContactSurface<T>>());
+            std::vector<AugmentedContactSurface<T>>());
       },
       [this](const systems::ContextBase& context_base,
              systems::AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
-        auto& cached_contact_surfaces =
+        auto& augmented_contact_surfaces =
             cache_value->GetMutableValue<
-                std::vector<geometry::ContactSurface<T>>>();
+                std::vector<AugmentedContactSurface<T>>>();
 
         if (num_collision_geometries() > 0) {
-          if (!geometry_query_port_.is_valid()) {
-            throw std::logic_error(
-                "This MultibodyPlant registered geometry for contact handling. "
-                    "However its query input port (get_geometry_query_input_port())"
-                    " is not connected. ");
-          }
-          const geometry::QueryObject<T>& query_object =
-              this->EvalAbstractInput(context, geometry_query_port_)
-                  ->template GetValue<geometry::QueryObject<T>>();
+          // Get the non-augmented contact surface.
+         const std::vector<geometry::ContactSurface<T>>& contact_surfaces =
+              this->get_cache_entry(contact_surface_cache_index_)
+              .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 
-          // Compute the contact surfaces.
-          query_object.ComputeContactSurfaces(&cached_contact_surfaces);
+          // This condition should already have been checked in the computation
+          // of the non-augmented contact surface just completed.
+          DRAKE_DEMAND(geometry_query_port_.is_valid());
+
+          // Clear the augmented contact surface.
+          augmented_contact_surfaces.clear();
+
+          // Create elements in the cached contact surface.
+          for (const geometry::ContactSurface<T>& surface : contact_surfaces) {
+            // Create vertices and faces vectors that correspond to the vectors
+            // in `surface`.
+            std::vector<AugmentedContactSurfaceFace<T>> triangles;
+            std::vector<AugmentedContactSurfaceVertex<T>> vertices;
+
+            // Get the mapping of vertices.
+            std::map<const geometry::ContactSurfaceVertex<T>*, int> vertex_map;
+
+            // Create all vertices.
+            for (const auto& vertex : surface.vertices()) {
+              vertex_map[&vertex] = static_cast<int>(vertices.size());
+              vertices.push_back(AugmentedContactSurfaceVertex<T>());
+              vertices.back().location = vertex.location;
+            }
+
+            // TODO: Sample vertex pressure, slip velocity, etc.
+
+            // Create all faces.
+            for (const auto& tri : surface.triangles()) {
+              AugmentedContactSurfaceVertex<T>& vA =
+                  vertices[vertex_map[tri.vertex_A()]];
+              AugmentedContactSurfaceVertex<T>& vB =
+                  vertices[vertex_map[tri.vertex_B()]];
+              AugmentedContactSurfaceVertex<T>& vC =
+                  vertices[vertex_map[tri.vertex_C()]];
+              triangles.push_back(AugmentedContactSurfaceFace<T>(&vA, &vB, &vC,
+                                tri.tetrahedron_A(), tri.tetrahedron_B()));
+            }
+
+            // Add to the augmented surface vector.
+            augmented_contact_surfaces.emplace_back(
+                surface.id_A(), surface.id_B(), triangles, vertices);
+          }
         }
       },
-      {this->configuration_ticket()});
-  contact_surface_cache_index_ =
-      contact_surface_cache_entry.cache_index();
+      {this->kinematics_ticket()});
+  augmented_contact_surface_cache_index_ =
+      augmented_contact_surface_cache_entry.cache_index();
 }
 
 template<typename T>
@@ -1248,6 +1283,7 @@ Vector2<T> MultibodyPlant<T>::CalcSlipVelocityAtPointForHydrostaticModel(
   // TODO: Re-enable this.
 //  Eigen::VectorBlock<const VectorX<T>> v = GetVelocities(
 //      multibody_plant_context);
+  DRAKE_DEMAND(&multibody_plant_context);
   VectorX<T> v;
 
   // Compute a projection matrix from 3D to 2D.
@@ -1292,8 +1328,7 @@ template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
     const systems::Context<T>& multibody_plant_context,
     const geometry::SceneGraphInspector<T>& inspector,
-    const std::vector<ContactSurfacePlusInterpolatedFields<T>>&
-        contact_surfaces) const {
+    const std::vector<AugmentedContactSurface<T>>& contact_surfaces) const {
   // Note: we use a very simple algorithm that computes the stress at the center
   // of a triangle (using the already computed pressure distribution) and
   // integrates that stress over the surface of the triangle using a very simple
@@ -1343,11 +1378,12 @@ VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
+  DRAKE_DEMAND(&context);
   if (num_collision_geometries() > 0) {
     // Get the contact surface.
-    const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
-            get_cache_entry(contact_surface_cache_index_)
-        .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
+//    const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
+//            get_cache_entry(contact_surface_cache_index_)
+//        .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 
     // Apply the hydrostatic model to compute generalized forces.
 //    return ComputeGeneralizedForcesFromHydrostaticModel(
@@ -1361,7 +1397,7 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
 // Outputs the contact surface and all fields defined over it.
 template <class T>
 void MultibodyPlant<T>::CalcHydrostaticContactOutput(
-    const Context<T>& context, BasicVector<T>* output) const {
+    const Context<T>&, BasicVector<T>*) const {
 }
 
 template<typename T>

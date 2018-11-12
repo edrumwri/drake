@@ -27,12 +27,12 @@ drake_cc_package_library(
 )
 
 drake_cc_library(
-    name = "contact_surface_plus_interpolated_fields",
+    name = "augmented_contact_surface",
     srcs = [
-        "contact_surface_plus_interpolated_fields.cc",
+        "augmented_contact_surface.cc",
     ],
     hdrs = [
-        "contact_surface_plus_interpolated_fields.h",
+        "augmented_contact_surface.h",
     ],
     deps = [
         "//common",
@@ -54,7 +54,7 @@ drake_cc_library(
     visibility = ["//visibility:private"],
     deps = [
         ":contact_results",
-        ":contact_surface_plus_interpolated_fields",
+        ":augmented_contact_surface",
         ":coulomb_friction",
         "//common:default_scalars",
         "//geometry:geometry_ids",

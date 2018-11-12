@@ -12,7 +12,7 @@
 #include "drake/common/nice_type_name.h"
 #include "drake/geometry/geometry_set.h"
 #include "drake/geometry/scene_graph.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_surface_plus_interpolated_fields.h"
+#include "drake/multibody/multibody_tree/multibody_plant/augmented_contact_surface.h"
 #include "drake/multibody/multibody_tree/force_element.h"
 #include "drake/multibody/multibody_tree/implicit_stribeck/implicit_stribeck_solver.h"
 #include "drake/multibody/multibody_tree/joints/weld_joint.h"
@@ -1441,8 +1441,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   VectorX<T> ComputeGeneralizedForcesFromHydrostaticModel(
       const systems::Context<T>& context,
       const geometry::SceneGraphInspector<T>& inspector,
-      const std::vector<ContactSurfacePlusInterpolatedFields<T>>&
-          contact_surfaces) const;
+      const std::vector<AugmentedContactSurface<T>>& contact_surfaces) const;
   MatrixX<T> CalcContactPointJacobianForHydrostaticModel(
       const systems::Context<T>& multibody_plant_context,
       const Vector3<T>& point_W,
@@ -1906,6 +1905,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
 
   // Cache entries for the hydrostatic contact model.
   systems::CacheIndex contact_surface_cache_index_;
+  systems::CacheIndex augmented_contact_surface_cache_index_;
 
   // TODO(sherm1) Add CacheIndex members here for cache entries that belong to
   //              MBPlant, not MBTree.

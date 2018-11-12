@@ -9,8 +9,9 @@ namespace geometry {
 //DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
 //    class ContactSurface);
 
-class ContactSurface<double>;
-class ContactSurface<AutoDiffXd>;
+class ContactSurfaceType<ContactSurfaceFace<double>,
+                         ContactSurfaceVertex<double>>;
+//class ContactSurface<AutoDiffXd>;
 
 }  // namespace systems
 }  // namespace drake
