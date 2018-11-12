@@ -13,6 +13,7 @@ package(default_visibility = ["//visibility:public"])
 drake_cc_package_library(
     name = "math",
     deps = [
+        ":3d_to_2d_projection_matrix",
         ":autodiff",
         ":barycentric",
         ":continuous_algebraic_riccati_equation",
@@ -96,6 +97,16 @@ drake_cc_library(
         "//common:drake_bool",
         "//common:essential",
         "//common:is_approx_equal_abstol",
+    ],
+)
+
+drake_cc_library(
+    name = "2d_and_3d_projection_matrices",
+    srcs = ["2d_and_3d_projection_matrices.cc"],
+    hdrs = ["2d_and_3d_projection_matrices.h"],
+    deps = [
+        ":orthonormal_basis",
+        "//common:essential",
     ],
 )
 

@@ -1432,9 +1432,12 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   friend class MultibodyPlantTester;
 
   // Functions for the hydrostatic contact model.
+  void AllocateCacheEntriesForHydrostaticContactModel();
+  Vector3<T> CalcTractionAtSurfaceVertexForHydrostaticModel(
+      const AugmentedContactSurfaceVertex<T>& v, double mu_coulomb) const;
   VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
       const systems::Context<T>& context) const;
-  Vector2<T> CalcSlipVelocityAtPointForHydrostaticModel(
+  Vector2<T> CalcSlipVelocityUsingJacobianForHydrostaticModel(
       const systems::Context<T>& multibody_plant_context,
       const MatrixX<T>& J_Wp,
       const Vector3<T>& normal_W) const;
@@ -1446,7 +1449,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
       const systems::Context<T>& multibody_plant_context,
       const Vector3<T>& point_W,
       const Body<T>& body_A,
-      const Body<T>& frame_B) const;
+      const Body<T>& body_B) const;
 
   // Helper method for throwing an exception within public methods that should
   // not be called post-finalize. The invoking method should pass its name so

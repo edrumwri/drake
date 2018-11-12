@@ -5,13 +5,15 @@
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/query_results/contact_surface.h"
 #include "drake/math/orthonormal_basis.h"
+#include "drake/math/2d_and_3d_projection_matrices.h"
 
 namespace drake {
 namespace multibody {
 
 template <class T>
-struct AugmentedContactSurfaceVertex : 
+class AugmentedContactSurfaceVertex :
     public geometry::ContactSurfaceVertex<T> {
+ public:
   // Note: the values below have been evaluated at the vertex to permit simple
   // approximation of the true fields using interpolation.
   /// The pressure evaluated at this vertex.
@@ -32,9 +34,9 @@ class AugmentedContactSurfaceFace :
   // TODO: vertices must be specified in the proper order so that the normal
   // and area is correct.
   AugmentedContactSurfaceFace(
-      AugmentedContactSurfaceVertex<T>* vA,
-      AugmentedContactSurfaceVertex<T>* vB,
-      AugmentedContactSurfaceVertex<T>* vC,
+      const AugmentedContactSurfaceVertex<T>& vA,
+      const AugmentedContactSurfaceVertex<T>& vB,
+      const AugmentedContactSurfaceVertex<T>& vC,
       const geometry::Tetrahedron<T>* tA,
       const geometry::Tetrahedron<T>* tB) :
       geometry::ContactSurfaceFace<T>(vA, vB, vC, tA, tB) {
@@ -44,45 +46,45 @@ class AugmentedContactSurfaceFace :
   // defined at the vertices.
   T CalculateTraction(const Vector3<T>& p) const {
     const Vector3<T> u = this->ConvertFromCartesianToBarycentricCoords(p);
-    auto vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_A());
-    auto vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_B());
-    auto vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_C());
-    return u[0] * vertex_A->traction +
-        u[1] * vertex_B->traction +
-        u[2] * vertex_C->traction;
+    return u[0] * vertex_A.traction +
+        u[1] * vertex_B.traction +
+        u[2] * vertex_C.traction;
   }
 
   // Evaluates the pressure at a point using interpolation over the values
   // defined at the vertices.
   T EvaluatePressure(const Vector3<T>& p) const {
     const Vector3<T> u = this->ConvertFromCartesianToBarycentricCoords(p);
-    auto vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_A());
-    auto vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_B());
-    auto vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_C());
-    return u[0] * vertex_A->pressure +
-        u[1] * vertex_B->pressure +
-        u[2] * vertex_C->pressure;
+    return u[0] * vertex_A.pressure +
+        u[1] * vertex_B.pressure +
+        u[2] * vertex_C.pressure;
   }
 
   // Evaluates the slip velocity at a point using interpolation over the values
   // defined at the vertices.
   Vector2<T> EvaluateSlipVelocity(const Vector3<T>& p) const {
     const Vector3<T> u = this->ConvertFromCartesianToBarycentricCoords(p);
-    auto vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_A());
-    auto vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_B());
-    auto vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>*>(
+    auto& vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>&>(
         this->vertex_C());
-    return u[0] * vertex_A->slip_velocity +
-        u[1] * vertex_B->slip_velocity +
-        u[2] * vertex_C->slip_velocity;
+    return u[0] * vertex_A.slip_velocity +
+        u[1] * vertex_B.slip_velocity +
+        u[2] * vertex_C.slip_velocity;
   }
 
   // Integrates the traction vectors over the surface of the triangle.
@@ -97,9 +99,10 @@ class AugmentedContactSurfaceFace :
     return Vector3<T>::Zero();
   }
 
+  // NOTE: Consider eliminating this function as it is not being used.
   // Integrates the traction vectors over the surface of the triangle using a
   // simple quadrature rule.
-  Vector3<T> IntegrateTractionSimple() const {
+  Vector3<T> IntegrateTractionSimple(double mu_dynamic) const {
     // The tolerance below which contact is assumed to be not-sliding.
     const double slip_tol = std::numeric_limits<double>::epsilon();
 
@@ -110,7 +113,8 @@ class AugmentedContactSurfaceFace :
 
     // Construct a matrix for projecting two-dimensional vectors in the plane
     // orthogonal to the contact normal to 3D.
-    const Eigen::Matrix<T, 3, 2> P = Get2DTo3DProjectionMatrix(nhat_W);
+    const Eigen::Matrix<T, 3, 2> P = math::Compute2dTo3dProjectionMatrix(
+        nhat_W);
 
     // Evaluate the pressure distribution at the triangle centroid.
     const T pressure = EvaluatePressure(this->centroid_W());
@@ -132,21 +136,11 @@ class AugmentedContactSurfaceFace :
 
     // Compute the frictional force.
     const Vector3<T> fF_W = (slip_speed > slip_tol) ?
-                            (mu_coulomb_ * pressure * -slip_dir_W) :
+                            (mu_dynamic * pressure * -slip_dir_W) :
                             zeros_3;
 
     // Increment the traction vector integral.
     return fN_W + fF_W;
-  }
-
-  // Constructs a matrix for projecting two-dimensional vectors in the plane
-  // orthogonal to the contact normal to 3D.
-  Eigen::Matrix<T, 3, 2> Get2DTo3DProjectionMatrix(
-      const Vector3<T>& normal) const {
-    const int axis = 2;
-    Matrix3<T> PT = math::ComputeBasisFromAxis(axis, normal);
-    PT.col(axis).setZero();
-    return PT.transpose().template block<3, 2>(0, 0);
   }
 
  private:
@@ -158,34 +152,7 @@ class AugmentedContactSurfaceFace :
 /// surface.
 template <class T>
 using AugmentedContactSurface =
-    geometry::ContactSurfaceType<AugmentedContactSurfaceFace<T>,
-                       AugmentedContactSurfaceVertex<T>>;
+    geometry::ContactSurfaceType<AugmentedContactSurfaceFace<T>>;
 
-/*
-template <class T>
-class AugmentedContactSurface {
- public:
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(AugmentedContactSurface)
-  AugmentedContactSurface(
-      geometry::GeometryId A, geometry::GeometryId B) : id_A_(A), id_B_(B) {}
-  const std::vector<AugmentedContactSurfaceFace<T>> triangles()
-      const { return faces_; }
-  geometry::GeometryId id_A() const { return id_A_; }
-  geometry::GeometryId id_B() const { return id_B_; }
-
- private:
-  /// The id of the first geometry in the contact.
-  const geometry::GeometryId id_A_;
-
-  /// The id of the second geometry in the contact.
-  const geometry::GeometryId id_B_;
-
-  /// Vertices comprising the contact surface.
-  std::vector<AugmentedContactSurfaceVertex<T>> vertices_;
-
-  /// Triangles comprising the contact surface.
-  std::vector<AugmentedContactSurfaceFace<T>> faces_;
-};
-*/
 }  // namespace multibody
 }  // namespace drake

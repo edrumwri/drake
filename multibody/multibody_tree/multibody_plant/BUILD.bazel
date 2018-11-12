@@ -38,6 +38,7 @@ drake_cc_library(
         "//common",
         "//geometry:geometry_ids",
         "//geometry/query_results",
+        "//math:2d_and_3d_projection_matrices",
         "//math:orthonormal_basis",
         "@fcl",
     ],
@@ -53,12 +54,13 @@ drake_cc_library(
     ],
     visibility = ["//visibility:private"],
     deps = [
-        ":contact_results",
         ":augmented_contact_surface",
+        ":contact_results",
         ":coulomb_friction",
         "//common:default_scalars",
         "//geometry:geometry_ids",
         "//geometry:scene_graph",
+        "//math:2d_and_3d_projection_matrices",
         "//math:orthonormal_basis",
         "//multibody/multibody_tree",
         "//multibody/multibody_tree/implicit_stribeck:implicit_stribeck_solver",  # noqa
