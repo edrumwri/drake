@@ -35,6 +35,16 @@ drake_cc_package_library(
 )
 
 drake_cc_library(
+    name = "2d_and_3d_projection_matrices",
+    srcs = ["2d_and_3d_projection_matrices.cc"],
+    hdrs = ["2d_and_3d_projection_matrices.h"],
+    deps = [
+        ":orthonormal_basis",
+        "//common:essential",
+    ],
+)
+
+drake_cc_library(
     name = "autodiff",
     srcs = ["autodiff.cc"],
     hdrs = ["autodiff.h"],
@@ -97,16 +107,6 @@ drake_cc_library(
         "//common:drake_bool",
         "//common:essential",
         "//common:is_approx_equal_abstol",
-    ],
-)
-
-drake_cc_library(
-    name = "2d_and_3d_projection_matrices",
-    srcs = ["2d_and_3d_projection_matrices.cc"],
-    hdrs = ["2d_and_3d_projection_matrices.h"],
-    deps = [
-        ":orthonormal_basis",
-        "//common:essential",
     ],
 )
 
@@ -241,6 +241,14 @@ drake_cc_library(
 )
 
 # === test/ ===
+
+drake_cc_googletest(
+    name = "2d_and_3d_projection_matrices_test",
+    deps = [
+        ":2d_and_3d_projection_matrices",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
 
 drake_cc_googletest(
     name = "autodiff_test",

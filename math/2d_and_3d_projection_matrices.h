@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iostream>
 #include <limits>
 
 #include "drake/common/eigen_types.h"
@@ -19,7 +20,7 @@ Eigen::Matrix<T, 2, 3> Compute3dTo2dProjectionMatrix(
   // Compute an orthonormal basis with the normal in the last column.
   const int axis = 2;
   Matrix3<T> P = math::ComputeBasisFromAxis(axis, normal);
-  return P.template block<2, 3>(0, 0);
+  return P.transpose().template block<2, 3>(0, 0);
 }
 
 /// Creates a matrix for projecting vectors in 2D to 3D using a 3D normal to a

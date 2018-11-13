@@ -322,20 +322,27 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
 
               // Sample the slip velocity at all vertices.
               auto setup_vertex = [this, &context, &body_A, &body_B, &normal_W,
-                  &surface](const geometry::ContactSurfaceVertex<T>& old_vertex,
+                  &surface, &tri](
+                  const geometry::ContactSurfaceVertex<T>& old_vertex,
                   AugmentedContactSurfaceVertex<T>* new_vertex) {
                 // Copy the location.
                 new_vertex->location = old_vertex.location;
 
                 // Get the Jacobian at the point.
+                const Vector3<T> location_W = old_vertex.location;
                 const MatrixX<T> J_Wp =
                     CalcContactPointJacobianForHydrostaticModel(
-                        context, old_vertex.location, body_A, body_B);
+                        context, location_W, body_A, body_B);
 
-                // Convert the vertex location to the body frame.
+                // Convert the vertex location to the body frame for body A,
+                // which is what the tetrahedron will be defined with respect
+                // to.
+                auto X_WA = this->tree().EvalBodyPoseInWorld(context, body_A);
+                const Vector3<T> location_A = X_WA.inverse() * location_W;
 
                 // Sample the pressure at the vertex.
-
+                new_vertex->pressure = tri.tetrahedron_A()->EvalField(
+                    location_A);
 
                 // Sample the slip velocity at the vertex.
                 new_vertex->slip_velocity = this->
@@ -1345,27 +1352,29 @@ Vector2<T> MultibodyPlant<T>::CalcSlipVelocityUsingJacobianForHydrostaticModel(
 
 template <class T>
 MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
-    const systems::Context<T>& multibody_plant_context,
+    const systems::Context<T>& context,
     const Vector3<T>& point_W,
     const Body<T>& body_A,
     const Body<T>& body_B) const  {
   const int num_spatial_dim = 6;
 
-  // TODO: Convert point_W to point_A and point_B frames.
-  const Vector3<T> point_A = point_W;
-  const Vector3<T> point_B = point_W;
+  // Convert point_W to point_A and point_B frames.
+  const auto X_WA = this->tree().EvalBodyPoseInWorld(context, body_A);
+  const auto X_WB = this->tree().EvalBodyPoseInWorld(context, body_B);
+  const Vector3<T> point_A = X_WA.inverse() * point_W;
+  const Vector3<T> point_B = X_WB.inverse() * point_W;
 
   // Get the geometric Jacobian for the velocity of the point
   // as moving with Body A.
   MatrixX<T> J_WAp(num_spatial_dim, num_velocities());
   tree().CalcFrameGeometricJacobianExpressedInWorld(
-      multibody_plant_context, body_A.body_frame(), point_A, &J_WAp);
+      context, body_A.body_frame(), point_A, &J_WAp);
 
   // Get the geometric Jacobian for the velocity of the point
   // as moving with Body B.
   MatrixX<T> J_WBp(num_spatial_dim, num_velocities());
   tree().CalcFrameGeometricJacobianExpressedInWorld(
-      multibody_plant_context, body_B.body_frame(), point_B, &J_WBp);
+      context, body_B.body_frame(), point_B, &J_WBp);
 
   // Compute the Jacobian.
   return J_WAp - J_WBp;
