@@ -23,8 +23,8 @@ from pydrake.multibody.multibody_tree.math import (
     SpatialVelocity,
 )
 from pydrake.multibody.multibody_tree.multibody_plant import (
-    MultibodyPlant,
     ContactResults,
+    MultibodyPlant,
     PointPairContactInfo,
 )
 from pydrake.multibody.multibody_tree.parsing import (
@@ -34,9 +34,13 @@ from pydrake.multibody.benchmarks.acrobot import (
     AcrobotParameters,
     MakeAcrobotPlant,
 )
+
 from pydrake.geometry import (
+    GeometryId,
     PenetrationAsPointPair,
-    GeometryId)
+    SceneGraph,
+)
+from pydrake.systems.framework import DiagramBuilder
 
 
 import copy
@@ -67,6 +71,20 @@ def get_index_class(cls):
     raise RuntimeError("Unknown class: {}".format(cls))
 
 
+def add_plant_and_scene_graph(builder):
+    # TODO(eric.cousineau): Hoist to C++.
+    plant = builder.AddSystem(MultibodyPlant())
+    scene_graph = builder.AddSystem(SceneGraph())
+    plant.RegisterAsSourceForSceneGraph(scene_graph)
+    builder.Connect(
+        scene_graph.get_query_output_port(),
+        plant.get_geometry_query_input_port())
+    builder.Connect(
+        plant.get_geometry_poses_output_port(),
+        scene_graph.get_source_pose_port(plant.get_source_id()))
+    return plant, scene_graph
+
+
 class TestMultibodyTreeMath(unittest.TestCase):
     def test_spatial_velocity(self):
         velocity = SpatialVelocity()
@@ -95,7 +113,7 @@ class TestMultibodyTree(unittest.TestCase):
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         plant = MultibodyPlant(time_step=0.01)
         model_instance = AddModelFromSdfFile(
-            file_name=file_name, plant=plant, scene_graph=None)
+            file_name=file_name, plant=plant)
         self.assertIsInstance(model_instance, ModelInstanceIndex)
         plant.Finalize()
         benchmark = MakeAcrobotPlant(AcrobotParameters(), True)
@@ -195,13 +213,12 @@ class TestMultibodyTree(unittest.TestCase):
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         plant = MultibodyPlant(time_step=0.01)
         model_instance = AddModelFromSdfFile(
-            file_name=file_name, plant=plant, scene_graph=None)
+            file_name=file_name, plant=plant)
         self.assertIsInstance(model_instance, ModelInstanceIndex)
 
         plant = MultibodyPlant(time_step=0.01)
         model_instance = AddModelFromSdfFile(
-            file_name=file_name, model_name="acrobot", plant=plant,
-            scene_graph=None)
+            file_name=file_name, model_name="acrobot", plant=plant)
 
     def test_multibody_tree_kinematics(self):
         file_name = FindResourceOrThrow(
@@ -283,15 +300,15 @@ class TestMultibodyTree(unittest.TestCase):
         x0 = np.concatenate([q0, v0])
 
         # The default state is all values set to zero.
-        x = tree.get_multibody_state_vector(context)
+        x = tree.GetPositionsAndVelocities(context)
         self.assertTrue(np.allclose(x, np.zeros(4)))
 
         # Write into a mutable reference to the state vector.
-        x_reff = tree.get_mutable_multibody_state_vector(context)
+        x_reff = tree.GetMutablePositionsAndVelocities(context)
         x_reff[:] = x0
 
         # Verify we did modify the state stored in context.
-        x = tree.get_multibody_state_vector(context)
+        x = tree.GetPositionsAndVelocities(context)
         self.assertTrue(np.allclose(x, x0))
 
     def test_model_instance_state_access(self):
@@ -309,11 +326,9 @@ class TestMultibodyTree(unittest.TestCase):
         plant = MultibodyPlant(timestep)
 
         iiwa_model = AddModelFromSdfFile(
-            file_name=iiwa_sdf_path, model_name='robot',
-            scene_graph=None, plant=plant)
+            file_name=iiwa_sdf_path, model_name='robot', plant=plant)
         gripper_model = AddModelFromSdfFile(
-            file_name=wsg50_sdf_path, model_name='gripper',
-            scene_graph=None, plant=plant)
+            file_name=wsg50_sdf_path, model_name='gripper', plant=plant)
 
         # Weld the base of arm and gripper to reduce the number of states.
         X_EeGripper = Isometry3.Identity()
@@ -354,22 +369,22 @@ class TestMultibodyTree(unittest.TestCase):
         x_plant_desired[nq:nq+7] = v_iiwa_desired
         x_plant_desired[nq+7:nq+nv] = v_gripper_desired
 
-        x_plant = tree.get_mutable_multibody_state_vector(context)
+        x_plant = tree.GetMutablePositionsAndVelocities(context)
         x_plant[:] = x_plant_desired
 
         # Get state from context.
-        x = tree.get_multibody_state_vector(context)
+        x = tree.GetPositionsAndVelocities(context)
         q = x[0:nq]
         v = x[nq:nq+nv]
 
         # Get positions and velocities of specific model instances
         # from the postion/velocity vector of the plant.
-        q_iiwa = tree.get_positions_from_array(iiwa_model, q)
-        q_gripper = tree.get_positions_from_array(gripper_model, q)
-        v_iiwa = tree.get_velocities_from_array(iiwa_model, v)
-        v_gripper = tree.get_velocities_from_array(gripper_model, v)
+        q_iiwa = tree.GetPositionsFromArray(iiwa_model, q)
+        q_gripper = tree.GetPositionsFromArray(gripper_model, q)
+        v_iiwa = tree.GetVelocitiesFromArray(iiwa_model, v)
+        v_gripper = tree.GetVelocitiesFromArray(gripper_model, v)
 
-        # Assert that the get_positions_from_array return
+        # Assert that the GetPositionsFromArray return
         # the desired values set earlier.
         self.assertTrue(np.allclose(q_iiwa_desired, q_iiwa))
         self.assertTrue(np.allclose(v_iiwa_desired, v_iiwa))
@@ -467,3 +482,28 @@ class TestMultibodyTree(unittest.TestCase):
         self.assertTrue(contact_results.num_contacts() == 1)
         self.assertTrue(
             isinstance(contact_results.contact_info(0), PointPairContactInfo))
+
+    def test_scene_graph_queries(self):
+        builder = DiagramBuilder()
+        plant, scene_graph = add_plant_and_scene_graph(builder)
+        AddModelFromSdfFile(
+            FindResourceOrThrow(
+                "drake/bindings/pydrake/multibody/test/two_bodies.sdf"),
+            plant, scene_graph)
+        plant.Finalize(scene_graph)
+        diagram = builder.Build()
+        # The model `two_bodies` has two (implicitly) floating bodies that are
+        # placed in the same position. The default state would be for these two
+        # bodies to be coincident, and thus collide.
+        context = diagram.CreateDefaultContext()
+        sg_context = diagram.GetMutableSubsystemContext(scene_graph, context)
+        query_object = scene_graph.get_query_output_port().Eval(sg_context)
+        # Implicitly require that this should be size 1.
+        point_pair, = query_object.ComputePointPairPenetration()
+        self.assertIsInstance(point_pair, PenetrationAsPointPair)
+        inspector = query_object.inspector()
+        bodies = {plant.GetBodyFromFrameId(inspector.GetFrameId(id_))
+                  for id_ in [point_pair.id_A, point_pair.id_B]}
+        self.assertSetEqual(
+            bodies,
+            {plant.GetBodyByName("body1"), plant.GetBodyByName("body2")})
