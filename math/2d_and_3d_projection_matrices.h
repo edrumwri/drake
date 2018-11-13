@@ -35,9 +35,8 @@ Eigen::Matrix<T, 3, 2> Compute2dTo3dProjectionMatrix(
     const Vector3<T>& normal) {
   // Compute an orthonormal basis with the normal in the last column.
   const int axis = 2;
-  Matrix3<T> PT = math::ComputeBasisFromAxis(axis, normal);
-  PT.col(axis).setZero();
-  return PT.transpose().template block<3, 2>(0, 0);
+  Matrix3<T> P = math::ComputeBasisFromAxis(axis, normal);
+  return P.template block<3, 2>(0, 0);
 }
 
 }  // namespace math

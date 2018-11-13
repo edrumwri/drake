@@ -1336,11 +1336,8 @@ Vector2<T> MultibodyPlant<T>::CalcSlipVelocityUsingJacobianForHydrostaticModel(
     const MatrixX<T>& J_Wp,
     const Vector3<T>& normal_W) const  {
   // Get the multibody velocity.
-  // TODO: Re-enable this.
-//  Eigen::VectorBlock<const VectorX<T>> v = GetVelocities(
-//      multibody_plant_context);
-  DRAKE_DEMAND(&multibody_plant_context);
-  VectorX<T> v;
+  Eigen::VectorBlock<const VectorX<T>> v = GetVelocities(
+      multibody_plant_context);
 
   // Compute a projection matrix from 3D to 2D.
   const int kZAxisIndex = 2;

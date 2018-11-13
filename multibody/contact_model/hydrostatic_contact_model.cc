@@ -4,9 +4,7 @@
 #include "drake/math/orthonormal_basis.h"
 #include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
 
-// TODO: Add tests for 2d / 3d projection matrices
 // TODO: Replace copies with moves in AugmentedContactSurface.
-// TODO: Enable GetVelocities.
 // TODO: Implement barycentric coordinate calculation.
 namespace drake {
 namespace multibody {
