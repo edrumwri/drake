@@ -9,23 +9,22 @@ as well as considerations for implementing these systems in Drake.
 
 The state space dynamics of a discrete system is:
 ```
-    xₙ₊₁ = f(p; n, xₙ, uₙ)    // update
-    yₙ   = g(p; n, xₙ, uₙ)    // output
-    x₀   = xᵢₙᵢₜ              // initialize
+    xₙ₊₁ = f(n, xₙ, uₙ)    // update
+    yₙ   = g(n, xₙ, uₙ)    // output
+    x₀   = xᵢₙᵢₜ           // initialize
 ```
 
 where n ∈ ℕ is the step number (typically starting at zero), x is the discrete
 state variable ("discrete" refers to the countability of the elements of the
 sequence, x₀, x₁, ..., xₙ and not the values that x can take), y is the desired
-output, u is an external input, and p is a set of (constant) parameters. f(.)
-and g(.) are the _update_ and _output_ functions, respectively. Any of these
-quantities can be vector-valued. The subscript notation (e.g., x₀) is used to
-show that the state, input, and output result from a discrete process. We use
-square bracket notation, e.g. x[1] to designate particular elements of a
-vector-valued quantity (indexing from 0). Combined, x₁[3] would be the value of
-the fourth element of the x vector, evaluated at step n=1. In code we use a
-Latex-like underscore to indicate the step number, so we write x_1[3] to
-represent x₁[3].
+output, and u is an external input. f(.) and g(.) are the _update_ and _output_
+functions, respectively. Any of these quantities can be vector-valued. The
+subscript notation (e.g., x₀) is used to show that the state, input, and output
+result from a discrete process. We use square bracket notation, e.g. x[1] to
+designate particular elements of a vector-valued quantity (indexing from 0).
+Combined, x₁[3] would be the value of the fourth element of the x vector,
+evaluated at step n=1. In code we use a Latex-like underscore to indicate the
+step number, so we write x_1[3] to represent x₁[3].
 
 <h3>A pedagogical example: simple difference equation</h3>
 
@@ -131,29 +130,29 @@ system above generates values only at integer values of n: <pre>
 Drake's simulator is for hybrid systems, that is, systems that advance through
 _time_ and contain both continuous and discrete elements. It is easy enough to
 use time to represent the discrete steps n, by the conversion `t=n*h` where h
-is a periodic sampling time. If Figure 1 we've shown the conversion to time
+is a periodic sampling time. In Figure 1 we've shown the conversion to time
 used by the example above as a second horizontal axis. However, since Drake
-simulations are continuous, it must be possible to obtain the values of all
-state variables and outputs at _any_ time t, not just at discrete times. So the
-question arises: what is the value of y(t) for values of t in between the
-sample times shown above? The answer doesn't matter for the example above, but
-becomes significant when we mix continuous and discrete systems, since they
-are typically interdependent.
+simulations advance through continuous time, it must be possible to obtain the
+values of all state variables and outputs at _any_ time t, not just at discrete
+times. So the question arises: what is the value of y(t) for values of t in
+between the sample times shown above? The answer doesn't matter for the example
+above, but becomes significant when we mix continuous and discrete systems,
+since they are typically interdependent.
 
 Sample-and-hold is the most common way to go from a discrete value to a
 continuous one. There are two equally-plausible ways to use sample-and-hold to
 fill in the gaps between the discrete sample times above, shown in
 Figure 2: <pre>
 
-      y(t)             +━                    y(t)
+      y(t)             ●━                    y(t)
         |              ┆                       |
-     30 |         +━━━━●                    30 |              ●━
+     30 |         ●━━━━○                    30 |              ●━
         |         ┆                            |              ┆
-     20 |    +━━━━●                         20 |         ●━━━━+
+     20 |    ●━━━━○                         20 |         ●━━━━○
         |    ┆                                 |         ┆
-     10 +━━━━●                              10 |    ●━━━━+
+     10 ●━━━━○                              10 |    ●━━━━○
         ┆                                      |    ┆
-      0 ●----+----+----+--> t                0 ●━━━━+----+----+--> t
+      0 ○----+----+----+-- t                 0 ●━━━━○----+----+-- t
         0   .02  .04  .06                      0   .02  .04  .06
 
    (a) Sample at start of step.           (b) Sample at end of step.
@@ -161,41 +160,50 @@ Figure 2: <pre>
           Figure 2: two ways to make a continuous function from
           a discrete one, using sample-and-hold.
 </pre>
-Note that both of the above continuous functions agree at the discrete sample
-times, but disagree everywhere else. Either can be produced easily with Drake's
+In the figure, the ○ markers show the function value at time t _before_ the
+update function is invoked, while the ● markers show the value _after_ the
+update. In (a), the ○ markers coincide with the original discrete value, while
+in (b), the ● markers do. Thus both functions include the discrete result at
+`t = n*h`, but disagree on when to perform the update to n+1.
+
+Either of the above continuous functions can be produced easily with Drake's
 periodic events, by choosing whether the first update occurs at t=0 or t=h.
 However, for most-convenient intermixing of continuous and discrete elements,
 we recommend the sampling shown in Figure 2(a), which is produced by allowing
 the first events to occur at t=0 as we did in the example above. With that
 method the update that advances the discrete system from step n to step n+1
-occurs at time `t=n*h` as expected, allowing continuous values like u(t) to
-be used in the update function. On the other hand, with the sampling in
-Figure 2(b) that update occurs at time `t=(n+1)*h` instead, meaning that the
-value u(t) would not be available unless it had been previously sampled.
+occurs at time `t = n*h` as expected, allowing continuous quantities like u(t)
+to be used in the update function. On the other hand, with the sampling in
+Figure 2(b) that update occurs at time `t = (n+1)*h` instead, meaning that the
+value `u(n*h)` would not be available unless it had been previously sampled.
 
 <h3>Timing of Publish vs. DiscreteUpdate in Drake</h3>
 
 A discrete system viewed in continuous time does not have a unique value at
-its sample times. In Figure 2 the + and ● symbols show two possible values
-at the same times. For a given sample time t, use the notation t⁻ to denote
+its sample times. In Figure 2 the ○ and ● symbols show two possible values
+at the same times. For a given sample time t, we use the notation t⁻ to denote
 the "pre-update" time, and t⁺ to denote the "post-update" time, so y(t⁻) is the
 value of y at time t _before_ discrete variables are updated, and y(t⁺) the
 value of y at time t _after_ they are updated. Thus if we have `t = n*h` then
 `y(t⁻) = yₙ` and `y(t⁺) = yₙ₊₁`.
 
-You can think of tᵢ⁻ as the time at the end of the iᵗʰ time step, while you can
-think of tᵢ⁺ as the time at the beginning of time step i+1. Initialization can
-be consider the 0ᵗʰ "time step", so t₀⁻ occurs at the end of initialization,
+You can think of tᵢ⁻ as the time at the end of the iᵗʰ time step, while tᵢ⁺ is
+the time at the beginning of time step i+1. Initialization can then be
+considered the 0ᵗʰ "time step", so t₀⁻ occurs at the end of initialization,
 while t₀⁺ occurs at the start of the first time step.
 
 With those distinctions drawn, we can define Drake's event behavior: `Publish`
-events occur at t⁻ (end of previous step), while `Update` events occur at the
-start of the current step to produce the t⁺ values. So if you define periodic
-events starting at t=0 as we did in the example above, the first Publish event
-occurs at the end of initialization, while the first Update event occurs at
-the beginning of the first time step. Both `DiscreteUpdate` and
-`UnrestrictedUpdate` events are handled at the beginning of each step, with all
-unrestricted updates done first, followed by all discrete updates.
+events occur at t⁻ (end of previous step, ○ markers in Figure 2), while `Update`
+events occur at the start of the current step to produce the t⁺ values
+(● markers). So if you define periodic events starting at t=0 as we did in the
+example above, the first Publish event occurs at the end of initialization,
+while the first Update event occurs at the beginning of the first time step.
+Both `DiscreteUpdate` and `UnrestrictedUpdate` events are handled at the
+beginning of each step, with all unrestricted updates done first, followed by
+all discrete updates. The Context supplied as input to those update methods will
+contain the t⁻ (step n) values.
+
+@see drake::systems::Simulator for more details.
 
 @ingroup systems
 */
