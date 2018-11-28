@@ -121,10 +121,10 @@ system above generates values only at integer values of n: <pre>
       |         ┆    ┆
    10 |    ●    ┆    ┆
       |    ┆    ┆    ┆
-    0 ●----+----+----+-->
-      0    1    2    3    n
-      +----+----+----+-->
-      0   .02  .04  .06   t
+    0 ●----+----+----+--
+      0    1    2    3   n
+      +----+----+----+--
+      0   .02  .04  .06  t
 </pre>
 
 Drake's simulator is for hybrid systems, that is, systems that advance through

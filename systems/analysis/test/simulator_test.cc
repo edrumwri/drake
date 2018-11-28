@@ -1124,7 +1124,6 @@ GTEST_TEST(SimulatorTest, SimpleDiscreteSystem) {
   EXPECT_EQ(output, "0: 0 (0)\n1: 10 (0.02)\n2: 20 (0.04)\n3: 30 (0.06)\n");
 }
 
-
 // A continuous system that outputs the time.
 class TimeOutputter : public LeafSystem<double> {
  public:
@@ -1297,6 +1296,131 @@ GTEST_TEST(SimulatorTest, SimpleHybridSystemTest3) {
 
   // Check that the expected number of updates (one) was performed.
   EXPECT_EQ(hybrid_system->num_discrete_updates(), 1);
+}
+
+// A "Delta function" system that outputs zero except at at instant when
+// the output is 1. Despite that, this is a continuous function of time. We'll
+// use it to verify that a discrete system that takes this as input samples
+// it at the expected instant.
+class DeltaFunction : public LeafSystem<double> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(DeltaFunction)
+
+  explicit DeltaFunction(double spike_time) : spike_time_(spike_time) {
+    this->DeclareVectorOutputPort("spike",
+                                  BasicVector<double>(1),
+                                  &DeltaFunction::Output);
+  }
+
+  // Change the spike time. Be sure to re-initialize after calling this.
+  void set_spike_time(double spike_time) {
+    spike_time_ = spike_time;
+  }
+
+ private:
+  void Output(
+      const Context<double>& context, BasicVector<double>* output) const {
+    (*output)[0] = context.get_time() == spike_time_ ? 1. : 0.;
+  }
+
+  double spike_time_{};
+};
+
+// This is a mixed continuous/discrete system:
+//    xₙ₊₁ = xₙ + u(t)
+//    yₙ   = xₙ
+//    x₀   = 0
+// By plugging interesting things into the input we can test whether we're
+// sampling the continuous input at the appropriate times.
+class DiscreteInputAdder : public LeafSystem<double> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(DiscreteInputAdder)
+
+  DiscreteInputAdder() {
+    DeclareDiscreteState(1);  // Just one state variable, x[0].
+
+    DeclareVectorInputPort("u", BasicVector<double>(1));
+
+    // Set initial condition x₀ = 0, and clear the result.
+    DeclareInitializationEvent(
+        DiscreteUpdateEvent<double>([this](const Context<double>&,
+                                           const DiscreteUpdateEvent<double>&,
+                                           DiscreteValues<double>* x_0) {
+          x_0->get_mutable_vector()[0] = 0.;
+          result_.clear();
+        }));
+
+    // Output yₙ using a Drake "publish" event (occurs at the end of step n).
+    DeclarePeriodicEvent(
+        kPeriod, kOffset,
+        PublishEvent<double>(
+            [this](const Context<double>& context,
+                   const PublishEvent<double>&) {
+              result_.push_back(get_x(context));  // yₙ = xₙ
+            }));
+
+    // Update to xₙ₊₁ (x_np1), using a Drake "discrete update" event (occurs
+    // at the beginning of step n+1).
+    DeclarePeriodicEvent(
+        kPeriod, kOffset,
+        DiscreteUpdateEvent<double>([this](const Context<double>& context,
+                                           const DiscreteUpdateEvent<double>&,
+                                           DiscreteValues<double>* x_np1) {
+          const double x_n = get_x(context);
+          const double u = EvalVectorInput(context, 0)->GetAtIndex(0);
+          x_np1->get_mutable_vector()[0] = x_n + u;  // xₙ₊₁ = xₙ + u(t)
+        }));
+  }
+
+  const std::vector<double>& result() const { return result_; }
+
+  static constexpr double kPeriod = 0.125;
+  static constexpr double kOffset = 0.;
+
+ private:
+  double get_x(const Context<double>& context) const {
+    return context.get_discrete_state()[0];
+  }
+
+  std::vector<double> result_;
+};
+
+// Build a diagram that takes a DeltaFunction input and then simulates this
+// mixed discrete/continuous system:
+//    xₙ₊₁ = xₙ + u(t)
+//    yₙ   = xₙ
+//    x₀   = 0
+// Let tₛ be the chosen "spike time" for the delta function. We expect the
+// output yₙ to be zero for all n unless a sample at k*h occurs exactly at
+// tₛ for some k. In that case yₙ=0, n ≤ k and yₙ=1, n > k. Important cases
+// to check are: tₛ=0, tₛ=k*h for some k>0, and tₛ≠k*h for any k.
+GTEST_TEST(SimulatorTest, SpikeTest) {
+  DiagramBuilder<double> builder;
+
+  auto delta = builder.AddSystem<DeltaFunction>(0.);
+  auto hybrid_system = builder.AddSystem<DiscreteInputAdder>();
+  builder.Connect(delta->get_output_port(0), hybrid_system->get_input_port(0));
+  auto diagram = builder.Build();
+  Simulator<double> simulator(*diagram);
+
+  // Test with spike_time = 0.
+  simulator.Initialize();
+  simulator.StepTo(5 * DiscreteInputAdder::kPeriod);
+  EXPECT_EQ(hybrid_system->result(), std::vector<double>({0, 1, 1, 1, 1, 1}));
+
+  // Test with spike time = 3*h.
+  delta->set_spike_time(3 * DiscreteInputAdder::kPeriod);
+  simulator.get_mutable_context().set_time(0.);
+  simulator.Initialize();
+  simulator.StepTo(5 * DiscreteInputAdder::kPeriod);
+  EXPECT_EQ(hybrid_system->result(), std::vector<double>({0, 0, 0, 0, 1, 1}));
+
+  // Test with spike time not coinciding with a sample time.
+  delta->set_spike_time(2.7 * DiscreteInputAdder::kPeriod);
+  simulator.get_mutable_context().set_time(0.);
+  simulator.Initialize();
+  simulator.StepTo(5 * DiscreteInputAdder::kPeriod);
+  EXPECT_EQ(hybrid_system->result(), std::vector<double>({0, 0, 0, 0, 0, 0}));
 }
 
 // A mock System that requests a single update at a prespecified time.
