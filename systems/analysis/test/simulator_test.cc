@@ -1047,6 +1047,84 @@ GTEST_TEST(SimulatorTest, FibonacciSystemTest) {
             std::vector<double>({0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10.}));
 }
 
+// This is the example from discrete_systems.h. Let's make sure it works
+// as advertised there! The discrete system is:
+//    xₙ₊₁ = xₙ + 1
+//    yₙ   = 10 xₙ
+//    x₀   = 0
+// which should produce 0 10 20 30 ... .
+class SimpleDiscreteSystem : public LeafSystem<double> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SimpleDiscreteSystem)
+
+  SimpleDiscreteSystem() {
+    DeclareDiscreteState(1);  // Just one state variable, x[0].
+
+    // Output yₙ using a Drake "publish" event (occurs at the end of step n).
+    DeclarePeriodicEvent(kPeriod, kOffset,
+                         systems::PublishEvent<double>(
+                             [this](const systems::Context<double>& context_n,
+                                    const systems::PublishEvent<double>&) {
+                               Output(context_n);
+                             }));
+
+    // Update to xₙ₊₁ (x_np1), using a Drake "discrete update" event (occurs
+    // at the beginning of step n+1).
+    DeclarePeriodicEvent(kPeriod, kOffset,
+                         systems::DiscreteUpdateEvent<double>(
+                             [this](const systems::Context<double>& context_n,
+                                    const systems::DiscreteUpdateEvent<double>&,
+                                    systems::DiscreteValues<double>* x_np1) {
+                               x_np1->get_mutable_vector()[0] =
+                                   Update(context_n);
+                             }));
+  }
+
+  // Set initial condition x₀ = 0.
+  void Initialize(systems::Context<double>* context_0) const {
+    context_0->get_mutable_discrete_state()[0] = 0.;
+  }
+
+  static constexpr double kPeriod = 1/50.;  // Update at 50Hz (h=1/50).
+  static constexpr double kOffset = 0.;  // Trigger events at n=0.
+
+ private:
+  // Update function xₙ₊₁ = f(n, xₙ).
+  double Update(const systems::Context<double>& context_n) const {
+    const double x_n = GetX(context_n);
+    return x_n + 1.;
+  }
+
+  // Output function yₙ = g(n, xₙ). (Here, just writes 'n: Sₙ (t)' to cout.)
+  void Output(const systems::Context<double>& context_n) const {
+    const double t = context_n.get_time();
+    const int n = static_cast<int>(std::round(t / kPeriod));
+    const double S_n = 10 * GetX(context_n);  // 10 xₙ[0]
+    std::cout << n << ": " << S_n << " (" << t << ")\n";
+  }
+
+  double GetX(const Context<double>& context) const {
+    return context.get_discrete_state()[0];
+  }
+};
+
+GTEST_TEST(SimulatorTest, SimpleDiscreteSystem) {
+  SimpleDiscreteSystem system;
+
+  Simulator<double> simulator(system);
+
+  // Set the initial conditions: x₀[0]=0, x₀[1]=1.
+  system.Initialize(&simulator.get_mutable_context());
+
+  // Simulate forward.
+  testing::internal::CaptureStdout();
+  simulator.StepTo(3 * SimpleDiscreteSystem::kPeriod);
+  std::string output = testing::internal::GetCapturedStdout();
+
+  EXPECT_EQ(output, "0: 0 (0)\n1: 10 (0.02)\n2: 20 (0.04)\n3: 30 (0.06)\n");
+}
+
+
 // A continuous system that outputs the time.
 class TimeOutputter : public LeafSystem<double> {
  public:
