@@ -47,26 +47,26 @@ class SimpleDiscreteSystem : public LeafSystem<double> {
     // Output yₙ using a Drake "publish" event (occurs at the end of step n).
     DeclarePeriodicEvent(kPeriod, kOffset,
                          systems::PublishEvent<double>(
-                             [this](const systems::Context<double>& context_n,
+                             [this](const systems::Context<double>& context,
                                     const systems::PublishEvent<double>&) {
-                               Output(context_n);
+                               Output(context);
                              }));
 
     // Update to xₙ₊₁ (x_np1), using a Drake "discrete update" event (occurs
     // at the beginning of step n+1).
     DeclarePeriodicEvent(kPeriod, kOffset,
                          systems::DiscreteUpdateEvent<double>(
-                             [this](const systems::Context<double>& context_n,
+                             [this](const systems::Context<double>& context,
                                     const systems::DiscreteUpdateEvent<double>&,
                                     systems::DiscreteValues<double>* x_np1) {
                                x_np1->get_mutable_vector()[0] =
-                                   Update(context_n);
+                                   Update(context);
                              }));
   }
 
   // Set initial condition x₀ = 0.
-  void Initialize(systems::Context<double>* context_0) const {
-    context_0->get_mutable_discrete_state()[0] = 0.;
+  void Initialize(systems::Context<double>* context) const {
+    context->get_mutable_discrete_state()[0] = 0.;
   }
 
   static constexpr double kPeriod = 0.02;  // Update at 50Hz (h=1/50).
@@ -74,16 +74,16 @@ class SimpleDiscreteSystem : public LeafSystem<double> {
 
  private:
   // Update function xₙ₊₁ = f(n, xₙ).
-  double Update(const systems::Context<double>& context_n) const {
-    const double x_n = GetX(context_n);
+  double Update(const systems::Context<double>& context) const {
+    const double x_n = GetX(context);
     return x_n + 1.;
   }
 
   // Output function yₙ = g(n, xₙ). (Here, just writes 'n: Sₙ (t)' to cout.)
-  void Output(const systems::Context<double>& context_n) const {
-    const double t = context_n.get_time();
+  void Output(const systems::Context<double>& context) const {
+    const double t = context.get_time();
     const int n = static_cast<int>(std::round(t / kPeriod));
-    const double S_n = 10 * GetX(context_n);  // 10 xₙ[0]
+    const double S_n = 10 * GetX(context);  // 10 xₙ[0]
     std::cout << n << ": " << S_n << " (" << t << ")\n";
   }
 
@@ -128,16 +128,16 @@ system above generates values only at integer values of n: <pre>
 </pre>
 
 Drake's simulator is for hybrid systems, that is, systems that advance through
-_time_ and contain both continuous and discrete elements. It is easy enough to
-use time to represent the discrete steps n, by the conversion `t=n*h` where h
-is a periodic sampling time. In Figure 1 we've shown the conversion to time
-used by the example above as a second horizontal axis. However, since Drake
-simulations advance through continuous time, it must be possible to obtain the
-values of all state variables and outputs at _any_ time t, not just at discrete
-times. So the question arises: what is the value of y(t) for values of t in
-between the sample times shown above? The answer doesn't matter for the example
-above, but becomes significant when we mix continuous and discrete systems,
-since they are typically interdependent.
+_time_, and evolve in time both continuously (flow) and discretely (jump). It
+is easy enough to use time to represent the discrete steps n, by the conversion
+`t=n*h` where h is a periodic sampling time. In Figure 1 we've shown the
+conversion to time used by the example above as a second horizontal axis.
+However, since Drake simulations advance through continuous time, it must be
+possible to obtain the values of all state variables and outputs at _any_ time
+t, not just at discrete times. So the question arises: what is the value of y(t)
+for values of t in between the sample times shown above? The answer doesn't
+matter for the example above, but becomes significant when we mix continuous and
+discrete systems, since they are typically interdependent.
 
 Sample-and-hold is the most common way to go from a discrete value to a
 continuous one. There are two equally-plausible ways to use sample-and-hold to
@@ -162,9 +162,8 @@ Figure 2: <pre>
 </pre>
 In the figure, the ○ markers show the function value at time t _before_ the
 update function is invoked, while the ● markers show the value _after_ the
-update. In (a), the ○ markers coincide with the original discrete value, while
-in (b), the ● markers do. Thus both functions include the discrete result at
-`t = n*h`, but disagree on when to perform the update to n+1.
+update. In (a), the ○ markers coincide with the original discrete values, while
+in (b), the ● markers do.
 
 Either of the above continuous functions can be produced easily with Drake's
 periodic events, by choosing whether the first update occurs at t=0 or t=h.

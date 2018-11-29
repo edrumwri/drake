@@ -972,32 +972,32 @@ class FibonacciDifferenceEquation : public LeafSystem<double> {
     DeclarePeriodicEvent(
         kPeriod, 0.,
         PublishEvent<double>(
-            [this](const Context<double>& context_n,
-                   const PublishEvent<double>&) { Output(context_n); }));
+            [this](const Context<double>& context,
+                   const PublishEvent<double>&) { Output(context); }));
 
     // Update to xₙ₊₁ (x_np1).
     DeclarePeriodicEvent(
         kPeriod, 0.,
-        DiscreteUpdateEvent<double>([this](const Context<double>& context_n,
+        DiscreteUpdateEvent<double>([this](const Context<double>& context,
                                            const DiscreteUpdateEvent<double>&,
                                            DiscreteValues<double>* x_np1) {
-          x_np1->get_mutable_vector().set_value(Update(context_n));
+          x_np1->get_mutable_vector().set_value(Update(context));
         }));
   }
 
   // Update function xₙ₊₁ = f(n, xₙ).
-  Vector2d Update(const Context<double>& context_n) const {
+  Vector2d Update(const Context<double>& context) const {
     ++update_count_;
-    const auto& x_n = context_n.get_discrete_state();
+    const auto& x_n = context.get_discrete_state();
     return {x_n[0] + x_n[1], x_n[0]};
   }
 
   // Output function yₙ = g(n, xₙ). We record t, n, and Fₙ.
-  void Output(const Context<double>& context_n) const {
+  void Output(const Context<double>& context) const {
     ++output_count_;
-    const double t = context_n.get_time();
+    const double t = context.get_time();
     const int n = static_cast<int>(std::round(t/kPeriod));
-    const int F_n = context_n.get_discrete_state()[0];  // xₙ[0]
+    const int F_n = context.get_discrete_state()[0];  // xₙ[0]
     sample_time_t_.push_back(t);
     step_number_n_.push_back(n);
     fibonacci_n_.push_back(F_n);
