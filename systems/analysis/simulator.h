@@ -59,11 +59,13 @@ which is adequate for most systems.
 
 <h2>How the simulation is stepped: simulation mechanics for authors of
   hybrid or discrete systems (Advanced)</h2>
+
 This documentation is targeted toward users who have created a LeafSystem
 implementing a hybrid or discrete system. For authors of such systems, it is
 useful to understand the simulation mechanics in order to attain the desired
 state behavior over time. This behavior is dependent on the ordering in
-which events are processed.
+which events are processed. For a general introduction, see
+@ref discrete_systems, for details keep reading here.
 
 The pseudocode for the algorithm that the simulator uses to step the state
 from time and state `{ t, xc(t⁻), xd(t⁻), xa(t⁻) }` forward in time to
