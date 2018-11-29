@@ -66,53 +66,73 @@ state behavior over time. This behavior is dependent on the ordering in
 which events are processed.
 
 The pseudocode for the algorithm that the simulator uses to step the state
-from time and state `{ t0, xc(t0), xd(t0⁻), xa(t0⁻) }` forward in time
-by length _no greater_ than Δt will be presented shortly. We will make use
+from time and state `{ t, xc(t⁻), xd(t⁻), xa(t⁻) }` forward in time to
+_no later_ than tₘₐₓ will be presented shortly. We will make use
 of the notation `xd(t⁻)` to denote a variable before any instantaneous
 (unrestricted or discrete) updates, `xd(t*)` to denote the same variable
 after an unrestricted update, and `xd(t⁺)` to denote the same variable after
-a discrete update. The pseudocode follows:
-@verbatim
-procedure Step(t0, xc(t0⁻), xd(t0⁻), xa(t0⁻), Δt)
+a discrete update. Note that while a discrete update can change only the
+discrete state variables xd, an unrestricted update can change any or all of
+xc, xd, and xa.
 
-// Update any variables (no restrictions).
-{ xc(t0*), xd(t0*), xa(t0⁺) } ←
-    DoAnyUnrestrictedUpdates(t0, xc(t0⁻), xd(t0⁻), xa(t0⁻))
+The pseudocode follows:
+```
+// Advance time and state from t⁻ to a time t₁⁻, where t ≤ t₁ ≤ tₘₐₓ.
+procedure Step(t, xc(t⁻), xd(t⁻), xa(t⁻), tₘₐₓ)
 
-// Update discrete variables.
-xd(t0⁺) ← DoAnyDiscreteUpdates(t0,  xc(t0*), xd(t0*), xa(t0⁺))
+  // Update any variables (no restrictions).
+  { xc(t⁺), xd(t*), xa(t⁺) } ←
+      DoAnyUnrestrictedUpdates(t, xc(t⁻), xd(t⁻), xa(t⁻))
 
-// See how far it is safe to integrate without missing any events.
-tₑ ← NextEventTime(t0, xc(t0*), xd(t0⁺), xa(t0⁺))
+  // Update discrete variables.
+  xd(t⁺) ← DoAnyDiscreteUpdates(t,  xc(t⁺), xd(t*), xa(t⁺))
 
-// Integrate continuous variables forward in time.
-h ← min(tₑ - t0, Δt)
-{ t₁, xc(t₁⁻) } ← Integrate(t0, xc(t0*), xd(t0⁺), xa(t0*), h)
+  // --------------------
+  // Context is now at t⁺
+  // --------------------
 
-// Hold discrete and abstract variables values from t0* and t0⁺ to t₁⁻.
-xd(t₁⁻) ← xd(t0⁺)
-xa(t₁⁻) ← xa(t0*)
+  // See how far it is safe to integrate without missing any events.
+  tₑᵥₑₙₜ ← CalcNextEventTime(t, xc(t⁺), xd(t⁺), xa(t⁺))
 
-DoAnyPublishes(t₁, xc(t₁⁻), xd(t₁⁻), xa(t₁⁻))
+  // Integrate continuous variables forward in time. Integration may terminate
+  // before reaching tₛₜₒₚ due to witnessed events.
+  tₛₜₒₚ ← min(tₑᵥₑₙₜ, tₘₐₓ)
+  { t₁, xc(t₁⁻) } ← Integrate(t, xc(t⁺), xd(t⁺), xa(t⁺), tₛₜₒₚ)
 
-return { t₁, xc(t₁⁻), xd(t₁⁻), xa(t₁⁻) }
-@endverbatim
+  // Hold discrete and abstract variable values from t⁺ to t₁⁻.
+  { xd(t₁⁻), xa(t₁⁻) } ← { xd(t⁺), xa(t⁺) }
 
-We can use this algorithm to examine the Initialize() and StepTo() functions,
-which we shall now do in reverse order. StepTo() can be outlined as:
-@verbatim
-procedure StepTo(t_final)
-t ← current_time
-while t ≠ t_final
-  { tnew, xc(tnew⁻), xd(tnew⁻), xa(tnew⁻) } ←
-        Step(t, xc(t⁻), xd(t⁻), xa(t⁻), t_final - t)
-  { t, xc(t⁻), xd(t⁻), xa(t⁻) } ← { tnew, xc(tnew⁻), xd(tnew⁻), xa(tnew⁻) }
-endwhile
-@endverbatim
-Initialize() is equivalent to Step() with `t0 = initial_time - ε`
-(for `ε ≪ 1`) and `Δt = 0`.
+  // ---------------------
+  // Context is now at t₁⁻
+  // ---------------------
+
+  DoAnyPublishes(t₁, xc(t₁⁻), xd(t₁⁻), xa(t₁⁻))
+
+  return { t₁, xc(t₁⁻), xd(t₁⁻), xa(t₁⁻) }
+```
+
+We can use this algorithm to examine the StepTo() and Initialize() functions:
+```
+// Advance the simulation until time tₘₐₓ.
+procedure StepTo(tₘₐₓ)
+  t ← current_time
+  while t ≠ tₘₐₓ
+    { t, xc(t⁻), xd(t⁻), xa(t⁻) } ← Step(t, xc, xd, xa, tₘₐₓ)
+  endwhile
+
+// Update the Context values to t₀⁻, the condition it should have at the
+// start of the first simulation step.
+procedure Initialize(t₀, xc₀, xd₀, xa₀)
+  { xc(t₀⁻), xd(t₀⁻), xa(t₀⁻) } ← DoAnyUpdates as in Step()
+  tₑᵥₑₙₜ ← CalcNextEventTime(t₀ - ε, xc(t₀⁻), xd(t₀⁻), xa(t₀⁻))  // ε ≪ 1
+  DoAnyPublishes(t₀, xc(t₀⁻), xd(t₀⁻), xa(t₀⁻))
+```
+Thus Initialize() performs initialization updates, calculates the next event
+time on or after t₀, does no integration, and publishes any triggered events
+that occur. This is nearly identical to a zero-length Step().
 
 @tparam T The vector element type, which must be a valid Eigen scalar.
+
 Instantiated templates for the following kinds of T's are provided and
 available to link against in the containing library:
  - double
