@@ -98,7 +98,7 @@ is given a starting Context value `{tₛ, x⁻(tₛ)}` and returns an end Contex
 value `{tₑ, x⁻(tₑ)}`, where tₑ is _no later_ than a given tₘₐₓ. Note that
 any quantities that are _computed_ from time and state, such as inputs u and
 time derivatives ẋc will be computed using the values of time and state as
-updated at each stage of the computation.
+most recently updated at each stage of the computation.
 
 ```
 // Advance time and state from start value {tₛ, x⁻(tₛ)} to an end value
