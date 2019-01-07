@@ -807,6 +807,18 @@ class ProximityEngine<T>::Impl : public ShapeReifier {
     return witness_pairs;
   }
 
+  // This is a "stub" implementation, which computes a single contact surface
+  // corresponding to that between a 1m x 1m x 1m box and the halfspace z <= 0.
+  std::vector<ContactSurface<T>> ComputeContactSurfaces(
+    const std::vector<GeometryId>& geometry_map) const {
+    // Determine the pose of the box.
+
+    // The elastic moduli will determine how far into the halfspace the box
+    // will interpenetrate, meaning how far "down" the contact surface goes.
+
+    // Create the contact surface.
+  }
+
   std::vector<PenetrationAsPointPair<double>> ComputePointPairPenetration(
       const std::vector<GeometryId>& geometry_map) const {
     std::vector<PenetrationAsPointPair<double>> contacts;

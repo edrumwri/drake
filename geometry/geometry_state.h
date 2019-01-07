@@ -437,6 +437,11 @@ class GeometryState {
    characteristics of that collision.  */
   //@{
 
+  /** See QueryObject::ComputeContactSurfaces() for documentation. */
+  std::vector<ContactSurface<T>> ComputeContactSurfaces() const {
+    return geometry_engine_->ComputeContactSurfaces(geometry_index_to_id_map_);
+  }
+
   /** See QueryObject::ComputePointPairPenetration() for documentation.  */
   std::vector<PenetrationAsPointPair<double>> ComputePointPairPenetration()
       const {

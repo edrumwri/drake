@@ -96,8 +96,7 @@ class QueryObject {
   /**
    * @note Assumes that QueryObject has access to elastic moduli.
    */
-  void ComputeContactSurfaces(
-      std::vector<ContactSurface<T>>* contact_surfaces) const;
+   std::vector<ContactSurface<T>> ComputeContactSurfaces() const;
 
   /** Computes the penetrations across all pairs of geometries in the world.
    Only reports results for _penetrating_ geometries; if two geometries are

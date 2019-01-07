@@ -168,6 +168,8 @@ class ProximityEngine {
    characteristics of that collision.  */
 
   //@{
+  std::vector<ContactSurface<T>> ComputeContactSurface(
+    const std::vector<GeometryId>& geometry_map) const;
 
   // NOTE: This maps to Model::ComputeMaximumDepthCollisionPoints().
   /** Computes the penetrations across all pairs of geometries in the world.
