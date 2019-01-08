@@ -816,7 +816,60 @@ class ProximityEngine<T>::Impl : public ShapeReifier {
     // The elastic moduli will determine how far into the halfspace the box
     // will interpenetrate, meaning how far "down" the contact surface goes.
 
+    // Get the location in the halfspace frame of all eight box vertices,
+    // modified by the elastic moduli. Vertices with z-component > 0 clearly
+    // lie outside of the halfspace. Vertices that lie inside the halfspace
+    // are used to determine the contact surface.
+
+    // The contact surface will comprise up to six polygons, one for each
+    // face of the box. The topology of each polygon will be dependent upon
+    // how many of a box face's vertices lie on/within the halfspace. 
+    // 1 vertex on/within : point or triangle
+    // 2 vertices on/within : line segment, triangle, or rectangle
+    // 3 vertices on/within : triangle or pentagon
+    // (note: three vertices cannot be "on" w/o fourth vertex being "on" as
+    // well, one vertex cannot be "on" with two being "within")
+    // 4 vertices on/within : rectangle
+
+    // Then the approach is to compute the intersection of each face with the
+    // halfspace, and that will determine a polygon on the contact surface.
+
+    // Box vertices:
+    //        v0 -------- v1
+    //        /|          /|
+    //       / |         / |
+    //      /  |        /  |
+    //     v2---------v3   |
+    //     |   v8-----|---v7
+    //     |   /      |  /
+    //     |  /       | /   
+    //     | /        |/
+    //     v5---------v6 
+    //
+    // Faces:
+    // v0, v2, v3, v1
+    // v2, v5, v6, v3
+    // v6, v7, v1, v3
+    // v5, v2, v0, v8
+    // v5, v8, v7, v6
+    // v0, v1, v7, v8
+
+    // Compute the new vertex locations in the box frame.
+
     // Create the contact surface.
+    std::vector<ContactSurface<T>> contact_surface;
+    if (OnOrBelow(v0) && OnOrBelow(v2) && OnOrBelow(v3) && OnOrBelow(v1))
+      PossiblyAddToContactSurface(v0, v2, v3, v1, &contact_surface);
+    if (OnOrBelow(v2) && OnOrBelow(v5) && OnOrBelow(v6) && OnOrBelow(v3))
+      PossiblyAddToContactSurface(v2, v5, v6, v3, &contact_surface);
+    if (OnOrBelow(v6) && OnOrBelow(v7) && OnOrBelow(v1) && OnOrBelow(v3))
+      PossiblyAddToContactSurface(v6, v7, v1, v3, &contact_surface);
+    if (OnOrBelow(v5) && OnOrBelow(v2) && OnOrBelow(v0) && OnOrBelow(v8))
+      PossiblyAddToContactSurface(v5, v2, v0, v8, &contact_surface);
+    if (OnOrBelow(v5) && OnOrBelow(v8) && OnOrBelow(v7) && OnOrBelow(v6))
+      PossiblyAddToContactSurface(v5, v8, v7, v6, &contact_surface);
+    if (OnOrBelow(v0) && OnOrBelow(v1) && OnOrBelow(v7) && OnOrBelow(v8))
+      PossiblyAddToContactSurface(v0, v1, v7, v8, &contact_surface);    
   }
 
   std::vector<PenetrationAsPointPair<double>> ComputePointPairPenetration(
