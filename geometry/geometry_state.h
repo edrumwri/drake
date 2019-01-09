@@ -17,6 +17,7 @@
 #include "drake/geometry/internal_frame.h"
 #include "drake/geometry/internal_geometry.h"
 #include "drake/geometry/proximity_engine.h"
+#include "drake/geometry/query_results/contact_surface.h"
 
 namespace drake {
 namespace geometry {

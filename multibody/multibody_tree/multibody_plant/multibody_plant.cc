@@ -336,13 +336,13 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                         context, location_W, body_A, body_B);
 
                 // Convert the vertex location to the body frame for body A,
-                // which is what the tetrahedron will be defined with respect
+                // which is what the field will be defined with respect
                 // to.
                 auto X_WA = this->tree().EvalBodyPoseInWorld(context, body_A);
                 const Vector3<T> location_A = X_WA.inverse() * location_W;
 
                 // Sample the pressure at the vertex.
-                new_vertex->pressure = tri.tetrahedron_A()->EvalField(
+                new_vertex->pressure = tri.field_A()->Evaluate(
                     location_A);
 
                 // Sample the slip velocity at the vertex.
@@ -376,7 +376,7 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
 
               // Create the triangle.
               triangles.push_back(AugmentedContactSurfaceFace<T>(vA, vB, vC,
-                                tri.tetrahedron_A(), tri.tetrahedron_B()));
+                                tri.field_A(), tri.field_B()));
             }
 
             // Add to the augmented surface vector.
@@ -1380,7 +1380,7 @@ MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
 
 template <class T>
 Vector3<T> MultibodyPlant<T>::CalcTractionAtSurfaceVertexForHydrostaticModel(
-    const AugmentedContactSurfaceVertex <T>& v, double mu_coulomb) const {
+    const AugmentedContactSurfaceVertex<T>& v, double mu_coulomb) const {
   // The tolerance below which contact is assumed to be not-sliding.
   const double slip_tol = std::numeric_limits<double>::epsilon();
 

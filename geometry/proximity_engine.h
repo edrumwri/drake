@@ -7,6 +7,7 @@
 #include "drake/common/autodiff.h"
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/geometry_index.h"
+#include "drake/geometry/query_results/contact_surface.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/geometry/query_results/signed_distance_pair.h"
 #include "drake/geometry/shape_specification.h"
@@ -168,7 +169,7 @@ class ProximityEngine {
    characteristics of that collision.  */
 
   //@{
-  std::vector<ContactSurface<T>> ComputeContactSurface(
+  std::vector<ContactSurface<T>> ComputeContactSurfaces(
     const std::vector<GeometryId>& geometry_map) const;
 
   // NOTE: This maps to Model::ComputeMaximumDepthCollisionPoints().

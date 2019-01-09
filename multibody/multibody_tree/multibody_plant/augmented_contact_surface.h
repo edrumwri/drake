@@ -39,9 +39,9 @@ class AugmentedContactSurfaceFace :
       const AugmentedContactSurfaceVertex<T>& vA,
       const AugmentedContactSurfaceVertex<T>& vB,
       const AugmentedContactSurfaceVertex<T>& vC,
-      const geometry::Tetrahedron<T>* tA,
-      const geometry::Tetrahedron<T>* tB) :
-      geometry::ContactSurfaceFace<T>(vA, vB, vC, tA, tB) {
+      const geometry::Field<T>* fieldA,
+      const geometry::Field<T>* fieldB) :
+      geometry::ContactSurfaceFace<T>(vA, vB, vC, fieldA, fieldB) {
   }
 
   // Evaluates the traction at a point using interpolation over the values
