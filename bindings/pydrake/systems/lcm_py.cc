@@ -81,14 +81,17 @@ PYBIND11_MODULE(lcm, m) {
 
   {
     using Class = LcmPublisherSystem;
-    py::class_<Class, LeafSystem<double>>(m, "LcmPublisherSystem")
+    py::class_<Class, LeafSystem<double>> cls(m, "LcmPublisherSystem");
+    cls  // BR
         .def(py::init<const std::string&, std::unique_ptr<SerializerInterface>,
-                 DrakeLcmInterface*>(),
+                 DrakeLcmInterface*, double>(),
             py::arg("channel"), py::arg("serializer"), py::arg("lcm"),
+            py::arg("publish_period"),
             // Keep alive: `self` keeps `DrakeLcmInterface` alive.
             py::keep_alive<1, 3>(), doc.LcmPublisherSystem.ctor.doc)
-        .def("set_publish_period", &Class::set_publish_period,
-            py::arg("period"), doc.LcmPublisherSystem.set_publish_period.doc);
+        .def("PublishInputAsLcmMessage", &Class::PublishInputAsLcmMessage,
+            py::arg("context"),
+            doc.LcmPublisherSystem.PublishInputAsLcmMessage.doc);
   }
 
   {
