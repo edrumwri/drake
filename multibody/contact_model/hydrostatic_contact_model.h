@@ -12,10 +12,10 @@ template <class T>
 class HydrostaticContactModel {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(HydrostaticContactModel)
-  HydrostaticContactModel(const multibody_plant::MultibodyPlant<T>* plant);
+  HydrostaticContactModel(const multibody::MultibodyPlant<T>* plant);
 
-
-    multibody_plant::MultibodyPlant<T>* plant_{nullptr};
+ private:
+  multibody::MultibodyPlant<T>* plant_{nullptr};
 };
 
 }  // namespace multibody

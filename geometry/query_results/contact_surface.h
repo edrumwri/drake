@@ -131,7 +131,7 @@ class ContactSurfaceType {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactSurfaceType)
   ContactSurfaceType(
       GeometryId A, GeometryId B, const std::vector<FaceType>& faces) :
-      id_A_(A), id_B_(B), faces_(std::move(faces)) {}
+      id_A_(A), id_B_(B), faces_(faces) {}
   const std::vector<FaceType> triangles() const { return faces_; }
   GeometryId id_A() const { return id_A_; }
   GeometryId id_B() const { return id_B_; }

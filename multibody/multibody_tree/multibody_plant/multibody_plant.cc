@@ -11,6 +11,7 @@
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
+#include "drake/geometry/query_results/field.h"
 #include "drake/math/2d_and_3d_projection_matrices.h"
 #include "drake/math/orthonormal_basis.h"
 #include "drake/math/rotation_matrix.h"
@@ -265,7 +266,7 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                   ->template GetValue<geometry::QueryObject<T>>();
 
           // Compute the contact surfaces.
-          query_object.ComputeContactSurfaces(&cached_contact_surfaces);
+          cached_contact_surfaces = query_object.ComputeContactSurfaces();
         }
       },
       {this->configuration_ticket()});
@@ -319,27 +320,27 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
               AugmentedContactSurfaceVertex<T> vA, vB, vC;
 
               // Get the normal to the face.
-              const Vector3<T>& normal_W = tri.normal_W();
+              const Vector3<T>& normal_w = tri.normal_w();
 
               // Sample the slip velocity at all vertices.
-              auto setup_vertex = [this, &context, &body_A, &body_B, &normal_W,
+              auto setup_vertex = [this, &context, &body_A, &body_B, &normal_w,
                   &surface, &tri](
                   const geometry::ContactSurfaceVertex<T>& old_vertex,
                   AugmentedContactSurfaceVertex<T>* new_vertex) {
                 // Copy the location.
-                new_vertex->location = old_vertex.location;
+                new_vertex->location_w = old_vertex.location_w;
 
                 // Get the Jacobian at the point.
-                const Vector3<T> location_W = old_vertex.location;
+                const Vector3<T> location_w = old_vertex.location_w;
                 const MatrixX<T> J_Wp =
                     CalcContactPointJacobianForHydrostaticModel(
-                        context, location_W, body_A, body_B);
+                        context, location_w, body_A, body_B);
 
                 // Convert the vertex location to the body frame for body A,
                 // which is what the field will be defined with respect
                 // to.
                 auto X_WA = this->tree().EvalBodyPoseInWorld(context, body_A);
-                const Vector3<T> location_A = X_WA.inverse() * location_W;
+                const Vector3<T> location_A = X_WA.inverse() * location_w;
 
                 // Sample the pressure at the vertex.
                 new_vertex->pressure = tri.field_A()->Evaluate(
@@ -348,7 +349,7 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                 // Sample the slip velocity at the vertex.
                 new_vertex->slip_velocity = this->
                     CalcSlipVelocityUsingJacobianForHydrostaticModel(
-                    context, J_Wp, normal_W);
+                    context, J_Wp, normal_w);
 
                 // Get the coefficient of friction.
                 const int collision_index_A =
@@ -1385,35 +1386,35 @@ Vector3<T> MultibodyPlant<T>::CalcTractionAtSurfaceVertexForHydrostaticModel(
   const double slip_tol = std::numeric_limits<double>::epsilon();
 
   // Get the normal from the face that this vertex belongs to.
-  const Vector3<T>& nhat_W = static_cast<const AugmentedContactSurfaceFace<T>*>(
-      v.face())->normal_W();
+  const Vector3<T>& nhat_w = static_cast<const AugmentedContactSurfaceFace<T>*>(
+      v.face())->normal_w();
 
   // Construct a matrix for projecting two-dimensional vectors in the plane
   // orthogonal to the contact normal to 3D.
-  const Eigen::Matrix<T, 3, 2> P = math::Compute2dTo3dProjectionMatrix(nhat_W);
+  const Eigen::Matrix<T, 3, 2> P = math::Compute2dTo3dProjectionMatrix(nhat_w);
 
   // Compute the normal traction, expressed in the global frame.
-  const Vector3<T> tN_W = nhat_W * v.pressure;
+  const Vector3<T> tN_w = nhat_w * v.pressure;
 
   // Get the slip velocity at the centroid.
-  const Vector2<T>& slip_vel_W = v.slip_velocity;
+  const Vector2<T>& slip_vel_w = v.slip_velocity;
 
   // Get the direction of slip.
-  const T slip_speed = slip_vel_W.norm();
+  const T slip_speed = slip_vel_w.norm();
 
   // Determine the slip direction expressed in the global frame.
   const Vector3<T> zeros_3 = Vector3<T>::Zero();
-  const Vector3<T> slip_dir_W = (slip_speed > slip_tol) ?
-                                P * (slip_vel_W / slip_speed) :
+  const Vector3<T> slip_dir_w = (slip_speed > slip_tol) ?
+                                P * (slip_vel_w / slip_speed) :
                                 zeros_3;
 
   // Compute the frictional traction.
-  const Vector3<T> tF_W = (slip_speed > slip_tol) ?
-                          (mu_coulomb * v.pressure * -slip_dir_W) :
+  const Vector3<T> tF_w = (slip_speed > slip_tol) ?
+                          (mu_coulomb * v.pressure * -slip_dir_w) :
                           zeros_3;
 
   // Increment the traction vector integral.
-  return tN_W + tF_W;
+  return tN_w + tF_w;
 }
 
 // @pre pressure distribution, slip velocity has been computed
@@ -1451,7 +1452,7 @@ VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
       // Get the Jacobian matrix for applying a force at the centroid of the
       // contact surface.
       const MatrixX<T> J_Wp =  CalcContactPointJacobianForHydrostaticModel(
-          multibody_plant_context, triangle.centroid_W(), body_A, body_B);
+          multibody_plant_context, triangle.centroid_w(), body_A, body_B);
 
       // Get the vertices.
       const AugmentedContactSurfaceVertex<T>& vA = static_cast<

@@ -821,7 +821,7 @@ class ProximityEngine<T>::Impl : public ShapeReifier {
 
 void UpdateContactSurfaceFaces(
   const std::array<Vector3<T>, 3>& triangle_h,
-  const Isometry3<T>& wTh,
+  const Isometry3<T>& wXh,
   std::vector<ContactSurfaceFace<T>>* faces) const {
     // The tolerance for being on the halfspace is very close to machine
     // epsilon.
@@ -862,9 +862,9 @@ void UpdateContactSurfaceFaces(
     // the ordering.
     if (num_negative == 0) {
       ContactSurfaceVertex<T> va, vb, vc;
-      va.location_w = wTh * triangle_h[0];
-      vb.location_w = wTh * triangle_h[1];
-      vc.location_w = wTh * triangle_h[2];
+      va.location_w = wXh * triangle_h[0];
+      vb.location_w = wXh * triangle_h[1];
+      vc.location_w = wXh * triangle_h[2];
       faces->emplace_back(ContactSurfaceFace<T>(va, vb, vc, &field_, &field_));
       return;
     }
@@ -882,13 +882,13 @@ void UpdateContactSurfaceFaces(
         for (int i0 = 0; i0 < 3; ++i0) {
           if (s[i0] < -eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
-            va.location_w = wTh * triangle_h[i1];
-            vb.location_w = wTh * triangle_h[i2];
+            va.location_w = wXh * triangle_h[i1];
+            vb.location_w = wXh * triangle_h[i2];
             const T t2 = s[i2] / (s[i2] - s[i0]);
             const T t0 = s[i0] / (s[i0] - s[i1]);
-            vc.location_w = wTh * (triangle_h[i2] + t2 * 
+            vc.location_w = wXh * (triangle_h[i2] + t2 * 
                 (triangle_h[i0] - triangle_h[i2]));
-            vd.location_w = wTh * (triangle_h[i0] + t0 *
+            vd.location_w = wXh * (triangle_h[i0] + t0 *
                         (triangle_h[i1] - triangle_h[i0]));
             faces->emplace_back(ContactSurfaceFace<T>(
                 va, vb, vc, &field_, &field_));
@@ -897,7 +897,6 @@ void UpdateContactSurfaceFaces(
             break;
           }
         }
-
         return;
       }
 
@@ -909,13 +908,13 @@ void UpdateContactSurfaceFaces(
         for (int i0 = 0; i0 < 3; ++i0) {
           if (abs(s[i0]) <= eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
-            va.location_w = wTh * triangle_h[i0];
+            va.location_w = wXh * triangle_h[i0];
             const T t1 = s[i1] / (s[i1] - s[i2]);
             const Vector3<T> p = triangle_h[i1] + t1 * 
                 (triangle_h[i2] - triangle_h[i1]);
             if (s[i1] > eps) {
-              vb.location_w = wTh * triangle_h[i1];
-              vc.location_w = wTh * p;
+              vb.location_w = wXh * triangle_h[i1];
+              vc.location_w = wXh * p;
             } else {
               vb.location_w = p;
               vc.location_w = triangle_h[i2];
@@ -940,12 +939,12 @@ void UpdateContactSurfaceFaces(
         for (int i0 = 0; i0 < 3; ++i0) {
           if (s[i0] > eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
-            va.location_w = wTh * triangle_h[i0];
+            va.location_w = wXh * triangle_h[i0];
             const T t0 = s[i0] / (s[i0] - s[i1]);
             const T t2 = s[i2] / (s[i2] - s[i0]);
-            vb.location_w = wTh * (triangle_h[i0] + t0 *
+            vb.location_w = wXh * (triangle_h[i0] + t0 *
                       (triangle_h[i1] - triangle_h[i0]));
-            vc.location_w = wTh * (triangle_h[i2] + t2 *
+            vc.location_w = wXh * (triangle_h[i2] + t2 *
                       (triangle_h[i0] - triangle_h[i2]));
             faces->emplace_back(ContactSurfaceFace<T>(
                 va, vb, vc, &field_, &field_));
@@ -967,9 +966,9 @@ void UpdateContactSurfaceFaces(
   // This is a "stub" implementation, which computes a single contact surface
   // corresponding to that between a 1m x 1m x 1m box and the halfspace z <= 0.
   std::vector<ContactSurface<T>> ComputeContactSurfaces(
-    const std::vector<GeometryId>& geometry_map) const {
-    // Determine the pose of the box.
-
+    GeometryId halfspace_geometry,
+    GeometryId box_geometry,
+    const Isometry3<T>& wXb) const {
     // The elastic moduli will determine how far into the halfspace the box
     // will interpenetrate, meaning how far "down" the contact surface goes.
 
@@ -1015,33 +1014,50 @@ void UpdateContactSurfaceFaces(
     const double half_len = 0.5;
 
     // Compute the vertex locations in the box frame.
-    const Vector3<T> v0(-half_len, half_len, -half_len);
-    const Vector3<T> v1(half_len, half_len, -half_len);
-    const Vector3<T> v2(-half_len, half_len, half_len);
-    const Vector3<T> v3(half_len, half_len, half_len);
-    const Vector3<T> v4(-half_len, -half_len, half_len);
-    const Vector3<T> v5(half_len, -half_len, half_len);
-    const Vector3<T> v6(half_len, -half_len, -half_len);
-    const Vector3<T> v7(-half_len, -half_len, -half_len);
+    const Vector3<T> v0_b(-half_len, half_len, -half_len);
+    const Vector3<T> v1_b(half_len, half_len, -half_len);
+    const Vector3<T> v2_b(-half_len, half_len, half_len);
+    const Vector3<T> v3_b(half_len, half_len, half_len);
+    const Vector3<T> v4_b(-half_len, -half_len, half_len);
+    const Vector3<T> v5_b(half_len, -half_len, half_len);
+    const Vector3<T> v6_b(half_len, -half_len, -half_len);
+    const Vector3<T> v7_b(-half_len, -half_len, -half_len);
+
+    // Get the transformation from the box frame to the halfspace frame.
+    const Isometry3<T> wXh = Isometry3<T>::Identity();
+    const Isometry3<T> hXb = wXh.inverse() * wXb;
+
+    // Compute the vertex locations in the halfspace frame.
+    const Vector3<T> v0_h = hXb * v0_b;    
+    const Vector3<T> v1_h = hXb * v1_b;    
+    const Vector3<T> v2_h = hXb * v2_b;    
+    const Vector3<T> v3_h = hXb * v3_b;    
+    const Vector3<T> v4_h = hXb * v4_b;    
+    const Vector3<T> v5_h = hXb * v5_b;    
+    const Vector3<T> v6_h = hXb * v6_b;    
+    const Vector3<T> v7_h = hXb * v7_b;    
 
     // Create the vector of contact surface faces.
     std::vector<ContactSurfaceFace<T>> contact_surface_faces;
-    UpdateContactSurfaceFaces({v0, v2, v3}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v3, v1, v0}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v2, v4, v5}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v5, v3, v2}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v5, v6, v1}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v1, v3, v5}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v4, v2, v0}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v0, v7, v4}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v4, v7, v6}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v6, v5, v4}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v0, v1, v6}, wTh, &contact_surface_faces);
-    UpdateContactSurfaceFaces({v6, v7, v0}, wTh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v0_h, v2_h, v3_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v3_h, v1_h, v0_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v2_h, v4_h, v5_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v5_h, v3_h, v2_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v5_h, v6_h, v1_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v1_h, v3_h, v5_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v4_h, v2_h, v0_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v0_h, v7_h, v4_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v4_h, v7_h, v6_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v6_h, v5_h, v4_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v0_h, v1_h, v6_h}, wXh, &contact_surface_faces);
+    UpdateContactSurfaceFaces({v6_h, v7_h, v0_h}, wXh, &contact_surface_faces);
 
-    // TODO: fill this in.
-
+    // Create the sole contact surface, assuming that there are some faces.
     std::vector<ContactSurface<T>> contact_surface;
+    if (contact_surface_faces.empty()) {
+      contact_surface.emplace_back(
+        halfspace_geometry, box_geometry, contact_surface_faces);
+    }
 
     return contact_surface;
   }
@@ -1385,6 +1401,15 @@ std::vector<PenetrationAsPointPair<double>>
 ProximityEngine<T>::ComputePointPairPenetration(
     const std::vector<GeometryId>& geometry_map) const {
   return impl_->ComputePointPairPenetration(geometry_map);
+}
+
+template <typename T>
+std::vector<ContactSurface<T>>
+ProximityEngine<T>::ComputeContactSurfaces(
+  GeometryId halfspace_geom,
+  GeometryId box_geom,
+  const Isometry3<T>& wXb) const {
+  return impl_->ComputeContactSurfaces(halfspace_geom, box_geom, wXb);
 }
 
 template <typename T>
