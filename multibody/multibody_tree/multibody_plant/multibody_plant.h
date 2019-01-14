@@ -1354,6 +1354,11 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // continuous system as well.
   const systems::OutputPort<T>& get_contact_results_output_port() const;
 
+  /// Returns a constant reference to the port that outputs the contact
+  /// surfaces.
+  /// @throws std::exception if called pre-finalize, see Finalize().
+  const systems::OutputPort<T>& get_contact_surfaces_output_port() const;
+
   /// Returns a constant reference to the *world* body.
   const RigidBody<T>& world_body() const {
     return tree().world_body();
@@ -1778,6 +1783,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   void CalcContactResultsOutput(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
+  void OutputContactSurfaces(
+    const systems::Context<T>& context,
+    std::vector<geometry::ContactSurface<T>>* contact_surfaces) const;
 
   // Helper to evaluate if a GeometryId corresponds to a collision model.
   bool is_collision_geometry(geometry::GeometryId id) const {
@@ -2042,6 +2050,9 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
 
   // Index for the output port of ContactResults.
   systems::OutputPortIndex contact_results_port_;
+
+  // Index for the output port for the contact surfaces.
+  systems::OutputPortIndex contact_surfaces_port_;
 
   // A vector containing the index for the generalized contact forces port for
   // each model instance. This vector is indexed by ModelInstanceIndex. An

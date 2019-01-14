@@ -1,0 +1,9 @@
+package drake;
+
+struct lcmt_contact_surfaces_for_viz {
+  // in microseconds
+  int64_t timestamp;
+
+  int32_t num_surfaces;
+  lcmt_contact_surface_for_viz contact_surfaces[num_surfaces];
+}

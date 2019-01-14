@@ -77,6 +77,26 @@ drake_lcm_cc_library(
 )
 
 drake_lcm_cc_library(
+    name = "contact_surfaces_for_viz",
+    lcm_package = "drake",
+    lcm_srcs = ["lcmt_contact_surfaces_for_viz.lcm"],
+    deps = [":contact_surface_for_viz"],
+)
+
+drake_lcm_cc_library(
+    name = "contact_surface_for_viz",
+    lcm_package = "drake",
+    lcm_srcs = ["lcmt_contact_surface_for_viz.lcm"],
+    deps = [":contact_surface_tri_for_viz"],
+)
+
+drake_lcm_cc_library(
+    name = "contact_surface_tri_for_viz",
+    lcm_package = "drake",
+    lcm_srcs = ["lcmt_contact_surface_tri_for_viz.lcm"],
+)
+
+drake_lcm_cc_library(
     name = "contact_information",
     lcm_package = "drake",
     lcm_srcs = ["lcmt_contact_information.lcm"],

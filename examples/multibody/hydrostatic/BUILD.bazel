@@ -1,0 +1,26 @@
+# -*- python -*-
+# This file contains rules for Bazel; see drake/doc/bazel.rst.
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_googletest",
+    "drake_cc_library",
+)
+load("//tools/lint:lint.bzl", "add_lint_tests")
+
+drake_cc_binary(
+    name = "brick_vs_halfspace",
+    srcs = ["brick_vs_halfspace.cc"],
+    deps = [
+        "//common:text_logging_gflags",
+        "//geometry:geometry_visualization",
+        "//multibody/multibody_tree/multibody_plant:contact_surfaces_to_lcm",
+        "//systems/analysis:simulator",
+        "//systems/framework:diagram",
+        "//systems/lcm:lcm_pubsub_system",
+        "@gflags",
+    ],
+)
+
+add_lint_tests()

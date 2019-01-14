@@ -98,6 +98,23 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "contact_surfaces_to_lcm",
+    srcs = [
+        "contact_surfaces_to_lcm.cc",
+    ],
+    hdrs = [
+        "contact_surfaces_to_lcm.h",
+    ],
+
+    deps = [
+        ":multibody_plant",
+        "//lcmtypes:contact_surfaces_for_viz",
+        "//systems/framework:diagram_builder",
+        "//systems/lcm:lcm_pubsub_system",
+    ],    
+)
+
+drake_cc_library(
     name = "contact_results_to_lcm",
     srcs = [
         "contact_results_to_lcm.cc",
