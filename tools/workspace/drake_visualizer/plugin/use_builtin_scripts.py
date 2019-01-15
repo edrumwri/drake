@@ -8,6 +8,7 @@ import sys
 
 from drake.tools.workspace.drake_visualizer.plugin import (
     show_contact,
+    show_contact_surfaces,
     show_frame,
     show_image,
     show_time,
@@ -19,6 +20,7 @@ from drake.tools.workspace.drake_visualizer.plugin import (
 def init_visualizer():
     available = OrderedDict((
         ("contact", show_contact.init_visualizer),
+        ("contact_surfaces", show_contact_surfaces.init_visualizer),
         ("frame", show_frame.init_visualizer),
         ("image", show_image.init_visualizer),
         ("time", show_time.init_visualizer),
