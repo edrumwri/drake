@@ -44,8 +44,18 @@ LcmPublisherSystem::LcmPublisherSystem(
   DRAKE_DEMAND(lcm_);
 
   if (translator_ != nullptr) {
-    DeclareInputPort("lcm_message", kVectorValued,
-                     translator_->get_vector_size());
+    // If the translator provides a specific storage type (i.e., if it returns
+    // non-nullptr from AllocateOutputVector), then use its storage to declare
+    // our input type.  This is important when the basic vector subtype has
+    // intrinsic constraints (e.g., a bounding box on its values), or to enable
+    // type-checking for Diagram wiring or FixInputPort values.
+    std::unique_ptr<BasicVector<double>> model_vector =
+        translator_->AllocateOutputVector();
+    if (!model_vector) {
+      model_vector = std::make_unique<BasicVector<double>>(
+          translator_->get_vector_size());
+    }
+    DeclareVectorInputPort("lcm_message", *model_vector);
   } else {
     DeclareAbstractInputPort("lcm_message", *serializer_->CreateDefaultValue());
   }
@@ -90,7 +100,7 @@ void LcmPublisherSystem::AddInitializationMessage(
   initialization_publisher_ = std::move(initialization_publisher);
 
   DeclareInitializationEvent(systems::PublishEvent<double>(
-      systems::Event<double>::TriggerType::kInitialization,
+      systems::TriggerType::kInitialization,
       [this](const systems::Context<double>& context,
              const systems::PublishEvent<double>&) {
         this->initialization_publisher_(context, this->lcm_);
@@ -114,23 +124,34 @@ void LcmPublisherSystem::DoPublish(
     const std::vector<const systems::PublishEvent<double>*>& events) const {
 
   DRAKE_DEMAND(!events.empty());  // Framework guarantees this.
-  const auto& event = events.front();
 
-  if (event->get_trigger_type() ==
-      systems::Event<double>::TriggerType::kInitialization) {
-    // We shouldn't get another event along with our own initialization event.
-    DRAKE_DEMAND(events.size() == 1);
-    SPDLOG_TRACE(drake::log(), "Invoking initialization publisher");
-    event->handle(context);
-    return;
+  // Note: initialization events can be packaged in the `events` vector along
+  // with other kinds of event triggers as of #9766. In order to retain the
+  // current behavior, we handle initialization events first and other events
+  // second.
+  // TODO(edrumwri): Replace this DoPublish() handler with separate event
+  // handlers in a separate PR (all sorts of tests _will_ break).
+  int num_initialization_events = 0;
+  for (const systems::PublishEvent<double>* event : events) {
+    if (event->get_trigger_type() == systems::TriggerType::kInitialization) {
+      // We expect no more than one initialization event.
+      DRAKE_DEMAND(++num_initialization_events == 1);
+      SPDLOG_TRACE(drake::log(), "Invoking initialization publisher");
+      event->handle(context);
+    }
   }
 
-  // If the event isn't initialization, we assume it is a request to publish
-  // the input port contents as an LCM message. (This is likely to be a periodic
-  // event, but could be a forced event or any other type.) If multiple events
-  // occur simultaneously (for example, due to occasional synchronization of
-  // periods from different periodic events), we still only want to publish the
-  // input port values once, so we don't care if there are more events.
+  // If events are all initialization events, return now.
+  if (static_cast<int>(events.size()) == num_initialization_events)
+    return;
+
+  // If there are remaining non-initialization events, we assume they are
+  // requests to publish the input port contents as an LCM message. (This is
+  // likely to be a periodic event, but could be a forced event or any other
+  // type.) If multiple events occur simultaneously (for example, due to
+  // occasional synchronization of periods from different periodic events), we
+  // still only want to publish the input port values once, so we don't care if
+  // there are more events.
 
   SPDLOG_TRACE(drake::log(), "Publishing LCM {} message", channel_);
   DRAKE_ASSERT((translator_ != nullptr) != (serializer_.get() != nullptr));

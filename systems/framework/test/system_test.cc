@@ -8,6 +8,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "drake/common/random.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/basic_vector.h"
@@ -179,11 +180,11 @@ class TestSystem : public System<double> {
     *time = context.get_time() + 1;
 
     if (context.get_time() < 10.0) {
-      PublishEvent<double> event(Event<double>::TriggerType::kPeriodic);
-      event.add_to_composite(event_info);
+      PublishEvent<double> event(TriggerType::kPeriodic);
+      event.AddToComposite(event_info);
     } else {
-      DiscreteUpdateEvent<double> event(Event<double>::TriggerType::kPeriodic);
-      event.add_to_composite(event_info);
+      DiscreteUpdateEvent<double> event(TriggerType::kPeriodic);
+      event.AddToComposite(event_info);
     }
   }
 
@@ -298,7 +299,7 @@ TEST_F(SystemTest, DiscretePublish) {
           event_info.get())->get_publish_events().get_events();
   EXPECT_EQ(events.size(), 1);
   EXPECT_EQ(events.front()->get_trigger_type(),
-            Event<double>::TriggerType::kPeriodic);
+            TriggerType::kPeriodic);
 
   system_.Publish(context_, event_info->get_publish_events());
   EXPECT_EQ(1, system_.get_publish_count());
@@ -387,9 +388,10 @@ TEST_F(SystemTest, SystemConstraintTest) {
     unused(context);
     (*value)[0] = 1.0;
   };
+  const double kInf = std::numeric_limits<double>::infinity();
   SystemConstraintIndex test_constraint =
       system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
-          calc, 1, SystemConstraintType::kInequality, "test"));
+          calc, SystemConstraintBounds(Vector1d(0), nullopt), "test"));
   EXPECT_EQ(test_constraint, 0);
 
   EXPECT_NO_THROW(system_.get_constraint(test_constraint));
@@ -403,7 +405,8 @@ TEST_F(SystemTest, SystemConstraintTest) {
     (*value)[0] = -1.0;
   };
   system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
-      calc_false, 1, SystemConstraintType::kInequality, "bad constraint"));
+      calc_false, SystemConstraintBounds(Vector1d(0), Vector1d(kInf)),
+      "bad constraint"));
   EXPECT_FALSE(system_.CheckSystemConstraintsSatisfied(context_, tol));
 }
 

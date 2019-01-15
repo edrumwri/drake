@@ -3,9 +3,15 @@ Provides utilities for communicating with the browser-based visualization
 package, Meshcat:
       https://github.com/rdeits/meshcat
 """
+from __future__ import print_function
 import argparse
 import math
+import webbrowser
 
+import meshcat
+import meshcat.transformations as tf
+
+from drake import lcmt_viewer_load_robot
 from pydrake.util.eigen_geometry import Quaternion
 from pydrake.geometry import DispatchLoadMessage, SceneGraph
 from pydrake.lcm import DrakeMockLcm
@@ -14,11 +20,6 @@ from pydrake.systems.framework import (
     AbstractValue, LeafSystem, PublishEvent, TriggerType
 )
 from pydrake.systems.rendering import PoseBundle
-
-from drake import lcmt_viewer_load_robot
-
-import meshcat
-import meshcat.transformations as tf
 
 
 class MeshcatVisualizer(LeafSystem):
@@ -55,16 +56,17 @@ class MeshcatVisualizer(LeafSystem):
             default=None,
             help="Enable visualization with meshcat. If no zmq_url is "
                  "specified, a meshcat-server will be started as a "
-                 "subprocess.  Use e.g. zmq_url=tcp://127.0.0.1:6000 to "
+                 "subprocess.  Use e.g. --meshcat=tcp://127.0.0.1:6000 to "
                  "connect to an existing meshcat-server at the specified "
-                 "url.  Use zmq_url=default to connect to the meshcat-server "
-                 "running at the default url.")
+                 "url.  Use --meshcat=default to connect to the "
+                 "meshcat-server running at the default url.")
 
     def __init__(self,
                  scene_graph,
                  draw_period=0.033333,
                  prefix="drake",
-                 zmq_url="default"):
+                 zmq_url="default",
+                 open_browser=None):
         """
         Args:
             scene_graph: A SceneGraph object.
@@ -76,10 +78,14 @@ class MeshcatVisualizer(LeafSystem):
                 Use zmp_url="default" to the value obtained by running a
                 single `meshcat-server` in another terminal.
                 Use zmp_url=None or zmq_url="new" to start a new server (as a
-                child of this process); the url for your web browser will be
-                printed to the console.
+                child of this process); a new web browser will be opened (the
+                url will also be printed to the console).
                 Use e.g. zmq_url="tcp://127.0.0.1:6000" to specify a
                 specific address.
+            open_browser: Set to True to open the meshcat browser url in your
+                default web browser.  The default value of None will open the
+                browser iff a new meshcat server is created as a subprocess.
+                Set to False to disable this.
 
         Note: This call will not return until it connects to the
               meshcat-server.
@@ -98,6 +104,9 @@ class MeshcatVisualizer(LeafSystem):
         elif zmq_url == "new":
             zmq_url = None
 
+        if zmq_url is None and open_browser is None:
+            open_browser = True
+
         # Set up meshcat.
         self.prefix = prefix
         if zmq_url is not None:
@@ -105,6 +114,9 @@ class MeshcatVisualizer(LeafSystem):
         self.vis = meshcat.Visualizer(zmq_url=zmq_url)
         print("Connected to meshcat-server.")
         self._scene_graph = scene_graph
+
+        if open_browser:
+            webbrowser.open(self.vis.url())
 
         def on_initialize(context, event):
             self.load()
@@ -135,6 +147,11 @@ class MeshcatVisualizer(LeafSystem):
 
             for j in range(link.num_geom):
                 geom = link.geom[j]
+                # MultibodyPlant currenly sets alpha=0 to make collision
+                # geometry "invisible".  Ignore those geometries here.
+                if geom.color[3] == 0:
+                    continue
+
                 element_local_tf = RigidTransform(
                     RotationMatrix(Quaternion(geom.quaternion)),
                     geom.position).GetAsMatrix4()
@@ -163,8 +180,8 @@ class MeshcatVisualizer(LeafSystem):
                         meshcat.geometry.ObjMeshGeometry.from_file(
                             geom.string_data[0:-3] + "obj")
                 else:
-                    print "UNSUPPORTED GEOMETRY TYPE ", \
-                        geom.type, " IGNORED"
+                    print("UNSUPPORTED GEOMETRY TYPE {} IGNORED".format(
+                          geom.type))
                     continue
 
                 # Turn a list of R,G,B elements (any indexable list of >= 3

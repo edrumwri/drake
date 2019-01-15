@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
@@ -83,6 +84,9 @@ class DiagramBuilder {
   ///
   ///
   /// @tparam S The type of System to construct. Must subclass System<T>.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake -- emplacement while
+  /// specifying <T> doesn't make sense for that language.}
   template<class S, typename... Args>
   S* AddSystem(Args&&... args) {
     return AddSystem(std::make_unique<S>(std::forward<Args>(args)...));
@@ -110,6 +114,9 @@ class DiagramBuilder {
   ///
   /// @tparam S A template for the type of System to construct. The template
   /// will be specialized on the scalar type T of this builder.
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake -- emplacement while
+  /// specifying <T> doesn't make sense for that language.}
   template<template<typename Scalar> class S, typename... Args>
   S<T>* AddSystem(Args&&... args) {
     return AddSystem(std::make_unique<S<T>>(std::forward<Args>(args)...));
@@ -177,6 +184,8 @@ class DiagramBuilder {
   /// @throws std::exception if the sole-port precondition is not met (i.e.,
   /// if @p dest has no input ports, or @p dest has more than one input port,
   /// or @p src has no output ports, or @p src has more than one output port).
+  ///
+  /// @exclude_from_pydrake_mkdoc{Not bound in pydrake.}
   void Connect(const System<T>& src, const System<T>& dest) {
     DRAKE_THROW_UNLESS(src.get_num_output_ports() == 1);
     DRAKE_THROW_UNLESS(dest.get_num_input_ports() == 1);
@@ -197,9 +206,9 @@ class DiagramBuilder {
   /// if it is unspecified, then a default name will be provided.
   /// @pre If supplied at all, @p name must not be empty.
   /// @return The index of the exported input port of the entire diagram.
-  InputPortIndex ExportInput(const InputPort<T>& input,
-                             std::string name = kUseDefaultName) {
-    DRAKE_DEMAND(!name.empty());
+  InputPortIndex ExportInput(
+      const InputPort<T>& input,
+      variant<std::string, UseDefaultName> name = kUseDefaultName) {
     InputPortLocator id{input.get_system(), input.get_index()};
     ThrowIfInputAlreadyWired(id);
     ThrowIfSystemNotRegistered(input.get_system());
@@ -211,7 +220,8 @@ class DiagramBuilder {
     std::string port_name =
         name == kUseDefaultName
             ? input.get_system()->get_name() + "_" + input.get_name()
-            : std::move(name);
+            : get<std::string>(std::move(name));
+    DRAKE_DEMAND(!port_name.empty());
     input_port_names_.emplace_back(std::move(port_name));
 
     diagram_input_set_.insert(id);
@@ -223,8 +233,9 @@ class DiagramBuilder {
   /// port; if it is unspecified, then a default name will be provided.
   /// @pre If supplied at all, @p name must not be empty.
   /// @return The index of the exported output port of the entire diagram.
-  OutputPortIndex ExportOutput(const OutputPort<T>& output,
-                               std::string name = kUseDefaultName) {
+  OutputPortIndex ExportOutput(
+      const OutputPort<T>& output,
+      variant<std::string, UseDefaultName> name = kUseDefaultName) {
     ThrowIfSystemNotRegistered(&output.get_system());
     OutputPortIndex return_id(output_port_ids_.size());
     output_port_ids_.push_back(
@@ -235,7 +246,8 @@ class DiagramBuilder {
     std::string port_name =
         name == kUseDefaultName
             ? output.get_system().get_name() + "_" + output.get_name()
-            : std::move(name);
+            : get<std::string>(std::move(name));
+    DRAKE_DEMAND(!port_name.empty());
     output_port_names_.emplace_back(std::move(port_name));
 
     return return_id;
@@ -456,3 +468,6 @@ class DiagramBuilder {
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::DiagramBuilder)

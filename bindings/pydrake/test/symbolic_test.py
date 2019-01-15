@@ -8,6 +8,7 @@ import numpy as np
 import six
 
 import pydrake.symbolic as sym
+import pydrake.common
 from pydrake.test.algebra_test_util import ScalarAlgebra, VectorizedAlgebra
 from pydrake.util.containers import EqualToDict
 
@@ -99,8 +100,14 @@ class TestSymbolicVariable(SymbolicTestCase):
         self.assertEqual(str(x == y), "(x == y)")
         self.assertEqual(str(x != y), "(x != y)")
 
+    def test_get_type(self):
+        i = sym.Variable('i', sym.Variable.Type.INTEGER)
+        self.assertEqual(i.get_type(), sym.Variable.Type.INTEGER)
+        g = sym.Variable('g', sym.Variable.Type.RANDOM_GAUSSIAN)
+        self.assertEqual(g.get_type(), sym.Variable.Type.RANDOM_GAUSSIAN)
+
     def test_repr(self):
-        self.assertEqual(repr(x), "Variable('x')")
+        self.assertEqual(repr(x), "Variable('x', Continuous)")
 
     def test_simplify(self):
         self.assertEqual(str(0 * (x + y)), "0")
@@ -168,8 +175,8 @@ class TestSymbolicVariable(SymbolicTestCase):
     def test_array_str(self):
         # Addresses #8729.
         value = str(np.array([x, y]))
-        self.assertIn("Variable('x')", value)
-        self.assertIn("Variable('y')", value)
+        self.assertIn("Variable('x', Continuous)", value)
+        self.assertIn("Variable('y', Continuous)", value)
 
 
 class TestSymbolicVariables(SymbolicTestCase):
@@ -592,6 +599,23 @@ class TestSymbolicExpression(SymbolicTestCase):
                y: 4.0}
         self.assertEqual((x + y).Evaluate(env),
                          env[x] + env[y])
+
+    def test_evaluate_with_random_generator(self):
+        g = pydrake.common.RandomGenerator()
+        uni = sym.Variable("uni", sym.Variable.Type.RANDOM_UNIFORM)
+        gau = sym.Variable("gau", sym.Variable.Type.RANDOM_GAUSSIAN)
+        exp = sym.Variable("exp", sym.Variable.Type.RANDOM_EXPONENTIAL)
+        # Checks if we can evaluate an expression with a random number
+        # generator.
+        (uni + gau + exp).Evaluate(g)
+        (uni + gau + exp).Evaluate(generator=g)
+
+        env = {x: 3.0,
+               y: 4.0}
+        # Checks if we can evaluate an expression with an environment and a
+        # random number generator.
+        (x + y + uni + gau + exp).Evaluate(env, g)
+        (x + y + uni + gau + exp).Evaluate(env=env, generator=g)
 
     def test_evaluate_partial(self):
         env = {x: 3.0,

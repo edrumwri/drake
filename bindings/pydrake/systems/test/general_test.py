@@ -13,6 +13,7 @@ import numpy as np
 from pydrake.autodiffutils import (
     AutoDiffXd,
     )
+from pydrake.examples.pendulum import PendulumPlant
 from pydrake.symbolic import (
     Expression,
     )
@@ -47,7 +48,6 @@ from pydrake.systems.framework import (
     TriggerType,
     VectorSystem_,
     )
-from pydrake.systems import primitives
 from pydrake.systems.primitives import (
     Adder, Adder_,
     AffineSystem,
@@ -93,11 +93,6 @@ class TestGeneral(unittest.TestCase):
         self.assertEqual(system.get_num_output_ports(), 1)
         self.assertEqual(system.GetInputPort("u1").get_index(), 1)
         self.assertEqual(system.GetOutputPort("sum").get_index(), 0)
-        # Test deprecated methods.
-        context = system.CreateDefaultContext()
-        with warnings.catch_warnings(record=True) as w:
-            c = system.AllocateOutput(context)
-            self.assertEqual(len(w), 1)
         # TODO(eric.cousineau): Consolidate the main API tests for `System`
         # to this test point.
 
@@ -113,6 +108,17 @@ class TestGeneral(unittest.TestCase):
         self.assertIsInstance(
             context.get_mutable_continuous_state_vector(), VectorBase)
         # TODO(eric.cousineau): Consolidate main API tests for `Context` here.
+
+        pendulum = PendulumPlant()
+        context = pendulum.CreateDefaultContext()
+        self.assertEqual(context.num_numeric_parameter_groups(), 1)
+        self.assertTrue(
+            context.get_parameters().get_numeric_parameter(0) is
+            context.get_numeric_parameter(index=0))
+        self.assertEqual(context.num_abstract_parameters(), 0)
+        # TODO(russt): Bind _Declare*Parameter or find an example with an
+        # abstract parameter to actually call this method.
+        self.assertTrue(hasattr(context, "get_abstract_parameter"))
 
     def test_event_api(self):
         # TriggerType - existence check.
@@ -166,10 +172,6 @@ class TestGeneral(unittest.TestCase):
         self._check_instantiations(BasicVector_)
         self._check_instantiations(Supervector_)
         self._check_instantiations(Subvector_)
-        # Deprecated aliases.
-        # TODO(eric.cousineau): Make this raise a deprecation warning.
-        self._check_instantiations(mut.InputPortDescriptor_)
-        self.assertEqual(mut.InputPortDescriptor, mut.InputPort)
 
     def test_scalar_type_conversion(self):
         for T in [float, AutoDiffXd, Expression]:
@@ -289,6 +291,10 @@ class TestGeneral(unittest.TestCase):
         context.FixInputPort(1, input1)
         input2 = BasicVector([0.003, 0.004, 0.005])
         context.FixInputPort(2, input2)  # Test the BasicVector overload.
+
+        # Test __str__ methods.
+        self.assertRegexpMatches(str(context), "integrator")
+        self.assertEqual(str(input2), "[0.003, 0.004, 0.005]")
 
         # Initialize integrator states.
         integrator_xc = (

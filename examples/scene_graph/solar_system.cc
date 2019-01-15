@@ -8,6 +8,8 @@
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
+#include "drake/geometry/geometry_roles.h"
+#include "drake/geometry/geometry_visualization.h"
 #include "drake/systems/framework/continuous_state.h"
 #include "drake/systems/framework/discrete_values.h"
 
@@ -24,11 +26,12 @@ using geometry::FramePoseVector;
 using geometry::GeometryFrame;
 using geometry::GeometryId;
 using geometry::GeometryInstance;
+using geometry::IllustrationProperties;
+using geometry::MakeDrakeVisualizerProperties;
 using geometry::SceneGraph;
 using geometry::Mesh;
 using geometry::SourceId;
 using geometry::Sphere;
-using geometry::VisualMaterial;
 using systems::BasicVector;
 using systems::Context;
 using systems::ContinuousState;
@@ -103,25 +106,28 @@ void SolarSystem<T>::SetDefaultState(const systems::Context<T>&,
 // origin, and the top of the arm is positioned at the given height.
 template <class ParentId>
 void MakeArm(SourceId source_id, ParentId parent_id, double length,
-             double height, double radius, const VisualMaterial& material,
+             double height, double radius,
+             const IllustrationProperties& material,
              SceneGraph<double>* scene_graph) {
   Isometry3<double> arm_pose = Isometry3<double>::Identity();
   // tilt it horizontally
   arm_pose.linear() =
       Eigen::AngleAxis<double>(M_PI / 2, Vector3<double>::UnitY()).matrix();
   arm_pose.translation() << length / 2, 0, 0;
-  scene_graph->RegisterGeometry(
+  GeometryId id = scene_graph->RegisterGeometry(
       source_id, parent_id, make_unique<GeometryInstance>(
                                 arm_pose, make_unique<Cylinder>(radius, length),
-                                "horz_arm", material));
+                                "horz_arm"));
+  scene_graph->AssignRole(source_id, id, material);
 
   Isometry3<double> post_pose = Isometry3<double>::Identity();
   post_pose.translation() << length, 0, height / 2;
-  scene_graph->RegisterGeometry(
+  id = scene_graph->RegisterGeometry(
       source_id, parent_id,
       make_unique<GeometryInstance>(post_pose,
                                     make_unique<Cylinder>(radius, height),
-                                    "vert_arm", material));
+                                    "vert_arm"));
+  scene_graph->AssignRole(source_id, id, material);
 }
 
 template <typename T>
@@ -130,159 +136,181 @@ void SolarSystem<T>::AllocateGeometry(SceneGraph<T>* scene_graph) {
   body_offset_.reserve(kBodyCount);
   axes_.reserve(kBodyCount);
 
-  VisualMaterial post_material{Vector4d(0.3, 0.15, 0.05, 1)};
+  IllustrationProperties post_material =
+      MakeDrakeVisualizerProperties(Vector4d(0.3, 0.15, 0.05, 1));
   const double orrery_bottom = -1.5;
   const double pipe_radius = 0.05;
 
   // Allocate the sun.
   // NOTE: we don't store the id of the sun geometry because we have no need
   // for subsequent access (the same is also true for dynamic geometries).
-  scene_graph->RegisterAnchoredGeometry(
+  GeometryId id = scene_graph->RegisterAnchoredGeometry(
       source_id_, make_unique<GeometryInstance>(
                       Isometry3<double>::Identity(), make_unique<Sphere>(1.f),
-                      "sun", VisualMaterial(Vector4d(1, 1, 0, 1))));
+                      "sun"));
+  scene_graph->AssignRole(source_id_, id,
+                          MakeDrakeVisualizerProperties(Vector4d(1, 1, 0, 1)));
 
   // The fixed post on which Sun sits and around which all planets rotate.
   const double post_height = 1;
   Isometry3<double> post_pose = Isometry3<double>::Identity();
   post_pose.translation() << 0, 0, (orrery_bottom + post_height / 2);
-  scene_graph->RegisterAnchoredGeometry(
+  id = scene_graph->RegisterAnchoredGeometry(
       source_id_,
       make_unique<GeometryInstance>(
           post_pose, make_unique<Cylinder>(pipe_radius, post_height),
-          "post", post_material));
+          "post"));
+  scene_graph->AssignRole(source_id_, id, post_material);
 
   // Allocate the "celestial bodies": two planets orbiting on different planes,
   // each with a moon.
 
   // For the full description of the frame labels, see solar_system.h.
 
-  // Earth's frame E lies directly *below* the sun (to account for the
+  // Earth's orbital frame Oe lies directly *below* the sun (to account for the
   // orrery arm).
   const double kEarthBottom = orrery_bottom + 0.25;
-  Isometry3<double> X_SE{Translation3<double>{0, 0, kEarthBottom}};
-  FrameId planet_id =
-      scene_graph->RegisterFrame(source_id_, GeometryFrame("Earth", X_SE));
+  Isometry3<double> X_SOe{Translation3<double>{0, 0, kEarthBottom}};
+  FrameId planet_id = scene_graph->RegisterFrame(
+      source_id_, GeometryFrame("EarthOrbit", X_SOe));
   body_ids_.push_back(planet_id);
-  body_offset_.push_back(X_SE);
+  body_offset_.push_back(X_SOe);
   axes_.push_back(Vector3<double>::UnitZ());
 
-  // The geometry is displaced from the Earth _frame_ so that it orbits.
+  // The geometry is rigidly affixed to Earth's orbital frame so that it moves
+  // in a circular path.
   const double kEarthOrbitRadius = 3.0;
-  Isometry3<double> X_EGe{
+  Isometry3<double> X_OeE{
       Translation3<double>{kEarthOrbitRadius, 0, -kEarthBottom}};
-  scene_graph->RegisterGeometry(
+  id = scene_graph->RegisterGeometry(
       source_id_, planet_id,
-      make_unique<GeometryInstance>(X_EGe, make_unique<Sphere>(0.25f), "earth",
-                                    VisualMaterial(Vector4d(0, 0, 1, 1))));
+      make_unique<GeometryInstance>(X_OeE, make_unique<Sphere>(0.25f),
+                                    "Earth"));
+  scene_graph->AssignRole(source_id_, id,
+                          MakeDrakeVisualizerProperties(Vector4d(0, 0, 1, 1)));
   // Earth's orrery arm.
   MakeArm(source_id_, planet_id, kEarthOrbitRadius, -kEarthBottom, pipe_radius,
           post_material, scene_graph);
 
-  // Luna's frame L is at the center of Earth's geometry (Ge). So, X_EL = X_EGe.
-  const Isometry3<double>& X_EL = X_EGe;
-  FrameId luna_id = scene_graph->RegisterFrame(source_id_, planet_id,
-                                               GeometryFrame("Luna", X_EL));
+  // Luna's orbital frame Ol is at the center of Earth's geometry (E).
+  // So, X_OeOl = X_OeE.
+  const Isometry3<double>& X_OeOl = X_OeE;
+  FrameId luna_id = scene_graph->RegisterFrame(
+      source_id_, planet_id, GeometryFrame("LunaOrbit", X_OeOl));
   body_ids_.push_back(luna_id);
-  body_offset_.push_back(X_EL);
-  const Vector3<double> luna_axis_E{1, 1, 1};
-  axes_.push_back(luna_axis_E.normalized());
+  body_offset_.push_back(X_OeOl);
+  const Vector3<double> luna_axis_Oe{1, 1, 1};
+  axes_.push_back(luna_axis_Oe.normalized());
 
-  // The geometry is displaced from Luna's frame so that it orbits.
+  // The geometry is rigidly affixed to Luna's orbital frame so that it moves
+  // in a circular path.
   const double kLunaOrbitRadius = 0.35;
   // Pick a position at kLunaOrbitRadius distance from the Earth's origin on
   // the plane _perpendicular_ to the moon's normal (<1, 1, 1>).
-  // luna_position.dot(luna_axis_E) will be zero.
+  // luna_position.dot(luna_axis_Oe) will be zero.
   Vector3<double> luna_position =
       Vector3<double>(-1, 0.5, 0.5).normalized() * kLunaOrbitRadius;
-  Isometry3<double> X_LGl{Translation3<double>{luna_position}};
-  scene_graph->RegisterGeometry(
+  Isometry3<double> X_OlL{Translation3<double>{luna_position}};
+  id = scene_graph->RegisterGeometry(
       source_id_, luna_id, make_unique<GeometryInstance>(
-                               X_LGl, make_unique<Sphere>(0.075f), "luna",
-                               VisualMaterial(Vector4d(0.5, 0.5, 0.35, 1))));
+          X_OlL, make_unique<Sphere>(0.075f), "Luna"));
+  scene_graph->AssignRole(
+      source_id_, id,
+      MakeDrakeVisualizerProperties(Vector4d(0.5, 0.5, 0.35, 1)));
 
   // Convex satellite orbits Earth in the same revolution as Luna but with
   // different initial position. See SetDefaultState().
   FrameId convexsat_id = scene_graph->RegisterFrame(source_id_, planet_id,
-                                          GeometryFrame("Convexsat", X_EL));
+                                          GeometryFrame("Convexsat", X_OeOl));
   body_ids_.push_back(convexsat_id);
-  body_offset_.push_back(X_EL);
-  axes_.push_back(luna_axis_E.normalized());
+  body_offset_.push_back(X_OeOl);
+  axes_.push_back(luna_axis_Oe.normalized());
 
   std::string convexsat_absolute_path =
       FindResourceOrThrow("drake/examples/scene_graph/cuboctahedron.obj");
-  scene_graph->RegisterGeometry(
+  id = scene_graph->RegisterGeometry(
       source_id_, convexsat_id,
       make_unique<GeometryInstance>(
-          X_LGl, make_unique<Convex>(convexsat_absolute_path, 0.075),
-          "convexsat", VisualMaterial(Vector4d(1, 1, 0, 1))));
+          X_OlL, make_unique<Convex>(convexsat_absolute_path, 0.075),
+          "convexsat"));
+  scene_graph->AssignRole(source_id_, id,
+                          MakeDrakeVisualizerProperties(Vector4d(1, 1, 0, 1)));
 
   // Box satellite orbits Earth in the same revolution as Luna but with
   // different initial position. See SetDefaultState().
-  FrameId boxsat_id = scene_graph->RegisterFrame(source_id_, planet_id,
-                                                 GeometryFrame("Boxsat", X_EL));
+  FrameId boxsat_id = scene_graph->RegisterFrame(
+      source_id_, planet_id, GeometryFrame("Boxsat", X_OeOl));
   body_ids_.push_back(boxsat_id);
-  body_offset_.push_back(X_EL);
-  axes_.push_back(luna_axis_E.normalized());
+  body_offset_.push_back(X_OeOl);
+  axes_.push_back(luna_axis_Oe.normalized());
 
-  scene_graph->RegisterGeometry(
+  id = scene_graph->RegisterGeometry(
       source_id_, boxsat_id,
       make_unique<GeometryInstance>(
-          X_LGl, make_unique<Box>(0.15, 0.15, 0.15),
-          "boxsat", VisualMaterial(Vector4d(1, 0, 1, 1))));
+          X_OlL, make_unique<Box>(0.15, 0.15, 0.15), "boxsat"));
+  scene_graph->AssignRole(source_id_, id,
+                          MakeDrakeVisualizerProperties(Vector4d(1, 0, 1, 1)));
 
-  // Mars's frame M lies directly *below* the sun (to account for the orrery
-  // arm).
-  Isometry3<double> X_SM{Translation3<double>{0, 0, orrery_bottom}};
+  // Mars's orbital frame Om lies directly *below* the sun (to account for the
+  // orrery arm).
+  Isometry3<double> X_SOm{Translation3<double>{0, 0, orrery_bottom}};
   planet_id =
-      scene_graph->RegisterFrame(source_id_, GeometryFrame("Mars", X_SM));
+      scene_graph->RegisterFrame(source_id_, GeometryFrame("MarsOrbit", X_SOm));
   body_ids_.push_back(planet_id);
-  body_offset_.push_back(X_SM);
+  body_offset_.push_back(X_SOm);
   Vector3<double>  mars_axis_S {0, 0.1, 1};
   axes_.push_back(mars_axis_S.normalized());
 
-  // The geometry is displaced from the Mars _frame_ so that it orbits.
+  // The geometry is rigidly affixed to Mars's orbital frame so that it moves
+  // in a circular path.
   const double kMarsOrbitRadius = 5.0;
   const double kMarsSize = 0.24;
-  Isometry3<double> X_MGm{
+  Isometry3<double> X_OmM{
       Translation3<double>{kMarsOrbitRadius, 0, -orrery_bottom}};
   GeometryId mars_geometry_id = scene_graph->RegisterGeometry(
-      source_id_, planet_id, make_unique<GeometryInstance>(
-                                 X_MGm, make_unique<Sphere>(kMarsSize), "mars",
-                                 VisualMaterial(Vector4d(0.9, 0.1, 0, 1))));
+      source_id_, planet_id,
+      make_unique<GeometryInstance>(X_OmM, make_unique<Sphere>(kMarsSize),
+                                    "Mars"));
+  scene_graph->AssignRole(
+      source_id_, mars_geometry_id,
+      MakeDrakeVisualizerProperties(Vector4d(0.9, 0.1, 0, 1)));
 
   std::string rings_absolute_path =
       FindResourceOrThrow("drake/examples/scene_graph/planet_rings.obj");
   Vector3<double> axis = Vector3<double>(1, 1, 1).normalized();
-  Isometry3<double> X_GmGr(AngleAxis<double>(M_PI / 3, axis));
-  scene_graph->RegisterGeometry(
+  Isometry3<double> X_MR(AngleAxis<double>(M_PI / 3, axis));
+  id = scene_graph->RegisterGeometry(
       source_id_, mars_geometry_id,
       make_unique<GeometryInstance>(
-          X_GmGr, make_unique<Mesh>(rings_absolute_path, kMarsSize), "rings",
-          VisualMaterial(Vector4d(0.45, 0.9, 0, 1))));
+          X_MR, make_unique<Mesh>(rings_absolute_path, kMarsSize),
+          "MarsRings"));
+  scene_graph->AssignRole(
+      source_id_, id, MakeDrakeVisualizerProperties(Vector4d(0.45, 0.9, 0, 1)));
 
   // Mars's orrery arm.
   MakeArm(source_id_, planet_id, kMarsOrbitRadius, -orrery_bottom, pipe_radius,
           post_material, scene_graph);
 
-  // Phobos's frame P is at the center of Mars's geometry (Gm).
-  // So, X_MP = X_MGm. The normal of the plane is negated so it orbits in the
+  // Phobos's orbital frame Op is at the center of Mars (M).
+  // So, X_OmOp = X_OmM. The normal of the plane is negated so it orbits in the
   // opposite direction.
-  const Isometry3<double>& X_MP = X_MGm;
-  FrameId phobos_id = scene_graph->RegisterFrame(source_id_, planet_id,
-                                                 GeometryFrame("phobos", X_MP));
+  const Isometry3<double>& X_OmOp = X_OmM;
+  FrameId phobos_id = scene_graph->RegisterFrame(
+      source_id_, planet_id, GeometryFrame("PhobosOrbit", X_OmOp));
   body_ids_.push_back(phobos_id);
-  body_offset_.push_back(X_MP);
+  body_offset_.push_back(X_OmOp);
   mars_axis_S << 0, 0, -1;
   axes_.push_back(mars_axis_S.normalized());
 
   // The geometry is displaced from the Phobos's frame so that it orbits.
   const double kPhobosOrbitRadius = 0.34;
-  Isometry3<double> X_PGp{Translation3<double>{kPhobosOrbitRadius, 0, 0}};
-  scene_graph->RegisterGeometry(
+  Isometry3<double> X_OpP{Translation3<double>{kPhobosOrbitRadius, 0, 0}};
+  id = scene_graph->RegisterGeometry(
       source_id_, phobos_id, make_unique<GeometryInstance>(
-                                 X_PGp, make_unique<Sphere>(0.06f), "phobos",
-                                 VisualMaterial(Vector4d(0.65, 0.6, 0.8, 1))));
+                                 X_OpP, make_unique<Sphere>(0.06f), "Phobos"));
+  scene_graph->AssignRole(
+      source_id_, id,
+      MakeDrakeVisualizerProperties(Vector4d(0.65, 0.6, 0.8, 1)));
 
   DRAKE_DEMAND(static_cast<int>(body_ids_.size()) == kBodyCount);
 }

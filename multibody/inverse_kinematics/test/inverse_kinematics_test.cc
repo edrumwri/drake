@@ -2,7 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/find_resource.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/math/rotation_matrix.h"
 #include "drake/multibody/inverse_kinematics/test/inverse_kinematics_test_utilities.h"
 #include "drake/solvers/create_constraint.h"
 
@@ -46,7 +48,7 @@ class TwoFreeBodiesTest : public ::testing::Test {
   }
 
  protected:
-  std::unique_ptr<multibody_plant::MultibodyPlant<double>> two_bodies_plant_;
+  std::unique_ptr<MultibodyPlant<double>> two_bodies_plant_;
   const Frame<double>& body1_frame_;
   const Frame<double>& body2_frame_;
   InverseKinematics ik_;
@@ -60,7 +62,11 @@ class TwoFreeBodiesTest : public ::testing::Test {
 GTEST_TEST(InverseKinematicsTest, ConstructorWithJointLimits) {
   // Constructs an inverse kinematics problem for IIWA robot, make sure that
   // the joint limits are imposed.
-  auto plant = ConstructIiwaPlant("iiwa14_no_collision.sdf", 0.01);
+  auto plant = ConstructIiwaPlant(
+      FindResourceOrThrow(
+          "drake/manipulation/models/iiwa_description/sdf/"
+          "iiwa14_no_collision.sdf"),
+      0.01);
 
   InverseKinematics ik(*plant);
   // Now check the joint limits.
@@ -140,12 +146,11 @@ TEST_F(TwoFreeBodiesTest, OrientationConstraint) {
   EXPECT_EQ(result, solvers::SolutionResult::kSolutionFound);
   const auto q_sol = ik_.prog().GetSolution(ik_.q());
   RetrieveSolution();
-  const Eigen::Matrix3d R_AbarBbar =
-      (body1_quaternion_sol_.inverse() * body2_quaternion_sol_)
-          .toRotationMatrix();
-  const Eigen::Matrix3d R_AB =
-      R_AbarA.matrix().transpose() * R_AbarBbar * R_BbarB.matrix();
-  const double angle = Eigen::AngleAxisd(R_AB).angle();
+  const math::RotationMatrix<double> R_AbarBbar(
+      body1_quaternion_sol_.inverse() * body2_quaternion_sol_);
+  const math::RotationMatrix<double> R_AB =
+      R_AbarA.transpose() * R_AbarBbar * R_BbarB;
+  const double angle = R_AB.ToAngleAxis().angle();
   EXPECT_LE(angle, angle_bound + 1E-6);
 }
 

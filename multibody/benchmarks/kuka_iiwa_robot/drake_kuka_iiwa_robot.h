@@ -4,27 +4,46 @@
 #include <functional>
 #include <memory>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "drake/common/eigen_types.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/benchmarks/kuka_iiwa_robot/make_kuka_iiwa_model.h"
-#include "drake/multibody/multibody_tree/fixed_offset_frame.h"
-#include "drake/multibody/multibody_tree/joints/revolute_joint.h"
-#include "drake/multibody/multibody_tree/multibody_forces.h"
-#include "drake/multibody/multibody_tree/multibody_tree.h"
-#include "drake/multibody/multibody_tree/rigid_body.h"
-#include "drake/multibody/multibody_tree/test_utilities/spatial_kinematics.h"
-#include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
+#include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/test_utilities/spatial_kinematics.h"
+#include "drake/multibody/tree/fixed_offset_frame.h"
+#include "drake/multibody/tree/multibody_forces.h"
+#include "drake/multibody/tree/multibody_tree.h"
+#include "drake/multibody/tree/revolute_joint.h"
+#include "drake/multibody/tree/rigid_body.h"
+#include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/framework/context.h"
 
 namespace drake {
 namespace multibody {
+
+class MultibodyPlantTester {
+ public:
+  MultibodyPlantTester() = delete;
+
+  // Use private constructor to create an MBP from an MBT.
+  template <typename T>
+  static std::unique_ptr<MultibodyPlant<T>>
+  CreateMultibodyPlantFromTree(
+      std::unique_ptr<internal::MultibodyTree<T>> tree, double time_step = 0.) {
+    // Do not use `make_unique` for the private constructor, as it would have
+    // to be a friend of MultibodyPlant.
+    return std::unique_ptr<MultibodyPlant<T>>(
+        new MultibodyPlant<T>(std::move(tree), time_step));
+  }
+};
+
 namespace benchmarks {
 namespace kuka_iiwa_robot {
 
 using Eigen::Vector3d;
-using multibody_tree::test_utilities::SpatialKinematicsPVA;
+using test_utilities::SpatialKinematicsPVA;
 
 /// Utility struct to assist with returning joint torques/forces.
 /// --------|----------------------------------------------------------
@@ -66,9 +85,11 @@ class DrakeKukaIIwaRobot {
   /// to this constructor, it means the gravity vector is directed opposite the
   /// world upward z-unit vector (which is correct -- gravity is downward).
   explicit DrakeKukaIIwaRobot(double gravity) {
-    system_ =
-        std::make_unique<MultibodyTreeSystem<T>>(MakeKukaIiwaModel<T>(
-            true /* finalized model */, gravity /* acceleration of gravity */));
+    plant_ =
+        MultibodyPlantTester::CreateMultibodyPlantFromTree(
+            MakeKukaIiwaModel<T>(
+                false /* finalized model */,
+                gravity /* acceleration of gravity */));
 
     linkN_ = &tree().world_body();
 
@@ -98,7 +119,7 @@ class DrakeKukaIIwaRobot {
         &tree().template GetJointByName<RevoluteJoint>("iiwa_joint_7");
 
     // After Finalize() method has been called, Context can be created.
-    context_ = system_->CreateDefaultContext();
+    context_ = plant_->CreateDefaultContext();
   }
 
   /// This method gets the number of rigid bodies in this robot.
@@ -125,8 +146,8 @@ class DrakeKukaIIwaRobot {
 
     // For each body, set the pose and spatial velocity in the position,
     // velocity, and acceleration caches with specified values for testing.
-    PositionKinematicsCache<T> pc(tree().get_topology());
-    VelocityKinematicsCache<T> vc(tree().get_topology());
+    multibody::internal::PositionKinematicsCache<T> pc(tree().get_topology());
+    multibody::internal::VelocityKinematicsCache<T> vc(tree().get_topology());
 
     // Retrieve end-effector pose from position kinematics cache.
     tree().CalcPositionKinematicsCache(*context_, &pc);
@@ -138,8 +159,12 @@ class DrakeKukaIIwaRobot {
 
     // Retrieve end-effector spatial acceleration from acceleration cache.
     std::vector<SpatialAcceleration<T>> A_WB(tree().num_bodies());
-    tree().CalcSpatialAccelerationsFromVdot(*context_, pc, vc, qDDt, &A_WB);
-    const SpatialAcceleration<T>& A_NG_N = A_WB[linkG_->node_index()];
+    // TODO(eric.cousineau): For this model, the end effector's BodyIndex
+    // matches its BodyNodeIndex, thus we're not really checking the difference
+    // between MultibodyPlant and MultibodyTree's ordering.
+    DRAKE_DEMAND(int{linkG_->index()} == int{linkG_->node_index()});
+    plant().CalcSpatialAccelerationsFromVdot(*context_, qDDt, &A_WB);
+    const SpatialAcceleration<T>& A_NG_N = A_WB[linkG_->index()];
 
     // Create a class to return the results.
     return SpatialKinematicsPVA<T>(X_NG, V_NG_N, A_NG_N);
@@ -168,15 +193,16 @@ class DrakeKukaIIwaRobot {
     SetJointAnglesAnd1stDerivatives(q.data(), qDt.data());
 
     // Get the position, velocity, and acceleration cache from the context.
-    PositionKinematicsCache<T> pc(tree().get_topology());
-    VelocityKinematicsCache<T> vc(tree().get_topology());
-    AccelerationKinematicsCache<T> ac(tree().get_topology());
+    multibody::internal::PositionKinematicsCache<T> pc(tree().get_topology());
+    multibody::internal::VelocityKinematicsCache<T> vc(tree().get_topology());
+    multibody::internal::AccelerationKinematicsCache<T> ac(
+        tree().get_topology());
     tree().CalcPositionKinematicsCache(*context_, &pc);
     tree().CalcVelocityKinematicsCache(*context_, pc, &vc);
     tree().CalcAccelerationKinematicsCache(*context_, pc, vc, qDDt, &ac);
 
     // Applied forces:
-    MultibodyForces<T> forces(tree());
+    MultibodyForces<T> forces(plant());
 
     // Adds the previously included effect of gravity into forces.
     tree().CalcForceElementsContribution(*context_, pc, vc, &forces);
@@ -218,7 +244,10 @@ class DrakeKukaIIwaRobot {
     return reaction_forces;
   }
 
-  const MultibodyTree<T>& tree() const { return system_->tree(); }
+  const multibody::internal::MultibodyTree<T>& tree() const {
+    return multibody::internal::GetInternalTree(*plant_);
+  }
+  const MultibodyPlant<T>& plant() const { return *plant_; }
 
  private:
   // This method sets the Kuka joint angles and their 1st and 2nd derivatives.
@@ -247,7 +276,7 @@ class DrakeKukaIIwaRobot {
 
   // This model's MultibodyTree always has a built-in "world" body.
   // Newtonian reference frame (linkN) is the world body.
-  std::unique_ptr<MultibodyTreeSystem<T>> system_;
+  std::unique_ptr<MultibodyPlant<T>> plant_;
   const Body<T>* linkN_{nullptr};
 
   // Rigid bodies (robot links).

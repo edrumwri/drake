@@ -6,6 +6,7 @@
 
 #include <Eigen/Dense>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/eigen_types.h"
@@ -171,13 +172,14 @@ class VectorBase {
     return norm;
   }
 
-  /// Populates a vector @p value suitable for a SystemConstraint inequality
-  /// constraint. For all indices `i` in the result vector, the validity
-  /// constraint is `result[i] >= 0`. For a given subclass type, the size of
-  /// the result must not vary over time. The %VectorBase default
-  /// implementation sets the @p value to be empty (no constraints).
-  virtual void CalcInequalityConstraint(VectorX<T>* value) const {
-    value->resize(0);
+  /// Get the bounds for the elements.
+  /// If lower and upper are both empty size vectors, then there are no bounds.
+  /// Otherwise, the bounds are (*lower)(i) <= GetAtIndex(i) <= (*upper)(i)
+  /// The default output is no bounds.
+  virtual void GetElementBounds(Eigen::VectorXd* lower,
+                                Eigen::VectorXd* upper) const {
+    lower->resize(0);
+    upper->resize(0);
   }
 
  protected:
@@ -206,5 +208,24 @@ class VectorBase {
   }
 };
 
+// Allows a VectorBase<T> to be streamed into a string. This is useful for
+// debugging purposes.
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const VectorBase<T>& vec) {
+  os << "[";
+
+  for (int i = 0; i < vec.size(); ++i) {
+    if (i > 0)
+      os << ", ";
+    os << vec.GetAtIndex(i);
+  }
+
+  os << "]";
+  return os;
+}
+
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::VectorBase)

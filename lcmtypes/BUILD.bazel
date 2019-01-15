@@ -2,7 +2,11 @@
 
 package(default_visibility = ["//visibility:public"])
 
-load("@drake//tools/install:install.bzl", "install")
+load(
+    "@drake//tools/install:install.bzl",
+    "install",
+    "install_py2_duplicates_if_py3",
+)
 load(
     "@drake//tools/skylark:drake_cc.bzl",
     "drake_cc_library",
@@ -318,7 +322,7 @@ drake_lcm_cc_library(
 # TODO(jwnimmer-tri) Many more C++ messages are missing ...
 
 drake_lcm_py_library(
-    name = "lcmtypes_py",
+    name = "lcmtypes_drake_py",
     add_current_package_to_imports = False,  # Use //:module_py instead.
     extra_srcs = ["__init__.py"],
     lcm_package = "drake",
@@ -327,6 +331,14 @@ drake_lcm_py_library(
         "//:module_py",
         "@lcmtypes_bot2_core//:lcmtypes_bot2_core_py",
     ],
+)
+
+py_library(
+    name = "lcmtypes_py",
+    deprecation = "Please use `lcmtypes_drake_py` instead. This will be " +
+                  "removed on or after 2019-03-01.",
+    tags = ["manual"],  # Avoid 'build //...' yelling at us.
+    deps = ["lcmtypes_drake_py"],
 )
 
 drake_lcm_java_library(
@@ -387,12 +399,21 @@ drake_java_binary(
 )
 
 drake_cc_library(
-    name = "lcmtypes_cc",
+    name = "lcmtypes_drake_cc",
     deps = LCMTYPES_CC,
 )
 
+cc_library(
+    name = "lcmtypes_cc",
+    deprecation = "Please use `lcmtypes_drake_cc` instead. This will be " +
+                  "removed on or after 2019-03-01.",
+    tags = ["manual"],  # Avoid 'build //...' yelling at us.
+    deps = ["lcmtypes_drake_cc"],
+)
+
 drake_transitive_installed_hdrs_filegroup(
-    name = "lcmtypes_cc_headers",
+    name = "lcmtypes_drake_cc_headers",
+    visibility = ["//visibility:private"],
     deps = LCMTYPES_CC,
 )
 
@@ -404,9 +425,16 @@ drake_transitive_installed_hdrs_filegroup(
 # `include/drake_lcmtypes` is provided to downstream code via `drake.cps` and
 # its generated cmake config `lib/cmake/drake/drake-config.cmake.
 install(
-    name = "install_cc_headers",
-    hdrs = [":lcmtypes_cc_headers"],
+    name = "install_drake_cc_headers",
+    hdrs = [":lcmtypes_drake_cc_headers"],
     hdr_dest = "include/drake_lcmtypes",
+    visibility = ["//visibility:private"],
+)
+
+# For Python2-only `drake_visualizer`.
+install_py2_duplicates_if_py3(
+    name = "install_py2_duplicates_if_py3",
+    targets = [":lcmtypes_drake_py"],
     visibility = ["//visibility:private"],
 )
 
@@ -417,14 +445,15 @@ install(
         ":drake-lcm-spy-launcher",
         ":drake-lcm-spy",
         ":lcmtypes_drake_java",
-        ":lcmtypes_py",
+        ":lcmtypes_drake_py",
     ],
     rename = {
         "share/java/liblcmtypes_drake_java.jar": "lcmtypes_drake.jar",
         "bin/drake-lcm-spy-launcher.sh": "drake-lcm-spy",
     },
     deps = [
-        ":install_cc_headers",
+        ":install_drake_cc_headers",
+        ":install_py2_duplicates_if_py3",
         "//tools/workspace/optitrack_driver:install",
         "@lcm//:install",
         "@lcmtypes_bot2_core//:install",
@@ -436,7 +465,7 @@ install(
 drake_py_test(
     name = "polynomial_matrix_test",
     deps = [
-        ":lcmtypes_py",
+        ":lcmtypes_drake_py",
     ],
 )
 

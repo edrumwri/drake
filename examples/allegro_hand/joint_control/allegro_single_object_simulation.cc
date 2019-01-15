@@ -19,12 +19,12 @@
 #include "drake/lcmt_allegro_command.hpp"
 #include "drake/lcmt_allegro_status.hpp"
 #include "drake/math/rotation_matrix.h"
-#include "drake/multibody/multibody_tree/joints/weld_joint.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_results.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_results_to_lcm.h"
-#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
-#include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
-#include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
+#include "drake/multibody/parsing/parser.h"
+#include "drake/multibody/plant/contact_results.h"
+#include "drake/multibody/plant/contact_results_to_lcm.h"
+#include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/tree/uniform_gravity_field_element.h"
+#include "drake/multibody/tree/weld_joint.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/pid_controller.h"
 #include "drake/systems/framework/diagram.h"
@@ -38,7 +38,7 @@ namespace examples {
 namespace allegro_hand {
 namespace {
 
-using drake::multibody::multibody_plant::MultibodyPlant;
+using drake::multibody::MultibodyPlant;
 
 DEFINE_double(simulation_time, std::numeric_limits<double>::infinity(),
               "Desired duration of the simulation in seconds");
@@ -77,8 +77,9 @@ void DoMain() {
 
   const std::string object_model_path = FindResourceOrThrow(
       "drake/examples/allegro_hand/joint_control/simple_mug.sdf");
-  multibody::parsing::AddModelFromSdfFile(hand_model_path, &plant);
-  multibody::parsing::AddModelFromSdfFile(object_model_path, &plant);
+  multibody::Parser parser(&plant);
+  parser.AddModelFromFile(hand_model_path);
+  parser.AddModelFromFile(object_model_path);
 
   // Weld the hand to the world frame
   const auto& joint_hand_root = plant.GetBodyByName("hand_root");
@@ -87,9 +88,9 @@ void DoMain() {
                                        Isometry3<double>::Identity());
 
   // Add gravity, if needed
-  if (FLAGS_add_gravity)
-    plant.AddForceElement<multibody::UniformGravityFieldElement>(
-        -9.81 * Eigen::Vector3d::UnitZ());
+  if (FLAGS_add_gravity) {
+    plant.AddForceElement<multibody::UniformGravityFieldElement>();
+  }
 
   // Finished building the plant
   plant.Finalize();
@@ -104,8 +105,7 @@ void DoMain() {
                   plant.get_geometry_query_input_port());
 
   // Publish contact results for visualization.
-  multibody::multibody_plant::ConnectContactResultsToDrakeVisualizer(
-      &builder, plant, &lcm);
+  multibody::ConnectContactResultsToDrakeVisualizer(&builder, plant, &lcm);
 
   // PID controller for position control of the finger joints
   VectorX<double> kp, kd, ki;
@@ -176,16 +176,15 @@ void DoMain() {
       diagram->GetMutableSubsystemContext(plant, diagram_context.get());
 
   // Initialize the mug pose to be right in the middle between the fingers.
-  std::vector<Eigen::Isometry3d> X_WB_all;
-  plant.tree().CalcAllBodyPosesInWorld(plant_context, &X_WB_all);
-  const Eigen::Vector3d& p_WHand = X_WB_all[hand.index()].translation();
+  const Eigen::Vector3d& p_WHand =
+      plant.EvalBodyPoseInWorld(plant_context, hand).translation();
   Eigen::Isometry3d X_WM;
   Eigen::Vector3d rpy(M_PI / 2, 0, 0);
   X_WM.linear() =
       math::RotationMatrix<double>(math::RollPitchYaw<double>(rpy)).matrix();
   X_WM.translation() = p_WHand + Eigen::Vector3d(0.095, 0.062, 0.095);
   X_WM.makeAffine();
-  plant.tree().SetFreeBodyPoseOrThrow(mug, X_WM, &plant_context);
+  plant.SetFreeBodyPose(&plant_context, mug, X_WM);
 
   lcm.StartReceiveThread();
 

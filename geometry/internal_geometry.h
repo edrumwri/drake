@@ -10,9 +10,9 @@
 #include "drake/common/drake_optional.h"
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/geometry_index.h"
+#include "drake/geometry/geometry_roles.h"
 #include "drake/geometry/internal_frame.h"
 #include "drake/geometry/shape_specification.h"
-#include "drake/geometry/visual_material.h"
 
 namespace drake {
 namespace geometry {
@@ -34,21 +34,19 @@ class InternalGeometry {
    be nullptr, and the pose will be uninitialized.  */
   InternalGeometry() {}
 
-  /** Constructs the internal geometry as an *immediate* child of the frame.
-   Therefore, it is assumed that X_FG = X_PG.
+  /** Constructs the internal geometry without any assigned roles defined as an
+   *immediate* child of the frame. Therefore, it is assumed that X_FG = X_PG.
    @param source_id     The id for the source that registered this geometry.
    @param shape         The shape specification for this instance.
    @param frame_id      The id of the frame this belongs to.
    @param geometry_id   The identifier for _this_ geometry.
    @param name          The name of the geometry.
    @param X_FG          The pose of the geometry G in the parent frame F.
-   @param index         The index of this geometry in the SceneGraph's set of
-                        registered geometry.
-   @param material      The visual material to apply to this geometry.  */
+   @param index         The internal index of this internal geometry (w.r.t.
+                        its anchored/dynamic status).  */
   InternalGeometry(SourceId source_id, std::unique_ptr<Shape> shape,
-                   FrameId frame_id, GeometryId geometry_id,
-                   std::string name, const Isometry3<double>& X_FG,
-                   GeometryIndex index, const VisualMaterial& material);
+                   FrameId frame_id, GeometryId geometry_id, std::string name,
+                   const Isometry3<double>& X_FG, GeometryIndex index);
 
   /** Compares two %InternalGeometry instances for "equality". Two internal
    geometries are considered equal if they have the same geometry identifier.
@@ -78,14 +76,15 @@ class InternalGeometry {
   /** Returns the index of this geometry in the full scene graph.  */
   GeometryIndex index() const { return index_; }
 
+  /** Sets the internal geometry's index -- facilitates removing geometries from
+   the scene graph.  */
+  void set_index(GeometryIndex index) { index_ = index; }
+
   /** Returns the source id that registered the geometry.  */
   SourceId source_id() const { return source_id_; }
 
   /** Returns true if this geometry belongs to the source with the given id.  */
   bool belongs_to_source(SourceId id) const { return source_id_ == id; }
-
-  /** Returns the geometry visual material.  */
-  const VisualMaterial& visual_material() const { return visual_material_; }
 
   //@}
 
@@ -152,6 +151,14 @@ class InternalGeometry {
     child_geometry_ids_.insert(geometry_id);
   }
 
+  /** Removes the given `geometry_id` from the set of geometries that this frame
+   considers to be children. If the id is not in the set of children, nothing
+   happens.  */
+  void remove_child(GeometryId geometry_id) {
+    DRAKE_ASSERT(child_geometry_ids_.count(geometry_id) > 0);
+    child_geometry_ids_.erase(geometry_id);
+  }
+
   /** Returns true if the geometry is *not* attached to the world frame -- or,
    in other words, it *is* attached to a movable frame.  */
   bool is_dynamic() const {
@@ -162,11 +169,57 @@ class InternalGeometry {
 
   //@}
 
-  /** Returns this geometry's valid index in the proximity engine iff this
-   geometry has a proximity role. If not, the returned index will be invalid.
-   */
+  /** @name   Role management  */
+  //@{
+
+  /** Assigns a proximity role to this geometry. Fails if it has already been
+   assigned.  */
+  void SetRole(ProximityProperties properties) {
+    if (proximity_props_) {
+      throw std::logic_error("Geometry already has proximity role assigned");
+    }
+    proximity_props_ = std::move(properties);
+  }
+
+  /** Assigns a illustration role to this geometry. Fails if it has already been
+   assigned.  */
+  void SetRole(IllustrationProperties properties) {
+    if (illustration_props_) {
+      throw std::logic_error("Geometry already has illustration role assigned");
+    }
+    illustration_props_ = std::move(properties);
+  }
+
+  /** Reports if the geometry has the indicated `role`.  */
+  bool has_role(Role role) const;
+
+  /** Reports if the geometry has a proximity role.  */
+  bool has_proximity_role() const { return proximity_props_ != nullopt; }
+
+  /** Reports if the geometry has a illustration role.  */
+  bool has_illustration_role() const { return illustration_props_ != nullopt; }
+
+  /** Returns a pointer to the geometry's proximity properties (if they are
+   defined. Nullptr otherwise.  */
+  const ProximityProperties* proximity_properties() const {
+    if (proximity_props_) return &*proximity_props_;
+    return nullptr;
+  }
+
+  /** Returns a pointer to the geometry's illustration properties (if they are
+   defined. Nullptr otherwise.  */
+  const IllustrationProperties* illustration_properties() const {
+    if (illustration_props_) return &*illustration_props_;
+    return nullptr;
+  }
+
+  /** If this geometry has a proximity role, this that geometry's index in the
+   proximity engine. It will be undefined it it does not have the proximity
+   role.  */
   ProximityIndex proximity_index() const { return proximity_index_; }
   void set_proximity_index(ProximityIndex index) { proximity_index_ = index; }
+
+  //@}
 
  private:
   // The specification for this instance's shape.
@@ -203,16 +256,18 @@ class InternalGeometry {
   // The identifiers for the geometry hung on this frame.
   std::unordered_set<GeometryId> child_geometry_ids_;
 
+  // TODO(SeanCurtis-TRI): Consider introducing a mechanism where these are
+  // defined at the frame level, and all child geometries inherit.
+
+  // The optional property sets tied to the roles that the geometry plays.
+  optional<ProximityProperties> proximity_props_{nullopt};
+  optional<IllustrationProperties> illustration_props_{nullopt};
+
   // The index of the geometry in the engine. Note: is currently unused but will
   // gain importance when the API for *removing* geometry is added. It is the
   // mechanism by which we map a geometry to its instantiation in the proximity
   // engine.
   ProximityIndex proximity_index_{};
-
-  // TODO(SeanCurtis-TRI): Consider making this "optional" so that the values
-  // can be assigned at the frame level.
-  // The "rendering" material -- e.g., OpenGl contexts and the like.
-  VisualMaterial visual_material_;
 };
 
 }  // namespace internal

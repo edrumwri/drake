@@ -4,9 +4,11 @@
 #include <memory>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/context.h"
@@ -316,7 +318,7 @@ class DiagramContext final : public Context<T> {
       // Using `access` here to avoid sending invalidations.
       Parameters<T>& subparams =
           Context<T>::access_mutable_parameters(&*subcontext);
-      for (int i = 0; i < subparams.num_numeric_parameters(); ++i) {
+      for (int i = 0; i < subparams.num_numeric_parameter_groups(); ++i) {
         numeric_params.push_back(&subparams.get_mutable_numeric_parameter(i));
       }
       for (int i = 0; i < subparams.num_abstract_parameters(); ++i) {
@@ -393,6 +395,52 @@ class DiagramContext final : public Context<T> {
 
     clone->Finalize();
     return clone;
+  }
+
+  // Print summary information for the diagram context and recurse into
+  // the (non-empty) subcontexts.
+  std::string do_to_string() const final {
+    std::ostringstream os;
+
+    os << this->GetSystemPathname() << " Context (of a Diagram)\n";
+    os << std::string(this->GetSystemPathname().size() + 24, '-') << "\n";
+    if (this->get_continuous_state().size())
+      os << this->get_continuous_state().size() << " total continuous states\n";
+    if (this->get_num_discrete_state_groups()) {
+      int num_discrete_states = 0;
+      for (int i = 0; i < this->get_num_discrete_state_groups(); i++) {
+        num_discrete_states += this->get_discrete_state(i).size();
+      }
+      os << num_discrete_states << " total discrete states in "
+         << this->get_num_discrete_state_groups() << " groups\n";
+    }
+    if (this->get_num_abstract_states())
+      os << this->get_num_abstract_states() << " total abstract states\n";
+
+    if (this->num_numeric_parameter_groups()) {
+      int num_numeric_parameters = 0;
+      for (int i = 0; i < this->num_numeric_parameter_groups(); i++) {
+        num_numeric_parameters += this->get_numeric_parameter(i).size();
+      }
+      os << num_numeric_parameters << " total numeric parameters in "
+         << this->num_numeric_parameter_groups() << " groups\n";
+    }
+    if (this->num_abstract_parameters())
+      os << this->num_abstract_parameters() << " total abstract parameters\n";
+
+    for (systems::SubsystemIndex i{0}; i < num_subcontexts(); i++) {
+      const Context<T>& subcontext = this->GetSubsystemContext(i);
+      // Only print this context if it has something useful to print.
+      if (subcontext.get_continuous_state_vector().size() ||
+          subcontext.get_num_discrete_state_groups() ||
+          subcontext.get_num_abstract_states() ||
+          subcontext.num_numeric_parameter_groups() ||
+          subcontext.num_abstract_parameters()) {
+        os << "\n" << subcontext.to_string();
+      }
+    }
+
+    return os.str();
   }
 
   // Returns the number of immediate child subcontexts in this DiagramContext.
@@ -481,3 +529,9 @@ class DiagramContext final : public Context<T> {
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::DiagramState)
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::DiagramContext)

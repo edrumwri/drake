@@ -7,7 +7,7 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
 #include "drake/lcmt_allegro_status.hpp"
-#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
+#include "drake/multibody/plant/multibody_plant.h"
 
 namespace drake {
 namespace examples {
@@ -23,9 +23,9 @@ void SetPositionControlledGains(Eigen::VectorXd* Kp, Eigen::VectorXd* Ki,
 /// plant's full x (`xₛ = Sx⋅x`) and promote the controller's ordered yₛ into
 /// the full plant's input actuation (`u = Su⋅uₛ`).
 /// The matrices are used to initialize the PID controller for the hand.
-/// @see MultibodyTree::MakeStateSelectorMatrix(),
-/// MultibodyTree::MakeActuatorSelectorMatrix() for detailed definitions for the
-/// selector matrices.
+/// @see MultibodyPlant::MakeStateSelectorMatrix(),
+/// MultibodyPlant::MakeActuatorSelectorMatrix() for detailed definitions for
+/// the selector matrices.
 /// @see systems::controllers::PidController for documentation on how these
 /// selector matrices are used in the PID controller.
 /// @param Sx the matrix to match the output state of the plant into the state
@@ -33,7 +33,7 @@ void SetPositionControlledGains(Eigen::VectorXd* Kp, Eigen::VectorXd* Ki,
 /// @param Sy the matrix to match the output torque for the hand joint
 /// actuators in the desired order into the input actuation of the plant.
 void GetControlPortMapping(
-    const multibody::multibody_plant::MultibodyPlant<double>& plant,
+    const multibody::MultibodyPlant<double>& plant,
     MatrixX<double>* Sx, MatrixX<double>* Sy);
 
 /// Defines the desired ordering of the finger joints by name. The fingers are

@@ -19,13 +19,14 @@ drake_cc_package_library(
         ":geometry_ids",
         ":geometry_index",
         ":geometry_instance",
+        ":geometry_properties",
+        ":geometry_roles",
         ":geometry_set",
         ":geometry_state",
         ":geometry_visualization",
         ":identifier",
         ":internal_frame",
         ":internal_geometry",
-        ":materials",
         ":proximity_engine",
         ":scene_graph",
         ":scene_graph_inspector",
@@ -46,11 +47,13 @@ drake_cc_library(
         ":geometry_ids",
         ":geometry_index",
         ":shape_specification",
+        ":utilities",
         "//common",
         "//common:default_scalars",
         "//geometry/query_results:contact_surface",
         "//geometry/query_results:penetration_as_point_pair",
         "//geometry/query_results:signed_distance_pair",
+        "//geometry/query_results:signed_distance_to_point",
         "@fcl",
         "@tinyobjloader",
     ],
@@ -66,6 +69,7 @@ drake_cc_library(
     ],
     deps = [
         ":geometry_ids",
+        ":utilities",
         "//common:autodiff",
         "//common:essential",
         "//common:symbolic",
@@ -112,7 +116,7 @@ drake_cc_library(
     hdrs = ["geometry_instance.h"],
     deps = [
         ":geometry_ids",
-        ":materials",
+        ":geometry_roles",
         ":shape_specification",
         ":utilities",
         "//common:copyable_unique_ptr",
@@ -121,19 +125,30 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "geometry_set",
-    hdrs = ["geometry_set.h"],
-    deps = [":geometry_ids"],
+    name = "geometry_properties",
+    srcs = ["geometry_properties.cc"],
+    hdrs = ["geometry_properties.h"],
+    deps = [
+        "//common:essential",
+        "//systems/framework:value",
+        "@fmt",
+    ],
 )
 
 drake_cc_library(
-    # NOTE: The material library and file name don't appear to match. This
-    # library will eventually contain multiple types of materials (e.g.,
-    # contact, rendering, depth, etc.)
-    name = "materials",
-    srcs = ["visual_material.cc"],
-    hdrs = ["visual_material.h"],
-    deps = ["//common"],
+    name = "geometry_roles",
+    srcs = ["geometry_roles.cc"],
+    hdrs = ["geometry_roles.h"],
+    deps = [
+        ":geometry_properties",
+        "//common:essential",
+    ],
+)
+
+drake_cc_library(
+    name = "geometry_set",
+    hdrs = ["geometry_set.h"],
+    deps = [":geometry_ids"],
 )
 
 drake_cc_library(
@@ -150,6 +165,7 @@ drake_cc_library(
         ":internal_frame",
         ":internal_geometry",
         ":proximity_engine",
+	":utilities",
         "//geometry/query_results:contact_surface",
     ],
 )
@@ -172,6 +188,7 @@ drake_cc_library(
         "//geometry/query_results:contact_surface",
         "//geometry/query_results:penetration_as_point_pair",
         "//geometry/query_results:signed_distance_pair",
+        "//geometry/query_results:signed_distance_to_point",
         "//systems/framework",
         "//systems/rendering:pose_bundle",
     ],
@@ -217,8 +234,8 @@ drake_cc_library(
     deps = [
         ":geometry_ids",
         ":geometry_index",
+        ":geometry_roles",
         ":internal_frame",
-        ":materials",
         ":shape_specification",
         "//common:copyable_unique_ptr",
         "//common:essential",
@@ -259,6 +276,7 @@ drake_cc_googletest(
         ":shape_specification",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        "//math",
     ],
 )
 
@@ -283,6 +301,14 @@ drake_cc_googletest(
     name = "geometry_instance_test",
     deps = [
         ":geometry_instance",
+        "//common/test_utilities",
+    ],
+)
+
+drake_cc_googletest(
+    name = "geometry_properties_test",
+    deps = [
+        ":geometry_properties",
         "//common/test_utilities",
     ],
 )
@@ -336,6 +362,14 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "scene_graph_inspector_test",
+    deps = [
+        ":geometry_frame",
+        ":scene_graph_inspector",
+    ],
+)
+
+drake_cc_googletest(
     name = "shape_specification_test",
     deps = [
         ":shape_specification",
@@ -345,13 +379,9 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "utilities_test",
-    deps = ["utilities"],
-)
-
-drake_cc_googletest(
-    name = "visual_material_test",
     deps = [
-        ":materials",
+        "utilities",
+        "//common/test_utilities",
     ],
 )
 

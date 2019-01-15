@@ -106,7 +106,8 @@ class MultipleShooting : public solvers::MathematicalProgram {
   /// index @p index.
   Eigen::VectorBlock<const solvers::VectorXDecisionVariable> input(
       int index) const {
-    DRAKE_DEMAND(index >= 0 && index < N_);
+    DRAKE_DEMAND(index >= 0);
+    DRAKE_DEMAND(index < N_);
     return u_vars_.segment(index * num_inputs_, num_inputs_);
   }
 
@@ -177,9 +178,10 @@ class MultipleShooting : public solvers::MathematicalProgram {
   /// Note: Derived classes will need to type
   ///    using MultipleShooting::AddFinalCost;
   /// to "unhide" this method.
-  void AddFinalCost(const Eigen::Ref<const MatrixX<symbolic::Expression>>& e) {
-    DRAKE_DEMAND(e.rows() == 1 && e.cols() == 1);
-    AddFinalCost(e(0, 0));
+  void AddFinalCost(
+      const Eigen::Ref<const MatrixX<symbolic::Expression>>& matrix) {
+    DRAKE_DEMAND(matrix.rows() == 1 && matrix.cols() == 1);
+    AddFinalCost(matrix(0, 0));
   }
 
   typedef std::function<

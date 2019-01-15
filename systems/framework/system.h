@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_bool.h"
 #include "drake/common/drake_copyable.h"
@@ -20,6 +21,7 @@
 #include "drake/common/drake_throw.h"
 #include "drake/common/nice_type_name.h"
 #include "drake/common/pointer_cast.h"
+#include "drake/common/random.h"
 #include "drake/common/symbolic.h"
 #include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
@@ -64,14 +66,6 @@ class SystemImpl {
 };
 #endif  // DRAKE_DOXYGEN_CXX
 
-// TODO(russt): As discussed with sammy-tri, we could replace this with a
-// a templated class that exposes the required methods from the concept.
-/// Defines the implementation of the stdc++ concept UniformRandomBitGenerator
-/// to be used by the Systems classes.  This is provided as a work-around to
-/// enable the use of the generator in virtual methods (which cannot be
-/// templated on the generator type).
-typedef std::mt19937 RandomGenerator;
-
 /// Base class for all System functionality that is dependent on the templatized
 /// scalar type T for input, state, parameters, and outputs.
 ///
@@ -82,7 +76,7 @@ class System : public SystemBase {
   // System objects are neither copyable nor moveable.
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(System)
 
-  ~System() override = default;
+  ~System() override;
 
   //----------------------------------------------------------------------------
   /// @name           Resource allocation and initialization
@@ -139,14 +133,6 @@ class System : public SystemBase {
     return output;
   }
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(sherm1) Remove this after 10/1/2018 (three months).
-  DRAKE_DEPRECATED("Call AllocateOutput() with no Context argument.")
-  std::unique_ptr<SystemOutput<T>> AllocateOutput(const Context<T>&) const {
-    return AllocateOutput();
-  }
-#endif
-
   /// Returns a ContinuousState of the same size as the continuous_state
   /// allocated in CreateDefaultContext. The simulator will provide this state
   /// as the output argument to EvalTimeDerivatives.
@@ -201,9 +187,9 @@ class System : public SystemBase {
 
     // Set the default parameters, checking that the number of parameters does
     // not change.
-    const int num_params = context->num_numeric_parameters();
+    const int num_params = context->num_numeric_parameter_groups();
     SetDefaultParameters(*context, &context->get_mutable_parameters());
-    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameter_groups());
   }
 
   /// Assigns random values to all elements of the state.
@@ -258,10 +244,10 @@ class System : public SystemBase {
 
     // Set the default parameters, checking that the number of parameters does
     // not change.
-    const int num_params = context->num_numeric_parameters();
+    const int num_params = context->num_numeric_parameter_groups();
     SetRandomParameters(*context, &context->get_mutable_parameters(),
                         generator);
-    DRAKE_DEMAND(num_params == context->num_numeric_parameters());
+    DRAKE_DEMAND(num_params == context->num_numeric_parameter_groups());
   }
 
   /// For each input port, allocates a fixed input of the concrete type
@@ -1034,8 +1020,9 @@ class System : public SystemBase {
     return nullptr;
   }
 
-  // The derived class implementation should provide exactly one event of the
-  // appropriate type with a kForced trigger type.
+  // The derived class implementation shall create the appropriate collection
+  // for each of these three methods.
+  //
   // Consumers of this class should never need to call the three methods below.
   // These three methods would ideally be designated as "protected", but
   // Diagram::AllocateForcedXEventCollection() needs to call these methods and,
@@ -1679,7 +1666,7 @@ class System : public SystemBase {
   /// @throws std::logic_error for a duplicate port name.
   /// @returns the declared port.
   const InputPort<T>& DeclareInputPort(
-      std::string name, PortDataType type, int size,
+      variant<std::string, UseDefaultName> name, PortDataType type, int size,
       optional<RandomDistribution> random_type = nullopt) {
     const InputPortIndex port_index(get_num_input_ports());
 
@@ -1709,20 +1696,6 @@ class System : public SystemBase {
     return DeclareInputPort(kUseDefaultName, type, size, random_type);
   }
   //@}
-
-#ifndef DRAKE_DOXYGEN_CXX
-  // Remove this overload on or about 2018-12-01.
-  DRAKE_DEPRECATED("Use one of the other overloads.")
-  const InputPort<T>& DeclareAbstractInputPort() {
-    return DeclareInputPort(kUseDefaultName, kAbstractValued, 0 /* size */);
-  }
-
-  // Remove this overload on or about 2018-12-01.
-  DRAKE_DEPRECATED("Use one of the other overloads.")
-  const InputPort<T>& DeclareAbstractInputPort(std::string name) {
-    return DeclareInputPort(std::move(name), kAbstractValued, 0 /* size */);
-  }
-#endif
 
   /// Adds an already-created constraint to the list of constraints for this
   /// System.  Ownership of the SystemConstraint is transferred to this system.
@@ -2051,34 +2024,53 @@ class System : public SystemBase {
   }
   //@}
 
+  bool forced_publish_events_exist() const {
+    return forced_publish_events_ != nullptr;
+  }
+
+  bool forced_discrete_update_events_exist() const {
+    return forced_discrete_update_events_ != nullptr;
+  }
+
+  bool forced_unrestricted_update_events_exist() const {
+    return forced_unrestricted_update_events_ != nullptr;
+  }
+
+  EventCollection<PublishEvent<T>>& get_mutable_forced_publish_events() {
+    return *forced_publish_events_;
+  }
+
   const EventCollection<PublishEvent<T>>&
   get_forced_publish_events() const {
-    return *forced_publish_;
+    DRAKE_DEMAND(forced_publish_events_.get());
+    return *forced_publish_events_;
   }
 
   const EventCollection<DiscreteUpdateEvent<T>>&
   get_forced_discrete_update_events() const {
-    return *forced_discrete_update_;
+    DRAKE_DEMAND(forced_discrete_update_events_.get());
+    return *forced_discrete_update_events_;
   }
 
   const EventCollection<UnrestrictedUpdateEvent<T>>&
   get_forced_unrestricted_update_events() const {
-    return *forced_unrestricted_update_;
+    DRAKE_DEMAND(forced_unrestricted_update_events_.get());
+    return *forced_unrestricted_update_events_;
   }
 
   void set_forced_publish_events(
   std::unique_ptr<EventCollection<PublishEvent<T>>> forced) {
-    forced_publish_ = std::move(forced);
+    forced_publish_events_ = std::move(forced);
   }
 
   void set_forced_discrete_update_events(
   std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>> forced) {
-    forced_discrete_update_ = std::move(forced);
+    forced_discrete_update_events_ = std::move(forced);
   }
 
   void set_forced_unrestricted_update_events(
   std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>> forced) {
-    forced_unrestricted_update_ = std::move(forced);
+    forced_unrestricted_update_events_ = std::move(forced);
   }
 
  private:
@@ -2120,7 +2112,7 @@ class System : public SystemBase {
         return [&expected_type, port_index, pathname](
             const AbstractValue& actual) {
           if (actual.static_type_info() != expected_type) {
-            ThrowInputPortHasWrongType(
+            SystemBase::ThrowInputPortHasWrongType(
                 "FixInputPortTypeCheck", pathname, port_index,
                 NiceTypeName::Get(expected_type),
                 NiceTypeName::Get(actual.type_info()));
@@ -2197,14 +2189,15 @@ class System : public SystemBase {
   std::vector<std::unique_ptr<SystemConstraint<T>>> constraints_;
 
   // These are only used to dispatch forced event handling. For a LeafSystem,
-  // all of these have exactly one kForced triggered event. For a Diagram, they
+  // these contain at least one kForced triggered event. For a Diagram, they
   // are DiagramEventCollection, whose leafs are LeafEventCollection with
-  // exactly one kForced triggered event.
-  std::unique_ptr<EventCollection<PublishEvent<T>>> forced_publish_{nullptr};
+  // one or more kForced triggered events.
+  std::unique_ptr<EventCollection<PublishEvent<T>>>
+      forced_publish_events_{nullptr};
   std::unique_ptr<EventCollection<DiscreteUpdateEvent<T>>>
-      forced_discrete_update_{nullptr};
+      forced_discrete_update_events_{nullptr};
   std::unique_ptr<EventCollection<UnrestrictedUpdateEvent<T>>>
-      forced_unrestricted_update_{nullptr};
+      forced_unrestricted_update_events_{nullptr};
 
   // Functions to convert this system to use alternative scalar types.
   SystemScalarConverter system_scalar_converter_;
@@ -2216,5 +2209,14 @@ class System : public SystemBase {
   CacheIndex nonconservative_power_cache_index_;
 };
 
+// Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57728 which
+// should be moved back into the class definition once we no longer need to
+// support GCC versions prior to 6.3.
+template <typename T>
+System<T>::~System() = default;
+
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::System)

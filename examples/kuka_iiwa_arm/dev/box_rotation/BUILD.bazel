@@ -43,9 +43,9 @@ drake_cc_library(
         "//attic/manipulation/util:sim_diagram_builder",
         "//attic/manipulation/util:world_sim_tree_builder",
         "//attic/multibody/rigid_body_plant",
+        "//attic/systems/controllers:rbt_inverse_dynamics_controller",
         "//examples/kuka_iiwa_arm:iiwa_common",
         "//examples/kuka_iiwa_arm:oracular_state_estimator",
-        "//systems/controllers:inverse_dynamics_controller",
         "//systems/framework:diagram",
         "//systems/framework:diagram_builder",
     ],
@@ -61,8 +61,6 @@ drake_cc_binary(
         "//manipulation/models/iiwa_description:models",
     ],
     test_rule_args = ["--simulation_sec=0.01"],
-    # Flaky because LCM self-test can fail (PR #7311)
-    test_rule_flaky = 1,
     deps = [
         ":iiwa_box_diagram_factory",
         "//attic/manipulation/util:frame_pose_tracker",

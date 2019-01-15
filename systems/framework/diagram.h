@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/symbolic.h"
@@ -121,7 +122,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     for (SubsystemIndex i(0); i < num_subsystems(); ++i) {
       auto& subcontext = diagram_context->GetSubsystemContext(i);
 
-      if (!subcontext.num_numeric_parameters() &&
+      if (!subcontext.num_numeric_parameter_groups() &&
           !subcontext.num_abstract_parameters()) {
         // Then there is no work to do for this subcontext.
         continue;
@@ -135,11 +136,11 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
       // expensive.
 
       std::vector<BasicVector<T>*> numeric_params;
-      for (int j = 0; j < subcontext.num_numeric_parameters(); ++j) {
+      for (int j = 0; j < subcontext.num_numeric_parameter_groups(); ++j) {
         numeric_params.push_back(&params->get_mutable_numeric_parameter(
             numeric_parameter_offset + j));
       }
-      numeric_parameter_offset += subcontext.num_numeric_parameters();
+      numeric_parameter_offset += subcontext.num_numeric_parameter_groups();
 
       std::vector<AbstractValue*> abstract_params;
       for (int j = 0; j < subcontext.num_abstract_parameters(); ++j) {
@@ -186,7 +187,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     for (SubsystemIndex i(0); i < num_subsystems(); ++i) {
       auto& subcontext = diagram_context->GetSubsystemContext(i);
 
-      if (!subcontext.num_numeric_parameters() &&
+      if (!subcontext.num_numeric_parameter_groups() &&
           !subcontext.num_abstract_parameters()) {
         // Then there is no work to do for this subcontext.
         continue;
@@ -201,11 +202,11 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
 
       std::vector<BasicVector<T>*> numeric_params;
       std::vector<AbstractValue*> abstract_params;
-      for (int j = 0; j < subcontext.num_numeric_parameters(); ++j) {
+      for (int j = 0; j < subcontext.num_numeric_parameter_groups(); ++j) {
         numeric_params.push_back(&params->get_mutable_numeric_parameter(
             numeric_parameter_offset + j));
       }
-      numeric_parameter_offset += subcontext.num_numeric_parameters();
+      numeric_parameter_offset += subcontext.num_numeric_parameter_groups();
       for (int j = 0; j < subcontext.num_abstract_parameters(); ++j) {
         abstract_params.push_back(&params->get_mutable_abstract_parameter(
             abstract_parameter_offset + j));
@@ -304,14 +305,35 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
   /// derivatives for the entire diagram. Aborts if @p subsystem is not
   /// actually a subsystem of this diagram. Returns a 0-length ContinuousState
   /// if @p subsystem has none.
-  const ContinuousState<T>& GetSubsystemDerivatives(
-      const ContinuousState<T>& derivatives, const System<T>* subsystem) const {
-    DRAKE_DEMAND(subsystem != nullptr);
+  const ContinuousState<T>& GetSubsystemDerivatives(const System<T>& subsystem,
+      const ContinuousState<T>& derivatives) const {
     auto diagram_derivatives =
         dynamic_cast<const DiagramContinuousState<T>*>(&derivatives);
     DRAKE_DEMAND(diagram_derivatives != nullptr);
-    const SubsystemIndex i = GetSystemIndexOrAbort(subsystem);
+    const SubsystemIndex i = GetSystemIndexOrAbort(&subsystem);
     return diagram_derivatives->get_substate(i);
+  }
+
+  DRAKE_DEPRECATED("Call GetSubsystemDerivatives(subsystem, derivatives) "
+                   "instead.  This call site will be removed on 2/15/19.")
+  const ContinuousState<T>& GetSubsystemDerivatives(
+      const ContinuousState<T>& derivatives, const System<T>* subsystem)
+      const {
+    return GetSubsystemDerivatives(*subsystem, derivatives);
+  }
+
+  /// Retrieves the discrete state values for a particular subsystem from the
+  /// discrete values for the entire diagram. Aborts if @p subsystem is not
+  /// actually a subsystem of this diagram. Returns an empty DiscreteValues
+  /// if @p subsystem has none.
+  const DiscreteValues<T>& GetSubsystemDiscreteValues(
+      const System<T>& subsystem,
+      const DiscreteValues<T>& discrete_values) const {
+    auto diagram_discrete_state =
+        dynamic_cast<const DiagramDiscreteValues<T>*>(&discrete_values);
+    DRAKE_DEMAND(diagram_discrete_state != nullptr);
+    const SubsystemIndex i = GetSystemIndexOrAbort(&subsystem);
+    return diagram_discrete_state->get_subdiscrete(i);
   }
 
   /// Returns a constant reference to the subcontext that corresponds to the
@@ -630,7 +652,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
     data->set_xcf(DoGetTargetSystemContinuousState(subsystem, diagram_xcf));
 
     // Add the event to the collection.
-    event->add_to_composite(&subevents);
+    event->AddToComposite(&subevents);
   }
 
   /// Provides witness functions of subsystems that are active at the beginning
@@ -1399,7 +1421,7 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
               c->Calc(this->GetSubsystemContext(*sys, context), value);
             };
         this->AddConstraint(std::make_unique<SystemConstraint<T>>(
-            diagram_calc, c->size(), c->type(),
+            diagram_calc, c->bounds(),
             sys->get_name() + ":" + c->description()));
       }
     }
@@ -1584,3 +1606,6 @@ class Diagram : public System<T>, internal::SystemParentServiceInterface {
 
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::Diagram)

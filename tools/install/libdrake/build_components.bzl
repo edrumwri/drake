@@ -48,8 +48,19 @@ LIBDRAKE_COMPONENTS = [
     "//common/trajectories",
     "//common:drake_marker_shared_library",  # unpackaged
     "//common:text_logging_gflags_h",  # unpackaged
+    "//examples/acrobot:acrobot_input",  # unpackaged
+    "//examples/acrobot:acrobot_params",  # unpackaged
+    "//examples/acrobot:acrobot_plant",  # unpackaged
+    "//examples/acrobot:acrobot_state",  # unpackaged
+    "//examples/compass_gait:compass_gait",  # unpackaged
+    "//examples/compass_gait:compass_gait_vector_types",  # unpackaged
     "//examples/manipulation_station:manipulation_station",  # unpackaged
     "//examples/manipulation_station:manipulation_station_hardware_interface",  # unpackaged  # noqa
+    "//examples/pendulum:pendulum_plant",  # unpackaged
+    "//examples/pendulum:pendulum_vector_types",  # unpackaged
+    "//examples/rimless_wheel:rimless_wheel",  # unpackaged
+    "//examples/rimless_wheel:rimless_wheel_vector_types",  # unpackaged
+    "//examples/van_der_pol:van_der_pol",  # unpackaged
     "//geometry",
     "//geometry/dev",
     "//geometry/dev/render",
@@ -69,12 +80,16 @@ LIBDRAKE_COMPONENTS = [
     "//multibody/benchmarks/pendulum",
     "//multibody/constraint",
     "//multibody/inverse_kinematics",
+    "//multibody/math",
     "//multibody/multibody_tree",
-    "//multibody/multibody_tree/implicit_stribeck:implicit_stribeck_solver",  # unpackaged  # noqa
+    "//multibody/multibody_tree/implicit_stribeck",
     "//multibody/multibody_tree/math",
     "//multibody/multibody_tree/multibody_plant",
-    "//multibody/multibody_tree/multibody_plant:contact_results_to_lcm",  # unpackaged  # noqa
     "//multibody/multibody_tree/parsing",
+    "//multibody/parsing",
+    "//multibody/plant",
+    "//multibody/plant:contact_results_to_lcm",  # unpackaged
+    "//multibody/tree",
     "//perception",
     "//solvers",
     "//systems/analysis",
@@ -90,4 +105,5 @@ LIBDRAKE_COMPONENTS = [
     "//systems/trajectory_optimization",
     # //examples/kuka_iiwa_arm:iiwa_common (indirectly)
     # //examples/kuka_iiwa_arm:iiwa_lcm (indirectly)
+    # //multibody/multibody_tree/joints:forwarding_hdrs (indirectly)
 ]

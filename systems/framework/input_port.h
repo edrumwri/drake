@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "drake/common/constants.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/common/drake_optional.h"
 #include "drake/systems/framework/framework_common.h"
@@ -52,13 +53,8 @@ class InputPort final : public InputPortBase {
   const System<T>& system_;
 };
 
-#ifndef DRAKE_DOXYGEN_CXX
-// TODO(sherm1) Remove this after 10/12/2018 (3 months).
-/// DEPRECATED -- use InputPort instead.
-template <typename T>
-using InputPortDescriptor DRAKE_DEPRECATED("Use InputPort instead.") =
-    InputPort<T>;
-#endif
-
 }  // namespace systems
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::InputPort)

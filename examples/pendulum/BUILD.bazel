@@ -13,6 +13,8 @@ load(
     "drake_cc_vector_gen_library",
 )
 
+package(default_visibility = ["//visibility:private"])
+
 drake_cc_vector_gen_library(
     name = "pendulum_vector_types",
     srcs = [
@@ -30,6 +32,7 @@ drake_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":pendulum_vector_types",
+        "//geometry:geometry_visualization",
         "//geometry:scene_graph",
         "//math:geometric_transform",
         "//systems/framework",
@@ -98,6 +101,8 @@ drake_cc_binary(
     add_test_rule = 1,
     data = [":models"],
     test_rule_args = ["--target_realtime_rate=0.0"],
+    # Non-deterministic IPOPT-related failures on macOS, see #10276.
+    test_rule_flaky = 1,
     deps = [
         ":pendulum_plant",
         "//common:find_resource",
@@ -140,11 +145,11 @@ drake_cc_googletest(
     data = ["Pendulum.urdf"],
     deps = [
         ":pendulum_plant",
+        "//attic/multibody:rigid_body_tree",
         "//attic/multibody/parsers",
         "//attic/multibody/rigid_body_plant",
         "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
-        "//multibody:rigid_body_tree",
     ],
 )
 

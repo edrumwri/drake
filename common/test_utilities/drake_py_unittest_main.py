@@ -5,11 +5,20 @@ should NOT be called directly by anything else.
 
 import argparse
 import imp
+import io
 import os
 import re
 import sys
 import trace
 import unittest
+import warnings
+
+try:
+    from pydrake.common.deprecation import DrakeDeprecationWarning
+    has_pydrake = True
+except ImportError:
+    has_pydrake = False
+
 
 if __name__ == '__main__':
     # Obtain the full path for this test case; it looks a bit like this:
@@ -33,7 +42,7 @@ if __name__ == '__main__':
     if not found_filename:
         raise RuntimeError("No such file found {}!".format(
             test_filename))
-    with open(found_filename, "r") as infile:
+    with io.open(found_filename, "r", encoding="utf8") as infile:
         for line in infile.readlines():
             if any([line.startswith("if __name__ =="),
                     line.strip().startswith("unittest.main")]):
@@ -90,6 +99,10 @@ if __name__ == '__main__':
         help="Do not pipe stdout to stderr. When running from the Bazel " +
              "client (non-batch), output may be mixed, so piping makes " +
              "the output more readable.")
+    parser.add_argument(
+        "--drake_deprecation_action", type=str, default="error",
+        help="Action for Drake deprecation warnings. See " +
+             "`warnings.simplefilter()`.")
     args, remaining = parser.parse_known_args()
     sys.argv = sys.argv[:1] + remaining
 
@@ -105,6 +118,10 @@ if __name__ == '__main__':
     if not args.nostdout_to_stderr:
         sys.stdout.flush()
         sys.stdout = sys.stderr
+
+    if has_pydrake:
+        warnings.simplefilter(
+            args.drake_deprecation_action, DrakeDeprecationWarning)
 
     if args.trace != "none":
         if args.trace == "user":

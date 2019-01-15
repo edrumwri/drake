@@ -12,12 +12,12 @@
 #include "drake/lcm/drake_lcm.h"
 #include "drake/math/roll_pitch_yaw.h"
 #include "drake/math/rotation_matrix.h"
-#include "drake/multibody/multibody_tree/joints/prismatic_joint.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_results.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_results_to_lcm.h"
-#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
-#include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
-#include "drake/multibody/multibody_tree/uniform_gravity_field_element.h"
+#include "drake/multibody/parsing/parser.h"
+#include "drake/multibody/plant/contact_results.h"
+#include "drake/multibody/plant/contact_results_to_lcm.h"
+#include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/tree/prismatic_joint.h"
+#include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/analysis/implicit_euler_integrator.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
@@ -40,10 +40,10 @@ using drake::lcm::DrakeLcm;
 using drake::math::RollPitchYaw;
 using drake::math::RotationMatrix;
 using drake::multibody::Body;
-using drake::multibody::multibody_plant::CoulombFriction;
-using drake::multibody::multibody_plant::ConnectContactResultsToDrakeVisualizer;
-using drake::multibody::multibody_plant::MultibodyPlant;
-using drake::multibody::parsing::AddModelFromSdfFile;
+using drake::multibody::CoulombFriction;
+using drake::multibody::ConnectContactResultsToDrakeVisualizer;
+using drake::multibody::MultibodyPlant;
+using drake::multibody::Parser;
 using drake::multibody::PrismaticJoint;
 using drake::multibody::UniformGravityFieldElement;
 using drake::systems::ImplicitEulerIntegrator;
@@ -157,7 +157,7 @@ void AddGripperPads(MultibodyPlant<double>* plant,
     plant->RegisterCollisionGeometry(finger, X_FS, Sphere(kPadMinorRadius),
                                      "collision" + std::to_string(i), friction);
 
-    const geometry::VisualMaterial red(Vector4<double>(1.0, 0.0, 0.0, 1.0));
+    const Vector4<double> red(1.0, 0.0, 0.0, 1.0);
     plant->RegisterVisualGeometry(finger, X_FS, Sphere(kPadMinorRadius),
                                   "visual" + std::to_string(i), red);
   }
@@ -176,13 +176,14 @@ int do_main() {
       *builder.AddSystem<MultibodyPlant>(FLAGS_max_time_step) :
       *builder.AddSystem<MultibodyPlant>();
   plant.RegisterAsSourceForSceneGraph(&scene_graph);
+  Parser parser(&plant);
   std::string full_name =
       FindResourceOrThrow("drake/examples/simple_gripper/simple_gripper.sdf");
-  AddModelFromSdfFile(full_name, &plant);
+  parser.AddModelFromFile(full_name);
 
   full_name =
       FindResourceOrThrow("drake/examples/simple_gripper/simple_mug.sdf");
-  AddModelFromSdfFile(full_name, &plant);
+  parser.AddModelFromFile(full_name);
 
   // Obtain the "translate_joint" axis so that we know the direction of the
   // forced motions. We do not apply gravity if motions are forced in the
@@ -197,8 +198,7 @@ int do_main() {
   } else if (axis.isApprox(Vector3d::UnitX())) {
     fmt::print("Gripper motions forced in the horizontal direction.\n");
     // Add gravity to the model.
-    plant.AddForceElement<UniformGravityFieldElement>(
-        -9.81 * Vector3<double>::UnitZ());
+    plant.AddForceElement<UniformGravityFieldElement>();
   } else {
     throw std::runtime_error(
         "Only horizontal or vertical motions of the gripper are supported for "
@@ -280,7 +280,7 @@ int do_main() {
   // supports it.
 
   // The mass of the gripper in simple_gripper.sdf.
-  // TODO(amcastro-tri): we should call MultibodyTree::CalcMass() here.
+  // TODO(amcastro-tri): we should call MultibodyPlant::CalcMass() here.
   const double mass = 1.0890;  // kg.
   const double omega = 2 * M_PI * FLAGS_frequency;  // rad/s.
   const double x0 = FLAGS_amplitude;  // meters.
@@ -324,10 +324,10 @@ int do_main() {
   const Body<double>& mug = plant.GetBodyByName("main_body");
 
   // Initialize the mug pose to be right in the middle between the fingers.
-  std::vector<Isometry3d> X_WB_all;
-  plant.tree().CalcAllBodyPosesInWorld(plant_context, &X_WB_all);
-  const Vector3d& p_WBr = X_WB_all[right_finger.index()].translation();
-  const Vector3d& p_WBl = X_WB_all[left_finger.index()].translation();
+  const Vector3d& p_WBr = plant.EvalBodyPoseInWorld(
+      plant_context, right_finger).translation();
+  const Vector3d& p_WBl = plant.EvalBodyPoseInWorld(
+      plant_context, left_finger).translation();
   const double mug_y_W = (p_WBr(1) + p_WBl(1)) / 2.0;
 
   Isometry3d X_WM;
@@ -336,7 +336,7 @@ int do_main() {
                (FLAGS_rz * M_PI / 180) + M_PI);
   X_WM.linear() = RotationMatrix<double>(RollPitchYaw<double>(rpy)).matrix();
   X_WM.translation() = Vector3d(0.0, mug_y_W, 0.0);
-  plant.tree().SetFreeBodyPoseOrThrow(mug, X_WM, &plant_context);
+  plant.SetFreeBodyPose(&plant_context, mug, X_WM);
 
   // Set the initial height of the gripper and its initial velocity so that with
   // the applied harmonic forces it continues to move in a harmonic oscillation

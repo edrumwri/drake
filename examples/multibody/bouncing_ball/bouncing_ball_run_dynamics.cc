@@ -9,7 +9,7 @@
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/math/random_rotation.h"
-#include "drake/multibody/multibody_tree/quaternion_floating_mobilizer.h"
+#include "drake/multibody/tree/quaternion_floating_mobilizer.h"
 #include "drake/systems/analysis/implicit_euler_integrator.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
@@ -48,9 +48,8 @@ using systems::RungeKutta3Integrator;
 using systems::SemiExplicitEulerIntegrator;
 
 // "multibody" namespace is ambiguous here without "drake::".
-using drake::multibody::multibody_plant::CoulombFriction;
-using drake::multibody::multibody_plant::MultibodyPlant;
-using drake::multibody::MultibodyTree;
+using drake::multibody::CoulombFriction;
+using drake::multibody::MultibodyPlant;
 using drake::multibody::QuaternionFloatingMobilizer;
 
 int do_main() {
@@ -73,7 +72,6 @@ int do_main() {
 
   MultibodyPlant<double>& plant = *builder.AddSystem(MakeBouncingBallPlant(
       radius, mass, coulomb_friction, -g * Vector3d::UnitZ(), &scene_graph));
-  const MultibodyTree<double>& tree = plant.tree();
   // Set how much penetration (in meters) we are willing to accept.
   plant.set_penetration_allowance(0.001);
 
@@ -109,13 +107,12 @@ int do_main() {
   // Set at height z0 with random orientation.
   std::mt19937 generator(41);
   std::uniform_real_distribution<double> uniform(-1.0, 1.0);
-  tree.SetDefaultContext(&plant_context);
   Matrix3d R_WB = math::UniformlyRandomRotationMatrix(&generator).matrix();
   Isometry3d X_WB = Isometry3d::Identity();
   X_WB.linear() = R_WB;
   X_WB.translation() = Vector3d(0.0, 0.0, z0);
-  tree.SetFreeBodyPoseOrThrow(
-      tree.GetBodyByName("Ball"), X_WB, &plant_context);
+  plant.SetFreeBodyPose(
+      &plant_context, plant.GetBodyByName("Ball"), X_WB);
 
   systems::Simulator<double> simulator(*diagram, std::move(diagram_context));
 
@@ -197,7 +194,7 @@ int do_main() {
 
 int main(int argc, char* argv[]) {
   gflags::SetUsageMessage(
-      "A simple acrobot demo using Drake's MultibodyTree,"
+      "A simple acrobot demo using Drake's MultibodyPlant,"
       "with SceneGraph visualization. "
       "Launch drake-visualizer before running this example.");
   gflags::ParseCommandLineFlags(&argc, &argv, true);

@@ -1,7 +1,10 @@
 
 import argparse
 
-import Tkinter as tk
+try:
+    import tkinter as tk
+except ImportError:
+    import Tkinter as tk
 import numpy as np
 
 from pydrake.common import FindResourceOrThrow
@@ -12,13 +15,14 @@ from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
 from pydrake.manipulation.simple_ui import SchunkWsgButtons
 from pydrake.manipulation.planner import (
     DifferentialInverseKinematicsParameters, DoDifferentialInverseKinematics)
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
-from pydrake.math import RigidTransform, RollPitchYaw
+from pydrake.multibody.parsing import Parser
+from pydrake.math import RigidTransform, RollPitchYaw, RotationMatrix
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import (AbstractValue, BasicVector,
                                        DiagramBuilder, LeafSystem,
                                        PortDataType)
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.primitives import FirstOrderLowPassFilter
 from pydrake.util.eigen_geometry import Isometry3, AngleAxis
 
 
@@ -26,12 +30,12 @@ from pydrake.util.eigen_geometry import Isometry3, AngleAxis
 class EndEffectorTeleop(LeafSystem):
     def __init__(self):
         LeafSystem.__init__(self)
-        self._DeclareAbstractOutputPort("X_WE",
-                                        lambda: AbstractValue.Make(
-                                            Isometry3.Identity()),
-                                        self._DoCalcOutput)
+        self._DeclareVectorOutputPort("rpy_xyz", BasicVector(6),
+                                      self._DoCalcOutput)
 
-        self._DeclarePeriodicPublish(0.1, 0.0)
+        # Note: This timing affects the keyboard teleop performance. A larger
+        #       time step causes more lag in the response.
+        self._DeclarePeriodicPublish(0.01, 0.0)
 
         self.window = tk.Tk()
         self.window.title("End-Effector TeleOp")
@@ -54,24 +58,52 @@ class EndEffectorTeleop(LeafSystem):
                             length=800,
                             orient=tk.HORIZONTAL)
         self.yaw.pack()
-        self.x = tk.Scale(self.window, from_=0.1, to=0.8,
+        self.x = tk.Scale(self.window, from_=-0.6, to=0.8,
                           resolution=-1,
                           label="x",
                           length=800,
                           orient=tk.HORIZONTAL)
         self.x.pack()
-        self.y = tk.Scale(self.window, from_=-0.3, to=0.3,
+        self.y = tk.Scale(self.window, from_=-0.8, to=0.3,
                           resolution=-1,
                           label="y",
                           length=800,
                           orient=tk.HORIZONTAL)
         self.y.pack()
-        self.z = tk.Scale(self.window, from_=0, to=0.8,
+        self.z = tk.Scale(self.window, from_=0, to=1.1,
                           resolution=-1,
                           label="z",
                           length=800,
                           orient=tk.HORIZONTAL)
         self.z.pack()
+
+        # The key bindings below provide teleop functionality via the
+        # keyboard, and are somewhat arbitrary (inspired by gaming
+        # conventions). Note that in order for the keyboard bindings to
+        # be active, the teleop slider window must be the active window.
+
+        def update(scale, value):
+            return lambda event: scale.set(scale.get() + value)
+
+        # Delta displacements for motion via keyboard teleop.
+        rotation_delta = 0.05  # rad
+        position_delta = 0.01  # m
+
+        # Linear motion key bindings.
+        self.window.bind("<Up>", update(self.z, +position_delta))
+        self.window.bind("<Down>", update(self.z, -position_delta))
+        self.window.bind("<d>", update(self.y, +position_delta))
+        self.window.bind("<a>", update(self.y, -position_delta))
+        self.window.bind("<w>", update(self.x, +position_delta))
+        self.window.bind("<s>", update(self.x, -position_delta))
+
+        # Rotational motion key bindings.
+        self.window.bind("<Control-d>", update(self.pitch, +rotation_delta))
+        self.window.bind("<Control-a>", update(self.pitch, -rotation_delta))
+        self.window.bind("<Control-w>", update(self.roll, +rotation_delta))
+        self.window.bind("<Control-s>", update(self.roll, -rotation_delta))
+        self.window.bind("<Control-Up>", update(self.yaw, +rotation_delta))
+        self.window.bind("<Control-Down>", update(self.yaw, -rotation_delta))
 
     def SetPose(self, pose):
         """
@@ -102,12 +134,12 @@ class EndEffectorTeleop(LeafSystem):
         self.window.update()
 
     def _DoCalcOutput(self, context, output):
-        output.get_mutable_value().set_rotation(RollPitchYaw(self.roll.get(),
-                                                             self.pitch.get(),
-                                                             self.yaw.get()).
-                                                ToRotationMatrix().matrix())
-        output.get_mutable_value().set_translation([self.x.get(), self.y.get(),
-                                                    self.z.get()])
+        output.SetAtIndex(0, self.roll.get())
+        output.SetAtIndex(1, self.pitch.get())
+        output.SetAtIndex(2, self.yaw.get())
+        output.SetAtIndex(3, self.x.get())
+        output.SetAtIndex(4, self.y.get())
+        output.SetAtIndex(5, self.z.get())
 
 
 # TODO(russt): Clean this up and move it to C++.
@@ -142,7 +174,7 @@ class DifferentialIK(LeafSystem):
         # methods.
         self.robot_context = robot.CreateDefaultContext()
         # Confirm that all velocities are zero (they will not be reset below).
-        assert not self.robot.tree().GetPositionsAndVelocities(
+        assert not self.robot.GetPositionsAndVelocities(
             self.robot_context)[-robot.num_velocities():].any()
 
         # Store the robot positions as state.
@@ -150,7 +182,8 @@ class DifferentialIK(LeafSystem):
         self._DeclarePeriodicDiscreteUpdate(time_step)
 
         # Desired pose of frame E in world frame.
-        self._DeclareAbstractInputPort("X_WE_desired")
+        self._DeclareInputPort("rpy_xyz_desired",
+                               PortDataType.kVectorValued, 6)
 
         # Provide the output as desired positions.
         self._DeclareVectorOutputPort("joint_position_desired", BasicVector(
@@ -160,10 +193,10 @@ class DifferentialIK(LeafSystem):
         context.get_mutable_discrete_state(0).SetFromVector(q)
 
     def ForwardKinematics(self, q):
-        x = self.robot.tree().GetMutablePositionsAndVelocities(
+        x = self.robot.GetMutablePositionsAndVelocities(
             self.robot_context)
         x[:robot.num_positions()] = q
-        return self.robot.tree().EvalBodyPoseInWorld(
+        return self.robot.EvalBodyPoseInWorld(
             self.robot_context, self.frame_E.body())
 
     def CalcPoseError(self, X_WE_desired, q):
@@ -177,10 +210,12 @@ class DifferentialIK(LeafSystem):
 
     def _DoCalcDiscreteVariableUpdates(
             self, context, events, discrete_state):
-        X_WE_desired = self.EvalAbstractInput(context, 0).get_value()
+        rpy_xyz_desired = self.EvalVectorInput(context, 0).get_value()
+        X_WE_desired = RigidTransform(RollPitchYaw(rpy_xyz_desired[:3]),
+                                      rpy_xyz_desired[-3:]).GetAsIsometry3()
         q_last = context.get_discrete_state_vector().get_value()
 
-        x = self.robot.tree().GetMutablePositionsAndVelocities(
+        x = self.robot.GetMutablePositionsAndVelocities(
             self.robot_context)
         x[:robot.num_positions()] = q_last
         result = DoDifferentialInverseKinematics(self.robot,
@@ -214,6 +249,22 @@ parser.add_argument(
 parser.add_argument(
     "--test", action='store_true',
     help="Disable opening the gui window for testing.")
+parser.add_argument(
+    "--filter_time_const", type=float, default=0.1,
+    help="Time constant for the first order low pass filter applied to"
+         "the teleop commands")
+parser.add_argument(
+    "--velocity_limit_factor", type=float, default=0.15,
+    help="This value, typically between 0 and 1, further limits the iiwa14 "
+         "joint velocities. It multiplies each of the seven pre-defined "
+         "joint velocity limits. "
+         "Note: The pre-defined velocity limits are specified by "
+         "iiwa14_velocity_limits, found in this python file.")
+parser.add_argument(
+    '--setup', type=str, default='default',
+    help="The manipulation station setup to simulate. ",
+    choices=['default', 'clutter_clearing'])
+
 MeshcatVisualizer.add_argparse_argument(parser)
 args = parser.parse_args()
 
@@ -224,13 +275,14 @@ if args.hardware:
     station.Connect(wait_for_cameras=False)
 else:
     station = builder.AddSystem(ManipulationStation())
-    station.AddCupboard()
-    object = AddModelFromSdfFile(FindResourceOrThrow(
-        "drake/examples/manipulation_station/models/061_foam_brick.sdf"),
-        "object", station.get_mutable_multibody_plant(),
-        station.get_mutable_scene_graph())
-    station.Finalize()
 
+    # Initializes the chosen station type.
+    if args.setup == 'default':
+        station.SetupDefaultStation()
+    elif args.setup == 'clutter_clearing':
+        station.SetupClutterClearingStation()
+
+    station.Finalize()
     ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                            station.GetOutputPort("pose_bundle"))
     if args.meshcat:
@@ -249,8 +301,9 @@ params.set_timestep(time_step)
 # decimal)
 iiwa14_velocity_limits = np.array([1.4, 1.4, 1.7, 1.3, 2.2, 2.3, 2.3])
 # Stay within a small fraction of those limits for this teleop demo.
-params.set_joint_velocity_limits((-.15*iiwa14_velocity_limits,
-                                  .15*iiwa14_velocity_limits))
+factor = args.velocity_limit_factor
+params.set_joint_velocity_limits((-factor*iiwa14_velocity_limits,
+                                  factor*iiwa14_velocity_limits))
 
 differential_ik = builder.AddSystem(DifferentialIK(
     robot, robot.GetFrameByName("iiwa_link_7"), params, time_step))
@@ -261,9 +314,12 @@ builder.Connect(differential_ik.GetOutputPort("joint_position_desired"),
 teleop = builder.AddSystem(EndEffectorTeleop())
 if args.test:
     teleop.window.withdraw()  # Don't display the window when testing.
+filter = builder.AddSystem(
+    FirstOrderLowPassFilter(time_constant=args.filter_time_const, size=6))
 
-builder.Connect(teleop.get_output_port(0),
-                differential_ik.GetInputPort("X_WE_desired"))
+builder.Connect(teleop.get_output_port(0), filter.get_input_port(0))
+builder.Connect(filter.get_output_port(0),
+                differential_ik.GetInputPort("rpy_xyz_desired"))
 
 wsg_buttons = builder.AddSystem(SchunkWsgButtons(teleop.window))
 builder.Connect(wsg_buttons.GetOutputPort("position"), station.GetInputPort(
@@ -280,31 +336,16 @@ station_context = diagram.GetMutableSubsystemContext(
 station_context.FixInputPort(station.GetInputPort(
     "iiwa_feedforward_torque").get_index(), np.zeros(7))
 
-if not args.hardware:
-    # Set the initial positions of the IIWA to a comfortable configuration
-    # inside the workspace of the station.
-    q0 = [0, 0.6, 0, -1.75, 0, 1.0, 0]
-    station.SetIiwaPosition(q0, station_context)
-    station.SetIiwaVelocity(np.zeros(7), station_context)
-
-    # Set the initial configuration of the gripper to open.
-    station.SetWsgPosition(0.1, station_context)
-    station.SetWsgVelocity(0, station_context)
-
-    # Place the object in the middle of the workspace.
-    X_WObject = Isometry3.Identity()
-    X_WObject.set_translation([.6, 0, 0])
-    station.get_multibody_plant().tree().SetFreeBodyPoseOrThrow(
-        station.get_multibody_plant().GetBodyByName("base_link",
-                                                    object),
-        X_WObject, station.GetMutableSubsystemContext(
-            station.get_multibody_plant(),
-            station_context))
-
 q0 = station.GetOutputPort("iiwa_position_measured").Eval(
     station_context).get_value()
 differential_ik.parameters.set_nominal_joint_position(q0)
+
 teleop.SetPose(differential_ik.ForwardKinematics(q0))
+filter.set_initial_output_value(
+    diagram.GetMutableSubsystemContext(
+        filter, simulator.get_mutable_context()),
+    teleop.get_output_port(0).Eval(diagram.GetMutableSubsystemContext(
+        teleop, simulator.get_mutable_context())).get_value())
 differential_ik.SetPositions(diagram.GetMutableSubsystemContext(
     differential_ik, simulator.get_mutable_context()), q0)
 

@@ -15,8 +15,8 @@ namespace cylinder_with_multicontact {
 namespace {
 
 using drake::geometry::SceneGraph;
-using drake::multibody::multibody_plant::CoulombFriction;
-using drake::multibody::multibody_plant::MultibodyPlant;
+using drake::multibody::CoulombFriction;
+using drake::multibody::MultibodyPlant;
 using drake::multibody::RigidBody;
 using drake::multibody::SpatialInertia;
 using Eigen::Vector3d;
@@ -47,7 +47,7 @@ GTEST_TEST(MakeCylinderPlant, VerifyPlant) {
 
   ASSERT_TRUE(plant->HasBodyNamed("Cylinder"));
   const RigidBody<double>& cylinder =
-      plant->tree().GetRigidBodyByName("Cylinder");
+      plant->GetRigidBodyByName("Cylinder");
   EXPECT_EQ(cylinder.get_default_mass(), mass);
 
   // Verify the value of the inertial properties for the cylinder.

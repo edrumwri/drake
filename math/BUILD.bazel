@@ -377,6 +377,7 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "quadratic_form_test",
     deps = [
+        ":geometric_transform",
         ":quadratic_form",
         "//common/test_utilities:eigen_matrix_compare",
     ],
@@ -388,6 +389,14 @@ drake_cc_googletest(
         ":autodiff",
         ":geometric_transform",
         "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "random_rotation_test",
+    deps = [
+        ":geometric_transform",
+        "//common:symbolic",
     ],
 )
 

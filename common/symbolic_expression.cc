@@ -159,9 +159,21 @@ Polynomiald Expression::ToPolynomial() const {
   return ptr_->ToPolynomial();
 }
 
-double Expression::Evaluate(const Environment& env) const {
+double Expression::Evaluate(const Environment& env,
+                            RandomGenerator* const random_generator) const {
   DRAKE_ASSERT(ptr_ != nullptr);
-  return ptr_->Evaluate(env);
+  if (random_generator == nullptr) {
+    return ptr_->Evaluate(env);
+  } else {
+    Environment env_with_random_variables{env};
+    return ptr_->Evaluate(
+        PopulateRandomVariables(env, GetVariables(), random_generator));
+  }
+}
+
+double Expression::Evaluate(RandomGenerator* const random_generator) const {
+  DRAKE_ASSERT(ptr_ != nullptr);
+  return Evaluate(Environment{}, random_generator);
 }
 
 Expression Expression::EvaluatePartial(const Environment& env) const {
@@ -169,7 +181,7 @@ Expression Expression::EvaluatePartial(const Environment& env) const {
     return *this;
   }
   Substitution subst;
-  for (const pair<Variable, double>& p : env) {
+  for (const pair<const Variable, double>& p : env) {
     subst.emplace(p.first, p.second);
   }
   return Substitute(subst);

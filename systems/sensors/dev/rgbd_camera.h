@@ -27,7 +27,11 @@ namespace dev {
 
  @system{RgbdCamera,
     @input_port{geometry_query},
-    @output_port{color_image} @output_port{depth_image} @output_port{label_image} @output_port{X_WB}
+    @output_port{color_image}
+    @output_port{depth_image_32f}
+    @output_port{depth_image_16u}
+    @output_port{label_image}
+    @output_port{X_WB}
  }
 
  Let `W` be the world coordinate system. In addition to `W`, there are three
@@ -50,22 +54,31 @@ namespace dev {
  modeled in this system. For more details about the poses of `C` and `D`,
  see the class documentation of CameraInfo.
 
- Output image format:
-   - The RGB image has four channels in the following order: red, green
-     blue, and alpha. Each channel is represented by a uint8_t.
+ Output port image formats:
+   - color_image: Four channels, each channel uint8_t, in the following order:
+     red, green, blue, and alpha.
 
-   - The depth image has a depth channel represented by a float. The value
-     stored in the depth channel holds *the Z value in `D`.*  Note that this
-     is different from the range data used by laser range finders (like that
-     provided by DepthSensor) in which the depth value represents the
-     distance from the sensor origin to the object's surface.
+   - depth_image_32f: One channel, float, representing the Z value in
+     `D` in *meters*. The values 0 and infinity are reserved for out-of-range
+     depth returns (too close or too far, respectively, as defined by
+     DepthCameraProperties).
 
-   - The label image has a single channel represented by a int16_t. The value
-     stored in the channel holds a model ID which corresponds to an object
-     in the scene. For the pixels corresponding to no body, namely the sky
-     and the flat terrain, we assign RenderLabel::empty_label() and
-     RenderLabel::terrain_label(), respectively.
+   - depth_image_16u: One channel, uint16_t, representing the Z value in
+     `D` in *millimeters*. The values 0 and 65535 are reserved for out-of-range
+     depth returns (too close or too far, respectively, as defined by
+     DepthCameraProperties). Additionally, 65535 will also be returned if the
+     depth measurement exceeds the representation range of uint16_t. Thus, the
+     maximum valid depth return is 65534mm.
+
+   - label_image: One channel, int16_t, whose value is the model ID which
+     corresponds to an object in the scene. The values
+     RenderLabel::empty_label() and RenderLabel::terrain_label() are reserved
+     for pixels corresponding to no body (the sky and terrain, respectively).
      <!-- TODO(SeanCurtis-TRI): Update these names based on fixing labels. -->
+
+ @note These depth camera measurements differ from those of range data used by
+ laser range finders (like DepthSensor), where the depth value represents the
+ distance from the sensor origin to the object's surface.
 
  @ingroup sensor_systems  */
 class RgbdCamera final : public LeafSystem<double> {
@@ -151,13 +164,13 @@ class RgbdCamera final : public LeafSystem<double> {
   const OutputPort<double>& camera_base_pose_output_port() const;
 
  private:
-  void InitPorts(const std::string& name);
-
   // These are the calculator methods for the four output ports.
   void CalcColorImage(const Context<double>& context,
                       ImageRgba8U* color_image) const;
-  void CalcDepthImage(const Context<double>& context,
-                      ImageDepth32F* depth_image) const;
+  void CalcDepthImage32F(const Context<double>& context,
+                         ImageDepth32F* depth_image) const;
+  void CalcDepthImage16U(const Context<double>& context,
+                         ImageDepth16U* depth_image) const;
   void CalcLabelImage(const Context<double>& context,
                       ImageLabel16I* label_image) const;
   void CalcPoseVector(const Context<double>& context,

@@ -6,31 +6,26 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/geometry/scene_graph.h"
 #include "drake/math/autodiff_gradient.h"
-#include "drake/multibody/benchmarks/kuka_iiwa_robot/make_kuka_iiwa_model.h"
-#include "drake/multibody/multibody_tree/multibody_plant/multibody_plant.h"
-#include "drake/multibody/multibody_tree/multibody_tree.h"
+#include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/tree/multibody_tree.h"
+#include "drake/systems/framework/diagram.h"
 
 namespace drake {
 namespace multibody {
-/**
- * Constructs a MultibodyTree consisting of two free bodies.
- */
-template <typename T>
-std::unique_ptr<MultibodyTree<T>> ConstructTwoFreeBodies();
 
 /**
  * Constructs a MultibodyPlant consisting of two free bodies.
  */
 template <typename T>
-std::unique_ptr<multibody_plant::MultibodyPlant<T>>
-ConstructTwoFreeBodiesPlant();
+std::unique_ptr<MultibodyPlant<T>> ConstructTwoFreeBodiesPlant();
 
 /**
  * Constructs a MultibodyPlant consisting of an Iiwa robot.
  */
-std::unique_ptr<multibody_plant::MultibodyPlant<double>> ConstructIiwaPlant(
-    const std::string& iiwa_sdf_name, double time_step);
+std::unique_ptr<MultibodyPlant<double>> ConstructIiwaPlant(
+    const std::string& file_path, double time_step);
 
 /**
  * Compares if two eigen matrices of AutoDiff have the same values and
@@ -63,24 +58,17 @@ class IiwaKinematicConstraintTest : public ::testing::Test {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(IiwaKinematicConstraintTest)
 
-  IiwaKinematicConstraintTest()
-      : iiwa_autodiff_(benchmarks::kuka_iiwa_robot::MakeKukaIiwaModel<
-            AutoDiffXd>(true /* finalized model. */)),
-        iiwa_double_(benchmarks::kuka_iiwa_robot::MakeKukaIiwaModel<double>(
-            true /* finalized model. */)),
-        context_autodiff_(iiwa_autodiff_.CreateDefaultContext()),
-        context_double_(iiwa_double_.CreateDefaultContext()) {}
-
-  FrameIndex GetFrameIndex(const std::string& name) {
-    // TODO(hongkai.dai): call GetFrameByName() directly.
-    return iiwa_autodiff_.tree().GetFrameByName(name).index();
-  }
+  IiwaKinematicConstraintTest();
 
  protected:
-  MultibodyTreeSystem<AutoDiffXd> iiwa_autodiff_;
-  MultibodyTreeSystem<double> iiwa_double_;
-  std::unique_ptr<systems::Context<AutoDiffXd>> context_autodiff_;
-  std::unique_ptr<systems::Context<double>> context_double_;
+  std::unique_ptr<systems::Diagram<double>> diagram_{};
+  MultibodyPlant<double>* plant_{};
+  geometry::SceneGraph<double>* scene_graph_{};
+  std::unique_ptr<systems::Context<double>> diagram_context_;
+  systems::Context<double>* plant_context_;
+  // Autodiff, without scene graph.
+  std::unique_ptr<MultibodyPlant<AutoDiffXd>> plant_autodiff_;
+  std::unique_ptr<systems::Context<AutoDiffXd>> plant_context_autodiff_;
 };
 
 // Test kinematic constraints on two free floating bodies.
@@ -88,29 +76,20 @@ class TwoFreeBodiesConstraintTest : public ::testing::Test {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(TwoFreeBodiesConstraintTest)
 
-  TwoFreeBodiesConstraintTest()
-      : two_bodies_autodiff_(ConstructTwoFreeBodies<AutoDiffXd>()),
-        two_bodies_double_(ConstructTwoFreeBodies<double>()),
-        body1_index_(two_bodies_autodiff_.tree()
-                         .GetBodyByName("body1")
-                         .body_frame()
-                         .index()),
-        body2_index_(two_bodies_autodiff_.tree()
-                         .GetBodyByName("body2")
-                         .body_frame()
-                         .index()),
-        context_autodiff_(two_bodies_autodiff_.CreateDefaultContext()),
-        context_double_(two_bodies_double_.CreateDefaultContext()) {}
+  TwoFreeBodiesConstraintTest();
 
   ~TwoFreeBodiesConstraintTest() override {}
 
  protected:
-  MultibodyTreeSystem<AutoDiffXd> two_bodies_autodiff_;
-  MultibodyTreeSystem<double> two_bodies_double_;
+  std::unique_ptr<systems::Diagram<double>> diagram_;
+  MultibodyPlant<double>* plant_{};
+  std::unique_ptr<systems::Context<double>> diagram_context_;
+  systems::Context<double>* plant_context_;
   FrameIndex body1_index_;
   FrameIndex body2_index_;
-  std::unique_ptr<systems::Context<AutoDiffXd>> context_autodiff_;
-  std::unique_ptr<systems::Context<double>> context_double_;
+  // Autodiff, without scene graph.
+  std::unique_ptr<MultibodyPlant<AutoDiffXd>> plant_autodiff_;
+  std::unique_ptr<systems::Context<AutoDiffXd>> plant_context_autodiff_;
 };
 }  // namespace internal
 }  // namespace multibody
