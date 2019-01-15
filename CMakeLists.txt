@@ -142,24 +142,67 @@ else()
   )
 endif()
 
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING
-    "Choose the type of build, options are None Debug Release RelWithDebInfo MinSizeRel"
-    FORCE
-  )
-  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
-    STRINGS None Debug Release RelWithDebInfo MinSizeRel
-  )
+if(NOT CMAKE_CONFIGURATION_TYPES)
+  set(SUPPORTED_BUILD_TYPES None Debug Release RelWithDebInfo MinSizeRel)
+
+  if(NOT CMAKE_BUILD_TYPE)
+    string(REPLACE ";" " " SUPPORTED_BUILD_TYPES_STRING
+      "${SUPPORTED_BUILD_TYPES}"
+    )
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+      "Choose the type of build, options are ${SUPPORTED_BUILD_TYPES_STRING}"
+      FORCE
+    )
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
+      STRINGS "${SUPPORTED_BUILD_TYPES}"
+    )
+  endif()
+
+  if(NOT CMAKE_BUILD_TYPE IN_LIST SUPPORTED_BUILD_TYPES)
+    message(WARNING "Configuration ${CMAKE_BUILD_TYPE} is NOT supported")
+  endif()
 endif()
 
-if(APPLE)
-  # Ensure that the python2 executable or link is used in preference to the
-  # python and python2.7 executables or links.
-  find_program(PYTHON_EXECUTABLE NAMES python2)
+# The supported Python major/minor versions should match those listed in both
+# doc/developers.rst and tools/workspace/python/repository.bzl.
+set(SUPPORTED_PYTHON_VERSIONS 2 2.7 3 3.6 3.7)
+
+if(PYTHON_EXECUTABLE)
+  find_package(PythonInterp MODULE REQUIRED)
+else()
+  string(REPLACE ";" " " SUPPORTED_PYTHON_VERSIONS_STRING
+    "${SUPPORTED_PYTHON_VERSIONS}"
+  )
+  set(WITH_PYTHON_VERSION 2 CACHE STRING
+    "Choose the version of Python to use, options are ${SUPPORTED_PYTHON_VERSIONS_STRING}"
+  )
+  set_property(CACHE WITH_PYTHON_VERSION PROPERTY
+    STRINGS "${SUPPORTED_PYTHON_VERSIONS}"
+  )
+
+  string(REPLACE "." ";" WITH_PYTHON_VERSION_LIST "${WITH_PYTHON_VERSION}")
+  list(GET WITH_PYTHON_VERSION_LIST 0 WITH_PYTHON_VERSION_MAJOR)
+
+  if(APPLE AND WITH_PYTHON_VERSION_MAJOR EQUAL 2)
+    # Ensure that the python2 executable or link is used in preference to the
+    # python and python2.7 executables or links, which correspond to the
+    # system version of Python installed on macOS. There is no system python3
+    # as of macOS Mojave 10.14.
+    find_program(PYTHON_EXECUTABLE NAMES python2)
+  endif()
+
+  find_package(PythonInterp ${WITH_PYTHON_VERSION} EXACT MODULE REQUIRED)
 endif()
 
-# TODO(jamiesnape) Ensure that we can switch between supported versions.
-find_package(PythonInterp 2.7 EXACT MODULE REQUIRED)
+set(PYTHON_VERSION_MAJOR_MINOR
+  "${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
+)
+
+if(NOT PYTHON_VERSION_MAJOR_MINOR IN_LIST SUPPORTED_PYTHON_VERSIONS)
+  message(WARNING
+    "Python ${PYTHON_VERSION_MAJOR_MINOR} is NOT supported. Python code in project drake_cxx_python may fail at runtime."
+  )
+endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   set(BAZEL_COMPILATION_MODE dbg)
@@ -192,7 +235,7 @@ string(FIND "${PROJECT_BINARY_DIR_REALPATH}/" "${PROJECT_SOURCE_DIR_REALPATH}/"
 if(STRING_FIND_RESULT_VARIABLE EQUAL 0)
   # The --output_base cannot be within the WORKSPACE (a subdirectory of
   # PROJECT_SOURCE_DIR), so fallback to the using the same parent directory
-  # that bazel uses by default for its --output_base.
+  # that Bazel uses by default for its --output_base.
   if(APPLE)
     set(BAZEL_OUTPUT_BASE "/var/tmp")
   else()
@@ -202,8 +245,8 @@ else()
   set(BAZEL_OUTPUT_BASE "${PROJECT_BINARY_DIR}")
 endif()
 
-# Compute the MD5 of the PROJECT_BINARY_DIR rather than the WORKSPACE
-# (PROJECT_SOURCE_DIR) to avoid colliding with the directory that bazel uses by
+# Compute the MD5 hash of the PROJECT_BINARY_DIR rather than the WORKSPACE
+# (PROJECT_SOURCE_DIR) to avoid colliding with the directory that Bazel uses by
 # default.
 string(MD5 PROJECT_BINARY_DIR_MD5 "${PROJECT_BINARY_DIR_REALPATH}")
 set(BAZEL_OUTPUT_BASE
@@ -254,20 +297,31 @@ if(WITH_MOSEK)
   list(APPEND BAZEL_ARGS --config=mosek)
 endif()
 
-option(WITH_ROBOTLOCOMOTION_SNOPT "Build with support for SNOPT using the RobotLocomotion/snopt private GitHub repository" OFF)
-option(WITH_SNOPT "Build with support for SNOPT using the SNOPT source archive at SNOPT_PATH" OFF)
+option(WITH_ROBOTLOCOMOTION_SNOPT
+  "Build with support for SNOPT using the RobotLocomotion/snopt private GitHub repository"
+  OFF
+)
+option(WITH_SNOPT
+  "Build with support for SNOPT using a SNOPT source archive at SNOPT_PATH"
+  OFF
+)
 
 if(WITH_ROBOTLOCOMOTION_SNOPT AND WITH_SNOPT)
   message(FATAL_ERROR
-    "WITH_SNOPT and WITH_ROBOTLOCOMOTION_SNOPT are mutually exclusive")
+    "WITH_ROBOTLOCOMOTION_SNOPT and WITH_SNOPT options are mutually exclusive"
+  )
 elseif(WITH_ROBOTLOCOMOTION_SNOPT)
   list(APPEND BAZEL_ARGS --config=snopt)
   list(APPEND BAZEL_ENV "SNOPT_PATH=git")
 elseif(WITH_SNOPT)
   list(APPEND BAZEL_ARGS --config=snopt)
-  set(SNOPT_PATH SNOPT_PATH-NOTFOUND CACHE FILEPATH "Path to SNOPT source archive")
+  set(SNOPT_PATH SNOPT_PATH-NOTFOUND CACHE FILEPATH
+    "Path to SNOPT source archive"
+  )
   if(NOT EXISTS "${SNOPT_PATH}")
-    message(FATAL_ERROR "SNOPT source archive was NOT found at '${SNOPT_PATH}'")
+    message(FATAL_ERROR
+      "SNOPT source archive was NOT found at '${SNOPT_PATH}'"
+    )
   endif()
   mark_as_advanced(SNOPT_PATH)
   list(APPEND BAZEL_ENV "SNOPT_PATH=${SNOPT_PATH}")
@@ -301,12 +355,15 @@ if(CMAKE_STRIP)
   list(INSERT BAZEL_TARGETS_ARGS 0 "--strip_tool" "${CMAKE_STRIP}")
 endif()
 
-# If we are in debug mode, do not strip symbols.
-if(CMAKE_BUILD_TYPE STREQUAL Debug OR CMAKE_BUILD_TYPE STREQUAL RelWithDebugInfo)
+# If CMAKE_BUILD_TYPE is Debug or RelWithDebInfo, do NOT strip symbols during
+# install.
+if(CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo)$")
   # SNOPT has restrictions for redistribution given that we are statically
   # linking it in.
   if(WITH_SNOPT OR WITH_ROBOTLOCOMOTION_SNOPT)
-    message(WARNING "SNOPT is enabled, thus symbols will STILL be stripped, even in debug mode.")
+    message(WARNING
+      "Install configuration ${CMAKE_BUILD_TYPE} will STILL strip symbols because support for SNOPT is enabled"
+    )
   else()
     list(INSERT BAZEL_TARGETS_ARGS 0 "--no_strip")
   endif()
@@ -317,12 +374,26 @@ include(ExternalProject)
 ExternalProject_Add(drake_cxx_python
   SOURCE_DIR "${PROJECT_SOURCE_DIR}"
   CONFIGURE_COMMAND :
-  BUILD_COMMAND ${BAZEL_ENV} "${Bazel_EXECUTABLE}" ${BAZEL_STARTUP_ARGS} build ${BAZEL_ARGS} ${BAZEL_TARGETS}
-  BUILD_IN_SOURCE 1
-  BUILD_ALWAYS 1
-  INSTALL_COMMAND ${BAZEL_ENV} "${Bazel_EXECUTABLE}" ${BAZEL_STARTUP_ARGS} run ${BAZEL_ARGS} ${BAZEL_TARGETS} -- ${BAZEL_TARGETS_ARGS}
-  USES_TERMINAL_BUILD 1
-  USES_TERMINAL_INSTALL 1
+  BUILD_COMMAND
+    ${BAZEL_ENV}
+    "${Bazel_EXECUTABLE}"
+    ${BAZEL_STARTUP_ARGS}
+    build
+    ${BAZEL_ARGS}
+    ${BAZEL_TARGETS}
+  BUILD_IN_SOURCE ON
+  BUILD_ALWAYS ON
+  INSTALL_COMMAND
+    ${BAZEL_ENV}
+    "${Bazel_EXECUTABLE}"
+    ${BAZEL_STARTUP_ARGS}
+    run
+    ${BAZEL_ARGS}
+    ${BAZEL_TARGETS}
+    --
+    ${BAZEL_TARGETS_ARGS}
+  USES_TERMINAL_BUILD ON
+  USES_TERMINAL_INSTALL ON
 )
 
 set(GIT_DIR "${PROJECT_SOURCE_DIR}/.git")
@@ -331,7 +402,8 @@ set(GIT_REVISION HEAD)
 find_package(Git)
 
 if(GIT_FOUND AND EXISTS "${GIT_DIR}")
-  execute_process(COMMAND "${GIT_EXECUTABLE}" "--git-dir=${GIT_DIR}" rev-parse HEAD
+  execute_process(COMMAND
+    "${GIT_EXECUTABLE}" "--git-dir=${GIT_DIR}" rev-parse HEAD
     RESULT_VARIABLE GIT_REV_PARSE_RESULT_VARIABLE
     OUTPUT_VARIABLE GIT_REV_PARSE_OUTPUT_VARIABLE
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -365,7 +437,7 @@ if(WITH_MATLAB)
       "-DCMAKE_SHARED_LINKER_FLAGS:STRING=${CMAKE_SHARED_LINKER_FLAGS}"
       -DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}
     BINARY_DIR "${PROJECT_BINARY_DIR}/drake_matlab-build"
-    BUILD_ALWAYS 1
+    BUILD_ALWAYS ON
   )
 endif()
 
@@ -396,7 +468,8 @@ else()
   set(CPACK_DEBIAN_PACKAGE_RELEASE 1)
   set(CPACK_DEBIAN_PACKAGE_SECTION contrib/devel)
 
-  file(STRINGS "setup/${UNIX_DISTRIBUTION_ID}/binary_distribution/packages-${UNIX_DISTRIBUTION_CODENAME}.txt"
+  file(STRINGS
+    "setup/${UNIX_DISTRIBUTION_ID}/binary_distribution/packages-${UNIX_DISTRIBUTION_CODENAME}.txt"
     CPACK_DEBIAN_PACKAGE_DEPENDS
   )
   string(REGEX REPLACE "([a-z0-9\\-]+)=([a-z0-9\\-\\.~]+)" "\\1 (= \\2)"
