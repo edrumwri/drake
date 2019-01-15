@@ -13,9 +13,11 @@ drake_cc_binary(
     name = "brick_vs_halfspace",
     srcs = ["brick_vs_halfspace.cc"],
     deps = [
+        "//common:find_resource",
         "//common:text_logging_gflags",
         "//geometry:geometry_visualization",
-        "//multibody/multibody_tree/multibody_plant:contact_surfaces_to_lcm",
+        "//multibody/plant:contact_surfaces_to_lcm",
+        "//multibody/parsing",
         "//systems/analysis:simulator",
         "//systems/framework:diagram",
         "//systems/lcm:lcm_pubsub_system",

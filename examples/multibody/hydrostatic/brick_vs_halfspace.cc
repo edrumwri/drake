@@ -3,12 +3,13 @@
 #include <gflags/gflags.h>
 
 #include "drake/common/drake_assert.h"
+#include "drake/common/find_resource.h"
 #include "drake/common/text_logging_gflags.h"
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
-#include "drake/multibody/multibody_tree/multibody_plant/contact_results_to_lcm.h"
-#include "drake/multibody/multibody_tree/parsing/multibody_plant_sdf_parser.h"
+#include "drake/multibody/plant/contact_surfaces_to_lcm.h"
+#include "drake/multibody/parsing/parser.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
@@ -50,12 +51,11 @@ using lcm::DrakeLcm;
 
 // "multibody" namespace is ambiguous here without "drake::".
 using drake::multibody::multibody_plant::CoulombFriction;
-using drake::multibody::multibody_plant::
-    ConnectContactSurfacesToDrakeVisualizer;
-using drake::multibody::multibody_plant::MultibodyPlant;
+using drake::multibody::ConnectContactSurfacesToDrakeVisualizer;
+using drake::multibody::MultibodyPlant;
 using drake::multibody::MultibodyTree;
 using drake::multibody::SpatialVelocity;
-using drake::multibody::parsing::AddModelFromSdfFile;
+using drake::multibody::Parser;
 
 int do_main() {
   systems::DiagramBuilder<double> builder;
@@ -63,23 +63,13 @@ int do_main() {
   SceneGraph<double>& scene_graph = *builder.AddSystem<SceneGraph>();
   scene_graph.set_name("scene_graph");
 
-  // Plant's parameters.
-  const double radius = 0.05;          // The cylinder's radius, m
-  const double mass = 0.1;             // The cylinder's mass, kg
-  const double g = 9.81;               // Acceleration of gravity, m/s^2
-  const double length = 4.0 * radius;  // The cylinder's length, m.
-  const CoulombFriction<double> coulomb_friction(
-      FLAGS_friction_coefficient /* static friction */,
-      FLAGS_friction_coefficient /* dynamic friction */);
-
   // Make and add the cart_pole model.
   const std::string full_name = FindResourceOrThrow(
-      "drake/multibody/multibody_tree/multibody_plant/test/box.sdf");
-  MultibodyPlant<double>& brick_plant =
+      "drake/multibody/plant/test/box.sdf");
+  MultibodyPlant<double>& plant =
       *builder.AddSystem<MultibodyPlant>(FLAGS_time_step);
-  AddModelFromSdfFile(full_name, &brick_plant, &scene_graph);
+  Parser(&plant, &scene_graph).AddModelFromFile(full_name);
 
-  const MultibodyTree<double>& tree = plant.tree();
   DRAKE_DEMAND(plant.num_velocities() == 6);
   DRAKE_DEMAND(plant.num_positions() == 7);
 
@@ -105,8 +95,8 @@ int do_main() {
   // Create a context for this system:
   std::unique_ptr<systems::Context<double>> diagram_context =
       diagram->CreateDefaultContext();
-  systems::Context<double>& plant_context =
-      diagram->GetMutableSubsystemContext(plant, diagram_context.get());
+  //systems::Context<double>& plant_context =
+  //    diagram->GetMutableSubsystemContext(plant, diagram_context.get());
 
   // TODO: Set initial pose for the box?
 
