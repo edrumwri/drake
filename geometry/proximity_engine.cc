@@ -746,17 +746,42 @@ void BuildTreeFromReference(
 template <typename T>
 class ProximityEngine<T>::Impl : public ShapeReifier {
  private:
-   class HalfspaceField : public geometry::Field<T> {
-    T Evaluate(const Vector3<T>& p_F) const {
-      const double scalar = 1e2;
-      if (p_F[2] >= 0.0) {
+  class HalfspaceField : public geometry::Field<T> {
+    T Evaluate(const Vector3<T>& p_h) const override {
+      const double scalar = 5e2;
+      if (p_h[2] >= 0.0) {
         return 0;
       } else {
-        return -p_F[2] * scalar;
+        return -p_h[2] * scalar;
       }
     }
   };
-  HalfspaceField field_;
+
+  // The box needs its own field object b/c the only field we can evaluate
+  // readily in this proof-of-concept is the halfspace field (which is obviously
+  // anchored to the halfspace and does not move).
+  class BoxField : public geometry::Field<T> {
+   public:
+    T Evaluate(const Vector3<T>& p_b) const override {
+      // This code should essentially duplicate the halfspace field Evaluate(.)
+      // implementation.
+      const Vector3<T> p_w = wXb_ * p_b;
+      const double scalar = 5e2;
+      if (p_w[2] >= 0.0) {
+        return 0;
+      } else {
+        return -p_w[2] * scalar;
+      }
+    }
+
+    void SetBoxPose(const Isometry3<T>& wXb) const { wXb_ = wXb; }
+
+   private:
+    mutable Isometry3<T> wXb_;
+  };
+
+  HalfspaceField halfspace_field_;
+  BoxField box_field_;
 
  public:
   Impl() = default;
@@ -1106,6 +1131,12 @@ std::vector<SignedDistanceToPoint<double>> ComputeSignedDistanceToPoint(
   return distances;
 }
 
+// Updates the contact surface using a triangle taken from the box.
+// @param triangle_h a triangle from the box, which each vertex described
+//        as an offset vector expressed in the halfspace frame.
+// @param wXh the halfspace pose (will really be identity).
+// @param faces a vector of contact surface faces that will be augmented
+//        on return.
 void UpdateContactSurfaceFaces(
   const std::array<Vector3<T>, 3>& triangle_h,
   const Isometry3<T>& wXh,
@@ -1113,6 +1144,10 @@ void UpdateContactSurfaceFaces(
     // The tolerance for being on the halfspace is very close to machine
     // epsilon.
     const double eps = 100 * std::numeric_limits<double>::epsilon();
+
+    // NOTE: since all triangles are drawn from the box, which is stored as the
+    // second contact geometry, the normal of each triangle will point away
+    // from body B / toward body A, as desired.
 
     // Determine on which side of the plane the vertices lie.  The table of
     // possibilities is listed next with n = num_negative, p = num_positive, and
@@ -1152,11 +1187,15 @@ void UpdateContactSurfaceFaces(
     // Simplest case: triangle lies completely within the halfspace. Preserve
     // the ordering.
     if (num_negative == 0) {
-      ContactSurfaceVertex<T> va, vb, vc;
-      va.location_w = wXh * triangle_h[0];
-      vb.location_w = wXh * triangle_h[1];
-      vc.location_w = wXh * triangle_h[2];
-      faces->emplace_back(ContactSurfaceFace<T>(va, vb, vc, &field_, &field_));
+      auto va = std::make_unique<ContactSurfaceVertex<T>>();
+      auto vb = std::make_unique<ContactSurfaceVertex<T>>();
+      auto vc = std::make_unique<ContactSurfaceVertex<T>>();
+      va->location_w = wXh * triangle_h[0];
+      vb->location_w = wXh * triangle_h[1];
+      vc->location_w = wXh * triangle_h[2];
+      faces->emplace_back(ContactSurfaceFace<T>(
+        std::move(va), std::move(vb), std::move(vc),
+        &halfspace_field_, &box_field_));
       return;
     }
 
@@ -1169,7 +1208,6 @@ void UpdateContactSurfaceFaces(
     if (num_negative == 1) {
       if (num_positive == 2) {
         ContactSurfaceVertex<T> va, vb, vc, vd;
-
         for (int i0 = 0; i0 < 3; ++i0) {
           if (s[i0] < -eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
@@ -1182,9 +1220,15 @@ void UpdateContactSurfaceFaces(
             vd.location_w = wXh * (triangle_h[i0] + t0 *
                         (triangle_h[i1] - triangle_h[i0]));
             faces->emplace_back(ContactSurfaceFace<T>(
-                va, vb, vc, &field_, &field_));
+                std::make_unique<ContactSurfaceVertex<T>>(va),
+                std::make_unique<ContactSurfaceVertex<T>>(vb),
+                std::make_unique<ContactSurfaceVertex<T>>(vc),
+                &halfspace_field_, &box_field_));
             faces->emplace_back(ContactSurfaceFace<T>(
-                vc, vd, va, &field_, &field_));
+                std::make_unique<ContactSurfaceVertex<T>>(vc),
+                std::make_unique<ContactSurfaceVertex<T>>(vd),
+                std::make_unique<ContactSurfaceVertex<T>>(va),
+                &halfspace_field_, &box_field_));
             break;
           }
         }
@@ -1195,23 +1239,26 @@ void UpdateContactSurfaceFaces(
       // with one vertex on the plane.
       if (num_positive == 1) {
         DRAKE_DEMAND(num_zero == 1);
-        ContactSurfaceVertex<T> va, vb, vc;
+        auto va = std::make_unique<ContactSurfaceVertex<T>>();
+        auto vb = std::make_unique<ContactSurfaceVertex<T>>();
+        auto vc = std::make_unique<ContactSurfaceVertex<T>>();
         for (int i0 = 0; i0 < 3; ++i0) {
           if (abs(s[i0]) <= eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
-            va.location_w = wXh * triangle_h[i0];
+            va->location_w = wXh * triangle_h[i0];
             const T t1 = s[i1] / (s[i1] - s[i2]);
             const Vector3<T> p = triangle_h[i1] + t1 *
                 (triangle_h[i2] - triangle_h[i1]);
             if (s[i1] > eps) {
-              vb.location_w = wXh * triangle_h[i1];
-              vc.location_w = wXh * p;
+              vb->location_w = wXh * triangle_h[i1];
+              vc->location_w = wXh * p;
             } else {
-              vb.location_w = p;
-              vc.location_w = triangle_h[i2];
+              vb->location_w = p;
+              vc->location_w = triangle_h[i2];
             }
             faces->emplace_back(ContactSurfaceFace<T>(
-                va, vb, vc, &field_, &field_));
+                std::move(va), std::move(vb), std::move(vc), &halfspace_field_,
+                &box_field_));
             break;
           }
         }
@@ -1226,19 +1273,22 @@ void UpdateContactSurfaceFaces(
     if (num_negative == 2) {
       // The portion of the triangle in the halfspace is a triangle.
       if (num_positive == 1) {
-        ContactSurfaceVertex<T> va, vb, vc;
+        auto va = std::make_unique<ContactSurfaceVertex<T>>();
+        auto vb = std::make_unique<ContactSurfaceVertex<T>>();
+        auto vc = std::make_unique<ContactSurfaceVertex<T>>();
         for (int i0 = 0; i0 < 3; ++i0) {
           if (s[i0] > eps) {
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
-            va.location_w = wXh * triangle_h[i0];
+            va->location_w = wXh * triangle_h[i0];
             const T t0 = s[i0] / (s[i0] - s[i1]);
             const T t2 = s[i2] / (s[i2] - s[i0]);
-            vb.location_w = wXh * (triangle_h[i0] + t0 *
+            vb->location_w = wXh * (triangle_h[i0] + t0 *
                       (triangle_h[i1] - triangle_h[i0]));
-            vc.location_w = wXh * (triangle_h[i2] + t2 *
+            vc->location_w = wXh * (triangle_h[i2] + t2 *
                       (triangle_h[i0] - triangle_h[i2]));
             faces->emplace_back(ContactSurfaceFace<T>(
-                va, vb, vc, &field_, &field_));
+                std::move(va), std::move(vb), std::move(vc),
+                &halfspace_field_, &box_field_));
             break;
           }
         }
@@ -1327,6 +1377,9 @@ void UpdateContactSurfaceFaces(
     const Vector3<T> v5_h = hXb * v5_b;
     const Vector3<T> v6_h = hXb * v6_b;
     const Vector3<T> v7_h = hXb * v7_b;
+
+    // Update the box field.
+    box_field_.SetBoxPose(wXb);
 
     // Create the vector of contact surface faces.
     std::vector<ContactSurfaceFace<T>> contact_surface_faces;

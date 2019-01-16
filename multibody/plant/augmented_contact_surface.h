@@ -16,6 +16,9 @@ template <class T>
 class AugmentedContactSurfaceVertex :
     public geometry::ContactSurfaceVertex<T> {
  public:
+  AugmentedContactSurfaceVertex() {}
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(AugmentedContactSurfaceVertex)
+
   // Note: the values below have been evaluated at the vertex to permit simple
   // approximation of the true fields using interpolation.
   /// The pressure evaluated at this vertex.
@@ -34,15 +37,46 @@ template <class T>
 class AugmentedContactSurfaceFace :
     public geometry::ContactSurfaceFace<T> {
  public:
-
   AugmentedContactSurfaceFace(
-      const AugmentedContactSurfaceVertex<T>& vA,
-      const AugmentedContactSurfaceVertex<T>& vB,
-      const AugmentedContactSurfaceVertex<T>& vC,
+      std::unique_ptr<AugmentedContactSurfaceVertex<T>> vA,
+      std::unique_ptr<AugmentedContactSurfaceVertex<T>> vB,
+      std::unique_ptr<AugmentedContactSurfaceVertex<T>> vC,
       const geometry::Field<T>* fieldA,
       const geometry::Field<T>* fieldB) :
-      geometry::ContactSurfaceFace<T>(vA, vB, vC, fieldA, fieldB) {
+      geometry::ContactSurfaceFace<T>(
+          std::move(vA), std::move(vB), std::move(vC), fieldA, fieldB) {
   }
+
+  AugmentedContactSurfaceFace(const AugmentedContactSurfaceFace& f) :
+      geometry::ContactSurfaceFace<T>(f) {
+    operator=(f);
+  }
+
+  AugmentedContactSurfaceFace& operator=(
+      const AugmentedContactSurfaceFace<T>& f) {
+    // Create vertices.
+    auto& vertex_A = static_cast<const AugmentedContactSurfaceVertex<T>&>(
+        f.vertex_A());
+    auto& vertex_B = static_cast<const AugmentedContactSurfaceVertex<T>&>(
+        f.vertex_B());
+    auto& vertex_C = static_cast<const AugmentedContactSurfaceVertex<T>&>(
+        f.vertex_C());
+    this->vA_ = std::make_unique<AugmentedContactSurfaceVertex<T>>(vertex_A);
+    this->vB_ = std::make_unique<AugmentedContactSurfaceVertex<T>>(vertex_B);
+    this->vC_ = std::make_unique<AugmentedContactSurfaceVertex<T>>(vertex_C);
+
+    // Copy field pointers.
+    this->fA_ = f.fA_;
+    this->fB_ = f.fB_;
+
+    // Complete construction.
+    this->Initialize();
+    return *this;
+  }
+
+  AugmentedContactSurfaceFace(AugmentedContactSurfaceFace&&) = default;
+  AugmentedContactSurfaceFace& operator=(
+      AugmentedContactSurfaceFace&&) = default;
 
   // Evaluates the traction at a point using interpolation over the values
   // defined at the vertices.

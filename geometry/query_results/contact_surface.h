@@ -23,6 +23,9 @@ class ContactSurfaceVertex {
   friend class ContactSurfaceFace<T>;
 
  public:
+  ContactSurfaceVertex() {}
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactSurfaceVertex)
+
   /// The Cartesian location of the vertex, as an offset vector expressed in
   /// the global frame.
   Vector3<T> location_w;
@@ -35,7 +38,7 @@ class ContactSurfaceVertex {
   ContactSurfaceFace<T>* face_{nullptr};
 };
 
-/// A triangular face in a ContactSurface.
+/// An oriented triangular face in a ContactSurface.
 template <class T>
 class ContactSurfaceFace {
  public:
@@ -44,32 +47,33 @@ class ContactSurfaceFace {
   /// operation (vB - vA) x (vC - vB) yields a vector pointing toward Body A for
   /// contacting bodies A and B.
   ContactSurfaceFace(
-      const ContactSurfaceVertex<T>& vA,
-      const ContactSurfaceVertex<T>& vB,
-      const ContactSurfaceVertex<T>& vC,
+      std::unique_ptr<ContactSurfaceVertex<T>> vA,
+      std::unique_ptr<ContactSurfaceVertex<T>> vB,
+      std::unique_ptr<ContactSurfaceVertex<T>> vC,
       const Field<T>* fA,
-      const Field<T>* fB) : vA_(vA), vB_(vB), vC_(vC), fA_(fA), fB_(fB) {
-    using std::sqrt;
-
-    // Compute the normal.
-    normal_w_ = (vB.location_w - vA.location_w).cross(
-        vC.location_w - vB.location_w).normalized();
-
-    // Compute the area.
-    const T s1 = (vB.location_w - vA.location_w).norm();
-    const T s2 = (vC.location_w - vB.location_w).norm();
-    const T s3 = (vA.location_w - vC.location_w).norm();
-    const T sp = (s1 + s2 + s3) / 2;  // semiparameter.
-    area_ = sqrt(sp*(sp - s1)*(sp - s2)*(sp - s3));
-
-    // Compute the centroid.
-    centroid_w_ = (vA.location_w + vB.location_w + vC.location_w)/3;
-
-    // Store this in the vertices.
-    vA_.face_ = this;
-    vB_.face_ = this;
-    vC_.face_ = this;
+      const Field<T>* fB) : vA_(std::move(vA)), vB_(std::move(vB)),
+          vC_(std::move(vC)), fA_(fA), fB_(fB) {
+    Initialize();
   }
+
+  ContactSurfaceFace(const ContactSurfaceFace& f) { operator=(f); }
+  ContactSurfaceFace& operator=(const ContactSurfaceFace<T>& f) {
+    // Create vertices.
+    vA_ = std::make_unique<ContactSurfaceVertex<T>>(*f.vA_);
+    vB_ = std::make_unique<ContactSurfaceVertex<T>>(*f.vB_);
+    vC_ = std::make_unique<ContactSurfaceVertex<T>>(*f.vC_);
+
+    // Copy field pointers.
+    fA_ = f.fA_;
+    fB_ = f.fB_;
+
+    // Complete construction.
+    Initialize();
+    return *this;
+  }
+
+  ContactSurfaceFace(ContactSurfaceFace&&) = default;
+  ContactSurfaceFace& operator=(ContactSurfaceFace&&) = default;
 
   /// Gets the normal to this surface expressed in the global frame and
   /// with orientation determined using the ordering of the three vertices
@@ -83,14 +87,14 @@ class ContactSurfaceFace {
   /// expressed in the global frame.
   const Vector3<T> centroid_w() const { return centroid_w_; }
 
-  /// Gets the first vertex passed in at construction.
-  const ContactSurfaceVertex<T>& vertex_A() const { return vA_; }
+  /// Gets a copy of the first vertex passed in at construction.
+  const ContactSurfaceVertex<T>& vertex_A() const { return *vA_; }
 
-  /// Gets the second vertex passed in at construction.
-  const ContactSurfaceVertex<T>& vertex_B() const { return vB_; }
+  /// Gets  a copy of the second vertex passed in at construction.
+  const ContactSurfaceVertex<T>& vertex_B() const { return *vB_; }
 
-  /// Gets the third vertex passed in at construction.
-  const ContactSurfaceVertex<T>& vertex_C() const { return vC_; }
+  /// Gets  a copy of the third vertex passed in at construction.
+  const ContactSurfaceVertex<T>& vertex_C() const { return *vC_; }
 
   /// Gets the first field passed in at construction, which corresponds
   /// to geometry from Body A, from which the contact surface was computed.
@@ -101,30 +105,59 @@ class ContactSurfaceFace {
   const Field<T>* field_B() const { return fB_; }
 
  protected:
+  // Computes useful quantities and vectors and sets the face pointers in the
+  // stored vertex to `this`.
+  void Initialize() {
+    using std::sqrt;
+
+    // Compute the normal.
+    const ContactSurfaceVertex<T>& vA = vertex_A();
+    const ContactSurfaceVertex<T>& vB = vertex_B();
+    const ContactSurfaceVertex<T>& vC = vertex_C();
+
+    normal_w_ = (vB.location_w - vA.location_w).cross(
+        vC.location_w - vB.location_w).normalized();
+
+    // Compute the area.
+    const T s1 = (vB.location_w - vA.location_w).norm();
+    const T s2 = (vC.location_w - vB.location_w).norm();
+    const T s3 = (vA.location_w - vC.location_w).norm();
+    const T sp = (s1 + s2 + s3) / 2;  // semiparameter.
+    area_ = sqrt(sp * (sp - s1) * (sp - s2) * (sp - s3));
+
+    // Compute the centroid.
+    centroid_w_ = (vA.location_w + vB.location_w + vC.location_w)/3;
+
+    // Store this in the vertices.
+    vA_->face_ = this;
+    vB_->face_ = this;
+    vC_->face_ = this;
+  }
+
   // TODO: Fill me in.
   Vector3<T> ConvertFromCartesianToBarycentricCoords(const Vector3<T>& p) const;
 
   // The vertices of the face.
-  ContactSurfaceVertex<T> vA_;
-  ContactSurfaceVertex<T> vB_;
-  ContactSurfaceVertex<T> vC_;
+  std::unique_ptr<ContactSurfaceVertex<T>> vA_;
+  std::unique_ptr<ContactSurfaceVertex<T>> vB_;
+  std::unique_ptr<ContactSurfaceVertex<T>> vC_;
 
   // The field that the triangle was constructed from.
   const Field<T>* fA_{nullptr};
   const Field<T>* fB_{nullptr};
 
-  // The normal, computed only once, expressed in the world frame.
+  // The normal, computed on construction, expressed in the world frame.
   Vector3<T> normal_w_;
 
-  // The area, computed only once.
+  // The area, computed on construction.
   T area_;
 
-  // The centroid, computed only once, which is defined as an offset expressed
-  // in the world frame.
+  // The centroid, computed on construction, which is defined as an offset
+  // expressed in the world frame.
   Vector3<T> centroid_w_;
 };
 
-/// The contact surface computed by GeometryWorld.
+/// The contact surface computed by the geometry system.
 template <class FaceType>
 class ContactSurfaceType {
  public:

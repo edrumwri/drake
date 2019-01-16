@@ -12,6 +12,7 @@
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/analysis/simulator.h"
+#include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 
@@ -110,10 +111,12 @@ int do_main() {
 
   // Set initial pose for the box.
   auto& state_vector = plant_context.get_mutable_continuous_state_vector();
-  state_vector[6] = 0.45;
+  state_vector[6] = 0.5;
 
   systems::Simulator<double> simulator(*diagram, std::move(diagram_context));
 
+  simulator.reset_integrator<systems::RungeKutta2Integrator<double>>(
+      *diagram, 1e-4, &simulator.get_mutable_context());
   simulator.set_publish_every_time_step(true);
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
   simulator.Initialize();

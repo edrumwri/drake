@@ -240,6 +240,17 @@ MultibodyPlant<T>::MultibodyPlant(
   AllocateCacheEntriesForHydrostaticContactModel();
 }
 
+// Determines whether two numbers are near each other using either a relative
+// or absolute equality, as appropriate.
+template <class T>
+bool MultibodyPlant<T>::Near(const T& v1, const T& v2) {
+  using std::abs;
+  using std::max;
+
+  const double eps = 1e3 * std::numeric_limits<double>::epsilon();
+  return (abs(v1 - v2) <= eps * max(abs(v1), max(abs(v2), 1.0)));
+}
+
 template <class T>
 void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
   // Allocate contact surface cache.
@@ -344,9 +355,18 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                 auto X_WA = this->EvalBodyPoseInWorld(context, body_A);
                 const Vector3<T> location_A = X_WA.inverse() * location_w;
 
-                // Sample the pressure at the vertex.
+                // Sample the pressure at the vertex. Since the contact surface
+                // will correspond to the locus of points where pressure is
+                // at equilibrium, the pressures from the two fields should be
+                // identical.
                 new_vertex->pressure = tri.field_A()->Evaluate(
                     location_A);
+                const T pressure_B = tri.field_B()->Evaluate(this->EvalBodyPoseInWorld(
+                        context, body_B).inverse() * location_w);
+                DRAKE_ASSERT(Near(new_vertex->pressure, pressure_B));
+                DRAKE_ASSERT(Near(new_vertex->pressure,
+                    tri.field_B()->Evaluate(this->EvalBodyPoseInWorld(
+                        context, body_B).inverse() * location_w)));
 
                 // Sample the slip velocity at the vertex.
                 new_vertex->slip_velocity = this->
@@ -378,8 +398,11 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
               setup_vertex(tri.vertex_C(), &vC);
 
               // Create the triangle.
-              triangles.push_back(AugmentedContactSurfaceFace<T>(vA, vB, vC,
-                                tri.field_A(), tri.field_B()));
+              triangles.push_back(AugmentedContactSurfaceFace<T>(
+                  std::make_unique<AugmentedContactSurfaceVertex<T>>(vA),
+                  std::make_unique<AugmentedContactSurfaceVertex<T>>(vB),
+                  std::make_unique<AugmentedContactSurfaceVertex<T>>(vC),
+                  tri.field_A(), tri.field_B()));
             }
 
             // Add to the augmented surface vector.
@@ -1361,7 +1384,6 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
   if (num_collision_geometries() > 0) {
     tau_cf = ComputeForcesOnCoresFromHydrostaticContactModel(context);
   }
-  std::cout << "Spatial hydrostatic force: " << tau_cf << std::endl;
   tau_array += tau_cf;
 
   internal_tree().CalcInverseDynamics(

@@ -2802,6 +2802,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   friend class MultibodyPlantTester;
 
   // Functions for the hydrostatic contact model.
+  static bool Near(const T& v1, const T& v2);
   void AllocateCacheEntriesForHydrostaticContactModel();
   Vector3<T> CalcTractionAtSurfaceVertexForHydrostaticModel(
       const AugmentedContactSurfaceVertex<T>& v,
