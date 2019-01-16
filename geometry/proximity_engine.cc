@@ -748,10 +748,11 @@ class ProximityEngine<T>::Impl : public ShapeReifier {
  private:
    class HalfspaceField : public geometry::Field<T> {
     T Evaluate(const Vector3<T>& p_F) const {
+      const double scalar = 1e2;
       if (p_F[2] >= 0.0) {
         return 0;
       } else {
-        return -p_F[2];
+        return -p_F[2] * scalar;
       }
     }
   };
@@ -1130,7 +1131,11 @@ void UpdateContactSurfaceFaces(
     //   2 0 1  vertex
     //   3 0 0  none
 
-    const T s[3] = { triangle_h[0][2], triangle_h[1][2], triangle_h[2][2] };
+    // Reverse the signed distance from the plane so that vertices with a
+    // positive signed distance correspond to those within the halfspace and
+    // those with negative signed distance correspond to those outside of the
+    // halfspace.
+    const T s[3] = { -triangle_h[0][2], -triangle_h[1][2], -triangle_h[2][2] };
     int num_positive = 0, num_negative = 0, num_zero = 0;
     for (int i = 0; i < 3; ++i) {
       if (s[i] > eps) {
@@ -1172,7 +1177,7 @@ void UpdateContactSurfaceFaces(
             vb.location_w = wXh * triangle_h[i2];
             const T t2 = s[i2] / (s[i2] - s[i0]);
             const T t0 = s[i0] / (s[i0] - s[i1]);
-            vc.location_w = wXh * (triangle_h[i2] + t2 * 
+            vc.location_w = wXh * (triangle_h[i2] + t2 *
                 (triangle_h[i0] - triangle_h[i2]));
             vd.location_w = wXh * (triangle_h[i0] + t0 *
                         (triangle_h[i1] - triangle_h[i0]));
@@ -1196,7 +1201,7 @@ void UpdateContactSurfaceFaces(
             const int i1 = (i0 + 1) % 3, i2 = (i0 + 2) % 3;
             va.location_w = wXh * triangle_h[i0];
             const T t1 = s[i1] / (s[i1] - s[i2]);
-            const Vector3<T> p = triangle_h[i1] + t1 * 
+            const Vector3<T> p = triangle_h[i1] + t1 *
                 (triangle_h[i2] - triangle_h[i1]);
             if (s[i1] > eps) {
               vb.location_w = wXh * triangle_h[i1];
@@ -1241,7 +1246,7 @@ void UpdateContactSurfaceFaces(
       }
 
       // Only a vertex of the triangle is in the halfspace.
-      DRAKE_DEMAND(num_zero == 1);    
+      DRAKE_DEMAND(num_zero == 1);
       return;
     } else {
       // The triangle is outside the halfspace.  (num_negative == 3)
@@ -1265,7 +1270,7 @@ void UpdateContactSurfaceFaces(
 
     // The contact surface will comprise up to six polygons, one for each
     // face of the box. The topology of each polygon will be dependent upon
-    // how many of a box face's vertices lie on/within the halfspace. 
+    // how many of a box face's vertices lie on/within the halfspace.
     // 1 vertex on/within : point or triangle
     // 2 vertices on/within : line segment, triangle, or rectangle
     // 3 vertices on/within : triangle or pentagon
@@ -1284,9 +1289,9 @@ void UpdateContactSurfaceFaces(
     //     v2---------v3   |
     //     |   v7-----|---v6
     //     |   /      |  /
-    //     |  /       | /   
+    //     |  /       | /
     //     | /        |/
-    //     v4---------v5 
+    //     v4---------v5
     //
     // Faces:
     // v0, v2, v3, v1
@@ -1314,14 +1319,14 @@ void UpdateContactSurfaceFaces(
     const Isometry3<T> hXb = wXh.inverse() * wXb;
 
     // Compute the vertex locations in the halfspace frame.
-    const Vector3<T> v0_h = hXb * v0_b;    
-    const Vector3<T> v1_h = hXb * v1_b;    
-    const Vector3<T> v2_h = hXb * v2_b;    
-    const Vector3<T> v3_h = hXb * v3_b;    
-    const Vector3<T> v4_h = hXb * v4_b;    
-    const Vector3<T> v5_h = hXb * v5_b;    
-    const Vector3<T> v6_h = hXb * v6_b;    
-    const Vector3<T> v7_h = hXb * v7_b;    
+    const Vector3<T> v0_h = hXb * v0_b;
+    const Vector3<T> v1_h = hXb * v1_b;
+    const Vector3<T> v2_h = hXb * v2_b;
+    const Vector3<T> v3_h = hXb * v3_b;
+    const Vector3<T> v4_h = hXb * v4_b;
+    const Vector3<T> v5_h = hXb * v5_b;
+    const Vector3<T> v6_h = hXb * v6_b;
+    const Vector3<T> v7_h = hXb * v7_b;
 
     // Create the vector of contact surface faces.
     std::vector<ContactSurfaceFace<T>> contact_surface_faces;
@@ -1340,7 +1345,7 @@ void UpdateContactSurfaceFaces(
 
     // Create the sole contact surface, assuming that there are some faces.
     std::vector<ContactSurface<T>> contact_surface;
-    if (contact_surface_faces.empty()) {
+    if (!contact_surface_faces.empty()) {
       contact_surface.emplace_back(
         halfspace_geometry, box_geometry, contact_surface_faces);
     }

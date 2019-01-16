@@ -10,6 +10,7 @@
 #include "drake/lcm/drake_lcm.h"
 #include "drake/multibody/plant/contact_surfaces_to_lcm.h"
 #include "drake/multibody/parsing/parser.h"
+#include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
@@ -56,6 +57,7 @@ using drake::multibody::MultibodyPlant;
 using drake::multibody::MultibodyTree;
 using drake::multibody::SpatialVelocity;
 using drake::multibody::Parser;
+using drake::multibody::UniformGravityFieldElement;
 
 int do_main() {
   systems::DiagramBuilder<double> builder;
@@ -65,10 +67,18 @@ int do_main() {
 
   // Make and add the cart_pole model.
   const std::string full_name = FindResourceOrThrow(
-      "drake/multibody/plant/test/box.sdf");
+      "drake/examples/multibody/hydrostatic/box.sdf");
   MultibodyPlant<double>& plant =
       *builder.AddSystem<MultibodyPlant>(FLAGS_time_step);
   Parser(&plant, &scene_graph).AddModelFromFile(full_name);
+
+  // Weld the ground frame.
+  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("ground"));
+
+  // Add gravity to the model.
+  plant.AddForceElement<UniformGravityFieldElement>();
+
+  plant.Finalize();
 
   DRAKE_DEMAND(plant.num_velocities() == 6);
   DRAKE_DEMAND(plant.num_positions() == 7);
@@ -95,10 +105,12 @@ int do_main() {
   // Create a context for this system:
   std::unique_ptr<systems::Context<double>> diagram_context =
       diagram->CreateDefaultContext();
-  //systems::Context<double>& plant_context =
-  //    diagram->GetMutableSubsystemContext(plant, diagram_context.get());
+  systems::Context<double>& plant_context =
+      diagram->GetMutableSubsystemContext(plant, diagram_context.get());
 
-  // TODO: Set initial pose for the box?
+  // Set initial pose for the box.
+  auto& state_vector = plant_context.get_mutable_continuous_state_vector();
+  state_vector[6] = 0.45;
 
   systems::Simulator<double> simulator(*diagram, std::move(diagram_context));
 

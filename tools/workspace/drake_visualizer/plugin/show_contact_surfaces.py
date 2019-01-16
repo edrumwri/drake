@@ -71,11 +71,12 @@ class ContactSurfacesVisualizer(object):
                 va = np.array([tri.a[0], tri.a[1], tri.a[2]])
                 vb = np.array([tri.b[0], tri.b[1], tri.b[2]])
                 vc = np.array([tri.c[0], tri.c[1], tri.c[2]])
-                d.addArrow(points=[va, vb, vc])
+                d.addPolygon(points=[va, vb, vc])
 
         key = ''
         vis.showPolyData(
             d.getPolyData(), str(key), parent=folder, color=[0, 1, 0])
+
 
 @scoped_singleton_func
 def init_visualizer():

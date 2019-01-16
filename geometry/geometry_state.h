@@ -373,12 +373,22 @@ class GeometryState {
   /** See QueryObject::ComputeContactSurfaces() for documentation. */
   std::vector<ContactSurface<T>> ComputeContactSurfaces() const {
     // Get the dynamic geometry and the static geometry.
-    DRAKE_DEMAND(geometry_index_to_id_map_.size() == 2);
-    GeometryId ground_geom = geometry_index_to_id_map_.front();
-    GeometryId box_geom = geometry_index_to_id_map_.back();
-    if (is_dynamic(ground_geom))
-      std::swap(ground_geom, box_geom);
-    DRAKE_DEMAND(!is_dynamic(ground_geom));
+    DRAKE_DEMAND(geometry_index_to_id_map_.size() == 4);
+
+    // Find the requisite geometries.
+    GeometryId ground_geom, box_geom;
+    for (GeometryId id : geometry_index_to_id_map_) {
+      if (GetGeometry(id)->name() == "box-collision") {
+        box_geom = id;
+      } else {
+        if (GetGeometry(id)->name() == "ground-collision") {
+          ground_geom = id;
+        }
+      }
+    }
+
+    DRAKE_DEMAND(ground_geom.is_valid());
+    DRAKE_DEMAND(box_geom.is_valid());
 
     // Get the pose for the box.
     const Isometry3<T>& wTb = get_pose_in_world(box_geom);

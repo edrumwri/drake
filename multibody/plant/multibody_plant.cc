@@ -369,7 +369,7 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
                 // Sample the traction at the vertex.
                 new_vertex->traction = this->
                     CalcTractionAtSurfaceVertexForHydrostaticModel(
-                        *new_vertex, mu.dynamic_friction());
+                        *new_vertex, normal_w, mu.dynamic_friction());
               };
 
               // Set up the vertices.
@@ -1357,12 +1357,12 @@ void MultibodyPlant<T>::DoCalcTimeDerivatives(
   VectorX<T>& tau_array = forces.mutable_generalized_forces();
 
   // Compute contact forces on each body by penalty method.
+  VectorX<T> tau_cf = VectorX<T>::Zero(tau_array.size());
   if (num_collision_geometries() > 0) {
-    std::vector<PenetrationAsPointPair<T>> point_pairs =
-        CalcPointPairPenetrations(context);
-    CalcAndAddContactForcesByPenaltyMethod(
-        context, pc, vc, point_pairs, &F_BBo_W_array);
+    tau_cf = ComputeForcesOnCoresFromHydrostaticContactModel(context);
   }
+  std::cout << "Spatial hydrostatic force: " << tau_cf << std::endl;
+  tau_array += tau_cf;
 
   internal_tree().CalcInverseDynamics(
       context, pc, vc, vdot,
@@ -1434,19 +1434,17 @@ MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
 
 template <class T>
 Vector3<T> MultibodyPlant<T>::CalcTractionAtSurfaceVertexForHydrostaticModel(
-    const AugmentedContactSurfaceVertex<T>& v, double mu_coulomb) const {
+    const AugmentedContactSurfaceVertex<T>& v, const Vector3<T>& nhat_w,
+    double mu_coulomb) const {
   // The tolerance below which contact is assumed to be not-sliding.
   const double slip_tol = std::numeric_limits<double>::epsilon();
-
-  // Get the normal from the face that this vertex belongs to.
-  const Vector3<T>& nhat_w = static_cast<const AugmentedContactSurfaceFace<T>*>(
-      v.face())->normal_w();
 
   // Construct a matrix for projecting two-dimensional vectors in the plane
   // orthogonal to the contact normal to 3D.
   const Eigen::Matrix<T, 3, 2> P = math::Compute2dTo3dProjectionMatrix(nhat_w);
 
   // Compute the normal traction, expressed in the global frame.
+  DRAKE_DEMAND(v.pressure >= 0);
   const Vector3<T> tN_w = nhat_w * v.pressure;
 
   // Get the slip velocity at the centroid.
@@ -1516,10 +1514,14 @@ VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
           const AugmentedContactSurfaceVertex<T>&>(triangle.vertex_C());
 
       // Set the spatial force using the force on the bottom and moment on the
-      // top in order to make it compatible with the Jacobian matrix.
+      // top in order to make it compatible with the Jacobian matrix. The
+      // traction is the average of the tractions of the three vertices, scaled
+      // by the area of the triangle.
+      const Vector3<T> mean_traction =
+          (vA.traction + vB.traction + vC.traction) / 3.0;
       Eigen::Matrix<T, 6, 1> f_spatial;
       f_spatial.head(3).setZero();
-      f_spatial.tail(3) = (vA.traction + vB.traction + vC.traction)/3.0;
+      f_spatial.tail(3) = mean_traction * triangle.area();
 
       // Update the generalized force vector to account for the effect of
       // applying the force at the contact surface on both bodies.

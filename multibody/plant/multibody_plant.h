@@ -2804,7 +2804,8 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // Functions for the hydrostatic contact model.
   void AllocateCacheEntriesForHydrostaticContactModel();
   Vector3<T> CalcTractionAtSurfaceVertexForHydrostaticModel(
-      const AugmentedContactSurfaceVertex<T>& v, double mu_coulomb) const;
+      const AugmentedContactSurfaceVertex<T>& v,
+      const Vector3<T>& normal_w, double mu_coulomb) const;
   VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
       const systems::Context<T>& context) const;
   Vector2<T> CalcSlipVelocityUsingJacobianForHydrostaticModel(
@@ -3296,7 +3297,7 @@ class MultibodyPlant : public MultibodyTreeSystem<T> {
   // Cache entries for the hydrostatic contact model.
   systems::CacheIndex contact_surface_cache_index_;
   systems::CacheIndex augmented_contact_surface_cache_index_;
-  
+
   // TODO(sherm1) Add CacheIndex members here for cache entries that belong to
   //              MBPlant, not MBTree.
 
