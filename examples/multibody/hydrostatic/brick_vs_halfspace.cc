@@ -39,7 +39,7 @@ DEFINE_double(wx0, 0.1,
 DEFINE_double(friction_coefficient, 0.3,
               "The friction coefficient of both the cylinder and the ground.");
 
-DEFINE_double(time_step, 1.0e-3,
+DEFINE_double(time_step, 0.0,
               "If zero, the plant is modeled as a continuous system. "
               "If positive, the period (in seconds) of the discrete updates "
               "for the plant modeled as a discrete system."
