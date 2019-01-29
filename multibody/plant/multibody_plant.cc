@@ -1169,6 +1169,13 @@ VectorX<T> MultibodyPlant<T>::AssembleActuationInput(
     u_offset += instance_num_dofs;
   }
   DRAKE_ASSERT(u_offset == num_actuated_dofs());
+
+  // Add in the multiplexed input.
+  const BasicVector<T>* multiplexed_actuation = this->EvalVectorInput(context,
+      multiplexed_actuation_port_);
+  if (multiplexed_actuation)
+    actuation_input += multiplexed_actuation->get_value();
+
   return actuation_input;
 }
 
@@ -1497,18 +1504,16 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   // TODO(sherm1) Add ContactResults cache entry.
 
   // Declare per model instance actuation ports.
-  int num_actuated_instances = 0;
-  ModelInstanceIndex last_actuated_instance;
+  int total_actuation_dofs = 0;
   instance_actuation_ports_.resize(num_model_instances());
   for (ModelInstanceIndex model_instance_index(0);
        model_instance_index < num_model_instances(); ++model_instance_index) {
     const int instance_num_dofs =
         internal_tree().num_actuated_dofs(model_instance_index);
+    total_actuation_dofs += instance_num_dofs;
     if (instance_num_dofs == 0) {
       continue;
     }
-    ++num_actuated_instances;
-    last_actuated_instance = model_instance_index;
     instance_actuation_ports_[model_instance_index] =
         this->DeclareVectorInputPort(
                 internal_tree().GetModelInstanceName(model_instance_index) +
@@ -1517,9 +1522,10 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
             .get_index();
   }
 
-  if (num_actuated_instances == 1) {
-    actuated_instance_ = last_actuated_instance;
-  }
+  // Declare the multiplexed actuation port.
+  multiplexed_actuation_port_ = this->DeclareVectorInputPort(
+      "multiplexed_actuation",
+      systems::BasicVector<T>(total_actuation_dofs)).get_index();
 
   // Declare one output port for the entire state vector.
   continuous_state_output_port_ =
@@ -1637,8 +1643,8 @@ const systems::InputPort<T>&
 MultibodyPlant<T>::get_actuation_input_port() const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
   DRAKE_THROW_UNLESS(num_actuators() > 0);
-  DRAKE_THROW_UNLESS(actuated_instance_.is_valid());
-  return get_actuation_input_port(actuated_instance_);
+  DRAKE_THROW_UNLESS(num_actuated_dofs() > 0);
+  return systems::System<T>::get_input_port(multiplexed_actuation_port_);
 }
 
 template <typename T>
