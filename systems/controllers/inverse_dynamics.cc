@@ -79,8 +79,15 @@ void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
     multibody::MultibodyForces<T> external_forces(plant);
     plant.CalcForceElementsContribution(
         *multibody_plant_context_, &external_forces);
-    output->get_mutable_value() = plant.CalcInverseDynamics(
+    const VectorX<T> output_gv = plant.CalcInverseDynamics(
         *multibody_plant_context_, desired_vd, external_forces);
+    VectorX<T> output_u(output_gv.size());
+    for (multibody::ModelInstanceIndex i(0); i < plant.num_model_instances(); ++i) {
+      const VectorX<T> output_gv_instance =
+          plant.GetVelocitiesFromArray(i, output_gv);
+      plant.SetActuationInArray(i, output_gv_instance, &output_u);
+    }
+    output->get_mutable_value() = output_u;
   }
 }
 
