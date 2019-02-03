@@ -970,7 +970,7 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
       continue;
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
-    const Vector3<T>& com_location = X_WP.translation(); 
+    const Vector3<T>& com_location = X_WP.translation();
     spatial_forces_output->emplace_back(com_location, F_BMo_W[body_node_index]);
   }
 }
@@ -1646,9 +1646,10 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
                               .get_index();
 
   // Spatial forces output port.
-  spatial_forces_output_port_ = this->DeclareAbstractOutputPort("spatial_forces",
+  spatial_forces_output_port_ = this->DeclareAbstractOutputPort(
+      "spatial_forces",
       std::vector<SpatialForceOutput<T>>(),
-      &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();                              
+      &MultibodyPlant<T>::CalcSpatialForcesOutput).get_index();
 }
 
 template <typename T>

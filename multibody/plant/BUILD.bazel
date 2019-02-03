@@ -128,8 +128,8 @@ drake_cc_library(
         "exclude_from_package",
     ],
     deps = [
-        ":spatial_force_output",
         ":plant",
+        ":spatial_force_output",
         "//lcmtypes:spatial_forces_for_viz",
         "//systems/framework:diagram_builder",
         "//systems/lcm:lcm_pubsub_system",
@@ -147,7 +147,7 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//multibody/tree",
-    ]
+    ],
 )
 
 drake_cc_library(
