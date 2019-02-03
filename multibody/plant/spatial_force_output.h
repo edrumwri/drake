@@ -27,7 +27,8 @@ struct SpatialForceOutput {
   /// represent the point about which the body will accelerate rotationally.
   Vector3<T> p_W;
 
-  /// Spatial force applied at point p and expressed in the world frame.
+  /// Scaled spatial force applied at point p and expressed in the world frame.
+  /// Scaling might be required to properly visualize the force arrow.
   SpatialForce<T> F_p_W;
 };
 

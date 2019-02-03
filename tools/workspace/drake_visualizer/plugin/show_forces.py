@@ -62,19 +62,19 @@ class SpatialForceVisualizer(object):
         # Recreates folder.
         folder = om.getOrCreateContainer(self._folder_name)
 
-        # Set the scaling constant.
-        scalar = 1
-
         # Output the force arrows first in red.
         d = DebugData()
         for spatial_force in msg.forces:
             # Get the force and arrow origination point.
-            force_W = np.array([spatial_force.force_W[0], spatial_force.force_W[1], spatial_force.force_W[2]])
-            p_W = np.array([spatial_force.p_W[0], spatial_force.p_W[1], spatial_force.p_W[2]])
+            force_W = np.array([spatial_force.force_W[0],
+                                spatial_force.force_W[1],
+                                spatial_force.force_W[2]])
+            p_W = np.array([spatial_force.p_W[0],
+                            spatial_force.p_W[1],
+                            spatial_force.p_W[2]])
 
-            # Create an arrow starting from p_W and pointing to p_W +
-            # force_W * scalar.
-            d.addArrow(start=p_W, end=p_W + force_W * scalar,
+            # Create an arrow starting from p_W and pointing to p_W + force_W.
+            d.addArrow(start=p_W, end=p_W + force_W,
                 tubeRadius=0.005, headRadius=0.01)
 
         # Draw the data.
@@ -85,12 +85,15 @@ class SpatialForceVisualizer(object):
         # Output the torque arrows in blue.
         for spatial_force in msg.forces:
             # Get the torque and arrow origination point.
-            torque_W = np.array([spatial_force.torque_W[0], spatial_force.torque_W[1], spatial_force.torque_W[2]])
-            p_W = np.array([spatial_force.p_W[0], spatial_force.p_W[1], spatial_force.p_W[2]])
+            torque_W = np.array([spatial_force.torque_W[0],
+                                 spatial_force.torque_W[1],
+                                spatial_force.torque_W[2]])
+            p_W = np.array([spatial_force.p_W[0],
+                            spatial_force.p_W[1],
+                            spatial_force.p_W[2]])
 
-            # Create an arrow starting from p_W and pointing to p_W +
-            # torque_W * scalar. 
-            d.addArrow(start=p_W, end=p_W + torque_W * scalar,
+            # Create an arrow starting from p_W and pointing to p_W + torque_W. 
+            d.addArrow(start=p_W, end=p_W + torque_W,
                 tubeRadius=0.005, headRadius=0.01)
 
         # Draw the data.
