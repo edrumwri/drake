@@ -12,6 +12,7 @@ py_library(
     srcs = [
         "show_arrows.py",
         "show_contact.py",
+        "show_forces.py",
         "show_frame.py",
         "show_image.py",
         "show_time.py",

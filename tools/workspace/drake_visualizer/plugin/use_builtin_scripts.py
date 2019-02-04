@@ -9,6 +9,7 @@ import sys
 from drake.tools.workspace.drake_visualizer.plugin import (
     show_arrows,
     show_contact,
+    show_forces,
     show_frame,
     show_image,
     show_time,
@@ -21,6 +22,7 @@ def init_visualizer():
     available = OrderedDict((
         ("arrows", show_arrows.init_visualizer),
         ("contact", show_contact.init_visualizer),
+        ("forces", show_forces.init_visualizer),
         ("frame", show_frame.init_visualizer),
         ("image", show_image.init_visualizer),
         ("time", show_time.init_visualizer),
