@@ -977,7 +977,7 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
     // location expressed in the global frame.
     int body_node_index = body.node_index();
     const Isometry3<T>& X_WB = EvalBodyPoseInWorld(context, body);
-    const com_B = rigid_body->default_com();
+    const Vector3<T>& com_B = rigid_body->default_com();
     const Vector3<T>& com_W = X_WB * com_B;
     spatial_forces_output->emplace_back(com_W, F_BMo_W[body_node_index]);
   }
