@@ -956,7 +956,6 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
         context, pc, vc, point_pairs, &F_BBo_W_array);
   }
 
-
   internal_tree().CalcInverseDynamics(
       context, pc, vc, vdot,
       forces.body_forces(), forces.generalized_forces(),
@@ -966,12 +965,21 @@ void MultibodyPlant<T>::CalcSpatialForcesOutput(
   spatial_forces_output->clear();
   for (BodyIndex body_index(0); body_index < num_bodies(); ++body_index) {
     const Body<T>& body = get_body(body_index);
+
+    // Do not handle anchored bodies or non-rigid bodies.
     if (IsAnchored(body))
       continue;
+    const auto* rigid_body = dynamic_cast<const RigidBody<T>*>(&body);
+    if (!rigid_body)
+      continue;
+
+    // The arrows for the spatial force will emanate from the center-of-mass
+    // location expressed in the global frame.
     int body_node_index = body.node_index();
-    const Isometry3<T>& X_WP = EvalBodyPoseInWorld(context, body);
-    const Vector3<T>& com_location = X_WP.translation();
-    spatial_forces_output->emplace_back(com_location, F_BMo_W[body_node_index]);
+    const Isometry3<T>& X_WB = EvalBodyPoseInWorld(context, body);
+    const com_B = rigid_body->default_com();
+    const Vector3<T>& com_W = X_WB * com_B;
+    spatial_forces_output->emplace_back(com_W, F_BMo_W[body_node_index]);
   }
 }
 
