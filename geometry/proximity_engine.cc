@@ -1375,6 +1375,16 @@ ProximityEngine<T>::ComputePointPairPenetration(
 }
 
 template <typename T>
+std::vector<ContactSurface<T>>
+ProximityEngine<T>::ComputeContactSurfaces(
+    const std::vector<GeometryId>& /* geometry_map */) const {
+  throw std::runtime_error(
+      "ComputeContactSurfaces() is not implemented yet.");
+  // TODO(DamrongGuoy): Compute contact surfaces and remove the above throw.
+  return std::vector<ContactSurface<T>>();
+}
+
+template <typename T>
 void ProximityEngine<T>::ExcludeCollisionsWithin(
     const std::unordered_set<GeometryIndex>& dynamic,
     const std::unordered_set<GeometryIndex>& anchored) {
