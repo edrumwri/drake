@@ -1,11 +1,15 @@
+#include "drake/examples/manipulation_station/combined_iiwa_wsg.h"
+
 #include "drake/common/find_resource.h"
-#include "drake/geometry/dev/scene_graph.h"
+#include "drake/geometry/scene_graph.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/manipulation/schunk_wsg/schunk_wsg_constants.h"
 #include "drake/manipulation/schunk_wsg/schunk_wsg_position_controller.h"
 #include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/systems/controllers/inverse_dynamics_controller.h"
 #include "drake/systems/primitives/pass_through.h"
+
+using multibody::SpatialInertia;
 
 namespace internal {
 
@@ -136,7 +140,7 @@ void CombinedIiwaWsg<T>::MakeIiwaControllerModel() {
 
 // Add default iiwa.
 template <typename T>
-void ManipulationStation<T>::AddDefaultIiwa(
+void CombinedIiwaWsg<T>::AddDefaultIiwa(
     const IiwaCollisionModel collision_model) {
   std::string sdf_path;
   switch (collision_model) {
@@ -164,7 +168,7 @@ void ManipulationStation<T>::AddDefaultIiwa(
 
 // Add default wsg.
 template <typename T>
-void ManipulationStation<T>::AddDefaultWsg() {
+void CombinedIiwaWsg<T>::AddDefaultWsg() {
   const std::string sdf_path = FindResourceOrThrow(
       "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf");
   const multibody::Frame<T>& link7 =
@@ -179,7 +183,7 @@ void ManipulationStation<T>::AddDefaultWsg() {
 }
 
 template <typename T>
-void ManipulationStation<T>::RegisterIiwaControllerModel(
+void CombinedIiwaWsg<T>::RegisterIiwaControllerModel(
     const std::string& model_path,
     const multibody::ModelInstanceIndex iiwa_instance,
     const multibody::Frame<T>& parent_frame,
@@ -201,7 +205,7 @@ void ManipulationStation<T>::RegisterIiwaControllerModel(
 }
 
 template <typename T>
-void ManipulationStation<T>::RegisterWsgControllerModel(
+void CombinedIiwaWsg<T>::RegisterWsgControllerModel(
     const std::string& model_path,
     const multibody::ModelInstanceIndex wsg_instance,
     const multibody::Frame<T>& parent_frame,
@@ -216,7 +220,7 @@ void ManipulationStation<T>::RegisterWsgControllerModel(
 }
 
 template <typename T>
-VectorX<T> ManipulationStation<T>::GetIiwaPosition(
+VectorX<T> CombinedIiwaWsg<T>::GetIiwaPosition(
     const systems::Context<T>& station_context) const {
   const auto& plant_context =
       this->GetSubsystemContext(*plant_, station_context);
@@ -224,7 +228,7 @@ VectorX<T> ManipulationStation<T>::GetIiwaPosition(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetIiwaPosition(
+void CombinedIiwaWsg<T>::SetIiwaPosition(
     const drake::systems::Context<T>& station_context, systems::State<T>* state,
     const Eigen::Ref<const drake::VectorX<T>>& q) const {
   const int num_iiwa_positions =
@@ -245,7 +249,7 @@ void ManipulationStation<T>::SetIiwaPosition(
 }
 
 template <typename T>
-VectorX<T> ManipulationStation<T>::GetIiwaVelocity(
+VectorX<T> CombinedIiwaWsg<T>::GetIiwaVelocity(
     const systems::Context<T>& station_context) const {
   const auto& plant_context =
       this->GetSubsystemContext(*plant_, station_context);
@@ -253,7 +257,7 @@ VectorX<T> ManipulationStation<T>::GetIiwaVelocity(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetIiwaVelocity(
+void CombinedIiwaWsg<T>::SetIiwaVelocity(
     const drake::systems::Context<T>& station_context, systems::State<T>* state,
     const Eigen::Ref<const drake::VectorX<T>>& v) const {
   const int num_iiwa_velocities =
@@ -267,7 +271,7 @@ void ManipulationStation<T>::SetIiwaVelocity(
 }
 
 template <typename T>
-T ManipulationStation<T>::GetWsgPosition(
+T CombinedIiwaWsg<T>::GetWsgPosition(
     const systems::Context<T>& station_context) const {
   const auto& plant_context =
       this->GetSubsystemContext(*plant_, station_context);
@@ -278,7 +282,7 @@ T ManipulationStation<T>::GetWsgPosition(
 }
 
 template <typename T>
-T ManipulationStation<T>::GetWsgVelocity(
+T CombinedIiwaWsg<T>::GetWsgVelocity(
     const systems::Context<T>& station_context) const {
   const auto& plant_context =
       this->GetSubsystemContext(*plant_, station_context);
@@ -289,7 +293,7 @@ T ManipulationStation<T>::GetWsgVelocity(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetWsgPosition(
+void CombinedIiwaWsg<T>::SetWsgPosition(
     const drake::systems::Context<T>& station_context, systems::State<T>* state,
     const T& q) const {
   DRAKE_DEMAND(state != nullptr);
@@ -309,7 +313,7 @@ void ManipulationStation<T>::SetWsgPosition(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetWsgVelocity(
+void CombinedIiwaWsg<T>::SetWsgVelocity(
     const drake::systems::Context<T>& station_context, systems::State<T>* state,
     const T& v) const {
   DRAKE_DEMAND(state != nullptr);
@@ -322,7 +326,7 @@ void ManipulationStation<T>::SetWsgVelocity(
 }
 
 template <typename T>
-void ManipulationStation<T>::SetWsgGains(const double kp, const double kd) {
+void CombinedIiwaWsg<T>::SetWsgGains(const double kp, const double kd) {
   DRAKE_THROW_UNLESS(!plant_->is_finalized());
   DRAKE_THROW_UNLESS(kp >= 0 && kd >= 0);
   wsg_kp_ = kp;
