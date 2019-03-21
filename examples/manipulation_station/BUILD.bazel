@@ -28,6 +28,7 @@ drake_cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":combined_manipulator_and_gripper_model",
         "//common:find_resource",
         "//geometry:scene_graph",
         "//geometry/dev:scene_graph",
@@ -86,7 +87,7 @@ drake_cc_library(
         ":combined_manipulator_and_gripper_model",
         "//common:find_resource",
         "//examples/kuka_iiwa_arm:iiwa_lcm",
-        "//geometry:scene_graph",
+        "//geometry/dev:scene_graph",
         "//lcm",
         "//manipulation/schunk_wsg:schunk_wsg_constants",
         "//manipulation/schunk_wsg:schunk_wsg_lcm",
@@ -98,6 +99,7 @@ drake_cc_library(
         "//systems/lcm",
         "//systems/primitives",
         "//systems/sensors:lcm_image_array_to_images",
+        "//systems/sensors/dev:rgbd_camera",
     ],
 )
 

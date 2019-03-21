@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "drake/common/find_resource.h"
+#include "drake/examples/manipulation_station/combined_manipulator_and_gripper_model.h"
 #include "drake/geometry/dev/scene_graph.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/math/rotation_matrix.h"
@@ -64,7 +65,7 @@ template <typename T>
 ManipulationStation<T>::ManipulationStation(double time_step)
     : owned_plant_(std::make_unique<MultibodyPlant<T>>(time_step)),
       owned_scene_graph_(std::make_unique<SceneGraph<T>>()),
-      robot_model_->controller_plant()(std::make_unique<MultibodyPlant<T>>()) {
+      robot_model_->get_controller_plant()(std::make_unique<MultibodyPlant<T>>()) {
   // This class holds the unique_ptrs explicitly for plant and scene_graph
   // until Finalize() is called (when they are moved into the Diagram). Grab
   // the raw pointers, which should stay valid for the lifetime of the Diagram.
@@ -249,8 +250,6 @@ void ManipulationStation<T>::SetDefaultState(
   // Call the base class method, to initialize all systems in this diagram.
   systems::Diagram<T>::SetDefaultState(station_context, state);
 
-  T q0_gripper{0.1};
-
   const auto& plant_context =
       this->GetSubsystemContext(*plant_, station_context);
   auto& plant_state = this->GetMutableSubsystemState(*plant_, state);
@@ -264,10 +263,13 @@ void ManipulationStation<T>::SetDefaultState(
   }
 
   // TODO: Make sure the controller state is initialized to the robot state.
-  SetIiwaPosition(station_context, state, GetIiwaPosition(station_context));
-  SetIiwaVelocity(station_context, state, VectorX<T>::Zero(num_iiwa_joints()));
-  SetWsgPosition(station_context, state, q0_gripper);
-  SetWsgVelocity(station_context, state, 0);
+  robot_model_->SetManipulatorPositions(station_context,
+      robot_model_->GetManipulatorPositions(station_context), state);
+  robot_model_->SetManipulatorVelocities(station_context,
+      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), state);
+  robot_model_->SetGripperPositionsToDefaultOpen(station_context, state);
+  robot_model_->SetGripperVelocities(station_context,
+      VectorX<T>::Zero(robot_model_->num_gripper_joints()), state);
 }
 
 template <typename T>
@@ -301,12 +303,17 @@ void ManipulationStation<T>::SetRandomState(
   // TODO: Make sure the controller state is initialized to the robot state.
   // Use SetIiwaPosition to make sure the controller state is initialized to
   // the IIWA state.
-  SetIiwaPosition(station_context, state, GetIiwaPosition(station_context));
-  SetIiwaVelocity(station_context, state, VectorX<T>::Zero(num_iiwa_joints()));
-  SetWsgPosition(station_context, state, GetWsgPosition(station_context));
-  SetWsgVelocity(station_context, state, 0);
+  robot_model_->SetManipulatorPositions(station_context,
+      robot_model_->GetManipulatorPositions(station_context), state);
+  robot_model_->SetManipulatorVelocities(station_context,
+      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), state);
+  robot_model_->SetGripperPositions(station_context,
+      robot_model_->GetGripperPositions(station_context), state);
+  robot_model_->SetGripperVelocities(station_context,
+      VectorX<T>::Zero(robot_model_->num_gripper_joints()), state);
 }
 
+/*
 template <typename T>
 void ManipulationStation<T>::Finalize() {
   // Note: This deferred diagram construction method/workflow exists because we
@@ -484,6 +491,7 @@ void ManipulationStation<T>::Finalize() {
 
   builder.BuildInto(this);
 }
+*/
 
 template <typename T>
 std::vector<std::string> ManipulationStation<T>::get_camera_names() const {

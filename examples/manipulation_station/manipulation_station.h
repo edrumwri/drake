@@ -18,6 +18,9 @@ namespace drake {
 namespace examples {
 namespace manipulation_station {
 
+template <typename T>
+class CombinedManipulatorAndGripperModel;
+
 /// Determines which sdf is loaded for the IIWA in the ManipulationStation.
 enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
 
@@ -312,6 +315,9 @@ class ManipulationStation : public systems::Diagram<T> {
   // corresponding station setup function (e.g., SetupDefaultStation()), and
   // informs how SetDefaultState() initializes the sim.
   Setup setup_{Setup::kNone};
+
+  // The model of the manipulator.
+  CombinedManipulatorAndGripperModel<T>* robot_model_{nullptr};
 };
 
 }  // namespace manipulation_station
