@@ -253,7 +253,6 @@ drake_cc_library(
     deps = [
         ":runge_kutta2_integrator",
         ":runge_kutta3_integrator",
-        ":runge_kutta5_integrator",
         "//common:extract_double",
         "//systems/framework:context",
         "//systems/framework:system",
@@ -343,20 +342,6 @@ drake_cc_googletest(
     timeout = "moderate",
     deps = [
         ":runge_kutta3_integrator",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//math:geometric_transform",
-        "//multibody/plant",
-        "//systems/analysis/test_utilities",
-    ],
-)
-
-drake_cc_googletest(
-    name = "runge_kutta5_integrator_test",
-    # Test timeout increased to not timeout when run with Valgrind.
-    timeout = "moderate",
-    deps = [
-        ":runge_kutta2_integrator",
-        ":runge_kutta5_integrator",
         "//common/test_utilities:eigen_matrix_compare",
         "//math:geometric_transform",
         "//multibody/plant",
