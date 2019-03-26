@@ -7,12 +7,18 @@ template <typename T>
 class DiagramBuilder;
 }
 
+namespace multibody {
+template <typename T>
+class MultibodyPlant;
+}
+
 namespace examples {
 namespace manipulation_station {
 
 template <typename T>
 class CombinedManipulatorAndGripperModel {
  public:
+
   virtual ~CombinedManipulatorAndGripperModel() {}
 
   // TODO(edrumwri) Remove this.
@@ -75,9 +81,19 @@ class CombinedManipulatorAndGripperModel {
     const VectorX<T>& v,
     systems::State<T>* state) const = 0;
 
+  /// This function is called by the ManipulationStation to add the manipulator
+  /// and gripper models to the plant.
+  virtual void AddRobotModelToMultibodyPlant(
+      multibody::MultibodyPlant<T>* plant) const = 0;
+
   /// This function is called by the ManipulationStation to build the
   /// control diagram.
   virtual void BuildControlDiagram(systems::DiagramBuilder<T>* builder) = 0;
+
+ protected:
+  // The MultibodyPlant holding the robot model (and possibly other models as
+  // well).
+  multibody::MultibodyPlant<T>* plant_{nullptr};
 };
 
 }  // namespace manipulation_station

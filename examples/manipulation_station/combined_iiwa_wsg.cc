@@ -106,6 +106,7 @@ SpatialInertia<double> MakeCompositeGripperInertia(
   return M_CGo_G;
 }
 
+// TODO(edrumwri): Move this to its own file.
 // Load a SDF model and weld it to the MultibodyPlant.
 // @param model_path Full path to the sdf model file. i.e. with
 // FindResourceOrThrow
@@ -120,13 +121,13 @@ ModelInstanceIndex AddAndWeldModelFrom(
     const std::string& model_path, const std::string& model_name,
     const Frame<T>& parent, const std::string& child_frame_name,
     const Isometry3<double>& X_PC, MultibodyPlant<T>* plant) {
-  DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
+  DRAKE_THROW_UNLESS(!plant_->HasModelInstanceNamed(model_name));
 
   Parser parser(plant);
   const ModelInstanceIndex new_model =
       parser.AddModelFromFile(model_path, model_name);
-  const auto& child_frame = plant->GetFrameByName(child_frame_name, new_model);
-  plant->WeldFrames(parent, child_frame, X_PC);
+  const auto& child_frame = plant_->GetFrameByName(child_frame_name, new_model);
+  plant_->WeldFrames(parent, child_frame, X_PC);
   return new_model;
 }
 
@@ -170,17 +171,17 @@ void CombinedIiwaWsg<T>::MakeIiwaControllerModel() {
 
 // Add default iiwa.
 template <typename T>
-void CombinedIiwaWsg<T>::AddDefaultIiwa(
-    const IiwaCollisionModel collision_model) {
-  std::string sdf_path;
-  switch (collision_model) {
+void CombinedIiwaWsg<T>::AddRobotModelToMultibodyPlant() {
+  // First add the Iiwa model.
+  std::string iiwa_sdf_path;
+  switch (collision_model_) {
     case IiwaCollisionModel::kNoCollision:
-      sdf_path = FindResourceOrThrow(
+      iiwa_sdf_path = FindResourceOrThrow(
           "drake/manipulation/models/iiwa_description/iiwa7/"
           "iiwa7_no_collision.sdf");
       break;
     case IiwaCollisionModel::kBoxCollision:
-      sdf_path = FindResourceOrThrow(
+      iiwa_sdf_path = FindResourceOrThrow(
           "drake/manipulation/models/iiwa_description/iiwa7/"
           "iiwa7_with_box_collision.sdf");
       break;
@@ -189,25 +190,21 @@ void CombinedIiwaWsg<T>::AddDefaultIiwa(
   }
   const auto X_WI = RigidTransform<double>::Identity();
   auto iiwa_instance = AddAndWeldModelFrom(
-      sdf_path, "iiwa", plant_->world_frame(), "iiwa_link_0",
-      X_WI.GetAsIsometry3(), plant_);
+      iiwa_sdf_path, "iiwa", plant_->world_frame(), "iiwa_link_0",
+      X_WI.GetAsIsometry3(), plant);
   RegisterIiwaControllerModel(
-      sdf_path, iiwa_instance, plant_->world_frame(),
+      iiwa_sdf_path, iiwa_instance, plant_->world_frame(),
       plant_->GetFrameByName("iiwa_link_0", iiwa_instance), X_WI);
-}
 
-// Add default wsg.
-template <typename T>
-void CombinedIiwaWsg<T>::AddDefaultWsg() {
-  const std::string sdf_path = FindResourceOrThrow(
+  const std::string wsg_sdf_path = FindResourceOrThrow(
       "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf");
   const Frame<T>& link7 =
       plant_->GetFrameByName("iiwa_link_7", iiwa_model_.model_instance);
   const RigidTransform<double> X_7G(RollPitchYaw<double>(M_PI_2, 0, M_PI_2),
                                     Vector3d(0, 0, 0.114));
   auto wsg_instance = AddAndWeldModelFrom(
-      sdf_path, "gripper", link7, "body", X_7G.GetAsIsometry3(), plant_);
-  RegisterWsgControllerModel(sdf_path, wsg_instance, link7,
+      wsg_sdf_path, "gripper", link7, "body", X_7G.GetAsIsometry3(), plant);
+  RegisterWsgControllerModel(wsg_sdf_path, wsg_instance, link7,
                              plant_->GetFrameByName("body", wsg_instance),
                              X_7G);
 }

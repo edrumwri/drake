@@ -21,9 +21,6 @@ namespace manipulation_station {
 template <typename T>
 class CombinedManipulatorAndGripperModel;
 
-/// Determines which sdf is loaded for the IIWA in the ManipulationStation.
-enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
-
 /// Determines which manipulation station is simulated.
 enum class Setup { kNone, kDefault, kClutterClearing };
 
@@ -141,7 +138,8 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @param time_step The time step used by MultibodyPlant<T>, and by the
   ///   discrete derivative used to approximate velocity from the position
   ///   command inputs.
-  explicit ManipulationStation(double time_step = 0.002);
+  ManipulationStation(std::unique_ptr<multibody::MultibodyPlant<T>> plant,
+      std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model);
 
   /// Adds a default iiwa, wsg, two bins, and a camera, then calls
   /// RegisterIiwaControllerModel() and RegisterWsgControllerModel() with
@@ -151,8 +149,7 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @param X_WCameraBody Transformation between the world and the camera body.
   /// @param collision_model Determines which sdf is loaded for the IIWA.
   void SetupClutterClearingStation(
-      const optional<const math::RigidTransformd>& X_WCameraBody = {},
-      IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
+      const optional<const math::RigidTransformd>& X_WCameraBody = {});
 
   // TODO(kmuhlrad): Rename SetupMITClassStation.
   /// Adds a default iiwa, wsg, cupboard, and 8020 frame for the MIT
@@ -162,8 +159,7 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @note Must be called before Finalize().
   /// @note Only one of the `Setup___()` methods should be called.
   /// @param collision_model Determines which sdf is loaded for the IIWA.
-  void SetupDefaultStation(
-      IiwaCollisionModel collision_model = IiwaCollisionModel::kNoCollision);
+  void SetupDefaultStation();
 
   /// Sets the default State for the chosen setup.
   /// @param context A const reference to the ManipulationStation context.
@@ -317,7 +313,7 @@ class ManipulationStation : public systems::Diagram<T> {
   Setup setup_{Setup::kNone};
 
   // The model of the manipulator.
-  CombinedManipulatorAndGripperModel<T>* robot_model_{nullptr};
+  std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model_{nullptr};
 };
 
 }  // namespace manipulation_station

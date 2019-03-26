@@ -14,6 +14,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   /// Determines which sdf is loaded for the IIWA in the ManipulationStation.
   enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
 
+  CombinedIiwaWsg(IiwaCollisionModel model, MultibodyPlant<T>* plant) :
+      CombinedManipulatorAndGripperModel(plant), collision_model_(model) {}
+
   void Finalize(
       const typename CombinedManipulatorAndGripperModel<T>::Setup setup,
       systems::DiagramBuilder<T>* builder)
@@ -202,6 +205,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
         *robot_context, &robot_context->get_mutable_state(), v);
   }
 
+  void AddRobotModelToMultibodyPlant(multibody::MultibodyPlant<T>* plant)
+      const override;
+
  private:
   // Struct defined to store information about the how to parse and add a model.
   struct ModelInformation {
@@ -215,16 +221,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
 
   void BuildControlDiagram(systems::DiagramBuilder<T>* builder) override final;
 
-  // The MultibodyPlant holding the robot model (and possibly other models as
-  // well).
-  multibody::MultibodyPlant<T>* plant_{nullptr};
-
   // Assumes iiwa_model_info_ and wsg_model_info_ have already being populated.
   // Should only be called from Finalize().
   void MakeIiwaControllerModel();
-
-  void AddDefaultIiwa(const IiwaCollisionModel collision_model);
-  void AddDefaultWsg();
 
   std::unique_ptr<multibody::MultibodyPlant<T>> owned_controller_plant_;
 
@@ -232,6 +231,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   // RegisterWsgControllerModel().
   ModelInformation iiwa_model_;
   ModelInformation wsg_model_;
+
+  // The collision model that this robot model was constructed with.
+  IiwaCollisionModel collision_model_;
 
   // These are kp and kd gains for iiwa and wsg controllers.
   VectorX<double> iiwa_kp_;

@@ -43,6 +43,30 @@ using multibody::SpatialInertia;
 
 namespace internal {
 
+// TODO(edrumwri): Move this to its own file.
+// Load a SDF model and weld it to the MultibodyPlant.
+// @param model_path Full path to the sdf model file. i.e. with
+// FindResourceOrThrow
+// @param model_name Name of the added model instance.
+// @param parent Frame P from the MultibodyPlant to which the new model is
+// welded to.
+// @param child_frame_name Defines frame C (the child frame), assumed to be
+// present in the model being added.
+// @param X_PC Transformation of frame C relative to frame P.
+template <typename T>
+multibody::ModelInstanceIndex AddAndWeldModelFrom(
+    const std::string& model_path, const std::string& model_name,
+    const multibody::Frame<T>& parent, const std::string& child_frame_name,
+    const Isometry3<double>& X_PC, MultibodyPlant<T>* plant) {
+  DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
+
+  multibody::Parser parser(plant);
+  const multibody::ModelInstanceIndex new_model =
+      parser.AddModelFromFile(model_path, model_name);
+  const auto& child_frame = plant->GetFrameByName(child_frame_name, new_model);
+  plant->WeldFrames(parent, child_frame, X_PC);
+  return new_model;
+}
 
 // TODO(russt): Get these from SDF instead of having them hard-coded (#10022).
 void get_camera_poses(std::map<std::string, RigidTransform<double>>* pose_map) {
@@ -62,10 +86,12 @@ void get_camera_poses(std::map<std::string, RigidTransform<double>>* pose_map) {
 }  // namespace internal
 
 template <typename T>
-ManipulationStation<T>::ManipulationStation(double time_step)
-    : owned_plant_(std::make_unique<MultibodyPlant<T>>(time_step)),
+ManipulationStation<T>::ManipulationStation(
+    std::unique_ptr<MultibodyPlant<T>> plant,
+    std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model)
+    : owned_plant_(std::move(plant)),
       owned_scene_graph_(std::make_unique<SceneGraph<T>>()),
-      robot_model_->get_controller_plant()(std::make_unique<MultibodyPlant<T>>()) {
+      robot_model_(std::move(robot_model)) {
   // This class holds the unique_ptrs explicitly for plant and scene_graph
   // until Finalize() is called (when they are moved into the Diagram). Grab
   // the raw pointers, which should stay valid for the lifetime of the Diagram.
@@ -98,8 +124,7 @@ void ManipulationStation<T>::AddManipulandFromFile(
 
 template <typename T>
 void ManipulationStation<T>::SetupClutterClearingStation(
-    const optional<const math::RigidTransformd>& X_WCameraBody,
-    IiwaCollisionModel collision_model) {
+    const optional<const math::RigidTransformd>& X_WCameraBody) {
   DRAKE_DEMAND(setup_ == Setup::kNone);
   setup_ = Setup::kClutterClearing;
 
@@ -148,13 +173,11 @@ void ManipulationStation<T>::SetupClutterClearingStation(
                        camera_properties);
   }
 
-  AddDefaultIiwa(collision_model);
-  AddDefaultWsg();
+  robot_model_->AddRobotModelToMultibodyPlant(plant_);
 }
 
 template <typename T>
-void ManipulationStation<T>::SetupDefaultStation(
-    const IiwaCollisionModel collision_model) {
+void ManipulationStation<T>::SetupDefaultStation() {
   DRAKE_DEMAND(setup_ == Setup::kNone);
   setup_ = Setup::kDefault;
 
@@ -212,9 +235,7 @@ void ManipulationStation<T>::SetupDefaultStation(
     object_poses_.push_back(X_WObject);
   }
 
-  // Add the default iiwa/wsg models.
-  AddDefaultIiwa(collision_model);
-  AddDefaultWsg();
+  robot_model_->AddRobotModelToMultibodyPlant(plant_);
 
   // Add default cameras.
   {
