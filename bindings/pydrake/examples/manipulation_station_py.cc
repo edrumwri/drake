@@ -6,6 +6,7 @@
 #include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/examples/manipulation_station/combined_manipulator_and_gripper_model.h"
 #include "drake/examples/manipulation_station/manipulation_station.h"
 #include "drake/examples/manipulation_station/manipulation_station_hardware_interface.h"  // noqa
 
@@ -30,6 +31,145 @@ PYBIND11_MODULE(manipulation_station, m) {
   // ManipulationStation currently only supports double.
   using T = double;
 
+/*
+  auto bind_scalar_types = [m](auto dummy) {
+    //using T = decltype(dummy);
+    DefineTemplateClassWithDefault<CombinedManipulatorAndGripper<T>>(
+        m, "CombinedManipulatorAndGripper", GetPyParam<T>(),
+            doc.CombinedManipulatorAndGripper.doc);
+//        .def("set_fixed_step_mode", &IntegratorBase<T>::set_fixed_step_mode,
+//            doc.IntegratorBase.set_fixed_step_mode.doc)
+  }
+*/
+  // TODO(siyuan.feng): Add RegisterRgbdCamera when we have bindings for
+  // creating a geometry::dev::render::DepthCameraProperties struct.
+  py::class_<ManipulationStation<T>, Diagram<T>>(m, "ManipulationStation")
+      .def(py::init<std::unique_ptr<multibody::MultibodyPlant<T>>,
+          std::unique_ptr<CombinedManipulatorAndGripperModel<T>>>(),
+          py::arg("plant"), py::arg("robot_model"),
+          doc.ManipulationStation.ctor.doc)
+      .def("SetupDefaultStation", &ManipulationStation<T>::SetupDefaultStation,
+          doc.ManipulationStation.SetupDefaultStation.doc)
+      .def("SetupClutterClearingStation",
+          &ManipulationStation<T>::SetupClutterClearingStation,
+          py::arg("X_WCameraBody") = nullopt,
+          doc.ManipulationStation.SetupClutterClearingStation.doc)
+      .def("AddManipulandFromFile",
+          &ManipulationStation<T>::AddManipulandFromFile, py::arg("model_file"),
+          py::arg("X_WObject"),
+          doc.ManipulationStation.AddManipulandFromFile.doc)
+/*
+      .def("RegisterIiwaControllerModel",
+          &ManipulationStation<T>::RegisterIiwaControllerModel,
+          doc.ManipulationStation.RegisterIiwaControllerModel.doc)
+      .def("RegisterWsgControllerModel",
+          &ManipulationStation<T>::RegisterWsgControllerModel,
+          doc.ManipulationStation.RegisterWsgControllerModel.doc)
+*/
+      .def("Finalize", &ManipulationStation<T>::Finalize,
+          doc.ManipulationStation.Finalize.doc)
+      .def("get_multibody_plant", &ManipulationStation<T>::get_multibody_plant,
+          py_reference_internal,
+          doc.ManipulationStation.get_multibody_plant.doc)
+      .def("get_mutable_multibody_plant",
+          &ManipulationStation<T>::get_mutable_multibody_plant,
+          py_reference_internal,
+          doc.ManipulationStation.get_mutable_multibody_plant.doc)
+      .def("get_scene_graph", &ManipulationStation<T>::get_scene_graph,
+          py_reference_internal, doc.ManipulationStation.get_scene_graph.doc)
+      .def("get_mutable_scene_graph",
+          &ManipulationStation<T>::get_mutable_scene_graph,
+          py_reference_internal,
+          doc.ManipulationStation.get_mutable_scene_graph.doc)
+      .def("get_controller_plant",
+          &ManipulationStation<T>::get_controller_plant, py_reference_internal,
+          doc.ManipulationStation.get_controller_plant.doc)
+/*
+      .def("GetIiwaPosition", &ManipulationStation<T>::GetIiwaPosition,
+          doc.ManipulationStation.GetIiwaPosition.doc)
+      .def("SetIiwaPosition",
+          overload_cast_explicit<void, systems::Context<T>*,
+              const Eigen::Ref<const VectorX<T>>&>(
+              &ManipulationStation<T>::SetIiwaPosition),
+          py::arg("station_context"), py::arg("q"),
+          doc.ManipulationStation.SetIiwaPosition.doc_2args)
+      .def("SetIiwaPosition",
+          [](ManipulationStation<T>* self,
+              const Eigen::Ref<const VectorX<T>>& q,
+              systems::Context<T>* context) {
+            WarnDeprecated(
+                "SetIiwaPosition(q, context) is deprecated.  Please use "
+                "(context, q) instead.");
+            self->SetIiwaPosition(context, q);
+          })
+      .def("GetIiwaVelocity", &ManipulationStation<T>::GetIiwaVelocity,
+          doc.ManipulationStation.GetIiwaVelocity.doc)
+      .def("SetIiwaVelocity",
+          overload_cast_explicit<void, systems::Context<T>*,
+              const Eigen::Ref<const VectorX<T>>&>(
+              &ManipulationStation<T>::SetIiwaVelocity),
+          py::arg("station_context"), py::arg("v"),
+          doc.ManipulationStation.SetIiwaVelocity.doc_2args)
+      .def("SetIiwaVelocity",
+          [](ManipulationStation<T>* self,
+              const Eigen::Ref<const VectorX<T>>& v,
+              systems::Context<T>* context) {
+            WarnDeprecated(
+                "SetIiwaVelocity(v, context) is deprecated.  Please use "
+                "(context, v) instead.");
+            self->SetIiwaVelocity(context, v);
+          })
+      .def("GetWsgPosition", &ManipulationStation<T>::GetWsgPosition,
+          doc.ManipulationStation.GetWsgPosition.doc)
+      .def("SetWsgPosition",
+          overload_cast_explicit<void, systems::Context<T>*, const T&>(
+              &ManipulationStation<T>::SetWsgPosition),
+          py::arg("station_context"), py::arg("q"),
+          doc.ManipulationStation.SetWsgPosition.doc_2args)
+      .def("SetWsgPosition",
+          [](ManipulationStation<T>* self, const T& q,
+              systems::Context<T>* context) {
+            WarnDeprecated(
+                "SetWsgPosition(q, context) is deprecated.  Please use "
+                "(context, q) instead.");
+            self->SetWsgPosition(context, q);
+          })
+      .def("GetWsgVelocity", &ManipulationStation<T>::GetWsgVelocity,
+          doc.ManipulationStation.GetWsgVelocity.doc)
+      .def("SetWsgVelocity",
+          overload_cast_explicit<void, systems::Context<T>*, const T&>(
+              &ManipulationStation<T>::SetWsgVelocity),
+          py::arg("station_context"), py::arg("v"),
+          doc.ManipulationStation.SetWsgVelocity.doc_2args)
+      .def("SetWsgVelocity",
+          [](ManipulationStation<T>* self, const T& v,
+              systems::Context<T>* context) {
+            WarnDeprecated(
+                "SetWsgVelocity(v, context) is deprecated.  Please use "
+                "(context, v) instead.");
+            self->SetWsgVelocity(context, v);
+          })
+*/
+      .def("GetStaticCameraPosesInWorld",
+          &ManipulationStation<T>::GetStaticCameraPosesInWorld,
+          py_reference_internal,
+          doc.ManipulationStation.GetStaticCameraPosesInWorld.doc)
+      .def("get_camera_names", &ManipulationStation<T>::get_camera_names,
+          doc.ManipulationStation.get_camera_names.doc);
+/*
+      .def("SetWsgGains", &ManipulationStation<T>::SetWsgGains,
+          doc.ManipulationStation.SetWsgGains.doc)
+      .def("SetIiwaPositionGains",
+          &ManipulationStation<T>::SetIiwaPositionGains,
+          doc.ManipulationStation.SetIiwaPositionGains.doc)
+      .def("SetIiwaVelocityGains",
+          &ManipulationStation<T>::SetIiwaVelocityGains,
+          doc.ManipulationStation.SetIiwaVelocityGains.doc)
+      .def("SetIiwaIntegralGains",
+          &ManipulationStation<T>::SetIiwaIntegralGains,
+          doc.ManipulationStation.SetIiwaIntegralGains.doc);
+*/
+/*
   py::enum_<IiwaCollisionModel>(m, "IiwaCollisionModel")
       .value("kNoCollision", IiwaCollisionModel::kNoCollision,
           doc.IiwaCollisionModel.kNoCollision.doc)
@@ -159,7 +299,7 @@ PYBIND11_MODULE(manipulation_station, m) {
       .def("SetIiwaIntegralGains",
           &ManipulationStation<T>::SetIiwaIntegralGains,
           doc.ManipulationStation.SetIiwaIntegralGains.doc);
-
+*/
   py::class_<ManipulationStationHardwareInterface, Diagram<double>>(
       m, "ManipulationStationHardwareInterface")
       .def(py::init<const std::vector<std::string>>(),

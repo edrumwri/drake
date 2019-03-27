@@ -271,6 +271,9 @@ class ManipulationStation : public systems::Diagram<T> {
   /// Get the camera names / unique ids.
   std::vector<std::string> get_camera_names() const;
 
+  /// Gets the plant used for control.
+  const multibody::MultibodyPlant<T>& get_controller_plant() const;
+
  private:
   // Struct defined to store information about the how to parse and add a model.
   struct ModelInformation {

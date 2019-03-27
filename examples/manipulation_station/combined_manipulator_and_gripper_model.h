@@ -1,5 +1,8 @@
 #pragma once
 
+#include "drake/common/eigen_types.h"
+#include "drake/systems/framework/context.h"
+
 namespace drake {
 
 namespace systems {
