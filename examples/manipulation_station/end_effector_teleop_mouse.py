@@ -9,7 +9,7 @@ from pydrake.multibody.plant import MultibodyPlant
 from pydrake.manipulation.planner import (
     DifferentialInverseKinematicsParameters)
 from pydrake.math import RigidTransform, RollPitchYaw
-from pydrake.systems.analysis import Simulator
+from pydrake.systems.analysis import Simulator, ImplicitEulerIntegrator
 from pydrake.systems.framework import (BasicVector, DiagramBuilder,
                                        LeafSystem)
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
@@ -231,6 +231,16 @@ class MouseKeyboardTeleop(LeafSystem):
         output.SetAtIndex(4, self.y)
         output.SetAtIndex(5, self.z)
 
+def OutputStats(sim):
+    integrator = sim.get_mutable_integrator()
+    print('Time: ' + str(sim.get_context().get_time))
+    print('# shrinkages from step failures: ' + str(integrator.get_num_step_shrinkages_from_substep_failures()))
+    print('# shrinkages from error control: ' + str(integrator.get_num_step_shrinkages_from_error_control()))
+    print('# ODE evaluations: ' + str(integrator.get_num_derivative_evaluations()))
+    print('# NR evaluations: ' + str(integrator.get_num_newton_raphson_iterations()))
+    print('---------------------------------')
+    integrator.ResetStatistics()
+
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -330,6 +340,10 @@ builder.Connect(teleop.GetOutputPort("force_limit"),
 
 diagram = builder.Build()
 simulator = Simulator(diagram)
+integrator = ImplicitEulerIntegrator(system=diagram, context=simulator.get_context())
+simulator.reset_integrator(integrator)
+integrator.set_target_accuracy(1e-1)
+integrator.set_maximum_step_size(1e-2)
 
 station_context = diagram.GetMutableSubsystemContext(
     station, simulator.get_mutable_context())
@@ -355,4 +369,9 @@ simulator.set_publish_every_time_step(False)
 simulator.set_target_realtime_rate(args.target_realtime_rate)
 
 print_instructions()
-simulator.StepTo(args.duration)
+t = 0
+dt = 0.002
+while t < args.duration:
+  t += dt
+  simulator.StepTo(t)
+  OutputStats(simulator)

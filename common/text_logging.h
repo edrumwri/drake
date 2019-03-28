@@ -33,7 +33,6 @@ printed without any special handling.
 // Before including spdlog, activate the SPDLOG_DEBUG and SPDLOG_TRACE macros
 // if and only if Drake is being compiled in debug mode.  When not in debug
 // mode, they are no-ops and their arguments are not evaluated.
-#ifndef NDEBUG
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 
 // TODO(jwnimmer-tri) Deprecate these Drake-specific aliases.
@@ -73,7 +72,6 @@ printed without any special handling.
 #include <fmt/ostream.h>
 /* clang-format on */
 
-#endif  // HAVE_SPDLOG
 #endif  // DRAKE_DOXYGEN_CXX
 
 #include "drake/common/drake_copyable.h"

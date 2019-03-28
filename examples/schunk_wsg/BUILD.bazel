@@ -48,14 +48,12 @@ drake_cc_binary(
 
 drake_cc_googletest(
     name = "schunk_wsg_lift_test",
-    timeout = "moderate",
     data = [
         "test/test_lifter.sdf",
         "//manipulation/models/wsg_50_description:models",
         "//multibody:models",
     ],
     # This test is prohibitively slow with --compilation_mode=dbg.
-    disable_in_compilation_mode_dbg = True,
     # TODO(betsymcphail): Re-enable this test when it no longer
     # causes timeouts in kcov.
     tags = ["no_kcov"],

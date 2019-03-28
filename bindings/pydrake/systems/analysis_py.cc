@@ -3,6 +3,7 @@
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/systems/systems_pybind.h"
+#include "drake/systems/analysis/implicit_euler_integrator.h"
 #include "drake/systems/analysis/integrator_base.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
@@ -49,7 +50,19 @@ PYBIND11_MODULE(analysis, m) {
             doc.IntegratorBase.set_throw_on_minimum_step_size_violation.doc)
         .def("get_throw_on_minimum_step_size_violation",
             &IntegratorBase<T>::get_throw_on_minimum_step_size_violation,
-            doc.IntegratorBase.get_throw_on_minimum_step_size_violation.doc);
+            doc.IntegratorBase.get_throw_on_minimum_step_size_violation.doc)
+        .def("ResetStatistics",
+            &IntegratorBase<T>::ResetStatistics,
+            doc.IntegratorBase.ResetStatistics.doc)
+        .def("get_num_derivative_evaluations",
+            &IntegratorBase<T>::get_num_derivative_evaluations,
+            doc.IntegratorBase.get_num_derivative_evaluations.doc)
+        .def("get_num_step_shrinkages_from_substep_failures",
+            &IntegratorBase<T>::get_num_step_shrinkages_from_substep_failures,
+            doc.IntegratorBase.get_num_step_shrinkages_from_substep_failures.doc)
+        .def("get_num_step_shrinkages_from_error_control",
+            &IntegratorBase<T>::get_num_step_shrinkages_from_error_control,
+            doc.IntegratorBase.get_num_step_shrinkages_from_error_control.doc);
 
     DefineTemplateClassWithDefault<RungeKutta2Integrator<T>, IntegratorBase<T>>(
         m, "RungeKutta2Integrator", GetPyParam<T>(),
@@ -71,6 +84,20 @@ PYBIND11_MODULE(analysis, m) {
             py::keep_alive<1, 2>(),
             // Keep alive, reference: `self` keeps `Context` alive.
             py::keep_alive<1, 3>(), doc.RungeKutta3Integrator.ctor.doc);
+
+    DefineTemplateClassWithDefault<ImplicitEulerIntegrator<T>,
+        IntegratorBase<T>>(m, "ImplicitEulerIntegrator", GetPyParam<T>(),
+        doc.ImplicitEulerIntegrator.doc)
+        .def(py::init<const System<T>&, Context<T>*>(), py::arg("system"),
+            py::arg("context") = nullptr,
+            // Keep alive, reference: `self` keeps `System` alive.
+            py::keep_alive<1, 2>(),
+            // Keep alive, reference: `self` keeps `Context` alive.
+            py::keep_alive<1, 3>(), doc.ImplicitEulerIntegrator.ctor.doc)
+        .def("get_num_newton_raphson_iterations",
+            &ImplicitEulerIntegrator<T>::get_num_newton_raphson_iterations,
+            doc.ImplicitEulerIntegrator.get_num_newton_raphson_iterations.doc);
+
 
     DefineTemplateClassWithDefault<Simulator<T>>(
         m, "Simulator", GetPyParam<T>(), doc.Simulator.doc)

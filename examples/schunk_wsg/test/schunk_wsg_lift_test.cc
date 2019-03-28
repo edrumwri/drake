@@ -22,6 +22,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/common/trajectories/piecewise_polynomial.h"
+#include "drake/common/text_logging.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
 #include "drake/manipulation/schunk_wsg/schunk_wsg_constants.h"
@@ -35,6 +36,7 @@
 #include "drake/multibody/rigid_body_plant/rigid_body_plant.h"
 #include "drake/multibody/rigid_body_tree.h"
 #include "drake/multibody/rigid_body_tree_construction.h"
+#include "drake/systems/analysis/implicit_euler_integrator.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/controllers/pid_controlled_system.h"
@@ -55,7 +57,7 @@ namespace {
 
 using drake::systems::Multiplexer;
 using drake::systems::Demultiplexer;
-using drake::systems::RungeKutta2Integrator;
+using drake::systems::ImplicitEulerIntegrator;
 using drake::systems::ContactResultsToLcmSystem;
 using drake::systems::lcm::LcmPublisherSystem;
 using drake::systems::KinematicsResults;
@@ -181,6 +183,23 @@ class SchunkWsgLiftTest : public ::testing::TestWithParam<bool> {
   }
 };
 
+void OutputStats(systems::Simulator<double>& s) {
+  auto* i = dynamic_cast<ImplicitEulerIntegrator<double>*>(s.get_mutable_integrator());
+  std::cout << "time: " << s.get_context().get_time() << std::endl;
+  std::cout << "# shrinkages from substep failures: "
+      << i->get_num_step_shrinkages_from_substep_failures() << std::endl
+      << " # shrunk from error control: " 
+      << i->get_num_step_shrinkages_from_error_control() << std::endl
+      << " # substep failures: "
+      << i->get_num_substep_failures() << std::endl
+      << " # ODE evaluations: "
+      << i->get_num_derivative_evaluations() << std::endl
+      << " # NR evaluations: "
+      << i->get_num_newton_raphson_iterations() << std::endl;
+      std::cout << "---------------------------------" << std::endl;
+      i->ResetStatistics();
+}
+
 TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   systems::DiagramBuilder<double> builder;
 
@@ -190,6 +209,9 @@ TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   // Note: 5e-3 yields a simulation right on the edge of stability. We back off
   // to 2.5e-3 to balance between test runtime and simulation stability.
   const double timestep = (GetParam()) ? 2.5e-3 : 0.0;
+  if (timestep > 0)
+    return;
+//  drake::log()->set_level(spdlog::level::trace);
   systems::RigidBodyPlant<double>* plant =
       builder.AddSystem<systems::RigidBodyPlant<double>>(
           BuildLiftTestTree(&lifter_instance_id, &gripper_instance_id),
@@ -413,16 +435,24 @@ TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   // Note: the RK2 is used instead of the RK3 here because error control
   // with our current models is yielding much slower running times without
   // discernible improvements in accuracy.
-  const double dt = 1e-4;
-  simulator.reset_integrator<RungeKutta2Integrator<double>>(
-      *model, dt, &context);
+  simulator.reset_integrator<ImplicitEulerIntegrator<double>>(
+      *model, &context);
+  simulator.get_mutable_integrator()->request_initial_step_size_target(1e-2);
+  simulator.get_mutable_integrator()->set_target_accuracy(1e-2);
+  simulator.get_mutable_integrator()->set_maximum_step_size(1e-1);
   simulator.Initialize();
 
   // Simulate to one second beyond the trajectory motion.
   const double kSimDuration = lift_breaks[lift_breaks.size() - 1] + 1.0;
 
   // Simulation in two pieces -- see notes below on the test for details.
-  simulator.StepTo(kLiftStart);
+  const double dt = 1e-1;
+  double t = 0;
+  do {
+    t += dt;
+    simulator.StepTo(t);
+    OutputStats(simulator);
+  } while (t <= kLiftStart);
 
   // Capture the "initial" positions of the box and the gripper finger as
   // discussed in the test notes below.
@@ -439,7 +469,11 @@ TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
       interim_kinematics_results.get_body_position(finger_index);
 
   // Now run to the end of the simulation.
-  simulator.StepTo(kSimDuration);
+  do {
+      t += dt;
+      simulator.StepTo(t);
+      OutputStats(simulator);
+  } while (t <= kSimDuration);
 
   // Extract and log the state of the robot.
   model->CalcOutput(simulator.get_context(), state_output.get());

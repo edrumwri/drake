@@ -138,7 +138,7 @@ class ManipulationStation : public systems::Diagram<T> {
   /// @param time_step The time step used by MultibodyPlant<T>, and by the
   ///   discrete derivative used to approximate velocity from the position
   ///   command inputs.
-  explicit ManipulationStation(double time_step = 0.002);
+  explicit ManipulationStation(double time_step = 0);
 
   /// Adds a default iiwa, wsg, two bins, and a camera, then calls
   /// RegisterIiwaControllerModel() and RegisterWsgControllerModel() with

@@ -970,7 +970,9 @@ template<typename T>
 void MultibodyPlant<T>::CopyContactResultsOutput(
     const systems::Context<T>& context,
     ContactResults<T>* contact_results) const {
-  DRAKE_DEMAND(contact_results != nullptr);
+  if (!is_discrete())
+    return;
+      	DRAKE_DEMAND(contact_results != nullptr);
   *contact_results = EvalContactResults(context);
 }
 
@@ -1689,8 +1691,12 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
     }
     auto calc = [this, model_instance_index](const systems::Context<T>& context,
                                              systems::BasicVector<T>* result) {
-      this->CopyGeneralizedContactForcesOut(
+	if (is_discrete()) {
+      	    this->CopyGeneralizedContactForcesOut(
           model_instance_index, context, result);
+	} else {
+          result->SetZero();
+	}
     };
     instance_generalized_contact_forces_output_ports_[model_instance_index] =
         this->DeclareVectorOutputPort(
@@ -1915,7 +1921,6 @@ const systems::OutputPort<T>&
 MultibodyPlant<T>::get_generalized_contact_forces_output_port(
     ModelInstanceIndex model_instance) const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-  DRAKE_THROW_UNLESS(is_discrete());
   DRAKE_THROW_UNLESS(model_instance.is_valid());
   DRAKE_THROW_UNLESS(model_instance < num_model_instances());
   DRAKE_THROW_UNLESS(internal_tree().num_states(model_instance) > 0);
@@ -1927,7 +1932,6 @@ template <typename T>
 const systems::OutputPort<T>&
 MultibodyPlant<T>::get_contact_results_output_port() const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-  DRAKE_THROW_UNLESS(is_discrete());
   return this->get_output_port(contact_results_port_);
 }
 

@@ -151,14 +151,14 @@ multibody::ModelInstanceIndex AddAndWeldModelFrom(
 }  // namespace internal
 
 template <typename T>
-ManipulationStation<T>::ManipulationStation(double time_step)
-    : owned_plant_(std::make_unique<MultibodyPlant<T>>(time_step)),
+ManipulationStation<T>::ManipulationStation(double)
+    : owned_plant_(std::make_unique<MultibodyPlant<T>>(0.0)),
       owned_scene_graph_(std::make_unique<SceneGraph<T>>()),
       owned_controller_plant_(std::make_unique<MultibodyPlant<T>>()) {
   // This class holds the unique_ptrs explicitly for plant and scene_graph
   // until Finalize() is called (when they are moved into the Diagram). Grab
   // the raw pointers, which should stay valid for the lifetime of the Diagram.
-  plant_ = owned_plant_.get();
+	      plant_ = owned_plant_.get();
   scene_graph_ = owned_scene_graph_.get();
   plant_->RegisterAsSourceForSceneGraph(scene_graph_);
   scene_graph_->set_name("scene_graph");
@@ -574,7 +574,7 @@ void ManipulationStation<T>::Finalize() {
     // position command input port.
     auto desired_state_from_position = builder.template AddSystem<
         systems::StateInterpolatorWithDiscreteDerivative>(num_iiwa_positions,
-                                                          plant_->time_step());
+                                                          0.002);
     desired_state_from_position->set_name("desired_state_from_position");
     builder.Connect(desired_state_from_position->get_output_port(),
                     iiwa_controller->get_input_port_desired_state());
