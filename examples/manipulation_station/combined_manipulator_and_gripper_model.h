@@ -21,7 +21,8 @@ namespace manipulation_station {
 template <typename T>
 class CombinedManipulatorAndGripperModel {
  public:
-
+  CombinedManipulatorAndGripperModel(multibody::MultibodyPlant<T>* plant) :
+      plant_(plant) {}
   virtual ~CombinedManipulatorAndGripperModel() {}
 
   // TODO(edrumwri) Remove this.
@@ -50,7 +51,7 @@ class CombinedManipulatorAndGripperModel {
   /// Sets the manipulator generalized positions.
   virtual void SetManipulatorPositions(
     const systems::Context<T>& robot_context,
-    const VectorX<T>& q,
+    const Eigen::Ref<const VectorX<T>>& q,
     systems::State<T>* state) const = 0;
 
   /// Sets the gripper generalized positions to the default "open" position.
@@ -61,7 +62,7 @@ class CombinedManipulatorAndGripperModel {
   /// Sets the gripper generalized positions.
   virtual void SetGripperPositions(
     const systems::Context<T>& robot_context,
-    const VectorX<T>& q,
+    const Eigen::Ref<const VectorX<T>>& q,
     systems::State<T>* state) const = 0;
 
   /// Gets the manipulator generalized velocities.
@@ -75,19 +76,18 @@ class CombinedManipulatorAndGripperModel {
   /// Sets the manipulator generalized velocities.
   virtual void SetManipulatorVelocities(
     const systems::Context<T>& robot_context,
-    const VectorX<T>& v,
+    const Eigen::Ref<const VectorX<T>>& v,
     systems::State<T>* state) const = 0;
 
   /// Sets the gripper generalized velocities.
   virtual void SetGripperVelocities(
     const systems::Context<T>& robot_context,
-    const VectorX<T>& v,
+    const Eigen::Ref<const VectorX<T>>& v,
     systems::State<T>* state) const = 0;
 
   /// This function is called by the ManipulationStation to add the manipulator
   /// and gripper models to the plant.
-  virtual void AddRobotModelToMultibodyPlant(
-      multibody::MultibodyPlant<T>* plant) const = 0;
+  virtual void AddRobotModelToMultibodyPlant() = 0;
 
   /// This function is called by the ManipulationStation to build the
   /// control diagram.

@@ -28,7 +28,7 @@ drake_cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
-        ":combined_manipulator_and_gripper_model",
+        ":combined_iiwa_wsg",
         "//common:find_resource",
         "//geometry:scene_graph",
         "//geometry/dev:scene_graph",

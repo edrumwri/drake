@@ -273,7 +273,9 @@ if args.hardware:
     station = builder.AddSystem(ManipulationStationHardwareInterface())
     station.Connect(wait_for_cameras=False)
 else:
-    station = builder.AddSystem(ManipulationStation())
+    all_plant = MultibodyPlant(time_step=2e-3)
+    kuka_wsg = CombinedIiwaWsgModel(all_plant, IiwaCollisionModel.kBoxCollision)
+    station = builder.AddSystem(ManipulationStation(kuka_wsg, all_plant))
 
     # Initializes the chosen station type.
     if args.setup == 'default':

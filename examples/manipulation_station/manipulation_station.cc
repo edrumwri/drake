@@ -173,7 +173,7 @@ void ManipulationStation<T>::SetupClutterClearingStation(
                        camera_properties);
   }
 
-  robot_model_->AddRobotModelToMultibodyPlant(plant_);
+  robot_model_->AddRobotModelToMultibodyPlant();
 }
 
 template <typename T>
@@ -235,7 +235,7 @@ void ManipulationStation<T>::SetupDefaultStation() {
     object_poses_.push_back(X_WObject);
   }
 
-  robot_model_->AddRobotModelToMultibodyPlant(plant_);
+  robot_model_->AddRobotModelToMultibodyPlant();
 
   // Add default cameras.
   {
@@ -324,6 +324,7 @@ void ManipulationStation<T>::SetRandomState(
   // TODO: Make sure the controller state is initialized to the robot state.
   // Use SetIiwaPosition to make sure the controller state is initialized to
   // the IIWA state.
+/*
   robot_model_->SetManipulatorPositions(station_context,
       robot_model_->GetManipulatorPositions(station_context), state);
   robot_model_->SetManipulatorVelocities(station_context,
@@ -332,6 +333,7 @@ void ManipulationStation<T>::SetRandomState(
       robot_model_->GetGripperPositions(station_context), state);
   robot_model_->SetGripperVelocities(station_context,
       VectorX<T>::Zero(robot_model_->num_gripper_joints()), state);
+*/
 }
 
 /*

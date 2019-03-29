@@ -6,7 +6,7 @@
 #include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/examples/manipulation_station/combined_manipulator_and_gripper_model.h"
+#include "drake/examples/manipulation_station/combined_iiwa_wsg.h"
 #include "drake/examples/manipulation_station/manipulation_station.h"
 #include "drake/examples/manipulation_station/manipulation_station_hardware_interface.h"  // noqa
 
@@ -30,6 +30,15 @@ PYBIND11_MODULE(manipulation_station, m) {
 
   // ManipulationStation currently only supports double.
   using T = double;
+
+  py::enum_<CombinedIiwaWsg<T>::IiwaCollisionModel>(m, "IiwaCollisionModel")
+      .value("kNoCollision",
+          CombinedIiwaWsg<T>::IiwaCollisionModel::kNoCollision,
+          "TODO")
+      .value("kBoxCollision",
+          CombinedIiwaWsg<T>::IiwaCollisionModel::kBoxCollision,
+          "TODO")
+      .export_values();
 
 /*
   auto bind_scalar_types = [m](auto dummy) {

@@ -316,7 +316,7 @@ class ManipulationStation : public systems::Diagram<T> {
   Setup setup_{Setup::kNone};
 
   // The model of the manipulator.
-  std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model_{nullptr};
+  std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model_;
 };
 
 }  // namespace manipulation_station

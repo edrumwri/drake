@@ -14,8 +14,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   /// Determines which sdf is loaded for the IIWA in the ManipulationStation.
   enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
 
-  CombinedIiwaWsg(IiwaCollisionModel model, MultibodyPlant<T>* plant) :
-      CombinedManipulatorAndGripperModel(plant), collision_model_(model) {}
+  CombinedIiwaWsg(IiwaCollisionModel model,
+      multibody::MultibodyPlant<T>* plant) :
+      CombinedManipulatorAndGripperModel<T>(plant), collision_model_(model) {}
 
   void Finalize(
       const typename CombinedManipulatorAndGripperModel<T>::Setup setup,
@@ -80,6 +81,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
       const multibody::Frame<T>& child_frame,
       const math::RigidTransform<double>& X_PC);
 
+  void SetGripperPositionsToDefaultOpen(
+      const systems::Context<T>& robot_context, systems::State<T>* state) const;
+
   /// Return a reference to the plant used by the inverse dynamics controller
   /// (which contains only a model of the iiwa + equivalent mass of the
   /// gripper).
@@ -101,21 +105,21 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   /// Set the position gains for the IIWA controller.
   /// @throws exception if Finalize() has been called.
   void SetIiwaPositionGains(const VectorX<double>& kp) {
-    DRAKE_THROW_UNLESS(!plant_->is_finalized());
+    DRAKE_THROW_UNLESS(!this->plant_->is_finalized());
     iiwa_kp_ = kp;
   }
 
   /// Set the velocity gains for the IIWA controller.
   /// @throws exception if Finalize() has been called.
   void SetIiwaVelocityGains(const VectorX<double>& kd) {
-    DRAKE_THROW_UNLESS(!plant_->is_finalized());
+    DRAKE_THROW_UNLESS(!this->plant_->is_finalized());
     iiwa_kd_ = kd;
   }
 
   /// Set the integral gains for the IIWA controller.
   /// @throws exception if Finalize() has been called.
   void SetIiwaIntegralGains(const VectorX<double>& ki) {
-    DRAKE_THROW_UNLESS(!plant_->is_finalized());
+    DRAKE_THROW_UNLESS(!this->plant_->is_finalized());
     iiwa_ki_ = ki;
   }
 
@@ -181,14 +185,16 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   /// @pre `state` must be the systems::State<T> object contained in
   /// `robot_context`.
   void SetGripperPositions(const systems::Context<T>& robot_context,
-      const VectorX<T>& q, systems::State<T>* state) const override final;
+      const Eigen::Ref<const VectorX<T>>& q,
+      systems::State<T>* state) const override final;
 
   /// Convenience method for setting the position of the Schunk WSG. Also
   /// sets the position history in the velocity interpolator.  Note that the
   /// WSG position is the signed distance between the two fingers (not the
   /// state of the fingers individually).
   void SetWsgPosition(
-        systems::Context<T>* robot_context, const VectorX<T>& q) const {
+        systems::Context<T>* robot_context,
+        const Eigen::Ref<const VectorX<T>>& q) const {
     SetGripperPosition(*robot_context, &robot_context->get_mutable_state(), q);
   }
 
@@ -196,17 +202,17 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   /// @pre `state` must be the systems::State<T> object contained in
   /// `robot_context`.
   void SetGripperVelocities(const systems::Context<T>& robot_context,
-      const VectorX<T>& v, systems::State<T>* state) const override final;
+      const Eigen::Ref<const VectorX<T>>& v,
+      systems::State<T>* state) const override final;
 
   /// Convenience method for setting the velocity of the Schunk WSG.
-  void SetWsgVelocity(systems::Context<T>* robot_context, const VectorX<T>& v)
-      const {
+  void SetWsgVelocity(systems::Context<T>* robot_context,
+      const Eigen::Ref<const VectorX<T>>& v) const {
     SetGripperVelocities(
         *robot_context, &robot_context->get_mutable_state(), v);
   }
 
-  void AddRobotModelToMultibodyPlant(multibody::MultibodyPlant<T>* plant)
-      const override;
+  void AddRobotModelToMultibodyPlant() override;
 
  private:
   // Struct defined to store information about the how to parse and add a model.
