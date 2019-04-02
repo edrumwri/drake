@@ -63,8 +63,7 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeAutoDiffJacobian(
     a_xtplus[i].derivatives() = VectorX<T>::Unit(n_state_dim, i);
 
   // Get the system and the context in AutoDiffable format. Inputs must also
-  // be co
-  ed to the context used by the AutoDiff'd system (which is
+  // be copied to the context used by the AutoDiff'd system (which is
   // accomplished using FixInputPortsFrom()).
   // TODO(edrumwri): Investigate means for moving as many of the operations
   //                 below offline (or with lower frequency than once-per-
@@ -250,28 +249,28 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
 // Factors a dense matrix (the negated iteration matrix) using LU factorization,
 // which should be faster than the QR factorization used in the specialized
 // template method immediately below.
+// TODO(edrumwri): Record the factorization.
 template <class T>
-void ImplicitIntegrator<T>::Factor(const MatrixX<T>& A) {
-  num_iter_factorizations_++;
-  LU_.compute(A);
+void ImplicitIntegrator<T>::IterationMatrix::Factor() {
+  LU_.compute(iteration_matrix_);
 }
 
 // Factors a dense matrix (the negated iteration matrix). This
 // AutoDiff-specialized method is necessary because Eigen's LU factorization,
 // which should be faster than the QR factorization used here, is not currently
 // AutoDiff-able (while the QR factorization *is* AutoDiff-able).
+// TODO(edrumwri): Record the factorization.
 template <>
-void ImplicitIntegrator<AutoDiffXd>::Factor(
-    const MatrixX<AutoDiffXd>& A) {
-  num_iter_factorizations_++;
-  QR_.compute(A);
+void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Factor() {
+  QR_.compute(iteration_matrix_);
 }
 
 // Solves a linear system Ax = b for x using a negated iteration matrix (A)
 // factored using LU decomposition.
 // @sa Factor()
 template <class T>
-VectorX<T> ImplicitIntegrator<T>::Solve(const VectorX<T>& b) const {
+VectorX<T> ImplicitIntegrator<T>::IterationMatrix::Solve(
+      const VectorX<T>& b) const {
   return LU_.solve(b);
 }
 
@@ -279,7 +278,7 @@ VectorX<T> ImplicitIntegrator<T>::Solve(const VectorX<T>& b) const {
 // factored using QR decomposition.
 // @sa Factor()
 template <>
-VectorX<AutoDiffXd> ImplicitIntegrator<AutoDiffXd>::Solve(
+VectorX<AutoDiffXd> ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Solve(
     const VectorX<AutoDiffXd>& b) const {
   return QR_.solve(b);
 }

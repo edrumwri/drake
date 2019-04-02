@@ -89,7 +89,7 @@ void Radau3Integrator<T>::DoInitialize() {
   this->set_accuracy_in_use(working_accuracy);
 
   // Reset the Jacobian matrix (so that recomputation is forced).
-  J_.resize(0, 0);
+  this->get_mutable_jacobian().resize(0, 0);
 }
 
 // Computes F(Z) used in [Hairer, 1996], (8.4).
@@ -157,14 +157,14 @@ bool Radau3Integrator<T>::StepRadau3(const T& dt,
   context->SetTimeAndContinuousState(tf, *xtplus);
 
   // Initialize the z iterate using (8.5) in [Hairer, 1996], p. 120.
-  Z_.setZero(xtplus->size());  
+  Z_.setZero(xtplus->size());
 
   // Initialize the "last" norm of dZ; this will be used to detect convergence.
   T last_dZ_norm = std::numeric_limits<double>::infinity();
 
   // Set the iteration matrix construction method.
   auto construct_iteration_matrix = [this](const MatrixX<T>& J, const T& h,
-      MatrixX<T>* iteration_matrix) {
+      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix) {
     ComputeRadau3IterationMatrix(J, h, this->A_, iteration_matrix);
   };
 
@@ -194,7 +194,7 @@ bool Radau3Integrator<T>::StepRadau3(const T& dt,
     // TODO(edrumwri): Solve(.) must be updated to use the proper
     // factorization (implicit trapezoid, Radau3).
     // Compute the state update using (8.4) in [Hairer, 1996], p. 119.
-    VectorX<T> dZ = this->Solve(iteration_matrix_radau3_,
+    VectorX<T> dZ = iteration_matrix_radau3_.Solve(
         A_tp_eye_ * (dt * FofZ) - Z_);
 
     // TODO(edrumwri): Get the infinity norm of the update vector using
@@ -275,9 +275,11 @@ template <class T>
 void Radau3Integrator<T>::ComputeImplicitTrapezoidIterationMatrix(
     const MatrixX<T>& J,
     const T& dt,
-    MatrixX<T>* iteration_matrix) {
+    typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix) {
   const int n = J.rows();
-  *iteration_matrix = J * (-dt / 2.0) + MatrixX<T>::Identity(n, n);
+  // TODO(edrumwri) Investigate how to do the below operation with a move.
+  iteration_matrix->set_iteration_matrix(J * (-dt / 2.0) +
+      MatrixX<T>::Identity(n, n));
 }
 
 // Function for computing the iteration matrix for the Radau3 method. This
@@ -286,14 +288,15 @@ template <class T>
 void Radau3Integrator<T>::ComputeRadau3IterationMatrix(
     const MatrixX<T>& J,
     const T& dt,
-    const MatrixX<T>& A,
-    MatrixX<T>* iteration_matrix) {
+    const MatrixX<double>& A,
+    typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix) {
   const int n = J.rows() * kNumStages;
-  *iteration_matrix = CalcTensorProduct(A * dt, J) -
-      MatrixX<T>::Identity(n , n);
+  // TODO(edrumwri) Investigate how to do the below operation with a move.
+  iteration_matrix->set_iteration_matrix(CalcTensorProduct(A * dt, J) -
+      MatrixX<T>::Identity(n , n));
 }
 
-// Computes the tensor product between two matrices. Given 
+// Computes the tensor product between two matrices. Given
 // A = | a11 ... a1m |
 //     | ...     ... |
 //     | an1 ... anm |
@@ -303,7 +306,7 @@ void Radau3Integrator<T>::ComputeRadau3IterationMatrix(
 //         | an1B ... anmB |
 template <class T>
 MatrixX<T> Radau3Integrator<T>::CalcTensorProduct(
-    const MatrixX<double>& A, const MatrixX<T>& B) {
+    const MatrixX<T>& A, const MatrixX<T>& B) {
   const int rows_A = A.rows();
   const int cols_A = A.cols();
   const int rows_B = B.rows();
@@ -319,7 +322,7 @@ MatrixX<T> Radau3Integrator<T>::CalcTensorProduct(
 }
 
 // Computes necessary matrices for the Newton-Raphson iteration.
-// TODO(edrumwri) Remove references to StepAbstract(). 
+// TODO(edrumwri) Remove references to StepAbstract().
 // Parameters are identical to those for StepAbstract;
 // @see StepAbstract() for their documentation.
 // @returns `false` if the calling StepAbstract method should indicate failure;
@@ -327,8 +330,9 @@ MatrixX<T> Radau3Integrator<T>::CalcTensorProduct(
 template <class T>
 bool Radau3Integrator<T>::CalcMatrices(
     const T& tf, const T& dt,
-    MatrixX<T>* iteration_matrix,
-    const std::function<void(const MatrixX<T>&, const T&, MatrixX<T>*)>&
+    typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix,
+    const std::function<void(const MatrixX<T>&, const T&,
+        typename ImplicitIntegrator<T>::IterationMatrix*)>&
         recompute_iteration_matrix,
     const VectorX<T>& xtplus, int trial) {
   // Compute the initial Jacobian and negated iteration matrices (see
@@ -345,7 +349,7 @@ bool Radau3Integrator<T>::CalcMatrices(
     // bad Jacobian will then be corrected.
     J = this->CalcJacobian(tf, xtplus);
     recompute_iteration_matrix(J, dt, iteration_matrix);
-    this->Factor(iteration_matrix);
+    iteration_matrix->Factor();
     return true;
   }
 
@@ -357,7 +361,7 @@ bool Radau3Integrator<T>::CalcMatrices(
     case 2: {
       // For the second trial, re-construct and factor the iteration matrix.
       recompute_iteration_matrix(J, dt, iteration_matrix);
-      this->Factor(iteration_matrix);
+      iteration_matrix->Factor();
       return true;
     }
 
@@ -375,7 +379,7 @@ bool Radau3Integrator<T>::CalcMatrices(
         // be the case with MatrixX<T>::Identity(n, n) - J * (dt / scale).
         J = this->CalcJacobian(tf, xtplus);
         recompute_iteration_matrix(J, dt, iteration_matrix);
-        Factor(iteration_matrix);
+        iteration_matrix->Factor();
       }
       return true;
 
@@ -445,7 +449,7 @@ bool Radau3Integrator<T>::StepImplicitTrapezoid(const T& h,
   // Move statistics to implicit trapezoid-specific.
   num_err_est_jacobian_reforms_ +=
       this->get_num_jacobian_evaluations() - stored_num_jacobian_evaluations;
-  num_err_est_iter_factorizations_ += 
+  num_err_est_iter_factorizations_ +=
       this->get_num_iteration_matrix_factorizations() -
       stored_num_iter_factorizations;
   num_err_est_function_evaluations_ +=

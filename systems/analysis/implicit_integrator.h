@@ -202,14 +202,35 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   /// @}
 
  protected:
+  class IterationMatrix {
+   public:
+    void set_iteration_matrix(const MatrixX<T>& iteration_matrix) {
+      iteration_matrix_ = iteration_matrix;
+    }
+
+    void Factor();
+    VectorX<T> Solve(const VectorX<T>& b);
+
+   private:
+    MatrixX<T> iteration_matrix_;
+
+    // A simple LU factorization is all that is needed; robustness in the solve
+    // comes naturally as dt << 1. Keeping this data in the class definition
+    // serves to minimize heap allocations and deallocations.
+    Eigen::PartialPivLU<MatrixX<double>> LU_;
+
+    // Only factorization supported by automatic differentiation in Eigen is
+    // currently QR.
+    Eigen::HouseholderQR<MatrixX<AutoDiffXd>> QR_;
+  };
+
+  MatrixX<T>& get_mutable_jacobian() { return J_; }
   void increment_nr_iterations() { ++num_nr_iterations_; }
   void set_last_call_succeeded(bool success) { last_call_succeeded_ = success; }
   bool last_call_succeeded() const { return last_call_succeeded_; }
 
   bool IsBadJacobian(const MatrixX<T>& J) const;
   void DoResetStatistics() override;
-  void Factor(const MatrixX<T>& A);
-  VectorX<T> Solve(const VectorX<T>& rhs) const;
   MatrixX<T> CalcJacobian(const T& tf, const VectorX<T>& xtplus);
   MatrixX<T> ComputeForwardDiffJacobian(const System<T>&, Context<T>*);
   MatrixX<T> ComputeCentralDiffJacobian(const System<T>&, Context<T>*);
@@ -218,15 +239,6 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   VectorX<T> EvalTimeDerivativesUsingContext();
 
  private:
-  // A simple LU factorization is all that is needed; robustness in the solve
-  // comes naturally as dt << 1. Keeping this data in the class definition
-  // serves to minimize heap allocations and deallocations.
-  Eigen::PartialPivLU<MatrixX<double>> LU_;
-
-  // A QR factorization is necessary for automatic differentiation (current
-  // Eigen requirement).
-  Eigen::HouseholderQR<MatrixX<AutoDiffXd>> QR_;
-
   // The scheme to be used for computing the Jacobian matrix during the
   // nonlinear system solve process.
   JacobianComputationScheme jacobian_scheme_{
@@ -235,13 +247,6 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   // The last computed Jacobian matrix. Keeping this data in the class
   // definitions serves to minimize heap allocations and deallocations.
   MatrixX<T> J_;
-
-  // The last computed *negation* of the "iteration matrix", equivalent to
-  // J_ * (dt / scale) - 1, where scale is either 1.0 or 2.0, depending on
-  // whether the implicit Euler or implicit trapezoid method was used. Keeping
-  // this data in the class definition serves to minimize heap allocations
-  // and deallocations.
-  MatrixX<T> neg_iteration_matrix_;
 
   // Whether the last stepping call was successful.
   bool last_call_succeeded_{true};

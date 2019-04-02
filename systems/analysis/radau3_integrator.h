@@ -150,16 +150,18 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   bool StepRadau3(const T& dt, VectorX<T>* xtplus, int trial);
   bool StepImplicitTrapezoid(const T& h, const VectorX<T>& dx0,
       VectorX<T>* xtplus);
-  static MatrixX<T> CalcTensorProduct(const MatrixX<double>& A,
-      const MatrixX<T>& B);
+  static MatrixX<T> CalcTensorProduct(const MatrixX<T>& A, const MatrixX<T>& B);
   static void ComputeImplicitTrapezoidIterationMatrix(const MatrixX<T>& J,
-      const T& dt, MatrixX<T>* iteration_matrix);
+      const T& dt,
+      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix);
   static void ComputeRadau3IterationMatrix(const MatrixX<T>& J, const T& dt,
-      const MatrixX<T>& A, MatrixX<T>* iteration_matrix);
-  bool CalcMatrices(const T& tf, const T& dt, MatrixX<T>* iteration_matrix,
-    const std::function<void(const MatrixX<T>&, const T&, MatrixX<T>*)>&
-        recompute_iteration_matrix,
-    const VectorX<T>& xtplus, int trial);
+      const MatrixX<double>& A,
+      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix);
+  bool CalcMatrices(const T& tf, const T& dt,
+      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix,
+      const std::function<void(const MatrixX<T>&, const T&,
+          typename ImplicitIntegrator<T>::IterationMatrix*)>&
+      recompute_iteration_matrix, const VectorX<T>& xtplus, int trial);
 
   // The number of stages used in this integrator.
   static constexpr int kNumStages = 2;
@@ -170,11 +172,12 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   // The stage-scaling coefficients for this RK-type integrator.
   MatrixX<double> A_;
 
-  // The iteration matrix for the Implicit Trapezoid method.
-  MatrixX<T> iteration_matrix_implicit_trapezoid_;
+  // The iteration matrix and factorizations for the Implicit Trapezoid method.
+  typename ImplicitIntegrator<T>::IterationMatrix
+      iteration_matrix_implicit_trapezoid_;
 
   // The iteration matrix for the Radau3 method.
-  MatrixX<T> iteration_matrix_radau3_;
+  typename ImplicitIntegrator<T>::IterationMatrix iteration_matrix_radau3_;
 
   // The tensor product between A and an identity matrix, which is computed
   // on initialization and then stored.
