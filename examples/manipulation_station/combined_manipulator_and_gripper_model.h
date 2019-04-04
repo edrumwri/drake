@@ -1,6 +1,7 @@
 #pragma once
 
 #include "drake/common/eigen_types.h"
+#include "drake/examples/manipulation_station/manipulation_station_setup.h"
 #include "drake/systems/framework/context.h"
 
 namespace drake {
@@ -25,13 +26,9 @@ class CombinedManipulatorAndGripperModel {
       plant_(plant) {}
   virtual ~CombinedManipulatorAndGripperModel() {}
 
-  // TODO(edrumwri) Remove this.
-  /// Determines which manipulation station is simulated.
-  enum class Setup { kNone, kDefault, kClutterClearing };
-
   /// TODO: Finish me.
   /// This function is called when the ManipulationStation...
-  virtual void Finalize(const Setup setup,
+  virtual void Finalize(const ManipulationStationSetup setup,
       systems::DiagramBuilder<T>* builder) = 0;
 
   /// Gets the number of joints in the manipulator.
@@ -92,6 +89,12 @@ class CombinedManipulatorAndGripperModel {
   /// This function is called by the ManipulationStation to build the
   /// control diagram.
   virtual void BuildControlDiagram(systems::DiagramBuilder<T>* builder) = 0;
+
+  /// Gets a reference to the plant used for control.
+  const multibody::MultibodyPlant<T>& get_controller_plant() const {
+    DRAKE_DEMAND(plant_);
+    return *plant_;
+  }
 
  protected:
   // The MultibodyPlant holding the robot model (and possibly other models as

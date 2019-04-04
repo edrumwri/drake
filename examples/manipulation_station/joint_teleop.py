@@ -9,10 +9,12 @@ import numpy as np
 
 from pydrake.common import FindResourceOrThrow
 from pydrake.examples.manipulation_station import \
-    (ManipulationStation, ManipulationStationHardwareInterface)
+    (ManipulationStation, ManipulationStationHardwareInterface,\
+    CombinedIiwaWsgModel)
 from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.manipulation.simple_ui import JointSliders, SchunkWsgButtons
 from pydrake.multibody.parsing import Parser
+from pydrake.multibody.plant import MultibodyPlant
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
@@ -47,7 +49,9 @@ if args.hardware:
         camera_ids))
     station.Connect(wait_for_cameras=False)
 else:
-    station = builder.AddSystem(ManipulationStation())
+    all_plant = MultibodyPlant(time_step=2e-3)
+    kuka_wsg = CombinedIiwaWsgModel(all_plant, IiwaCollisionModel.kBoxCollision)
+    station = builder.AddSystem(ManipulationStation(kuka_wsg, all_plant))
     station.SetupDefaultStation()
     station.Finalize()
 

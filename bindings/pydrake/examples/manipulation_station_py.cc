@@ -31,14 +31,17 @@ PYBIND11_MODULE(manipulation_station, m) {
   // ManipulationStation currently only supports double.
   using T = double;
 
-  py::enum_<CombinedIiwaWsg<T>::IiwaCollisionModel>(m, "IiwaCollisionModel")
-      .value("kNoCollision",
-          CombinedIiwaWsg<T>::IiwaCollisionModel::kNoCollision,
+  py::enum_<IiwaCollisionModel>(m, "IiwaCollisionModel")
+      .value("kNoCollision", IiwaCollisionModel::kNoCollision,
           "TODO")
-      .value("kBoxCollision",
-          CombinedIiwaWsg<T>::IiwaCollisionModel::kBoxCollision,
+      .value("kBoxCollision", IiwaCollisionModel::kBoxCollision,
           "TODO")
       .export_values();
+
+  py::class_<CombinedIiwaWsg<T>, CombinedManipulatorAndGripperModel<T>>
+      (m, "CombinedIiwaWsg")
+      .def(py::init<IiwaCollisionModel, multibody::MultibodyPlant<T>*>(),
+          py::arg("collision_model"), py::arg("plant"), "fill_me_in");
 
 /*
   auto bind_scalar_types = [m](auto dummy) {

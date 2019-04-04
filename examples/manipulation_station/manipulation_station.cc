@@ -125,8 +125,8 @@ void ManipulationStation<T>::AddManipulandFromFile(
 template <typename T>
 void ManipulationStation<T>::SetupClutterClearingStation(
     const optional<const math::RigidTransformd>& X_WCameraBody) {
-  DRAKE_DEMAND(setup_ == Setup::kNone);
-  setup_ = Setup::kClutterClearing;
+  DRAKE_DEMAND(setup_ == ManipulationStationSetup::kNone);
+  setup_ = ManipulationStationSetup::kClutterClearing;
 
   // Add the bins.
   {
@@ -178,8 +178,8 @@ void ManipulationStation<T>::SetupClutterClearingStation(
 
 template <typename T>
 void ManipulationStation<T>::SetupDefaultStation() {
-  DRAKE_DEMAND(setup_ == Setup::kNone);
-  setup_ = Setup::kDefault;
+  DRAKE_DEMAND(setup_ == ManipulationStationSetup::kNone);
+  setup_ = ManipulationStationSetup::kDefault;
 
   // Add the table and 80/20 workcell frame.
   {
@@ -337,6 +337,13 @@ void ManipulationStation<T>::SetRandomState(
 }
 
 template <typename T>
+const multibody::MultibodyPlant<T>&
+ManipulationStation<T>::get_controller_plant() const {
+  DRAKE_DEMAND(robot_model_.get());
+  return robot_model_->get_controller_plant();
+}
+
+template <typename T>
 void ManipulationStation<T>::Finalize() {
   // Note: This deferred diagram construction method/workflow exists because we
   //   - cannot finalize plant until all of my objects are added, and
@@ -354,8 +361,8 @@ void ManipulationStation<T>::Finalize() {
   builder.Connect(scene_graph_->get_query_output_port(),
                   plant_->get_geometry_query_input_port());
 
-  // Finalize the manipulator+gripper model.
-  robot_model_->Finalize(&builder);
+  // Build the control diagram for the manipulator+gripper model.
+  robot_model_->BuildControlDiagram(&builder);
 
   // Add the RBG-D cameras.
   {

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "drake/common/eigen_types.h"
+#include "drake/examples/manipulation_station/manipulation_station_setup.h"
 #include "drake/geometry/dev/scene_graph.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/math/rigid_transform.h"
@@ -20,9 +21,6 @@ namespace manipulation_station {
 
 template <typename T>
 class CombinedManipulatorAndGripperModel;
-
-/// Determines which manipulation station is simulated.
-enum class Setup { kNone, kDefault, kClutterClearing };
 
 /// @defgroup manipulation_station_systems Manipulation Station
 /// @{
@@ -135,11 +133,17 @@ class ManipulationStation : public systems::Diagram<T> {
 
   /// Construct the EMPTY station model.
   ///
-  /// @param time_step The time step used by MultibodyPlant<T>, and by the
-  ///   discrete derivative used to approximate velocity from the position
-  ///   command inputs.
+  /// @param plant An empty MultibodyPlant<T> that the station will be built
+  ///   into.
+  /// @param robot_model An appropriate robot model.
   ManipulationStation(std::unique_ptr<multibody::MultibodyPlant<T>> plant,
       std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model);
+
+  /// Gets the combined manipulator/gripper model.
+  const CombinedManipulatorAndGripperModel<T>*
+  get_combined_manipulator_and_gripper_model() const {
+    return robot_model_.get();
+  }
 
   /// Adds a default iiwa, wsg, two bins, and a camera, then calls
   /// RegisterIiwaControllerModel() and RegisterWsgControllerModel() with
@@ -313,7 +317,7 @@ class ManipulationStation : public systems::Diagram<T> {
   // Represents the manipulation station to simulate. This gets set in the
   // corresponding station setup function (e.g., SetupDefaultStation()), and
   // informs how SetDefaultState() initializes the sim.
-  Setup setup_{Setup::kNone};
+  ManipulationStationSetup setup_{ManipulationStationSetup::kNone};
 
   // The model of the manipulator.
   std::unique_ptr<CombinedManipulatorAndGripperModel<T>> robot_model_;

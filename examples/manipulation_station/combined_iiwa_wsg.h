@@ -8,20 +8,20 @@ namespace drake {
 namespace examples {
 namespace manipulation_station {
 
+/// Determines which sdf is loaded for the IIWA in the ManipulationStation.
+enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
+
 template <typename T>
 class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
  public:
-  /// Determines which sdf is loaded for the IIWA in the ManipulationStation.
-  enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
-
   CombinedIiwaWsg(IiwaCollisionModel model,
       multibody::MultibodyPlant<T>* plant) :
       CombinedManipulatorAndGripperModel<T>(plant), collision_model_(model) {}
 
   void Finalize(
-      const typename CombinedManipulatorAndGripperModel<T>::Setup setup,
+      ManipulationStationSetup setup,
       systems::DiagramBuilder<T>* builder)
-      final override;
+      final;
 
   /// Notifies the ManipulationStation that the IIWA robot model instance can
   /// be identified by @p iiwa_instance as well as necessary information to
@@ -225,7 +225,7 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
     math::RigidTransform<double> X_PC{math::RigidTransform<double>::Identity()};
   };
 
-  void BuildControlDiagram(systems::DiagramBuilder<T>* builder) override final;
+  void BuildControlDiagram(systems::DiagramBuilder<T>* builder) final;
 
   // Assumes iiwa_model_info_ and wsg_model_info_ have already being populated.
   // Should only be called from Finalize().

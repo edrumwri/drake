@@ -133,6 +133,10 @@ ModelInstanceIndex AddAndWeldModelFrom(
 
 }  // namespace internal
 
+namespace drake {
+namespace examples {
+namespace manipulation_station {
+
 template <typename T>
 void CombinedIiwaWsg<T>::MakeIiwaControllerModel() {
   // Build the controller's version of the plant, which only contains the
@@ -383,8 +387,7 @@ void CombinedIiwaWsg<T>::SetWsgGains(const double kp, const double kd) {
 //       the arm and gripper.
 template <typename T>
 void CombinedIiwaWsg<T>::Finalize(
-    const typename CombinedManipulatorAndGripperModel<T>::Setup setup,
-    DiagramBuilder<T>* builder) {
+    ManipulationStationSetup setup, DiagramBuilder<T>* builder) {
   DRAKE_THROW_UNLESS(iiwa_model_.model_instance.is_valid());
   DRAKE_THROW_UNLESS(wsg_model_.model_instance.is_valid());
 
@@ -392,14 +395,14 @@ void CombinedIiwaWsg<T>::Finalize(
   VectorX<T> q0_iiwa(num_manipulator_joints());
 
   switch (setup) {
-    case CombinedIiwaWsg<T>::Setup::kNone:
-    case CombinedIiwaWsg<T>::Setup::kDefault:
+    case ManipulationStationSetup::kNone:
+    case ManipulationStationSetup::kDefault:
       // Set the initial positions of the IIWA to a comfortable configuration
       // inside the workspace of the station.
       q0_iiwa << 0, 0.6, 0, -1.75, 0, 1.0, 0;
 
       break;
-    case CombinedIiwaWsg<T>::Setup::kClutterClearing:
+    case ManipulationStationSetup::kClutterClearing:
       // Set the initial positions of the IIWA to a configuration right above
       // the picking bin.
       q0_iiwa << -1.57, 0.1, 0, -1.2, 0, 1.6, 0;
@@ -567,4 +570,9 @@ void CombinedIiwaWsg<T>::BuildControlDiagram(
   //                     "pose_bundle");
 }
 
+template class CombinedIiwaWsg<double>;
+
+}  // namespace manipulation_station
+}  // namespace examples
+}  // namespace drake
 

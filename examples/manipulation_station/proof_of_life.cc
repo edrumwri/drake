@@ -3,6 +3,7 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/common/is_approx_equal_abstol.h"
+#include "drake/examples/manipulation_station/combined_iiwa_wsg.h"
 #include "drake/examples/manipulation_station/manipulation_station.h"
 #include "drake/geometry/geometry_visualization.h"
 #include "drake/multibody/parsing/parser.h"
@@ -40,7 +41,12 @@ int do_main(int argc, char* argv[]) {
   systems::DiagramBuilder<double> builder;
 
   // Create the "manipulation station".
-  auto station = builder.AddSystem<ManipulationStation>();
+  const double step_size = 2e-3;
+  auto mbp = std::make_unique<multibody::MultibodyPlant<double>>(step_size);
+  auto station = builder.AddSystem<ManipulationStation>(
+      std::move(mbp), std::make_unique<CombinedIiwaWsg<double>>(
+      IiwaCollisionModel::kBoxCollision, mbp.get()));
+
   if (FLAGS_setup == "clutter_clearing") {
     station->SetupClutterClearingStation(nullopt);
     station->AddManipulandFromFile(
@@ -87,14 +93,17 @@ int do_main(int argc, char* argv[]) {
       *station, &simulator.get_mutable_context());
 
   // Position command should hold the arm at the initial state.
-  Eigen::VectorXd q0 = station->GetIiwaPosition(station_context);
+  const auto* combined_iiwa_wsg =
+      station->get_combined_manipulator_and_gripper_model();
+  Eigen::VectorXd q0 = combined_iiwa_wsg->GetManipulatorPositions(
+      station_context);
   station_context.FixInputPort(
       station->GetInputPort("iiwa_position").get_index(), q0);
 
   // Zero feed-forward torque.
   station_context.FixInputPort(
       station->GetInputPort("iiwa_feedforward_torque").get_index(),
-      VectorXd::Zero(station->num_iiwa_joints()));
+      VectorXd::Zero(combined_iiwa_wsg->num_manipulator_joints()));
 
   // Nominal WSG position is open.
   station_context.FixInputPort(
@@ -113,7 +122,7 @@ int do_main(int argc, char* argv[]) {
   simulator.StepTo(FLAGS_duration);
 
   // Check that the arm is (very roughly) in the commanded position.
-  VectorXd q = station->GetIiwaPosition(station_context);
+  VectorXd q = combined_iiwa_wsg->GetManipulatorPositions(station_context);
   if (!is_approx_equal_abstol(q, q0, 1.e-3)) {
     std::cout << "q is not sufficiently close to q0.\n";
     std::cout << "q - q0  = " << (q - q0).transpose() << "\n";
