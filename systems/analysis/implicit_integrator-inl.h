@@ -251,8 +251,9 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
 // template method immediately below.
 // TODO(edrumwri): Record the factorization.
 template <class T>
-void ImplicitIntegrator<T>::IterationMatrix::Factor() {
-  LU_.compute(iteration_matrix_);
+void ImplicitIntegrator<T>::IterationMatrix::SetAndFactorIterationMatrix(
+    const MatrixX<T>& iteration_matrix) {
+  LU_.compute(iteration_matrix);
 }
 
 // Factors a dense matrix (the negated iteration matrix). This
@@ -261,8 +262,9 @@ void ImplicitIntegrator<T>::IterationMatrix::Factor() {
 // AutoDiff-able (while the QR factorization *is* AutoDiff-able).
 // TODO(edrumwri): Record the factorization.
 template <>
-void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Factor() {
-  QR_.compute(iteration_matrix_);
+void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::
+    SetAndFactorIterationMatrix(const MatrixX<T>& iteration_matrix) {
+  QR_.compute(iteration_matrix);
 }
 
 // Solves a linear system Ax = b for x using a negated iteration matrix (A)
@@ -270,7 +272,7 @@ void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Factor() {
 // @sa Factor()
 template <class T>
 VectorX<T> ImplicitIntegrator<T>::IterationMatrix::Solve(
-      const VectorX<T>& b) const {
+    const VectorX<T>& b) const {
   return LU_.solve(b);
 }
 

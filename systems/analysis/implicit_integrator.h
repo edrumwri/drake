@@ -13,9 +13,8 @@
 namespace drake {
 namespace systems {
 
-// TODO(edrumwri) Update docs below.
 /**
- * A third-order, fully implicit integrator with second order error estimation.
+ * A virtual class providing methods shared by implicit integrators.
  * @tparam T The vector element type, which must be a valid Eigen scalar.
  *
  * This class uses Drake's `-inl.h` pattern.  When seeing linker errors from
@@ -26,42 +25,15 @@ namespace systems {
  * - double
  * - AutoDiffXd
  *
- * This integrator uses the following update rule:<pre>
- * x(t+h) = x(t) + h f(t+h,x(t+h))
- * </pre>
- * where x are the state variables, h is the integration step size, and
- * f() returns the time derivatives of the state variables. Contrast this
- * update rule to that of an explicit first-order integrator:<pre>
- * x(t+h) = x(t) + h f(t, x(t))
- * </pre>
- * Thus implicit first-order integration must solve a nonlinear system of
- * equations to determine *both* the state at t+h and the time derivatives
- * of that state at that time. Cast as a nonlinear system of equations,
- * we seek the solution to:<pre>
- * x(t+h) - x(t) - h f(t+h,x(t+h)) = 0
- * </pre>
- * given unknowns x(t+h).
- *
- * This "implicit Euler" method is known to be L-Stable, meaning both that
- * applying it at a fixed integration step to the  "test" equation `y(t) = eᵏᵗ`
- * yields zero (for `k < 0` and `t → ∞`) *and* that it is also A-Stable.
- * A-Stability, in turn, means that the method can integrate the linear constant
- * coefficient system `dx/dt = Ax` at any step size without the solution
- * becoming unstable (growing without bound). The practical effect of
- * L-Stability is that the integrator tends to be stable for any given step size
- * on an arbitrary system of ordinary differential equations. See
- * [Lambert, 1991], Ch. 6 for an approachable discussion on stiff differential
- * equations and L- and A-Stability.
- *
- * The time complexity of this method is often dominated by the time to form
- * the Jacobian matrix consisting of the partial derivatives of the nonlinear
- * system (of `n` dimensions, where `n` is the number of state variables) taken
- * with respect to the partial derivatives of the state variables at `x(t+h)`.
- * For typical numerical differentiation, `f` will be evaluated `n` times during
- * the Jacobian formation; if we liberally assume that the derivative function
- * evaluation code runs in `O(n)` time (e.g., as it would for multi-rigid
- * body dynamics without kinematic loops), the asymptotic complexity to form
- * the Jacobian will be `O(n²)`. This Jacobian matrix needs to be formed
+ * The time complexity of implicit integrators is often dominated by the time to
+ * form the Jacobian matrix consisting of the partial derivatives of the
+ * nonlinear system (of n dimensions, where n is the number of state variables)
+ * taken with respect to the partial derivatives of the state variables at
+ * `x(t+h)`. For typical numerical differentiation, f will be evaluated n times
+ * during the Jacobian formation; if we liberally assume that the derivative
+ * function evaluation code runs in `O(n)` time (e.g., as it would for
+ * multi-rigid body dynamics without kinematic loops), the asymptotic complexity
+ * to form the Jacobian will be `O(n²)`. This Jacobian matrix needs to be formed
  * repeatedly- as often as every time the state variables are updated-
  * during the solution process. Using automatic differentiation replaces the
  * `n` derivative evaluations with what is hopefully a much less expensive
@@ -69,19 +41,6 @@ namespace systems {
  * For large `n`, the time complexity may be dominated by the `O(n³)` time
  * required to (repeatedly) solve linear systems problems as part of the
  * nonlinear system solution process.
- *
- * This implementation uses Newton-Raphson (NR) and relies upon the obvious
- * convergence to a solution for `g = 0` where
- * `g(x(t+h)) ≡ x(t+h) - x(t) - h f(t+h,x(t+h))` as `h` becomes sufficiently
- * small. It also uses the implicit trapezoid method- fed the result from
- * implicit Euler for (hopefully) faster convergence- to compute the error
- * estimate. General implementational details were gleaned from [Hairer, 1996].
- *
- * - [Hairer, 1996]   E. Hairer and G. Wanner. Solving Ordinary Differential
- *                    Equations II (Stiff and Differential-Algebraic Problems).
- *                    Springer, 1996.
- * - [Lambert, 1991]  J. D. Lambert. Numerical Methods for Ordinary Differential
- *                    Equations. John Wiley & Sons, 1991.
  */
 template <class T>
 class ImplicitIntegrator : public IntegratorBase<T> {
@@ -92,7 +51,7 @@ class ImplicitIntegrator : public IntegratorBase<T> {
                                    Context<T>* context = nullptr)
       : IntegratorBase<T>(system, context) {}
 
-  /// Selecting the wrong such Jacobian determination scheme will slow (possibly
+  /// Selecting the wrong Jacobian determination scheme will slow (possibly
   /// critically) the implicit integration process. Automatic differentiation is
   /// recommended if the System supports it for reasons of both higher
   /// accuracy and increased speed. Forward differencing (i.e., numerical
@@ -156,12 +115,6 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   }
   /// @}
 
-  /// The integrator supports error estimation.
-  bool supports_error_estimation() const override { return true; }
-
-  /// This integrator provides second order error estimates.
-  int get_error_estimate_order() const override { return 2; }
-
   /// @name Cumulative statistics functions.
   /// The functions return statistics specific to the implicit integration
   /// process.
@@ -171,15 +124,15 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   /// (calls to CalcTimeDerivatives()) *used only for computing
   /// the Jacobian matrices* since the last call to ResetStatistics(). This
   /// count includes those derivative calculations necessary for computing
-  /// Jacobian matrices during the error estimation process.
+  /// Jacobian matrices during error estimation processes.
   int64_t get_num_derivative_evaluations_for_jacobian() const {
     return num_jacobian_function_evaluations_;
   }
 
   /// Gets the number of iterations used in the Newton-Raphson nonlinear systems
   /// of equation solving process since the last call to ResetStatistics(). This
-  /// count includes those Newton-Raphson iterations used during the error
-  /// estimation process.
+  /// count includes those Newton-Raphson iterations used during error
+  /// estimation processes.
   int64_t get_num_newton_raphson_iterations() const {
     return num_nr_iterations_;
   }
@@ -187,33 +140,32 @@ class ImplicitIntegrator : public IntegratorBase<T> {
   /// Gets the number of Jacobian evaluations (i.e., the number of times
   /// that the Jacobian matrix was reformed) since the last call to
   /// ResetStatistics(). This count includes those evaluations necessary
-  /// during the error estimation process.
+  /// during error estimation processes.
   int64_t get_num_jacobian_evaluations() const { return
         num_jacobian_evaluations_;
   }
 
   /// Gets the number of factorizations of the iteration matrix since the last
   /// call to ResetStatistics(). This count includes those refactorizations
-  /// necessary during the error estimation process.
+  /// necessary during error estimation processes.
   int64_t get_num_iteration_matrix_factorizations() const {
-    return num_iter_factorizations_;
+    return do_get_num_iteration_matrix_factorizations();
   }
 
   /// @}
 
  protected:
+  /// A class for storing the factorization of an iteration matrix and using it
+  /// to solve linear systems of equations. This class exists simply because
+  /// Eigen AutoDiff puts limitations on what kinds of factorizations can be
+  /// used; encapsulating the iteration matrix factorizations like this frees
+  /// the implementer of these kinds of details.
   class IterationMatrix {
    public:
-    void set_iteration_matrix(const MatrixX<T>& iteration_matrix) {
-      iteration_matrix_ = iteration_matrix;
-    }
-
-    void Factor();
+    void SetAndFactorIterationMatrix(const MatrixX<T>& iteration_matrix);
     VectorX<T> Solve(const VectorX<T>& b);
 
    private:
-    MatrixX<T> iteration_matrix_;
-
     // A simple LU factorization is all that is needed; robustness in the solve
     // comes naturally as dt << 1. Keeping this data in the class definition
     // serves to minimize heap allocations and deallocations.
@@ -224,11 +176,14 @@ class ImplicitIntegrator : public IntegratorBase<T> {
     Eigen::HouseholderQR<MatrixX<AutoDiffXd>> QR_;
   };
 
+  /// Derived classes should implement this method for counting the number
+  /// of iteration matrix factorizations.
+  virtual int64_t do_get_num_iteration_matrix_factorizations() const = 0;
+
   MatrixX<T>& get_mutable_jacobian() { return J_; }
   void increment_nr_iterations() { ++num_nr_iterations_; }
   void set_last_call_succeeded(bool success) { last_call_succeeded_ = success; }
   bool last_call_succeeded() const { return last_call_succeeded_; }
-
   bool IsBadJacobian(const MatrixX<T>& J) const;
   void DoResetStatistics() override;
   MatrixX<T> CalcJacobian(const T& tf, const VectorX<T>& xtplus);
@@ -257,7 +212,6 @@ class ImplicitIntegrator : public IntegratorBase<T> {
 
   // Various combined statistics.
   int64_t num_jacobian_evaluations_{0};
-  int64_t num_iter_factorizations_{0};
   int64_t num_jacobian_function_evaluations_{0};
   int64_t num_nr_iterations_{0};
 };
