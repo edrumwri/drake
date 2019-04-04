@@ -336,7 +336,6 @@ void ManipulationStation<T>::SetRandomState(
 */
 }
 
-/*
 template <typename T>
 void ManipulationStation<T>::Finalize() {
   // Note: This deferred diagram construction method/workflow exists because we
@@ -355,118 +354,11 @@ void ManipulationStation<T>::Finalize() {
   builder.Connect(scene_graph_->get_query_output_port(),
                   plant_->get_geometry_query_input_port());
 
-  // Finalize the robot model.
+  // Finalize the manipulator+gripper model.
   robot_model_->Finalize(&builder);
 
-  const int num_manipulator_positions =
-      plant_->num_positions(manipulator_model_.model_instance);
-  DRAKE_THROW_UNLESS(num_manipulator_positions ==
-                     plant_->num_velocities(manipulator_model_.model_instance));
-
-  // Export the commanded positions via a PassThrough.
-  auto manipulator_position =
-      builder.template AddSystem<systems::PassThrough>(
-          num_manipulator_positions);
-  builder.ExportInput(manipulator_position->get_input_port(),
-                      "manipulator_position");
-  builder.ExportOutput(manipulator_position->get_output_port(),
-                       "manipulator_position_commanded");
-
-  // Export manipulator "state" outputs.
+  // Add the RBG-D cameras.
   {
-    auto demux = builder.template AddSystem<systems::Demultiplexer>(
-        2 * num_manipulator_positions, num_manipulator_positions);
-    builder.Connect(
-        plant_->get_continuous_state_output_port(
-            manipulator_model_.model_instance),
-        demux->get_input_port(0));
-    builder.ExportOutput(demux->get_output_port(0),
-        "manipulator_position_measured");
-    builder.ExportOutput(demux->get_output_port(1),
-        "manipulator_velocity_estimated");
-
-    builder.ExportOutput(
-        plant_->get_continuous_state_output_port(
-        manipulator_model_.model_instance),
-        "manipulator_state_estimated");
-  }
-
-    // Add the inverse dynamics controller.
-    auto manipulator_controller = builder.template AddSystem<
-        systems::controllers::InverseDynamicsController>(
-        *robot_model_->controller_plant(),
-        robot_model_->manipulator_kp(),
-        robot_model_->manipulator_ki(),
-        robot_model_->manipulator_kd(), false);
-    manipulator_controller->set_name("manipulator_controller");
-    builder.Connect(
-        plant_->get_continuous_state_output_port(manipulator_model_.model_instance),
-        manipulator_controller->get_input_port_estimated_state());
-
-    // Add in feedforward torque.
-    auto adder =
-        builder.template AddSystem<systems::Adder>(2, num_manipulator_positions);
-    builder.Connect(manipulator_controller->get_output_port_control(),
-                    adder->get_input_port(0));
-    builder.ExportInput(adder->get_input_port(1),
-        "manipulator_feedforward_torque");
-    builder.Connect(adder->get_output_port(),
-        plant_->get_actuation_input_port(manipulator_model_.model_instance));
-
-    // Approximate desired state command from a discrete derivative of the
-    // position command input port.
-    auto desired_state_from_position = builder.template AddSystem<
-        systems::StateInterpolatorWithDiscreteDerivative>(num_manipulator_positions,
-                                                          plant_->time_step());
-    desired_state_from_position->set_name("desired_state_from_position");
-    builder.Connect(desired_state_from_position->get_output_port(),
-                    manipulator_controller->get_input_port_desired_state());
-    builder.Connect(manipulator_position->get_output_port(),
-                    desired_state_from_position->get_input_port());
-
-    // Export commanded torques:
-    builder.ExportOutput(adder->get_output_port(),
-        "manipulator_torque_commanded");
-    builder.ExportOutput(adder->get_output_port(),
-        "manipulator_torque_measured");
-  }
-
-  {
-    auto wsg_controller = builder.template AddSystem<
-        manipulation::schunk_wsg::SchunkWsgPositionController>(
-        manipulation::schunk_wsg::kSchunkWsgLcmStatusPeriod, wsg_kp_, wsg_kd_);
-    wsg_controller->set_name("wsg_controller");
-
-    builder.Connect(
-        wsg_controller->get_generalized_force_output_port(),
-        plant_->get_actuation_input_port(wsg_model_.model_instance));
-    builder.Connect(
-        plant_->get_continuous_state_output_port(wsg_model_.model_instance),
-        wsg_controller->get_state_input_port());
-
-    builder.ExportInput(wsg_controller->get_desired_position_input_port(),
-                        "wsg_position");
-    builder.ExportInput(wsg_controller->get_force_limit_input_port(),
-                        "wsg_force_limit");
-
-    auto wsg_mbp_state_to_wsg_state = builder.template AddSystem(
-        manipulation::schunk_wsg::MakeMultibodyStateToWsgStateSystem<double>());
-    builder.Connect(
-        plant_->get_continuous_state_output_port(wsg_model_.model_instance),
-        wsg_mbp_state_to_wsg_state->get_input_port());
-
-    builder.ExportOutput(wsg_mbp_state_to_wsg_state->get_output_port(),
-                         "wsg_state_measured");
-
-    builder.ExportOutput(wsg_controller->get_grip_force_output_port(),
-                         "wsg_force_measured");
-  }
-
-  builder.ExportOutput(plant_->get_generalized_contact_forces_output_port(
-                           manipulator_model_.model_instance),
-                       "manipulator_torque_external");
-
-  {  // RGB-D Cameras
     render_scene_graph_ =
         builder.template AddSystem<geometry::dev::SceneGraph>(*scene_graph_);
     render_scene_graph_->set_name("dev_scene_graph_for_rendering");
@@ -514,7 +406,6 @@ void ManipulationStation<T>::Finalize() {
 
   builder.BuildInto(this);
 }
-*/
 
 template <typename T>
 std::vector<std::string> ManipulationStation<T>::get_camera_names() const {

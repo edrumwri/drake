@@ -379,17 +379,14 @@ void CombinedIiwaWsg<T>::SetWsgGains(const double kp, const double kd) {
 }
 
 // This is manipulation-station-specific code.
+// @pre `Finalize()` has already been called on the MultibodyPlant containing
+//       the arm and gripper.
 template <typename T>
 void CombinedIiwaWsg<T>::Finalize(
     const typename CombinedManipulatorAndGripperModel<T>::Setup setup,
     DiagramBuilder<T>* builder) {
   DRAKE_THROW_UNLESS(iiwa_model_.model_instance.is_valid());
   DRAKE_THROW_UNLESS(wsg_model_.model_instance.is_valid());
-
-  // Note: This deferred diagram construction method/workflow exists because we
-  //   - cannot finalize plant until all of my objects are added, and
-  //   - cannot wire up my diagram until we have finalized the plant.
-  this->plant_->Finalize();
 
   // Set plant properties that must occur after finalizing the plant.
   VectorX<T> q0_iiwa(num_manipulator_joints());
