@@ -204,14 +204,21 @@ class ImplicitIntegrator : public IntegratorBase<T> {
  protected:
   class IterationMatrix {
    public:
-    void set_iteration_matrix(const MatrixX<T>& iteration_matrix) {
+    void set_and_factor_iteration_matrix(const MatrixX<T>& iteration_matrix) {
       iteration_matrix_ = iteration_matrix;
+      Factor();
+      iteration_matrix_set_ = true;
     }
 
-    void Factor();
-    VectorX<T> Solve(const VectorX<T>& b);
+    bool matrix_factored() const { return iteration_matrix_set_; }
+    VectorX<T> Solve(const VectorX<T>& b) const;
 
    private:
+    void Factor();
+
+    /// Whether the iteration matrix has been set and factored.
+    bool iteration_matrix_set_{false};
+
     MatrixX<T> iteration_matrix_;
 
     // A simple LU factorization is all that is needed; robustness in the solve

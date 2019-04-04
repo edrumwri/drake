@@ -6,7 +6,7 @@
 /// For background, see https://drake.mit.edu/cxx_inl.html.
 
 /* clang-format off to disable clang-format-includes */
-#include "drake/systems/analysis/radau3_integrator.h"
+#include "drake/systems/analysis/implicit_integrator.h"
 /* clang-format on */
 
 #include <algorithm>
@@ -52,8 +52,8 @@ MatrixX<AutoDiffXd> ImplicitIntegrator<AutoDiffXd>::
 template <class T>
 MatrixX<T> ImplicitIntegrator<T>::ComputeAutoDiffJacobian(
     const System<T>& system, const Context<T>& context) {
-  SPDLOG_DEBUG(drake::log(), "  IE Compute Autodiff Jacobian t={}",
-               context.get_time());
+  SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute Autodiff Jacobian "
+               "t={}",context.get_time());
   // Create AutoDiff versions of the state vector.
   VectorX<AutoDiffXd> a_xtplus = context.get_continuous_state().CopyToVector();
 
@@ -116,8 +116,8 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeForwardDiffJacobian(
   // Get the current continuous state.
   const VectorX<T> xtplus = context->get_continuous_state().CopyToVector();
 
-  SPDLOG_DEBUG(drake::log(), "  IE Compute Forwarddiff {}-Jacobian t={}",
-               n, context->get_time());
+  SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute Forwarddiff "
+               "{}-Jacobian t={}", n, context->get_time());
   SPDLOG_DEBUG(drake::log(), "  computing from state {}", xtplus.transpose());
 
   // Prevent compiler warnings for context.
@@ -185,8 +185,8 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
   // Get the number of continuous state variables xc.
   const int n = context->num_continuous_states();
 
-  SPDLOG_DEBUG(drake::log(), "  IE Compute Centraldiff {}-Jacobian t={}",
-               n, context->get_time());
+  SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute ",
+               "Centraldiff {}-Jacobian t={}", n, context->get_time());
 
   // Prevent compiler warnings for context.
   unused(context);

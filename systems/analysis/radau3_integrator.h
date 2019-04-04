@@ -143,13 +143,17 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   /// @}
 
  private:
-  const VectorX<T>& ComputeFofZ(const T& h);
+  bool AttemptStepPaired(const T& t0, const T& dt,
+      const VectorX<T>& xt0, VectorX<T>* xtplus_radau3, VectorX<T>* xtplus_itr);
+  const VectorX<T>& ComputeFofg(
+      const T& t0, const T& dt, const VectorX<T>& xt0);
   void DoInitialize() override;
   void DoResetStatistics() override;
   bool DoStep(const T& dt) override;
-  bool StepRadau3(const T& dt, VectorX<T>* xtplus, int trial);
-  bool StepImplicitTrapezoid(const T& h, const VectorX<T>& dx0,
-      VectorX<T>* xtplus);
+  bool StepRadau3(const T& t0, const T& dt, const VectorX<T>& xt0,
+      VectorX<T>* xtplus, int trial = 1);
+  bool StepImplicitTrapezoid(const T& t0, const T& h, const VectorX<T>& xt0,
+      const VectorX<T>& dx0, VectorX<T>* xtplus);
   static MatrixX<T> CalcTensorProduct(const MatrixX<T>& A, const MatrixX<T>& B);
   static void ComputeImplicitTrapezoidIterationMatrix(const MatrixX<T>& J,
       const T& dt,
@@ -157,14 +161,18 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   static void ComputeRadau3IterationMatrix(const MatrixX<T>& J, const T& dt,
       const MatrixX<double>& A,
       typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix);
-  bool CalcMatrices(const T& tf, const T& dt,
-      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix,
+  bool CalcMatrices(const T& t, const VectorX<T>& xt, const T& dt,
       const std::function<void(const MatrixX<T>&, const T&,
           typename ImplicitIntegrator<T>::IterationMatrix*)>&
-      recompute_iteration_matrix, const VectorX<T>& xtplus, int trial);
+      recompute_iteration_matrix,
+      typename ImplicitIntegrator<T>::IterationMatrix* iteration_matrix,
+      int trial);
+  bool StepImplicitTrapezoidDetail(const T& t0, const T& dt,
+      const VectorX<T>& xt0, const std::function<VectorX<T>()>& g,
+      VectorX<T>* xtplus, int trial = 1);
 
   // The number of stages used in this integrator.
-  static constexpr int kNumStages = 2;
+  static constexpr int kNumStages = 1;
 
   // The time-scaling coefficients for this RK-type integrator.
   std::vector<double> c_;
@@ -191,17 +199,13 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   VectorX<T> Z_;
 
   // The derivative evaluations at t0 and every stage.
-  VectorX<T> FofZ_;
+  VectorX<T> F_of_g_;
 
   // Vector used in error estimate calculations.
   VectorX<T> err_est_vec_;
 
-  // Vectors used in update check tolerance calculations.
-  VectorX<T> unweighted_delta_;
-  std::unique_ptr<VectorBase<T>> weighted_dq_;
-
   // The continuous state update vector used during Newton-Raphson.
-  std::unique_ptr<ContinuousState<T>> dZ_state_;
+  std::unique_ptr<ContinuousState<T>> dx_state_;
 
   // Implicit trapezoid specific statistics.
   int64_t num_err_est_jacobian_reforms_{0};
