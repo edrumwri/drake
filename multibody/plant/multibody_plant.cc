@@ -1109,7 +1109,7 @@ void MultibodyPlant<T>::CalcAndAddContactForcesByPenaltyMethod(
 
       // Consider a value indistinguishable from zero if it is smaller
       // then 1e-14 and test against that value squared.
-      const T kNonZeroSqd = 1e-4 * 1e-4;
+      const T kNonZeroSqd = 1e-6 * 1e-6;
       // Tangential friction force on A at C, expressed in W.
       Vector3<T> ft_AC_W = Vector3<T>::Zero();
       if (vt_squared > kNonZeroSqd) {
