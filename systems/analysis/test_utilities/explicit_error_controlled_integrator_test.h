@@ -204,7 +204,7 @@ TYPED_TEST_P(ExplicitErrorControlledIntegratorTest, ErrEstOrder) {
   const double err_est_h_err = std::abs(err_est_h - (x_true - kXApprox_h));
 
   // Compute the same solution using two half-steps.
-  this->context->set_time(0);
+  this->context->SetTime(0);
   this->spring_mass->set_position(this->integrator->get_mutable_context(),
                              initial_position);
   this->spring_mass->set_velocity(this->integrator->get_mutable_context(),
@@ -240,6 +240,60 @@ TYPED_TEST_P(ExplicitErrorControlledIntegratorTest, ErrEstOrder) {
 // x'(t) = -c1*sin(omega*t)*omega + c2*cos(omega*t)*omega
 // for t = 0, x(0) = c1, x'(0) = c2*omega
 TYPED_TEST_P(ExplicitErrorControlledIntegratorTest, SpringMassStepEC) {
+  const double dt = 1e-5;
+  const double omega = std::sqrt(this->kSpringK / this->kMass);
+
+  // Set accuracy.
+  const double target_accuracy = 1e-8;
+  this->integrator->set_target_accuracy(target_accuracy);
+
+  // Set the maximum step size to small.
+  this->integrator->set_maximum_step_size(dt);
+
+  for (double initial_position=-1; initial_position <= 1.0;
+      initial_position += 0.03125) {
+    for (double initial_velocity=-1; initial_velocity <= 1.0;
+        initial_velocity += 0.03125) {
+      // Set initial conditions.
+      this->spring_mass->set_position(this->context.get(), initial_position);
+      this->spring_mass->set_velocity(this->context.get(), initial_velocity);
+
+      // Reset time.
+      this->context->SetTime(0.0);
+
+      // Re-initialize the integrator.
+      this->integrator->Initialize();
+
+      // Setup c1 and c2 for ODE constants.
+      const double c1 = initial_position;
+      const double c2 = initial_velocity / omega;
+
+      // Step forward by dt.
+      this->integrator->IntegrateNoFurtherThanTime(dt, dt, dt);
+
+      // Get the new spring position.
+      const double spring_position =
+          this->context->get_continuous_state().get_vector().GetAtIndex(0);
+
+      // Get the new time.
+      const double t = this->context->get_time();
+
+      // Check the solution.
+      EXPECT_NEAR(
+          c1 * std::cos(omega * t) + c2 * std::sin(omega * t),
+          spring_position, target_accuracy);
+    }
+  }
+}
+
+/*
+// Integrate a purely continuous system with no sampling using error control.
+// d^2x/h^2 = -kx/m
+// solution to this ODE: x(t) = c1*cos(omega*t) + c2*sin(omega*t)
+// where omega = sqrt(k/m)
+// x'(t) = -c1*sin(omega*t)*omega + c2*cos(omega*t)*omega
+// for t = 0, x(0) = c1, x'(0) = c2*omega
+TYPED_TEST_P(ExplicitErrorControlledIntegratorTest, SpringMassIntegrateEC) {
   // Set integrator parameters: do no error control.
   this->integrator->set_maximum_step_size(this->kDt);
   this->integrator->set_fixed_step_mode(true);
@@ -323,6 +377,7 @@ TYPED_TEST_P(ExplicitErrorControlledIntegratorTest, SpringMassStepEC) {
   // integrator.
   EXPECT_LT(this->integrator->get_num_steps_taken(), fixed_steps);
 }
+*/
 
 // Verifies that the integrator does not alter the state when directed to step
 // to the present time.

@@ -450,6 +450,7 @@ bool ImplicitEulerIntegrator<T>::StepAbstract(const T& dt,
   // Evaluate the residual error using the current x(t+h) as x⁰(t+h):
   // g(x⁰(t+h)) = x⁰(t+h) - x(t) - h f(t+h,x⁰(t+h)), where h = dt;
   VectorX<T> goutput = g();
+  SPDLOG_DEBUG(drake::log(), "residual: ", goutput.transpose());
 
   // Initialize the "last" state update norm; this will be used to detect
   // convergence.
@@ -480,6 +481,7 @@ bool ImplicitEulerIntegrator<T>::StepAbstract(const T& dt,
     // instead solve nA*x = g().
     // TODO(edrumwri): Allow caller to provide their own solver.
     VectorX<T> dx = Solve(goutput);
+    SPDLOG_DEBUG(drake::log(), "dx: {}", dx.transpose());
 
     // Get the infinity norm of the weighted update vector.
     dx_state_->get_mutable_vector().SetFromVector(dx);
@@ -495,6 +497,7 @@ bool ImplicitEulerIntegrator<T>::StepAbstract(const T& dt,
     // equivalent to last_dx_norm, making theta = 1, and eta = infinity. Thus,
     // convergence would never be identified.
     if (dx_norm < 10 * std::numeric_limits<double>::epsilon()) {
+      SPDLOG_DEBUG(drake::log(), "Final state: {}", xtplus->transpose());
       context->SetContinuousState(*xtplus);
       last_call_failed_ = false;
       return true;
@@ -525,6 +528,7 @@ bool ImplicitEulerIntegrator<T>::StepAbstract(const T& dt,
       if (eta * dx_norm < k_dot_tol) {
         SPDLOG_DEBUG(drake::log(), "Newton-Raphson converged; η = {}, h = {}",
                      eta, dt);
+        SPDLOG_DEBUG(drake::log(), "Final state: {}", xtplus->transpose());
         context->SetContinuousState(*xtplus);
         last_call_failed_ = false;
         return true;
@@ -537,6 +541,7 @@ bool ImplicitEulerIntegrator<T>::StepAbstract(const T& dt,
     // Update the state in the context and compute g(xⁱ⁺¹).
     context->SetContinuousState(*xtplus);
     goutput = g();
+    SPDLOG_DEBUG(drake::log(), "residual: {}", goutput.transpose());
   }
 
   SPDLOG_DEBUG(drake::log(), "StepAbstract() convergence failed");
@@ -859,6 +864,7 @@ bool ImplicitEulerIntegrator<T>::DoStep(const T& h) {
 
   // Compute and update the error estimate.
   err_est_vec_ = xtplus_ie - xtplus_itr;
+  err_est_vec_ = err_est_vec_.cwiseAbs();
 
   // Update the caller-accessible error estimate.
   this->get_mutable_error_estimate()->get_mutable_vector().

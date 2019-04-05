@@ -13,7 +13,6 @@
 namespace drake {
 namespace systems {
 
-// TODO(edrumwri) Update docs below from implicit Euler to Radau3
 /**
  * A third-order, fully implicit integrator with second order error estimation.
  * @tparam T The vector element type, which must be a valid Eigen scalar.
@@ -26,23 +25,11 @@ namespace systems {
  * - double
  * - AutoDiffXd
  *
- * This integrator uses the following update rule:<pre>
- * x(t+h) = x(t) + h f(t+h,x(t+h))
- * </pre>
- * where x are the state variables, h is the integration step size, and
- * f() returns the time derivatives of the state variables. Contrast this
- * update rule to that of an explicit first-order integrator:<pre>
- * x(t+h) = x(t) + h f(t, x(t))
- * </pre>
- * Thus implicit first-order integration must solve a nonlinear system of
- * equations to determine *both* the state at t+h and the time derivatives
- * of that state at that time. Cast as a nonlinear system of equations,
- * we seek the solution to:<pre>
- * x(t+h) - x(t) - h f(t+h,x(t+h)) = 0
- * </pre>
- * given unknowns x(t+h).
+ * A two-stage Radau IIa (see [Hairer, 1996], Ch. 5) method is used for
+ * propagating the state forward, while the implicit trapezoid rule is used
+ * for estimating the local (truncation) error at every time.
  *
- * This "implicit Euler" method is known to be L-Stable, meaning both that
+ * The Radau3 method is known to be L-Stable, meaning both that
  * applying it at a fixed integration step to the  "test" equation `y(t) = eᵏᵗ`
  * yields zero (for `k < 0` and `t → ∞`) *and* that it is also A-Stable.
  * A-Stability, in turn, means that the method can integrate the linear constant
@@ -53,29 +40,10 @@ namespace systems {
  * [Lambert, 1991], Ch. 6 for an approachable discussion on stiff differential
  * equations and L- and A-Stability.
  *
- * The time complexity of this method is often dominated by the time to form
- * the Jacobian matrix consisting of the partial derivatives of the nonlinear
- * system (of `n` dimensions, where `n` is the number of state variables) taken
- * with respect to the partial derivatives of the state variables at `x(t+h)`.
- * For typical numerical differentiation, `f` will be evaluated `n` times during
- * the Jacobian formation; if we liberally assume that the derivative function
- * evaluation code runs in `O(n)` time (e.g., as it would for multi-rigid
- * body dynamics without kinematic loops), the asymptotic complexity to form
- * the Jacobian will be `O(n²)`. This Jacobian matrix needs to be formed
- * repeatedly- as often as every time the state variables are updated-
- * during the solution process. Using automatic differentiation replaces the
- * `n` derivative evaluations with what is hopefully a much less expensive
- * process, though the complexity to form the Jacobian matrix is still `O(n²)`.
- * For large `n`, the time complexity may be dominated by the `O(n³)` time
- * required to (repeatedly) solve linear systems problems as part of the
- * nonlinear system solution process.
+ * This implementation uses Newton-Raphson (NR). General implementational
+ * details were taken from [Hairer, 1996] Ch. 8.
  *
- * This implementation uses Newton-Raphson (NR) and relies upon the obvious
- * convergence to a solution for `g = 0` where
- * `g(x(t+h)) ≡ x(t+h) - x(t) - h f(t+h,x(t+h))` as `h` becomes sufficiently
- * small. It also uses the implicit trapezoid method- fed the result from
- * implicit Euler for (hopefully) faster convergence- to compute the error
- * estimate. General implementational details were gleaned from [Hairer, 1996].
+ * See ImplicitIntegrator class documentation for further details.
  *
  * - [Hairer, 1996]   E. Hairer and G. Wanner. Solving Ordinary Differential
  *                    Equations II (Stiff and Differential-Algebraic Problems).
@@ -97,6 +65,29 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
 
   /// This integrator provides second order error estimates.
   int get_error_estimate_order() const override { return 2; }
+
+  /// @name Cumulative statistics functions.
+  /// The functions return statistics specific to the Radau3 integration
+  /// process. Builds on top of the cumulative statistics functions from
+  /// ImplicitIntegrator.
+  /// @{
+
+  /// Gets the number of iterations used in the Newton-Raphson nonlinear systems
+  /// of equation solving process since the last call to ResetStatistics(). This
+  /// count includes those Newton-Raphson iterations used during error
+  /// estimation processes.
+  int64_t get_num_newton_raphson_iterations() const {
+    return num_nr_iterations_;
+  }
+
+  /// Gets the number of factorizations of the iteration matrix since the last
+  /// call to ResetStatistics(). This count includes those refactorizations
+  /// necessary during error estimation processes.
+  int64_t get_num_iteration_matrix_factorizations() const {
+    return num_iter_factorizations_;
+  }
+
+  /// @}
 
   /// @name Error-estimation statistics functions.
   /// The functions return statistics specific to the error estimation
@@ -146,7 +137,7 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   bool AttemptStepPaired(const T& t0, const T& dt,
       const VectorX<T>& xt0, VectorX<T>* xtplus_radau3, VectorX<T>* xtplus_itr);
   const VectorX<T>& ComputeFofg(
-      const T& t0, const T& dt, const VectorX<T>& xt0);
+      const T& t0, const T& dt, const VectorX<T>& xt0, const VectorX<T>& Z);
   void DoInitialize() override;
   void DoResetStatistics() override;
   bool DoStep(const T& dt) override;
@@ -171,7 +162,8 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
       const VectorX<T>& xt0, const std::function<VectorX<T>()>& g,
       VectorX<T>* xtplus, int trial = 1);
 
-  // The number of stages used in this integrator.
+  // The number of stages used in this integrator. Set this to 1 for the
+  // integrator to be implicit Euler and 2 for it to be Radau3.
   static constexpr int kNumStages = 1;
 
   // The time-scaling coefficients for this RK-type integrator.
@@ -206,6 +198,10 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
 
   // The continuous state update vector used during Newton-Raphson.
   std::unique_ptr<ContinuousState<T>> dx_state_;
+
+  // Various statistics.
+  int64_t num_nr_iterations_{0};
+  int64_t num_iter_factorizations_{0};
 
   // Implicit trapezoid specific statistics.
   int64_t num_err_est_jacobian_reforms_{0};

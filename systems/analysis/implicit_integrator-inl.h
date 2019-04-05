@@ -23,10 +23,8 @@ namespace systems {
 
 template <class T>
 void ImplicitIntegrator<T>::DoResetStatistics() {
-  num_nr_iterations_ = 0;
   num_jacobian_function_evaluations_ = 0;
   num_jacobian_evaluations_ = 0;
-  num_iter_factorizations_ = 0;
 }
 
 // Computes the Jacobian of the ordinary differential equations taken with
@@ -35,7 +33,8 @@ void ImplicitIntegrator<T>::DoResetStatistics() {
 template <>
 MatrixX<AutoDiffXd> ImplicitIntegrator<AutoDiffXd>::
     ComputeAutoDiffJacobian(const System<AutoDiffXd>&,
-                            const Context<AutoDiffXd>&) {
+      const AutoDiffXd&, const VectorX<AutoDiffXd>&,
+      const Context<AutoDiffXd>&) {
         throw std::runtime_error("AutoDiff'd Jacobian not supported from "
                                      "AutoDiff'd ImplicitIntegrator");
 }
@@ -51,16 +50,17 @@ MatrixX<AutoDiffXd> ImplicitIntegrator<AutoDiffXd>::
 // @post The continuous state will be indeterminate on return.
 template <class T>
 MatrixX<T> ImplicitIntegrator<T>::ComputeAutoDiffJacobian(
-    const System<T>& system, const Context<T>& context) {
+    const System<T>& system, const T& t, const VectorX<T>& xc,
+    const Context<T>& context) {
   SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute Autodiff Jacobian "
-               "t={}",context.get_time());
+               "t={}",t);
   // Create AutoDiff versions of the state vector.
-  VectorX<AutoDiffXd> a_xtplus = context.get_continuous_state().CopyToVector();
+  VectorX<AutoDiffXd> a_xc = xc;
 
   // Set the size of the derivatives and prepare for Jacobian calculation.
-  const int n_state_dim = a_xtplus.size();
+  const int n_state_dim = a_xc.size();
   for (int i = 0; i < n_state_dim; ++i)
-    a_xtplus[i].derivatives() = VectorX<T>::Unit(n_state_dim, i);
+    a_xc[i].derivatives() = VectorX<T>::Unit(n_state_dim, i);
 
   // Get the system and the context in AutoDiffable format. Inputs must also
   // be copied to the context used by the AutoDiff'd system (which is
@@ -73,11 +73,12 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeAutoDiffJacobian(
   std::unique_ptr<Context<AutoDiffXd>> adiff_context = adiff_system->
       AllocateContext();
   adiff_context->SetTimeStateAndParametersFrom(context);
+  adiff_context->SetTime(t);
   adiff_system->FixInputPortsFrom(system, context, adiff_context.get());
 
   // Set the continuous state in the context.
   adiff_context->get_mutable_continuous_state().get_mutable_vector().
-      SetFromVector(a_xtplus);
+      SetFromVector(a_xc);
 
   // Evaluate the derivatives at that state.
   const VectorX<AutoDiffXd> result =
@@ -104,7 +105,7 @@ VectorX<T> ImplicitIntegrator<T>::EvalTimeDerivativesUsingContext() {
 // @post The continuous state will be indeterminate on return.
 template <class T>
 MatrixX<T> ImplicitIntegrator<T>::ComputeForwardDiffJacobian(
-    const System<T>&, Context<T>* context) {
+    const System<T>&, const T& t, const VectorX<T>& xc, Context<T>* context) {
   using std::abs;
 
   // Set epsilon to the square root of machine precision.
@@ -113,55 +114,50 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeForwardDiffJacobian(
   // Get the number of continuous state variables xc.
   const int n = context->num_continuous_states();
 
-  // Get the current continuous state.
-  const VectorX<T> xtplus = context->get_continuous_state().CopyToVector();
-
   SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute Forwarddiff "
-               "{}-Jacobian t={}", n, context->get_time());
-  SPDLOG_DEBUG(drake::log(), "  computing from state {}", xtplus.transpose());
-
-  // Prevent compiler warnings for context.
-  unused(context);
+               "{}-Jacobian t={}", n, t);
+  SPDLOG_DEBUG(drake::log(), "  computing from state {}", xc.transpose());
 
   // Initialize the Jacobian.
   MatrixX<T> J(n, n);
 
-  // Evaluate f(t+h,xtplus) for the current state (current xtplus).
+  // Evaluate f(t,xc).
+  context->SetTimeAndContinuousState(t, xc);
   const VectorX<T> f = EvalTimeDerivativesUsingContext();
 
   // Compute the Jacobian.
-  VectorX<T> xtplus_prime = xtplus;
+  VectorX<T> xc_prime = xc;
   for (int i = 0; i < n; ++i) {
     // Compute a good increment to the dimension using approximately 1/eps
-    // digits of precision. Note that if |xtplus| is large, the increment will
-    // be large as well. If |xtplus| is small, the increment will be no smaller
+    // digits of precision. Note that if |xc| is large, the increment will
+    // be large as well. If |xc| is small, the increment will be no smaller
     // than eps.
-    const T abs_xi = abs(xtplus(i));
+    const T abs_xi = abs(xc(i));
     T dxi(abs_xi);
     if (dxi <= 1) {
-      // When |xtplus[i]| is small, increment will be eps.
+      // When |xc[i]| is small, increment will be eps.
       dxi = eps;
     } else {
-      // |xtplus[i]| not small; make increment a fraction of |xtplus[i]|.
+      // |xc[i]| not small; make increment a fraction of |xc[i]|.
       dxi = eps * abs_xi;
     }
 
-    // Update xtplus', minimizing the effect of roundoff error by ensuring that
+    // Update xc', minimizing the effect of roundoff error by ensuring that
     // x and dx differ by an exactly representable number. See p. 192 of
     // Press, W., Teukolsky, S., Vetterling, W., and Flannery, P. Numerical
     //   Recipes in C++, 2nd Ed., Cambridge University Press, 2002.
-    xtplus_prime(i) = xtplus(i) + dxi;
-    dxi = xtplus_prime(i) - xtplus(i);
+    xc_prime(i) = xc(i) + dxi;
+    dxi = xc_prime(i) - xc(i);
 
     // TODO(sherm1) This is invalidating q, v, and z but we only changed one.
     //              Switch to a method that invalides just the relevant
     //              partition, and ideally modify only the one changed element.
     // Compute f' and set the relevant column of the Jacobian matrix.
-    context->SetContinuousState(xtplus_prime);
+    context->SetTimeAndContinuousState(t, xc_prime);
     J.col(i) = (EvalTimeDerivativesUsingContext() - f) / dxi;
 
-    // Reset xtplus' to xtplus.
-    xtplus_prime(i) = xtplus(i);
+    // Reset xc' to xc.
+    xc_prime(i) = xc(i);
   }
 
   return J;
@@ -175,7 +171,7 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeForwardDiffJacobian(
 // @post The continuous state will be indeterminate on return.
 template <class T>
 MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
-    const System<T>&, Context<T>* context) {
+    const System<T>&, const T& t, const VectorX<T>& xc, Context<T>* context) {
   using std::abs;
 
   // Cube root of machine precision (indicated by theory) seems a bit coarse.
@@ -186,61 +182,60 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
   const int n = context->num_continuous_states();
 
   SPDLOG_DEBUG(drake::log(), "  ImplicitIntegrator Compute ",
-               "Centraldiff {}-Jacobian t={}", n, context->get_time());
+               "Centraldiff {}-Jacobian t={}", n, t);
 
-  // Prevent compiler warnings for context.
-  unused(context);
 
   // Initialize the Jacobian.
   MatrixX<T> J(n, n);
 
-  // Get the current continuous state.
-  const VectorX<T> xtplus = context->get_continuous_state().CopyToVector();
+  // Evaluate f(t,xc).
+  context->SetTimeAndContinuousState(t, xc);
+  const VectorX<T> f = EvalTimeDerivativesUsingContext();
 
   // Compute the Jacobian.
-  VectorX<T> xtplus_prime = xtplus;
+  VectorX<T> xc_prime = xc;
   for (int i = 0; i < n; ++i) {
     // Compute a good increment to the dimension using approximately 1/eps
-    // digits of precision. Note that if |xtplus| is large, the increment will
-    // be large as well. If |xtplus| is small, the increment will be no smaller
+    // digits of precision. Note that if |xc| is large, the increment will
+    // be large as well. If |xc| is small, the increment will be no smaller
     // than eps.
-    const T abs_xi = abs(xtplus(i));
+    const T abs_xi = abs(xc(i));
     T dxi(abs_xi);
     if (dxi <= 1) {
-      // When |xtplus[i]| is small, increment will be eps.
+      // When |xc[i]| is small, increment will be eps.
       dxi = eps;
     } else {
-      // |xtplus[i]| not small; make increment a fraction of |xtplus[i]|.
+      // |xc[i]| not small; make increment a fraction of |xc[i]|.
       dxi = eps * abs_xi;
     }
 
-    // Update xtplus', minimizing the effect of roundoff error, by ensuring that
+    // Update xc', minimizing the effect of roundoff error, by ensuring that
     // x and dx differ by an exactly representable number. See p. 192 of
     // Press, W., Teukolsky, S., Vetterling, W., and Flannery, P. Numerical
     //   Recipes in C++, 2nd Ed., Cambridge University Press, 2002.
-    xtplus_prime(i) = xtplus(i) + dxi;
-    const T dxi_plus = xtplus_prime(i) - xtplus(i);
+    xc_prime(i) = xc(i) + dxi;
+    const T dxi_plus = xc_prime(i) - xc(i);
 
     // TODO(sherm1) This is invalidating q, v, and z but we only changed one.
     //              Switch to a method that invalides just the relevant
     //              partition, and ideally modify only the one changed element.
     // Compute f(x+dx).
-    context->SetContinuousState(xtplus_prime);
+    context->SetContinuousState(xc_prime);
     VectorX<T> fprime_plus = EvalTimeDerivativesUsingContext();
 
-    // Update xtplus' again, minimizing the effect of roundoff error.
-    xtplus_prime(i) = xtplus(i) - dxi;
-    const T dxi_minus = xtplus(i) - xtplus_prime(i);
+    // Update xc' again, minimizing the effect of roundoff error.
+    xc_prime(i) = xc(i) - dxi;
+    const T dxi_minus = xc(i) - xc_prime(i);
 
     // Compute f(x-dx).
-    context->SetContinuousState(xtplus_prime);
+    context->SetContinuousState(xc_prime);
     VectorX<T> fprime_minus = EvalTimeDerivativesUsingContext();
 
     // Set the Jacobian column.
     J.col(i) = (fprime_plus - fprime_minus) / (dxi_plus + dxi_minus);
 
-    // Reset xtplus' to xtplus.
-    xtplus_prime(i) = xtplus(i);
+    // Reset xc' to xc.
+    xc_prime(i) = xc(i);
   }
 
   return J;
@@ -249,10 +244,11 @@ MatrixX<T> ImplicitIntegrator<T>::ComputeCentralDiffJacobian(
 // Factors a dense matrix (the negated iteration matrix) using LU factorization,
 // which should be faster than the QR factorization used in the specialized
 // template method immediately below.
-// TODO(edrumwri): Record the factorization.
 template <class T>
-void ImplicitIntegrator<T>::IterationMatrix::Factor() {
-  LU_.compute(iteration_matrix_);
+void ImplicitIntegrator<T>::IterationMatrix::SetAndFactorIterationMatrix(
+    const MatrixX<T>& iteration_matrix) {
+  LU_.compute(iteration_matrix);
+  matrix_factored_ = true;
 }
 
 // Factors a dense matrix (the negated iteration matrix). This
@@ -261,8 +257,10 @@ void ImplicitIntegrator<T>::IterationMatrix::Factor() {
 // AutoDiff-able (while the QR factorization *is* AutoDiff-able).
 // TODO(edrumwri): Record the factorization.
 template <>
-void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Factor() {
-  QR_.compute(iteration_matrix_);
+void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::
+    SetAndFactorIterationMatrix(const MatrixX<AutoDiffXd>& iteration_matrix) {
+  QR_.compute(iteration_matrix);
+  matrix_factored_ = true;
 }
 
 // Solves a linear system Ax = b for x using a negated iteration matrix (A)
@@ -270,7 +268,7 @@ void ImplicitIntegrator<AutoDiffXd>::IterationMatrix::Factor() {
 // @sa Factor()
 template <class T>
 VectorX<T> ImplicitIntegrator<T>::IterationMatrix::Solve(
-      const VectorX<T>& b) const {
+    const VectorX<T>& b) const {
   return LU_.solve(b);
 }
 
@@ -301,7 +299,7 @@ MatrixX<T> ImplicitIntegrator<T>::CalcJacobian(const T& t,
   Context<T>* context = this->get_mutable_context();
 
   // Get the current time and state.
-  T t_current = context->get_time();
+  const T t_current = context->get_time();
   const VectorX<T> x_current = context->get_continuous_state_vector().
       CopyToVector();
 
@@ -316,16 +314,16 @@ MatrixX<T> ImplicitIntegrator<T>::CalcJacobian(const T& t,
   const System<T>& system = this->get_system();
 
   // TODO(edrumwri): Give the caller the option to provide their own Jacobian.
-  const MatrixX<T> J = [&]() {
+  const MatrixX<T> J = [this, context, &system, &t, &x]() {
     switch (jacobian_scheme_) {
       case JacobianComputationScheme::kForwardDifference:
-        return ComputeForwardDiffJacobian(system, &*context);
+        return ComputeForwardDiffJacobian(system, t, x, &*context);
 
       case JacobianComputationScheme::kCentralDifference:
-        return ComputeCentralDiffJacobian(system, &*context);
+        return ComputeCentralDiffJacobian(system, t, x, &*context);
 
       case JacobianComputationScheme::kAutomatic:
-        return ComputeAutoDiffJacobian(system, *context);
+        return ComputeAutoDiffJacobian(system, t, x, *context);
     }
     DRAKE_UNREACHABLE();
   }();

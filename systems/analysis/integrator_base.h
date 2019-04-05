@@ -1712,6 +1712,7 @@ bool IntegratorBase<T>::StepOnceErrorControlledAtMost(const T& dt_max) {
     T next_step_size;
     std::tie(step_succeeded, next_step_size) = CalcAdjustedStepSize(
         err_norm, step_size_to_attempt, &at_minimum_step_size);
+    SPDLOG_DEBUG(drake::log(), "Step succeeded? {}", step_succeeded);
     SPDLOG_DEBUG(drake::log(), "Next step size: {}", next_step_size);
 
     if (step_succeeded) {

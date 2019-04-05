@@ -153,6 +153,7 @@ drake_cc_library(
 
 drake_cc_library(
     name = "implicit_integrator",
+    srcs = ["implicit_integrator.cc"],
     hdrs = [
         "implicit_integrator.h",
         "implicit_integrator-inl.h",
@@ -332,6 +333,10 @@ drake_cc_googletest(
     ],
     deps = [
         ":radau3_integrator",
+	# TODO(edrumwri): Remove this.
+	    "//common",
+	# TODO(edrumwri): Remove this.
+        ":implicit_euler_integrator",
         "//systems/analysis/test_utilities",
         "//systems/plants/spring_mass_system",
     ],
