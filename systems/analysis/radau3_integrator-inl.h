@@ -40,6 +40,9 @@ Radau3Integrator<T>::Radau3Integrator(const System<T>& system,
 
     // Set the propagation constants (again, from the same table).
     b_ = { 3.0/4, 1.0/4 };
+
+    // Set the scaling constants for the solution using (8.2b) and Table 5.6.
+    d_ = { 0.0, 1.0 };
   } else {
     DRAKE_DEMAND(kNumStages == 1);
 
@@ -47,6 +50,7 @@ Radau3Integrator<T>::Radau3Integrator(const System<T>& system,
     A_(0,0) = 1.0;
     c_ = { 1.0 };
     b_ = { 1.0 };
+    d_ = { 1.0 };
   }
 }
 
@@ -183,7 +187,7 @@ bool Radau3Integrator<T>::StepRadau3(const T& t0, const T& dt,
     return false;
   }
 
-  // Initialize the "last" norm of dZ; this will be used to detect convergence.
+  // Initialize the "last" norm of dx; this will be used to detect convergence.
   T last_dx_norm = std::numeric_limits<double>::infinity();
 
   // The maximum number of Newton-Raphson iterations to take before declaring
@@ -213,11 +217,20 @@ bool Radau3Integrator<T>::StepRadau3(const T& t0, const T& dt,
     // Update the iterate.
     Z_ += dZ;
 
-    // Compute the candidate update to the actual continuous state (i.e., x not
-    // Z) using (3.1b) on p. 40 of [Hairer, 1996].
+    // Compute the update to the actual continuous state (i.e., x not Z) using
+    // (8.2b) in [Hairer, 1996], which gives the relationship between x(t0+dt)
+    // and Z:
+    // x(t0+dt) = x(t0) + Σ dᵢ Zᵢ
+    // Therefore, we can get the relationship between dZ and dx as:
+    // x* = x(t0) + Σ dᵢ Zᵢ                   (1)
+    // x+ = x(t0) + Σ dᵢ (Zᵢ + dZᵢ)           (2)
+    // Subtracting (1) from (2) yields
+    // dx = Σ dᵢ Zᵢ
+    // where dx ≡ x+ - x*
     VectorX<T> dx = VectorX<T>::Zero(state_dim);
     for (int i = 0, j = 0; i < kNumStages; ++i, j += state_dim)
-      dx += b_[i] * dZ.segment(j, state_dim);
+      dx += d_[i] * dZ.segment(j, state_dim);
+
     dx_state_->SetFromVector(dx);
     SPDLOG_DEBUG(drake::log(), "dx: {}", dx.transpose());
 
@@ -263,11 +276,12 @@ bool Radau3Integrator<T>::StepRadau3(const T& t0, const T& dt,
     }
 
     if (converged) {
+      // Set the solution using (8.2b) in [Hairer, 1996].
       xtplus->setZero();
       for (int i = 0, j = 0; i < kNumStages; ++i, j += state_dim)
-        *xtplus += b_[i] * F_of_g.segment(j, state_dim);
-      *xtplus *= dt;
+        *xtplus += d_[i] * Z_.segment(j, state_dim);
       *xtplus += xt0;
+
       SPDLOG_DEBUG(drake::log(), "Final state: {}", xtplus->transpose());
       this->set_last_call_succeeded(true);
       return true;

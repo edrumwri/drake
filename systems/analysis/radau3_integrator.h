@@ -164,7 +164,7 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
 
   // The number of stages used in this integrator. Set this to 1 for the
   // integrator to be implicit Euler and 2 for it to be Radau3.
-  static constexpr int kNumStages = 1;
+  static constexpr int kNumStages = 2;
 
   // The time-scaling coefficients for this RK-type integrator.
   std::vector<double> c_;
@@ -185,6 +185,9 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
 
   // The solution propagation coefficients (that also scales the stages).
   std::vector<double> b_;
+
+  // The scaling coefficients for Z (8.2b) in [Hairer, 1996].
+  std::vector<double> d_;
 
   // A kNumStages * |xc|-dimensional vector of the current iterate for the
   // Newton-Raphson process.
