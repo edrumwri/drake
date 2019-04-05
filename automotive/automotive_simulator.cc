@@ -425,7 +425,7 @@ int AutomotiveSimulator<T>::AddIdmControlledCar(
   const LaneDirection lane_direction(goal_lane, initial_with_s);
   auto lane_source =
       builder_->template AddSystem<systems::ConstantValueSource<T>>(
-          AbstractValue::Make<LaneDirection>(lane_direction));
+          Value<LaneDirection>(lane_direction));
 
   auto simple_car = builder_->template AddSystem<SimpleCar<T>>();
   simple_car->set_name(name + "_simple_car");
@@ -796,7 +796,7 @@ template <typename T>
 void AutomotiveSimulator<T>::StepBy(const T& time_step) {
   const T time = simulator_->get_context().get_time();
   SPDLOG_TRACE(drake::log(), "Time is now {}", time);
-  simulator_->StepTo(time + time_step);
+  simulator_->AdvanceTo(time + time_step);
 }
 
 template <typename T>

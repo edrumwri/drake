@@ -18,12 +18,18 @@ namespace test {
 ///                      rate equations" in Numerical Analysis, An Introduction.
 ///                      Pages 178-182. Academic Press, 1966.
 template <class T>
-class RobertsonSystem : public LeafSystem<T> {
+class RobertsonSystem final : public LeafSystem<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(RobertsonSystem)
-  RobertsonSystem() {
+
+  /// Constructor that specifies @ref system_scalar_conversion support.
+  explicit RobertsonSystem() : LeafSystem<T>(SystemTypeTag<RobertsonSystem>{}) {
     this->DeclareContinuousState(3);
   }
+
+  /// Scalar-converting copy constructor. See @ref system_scalar_conversion.
+  template <typename U>
+  explicit RobertsonSystem(const RobertsonSystem<U>&) : RobertsonSystem<T>() {}
 
   void DoCalcTimeDerivatives(const Context<T>& context,
                              ContinuousState<T>* deriv) const override {

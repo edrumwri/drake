@@ -9,13 +9,13 @@ from pydrake.multibody.plant import MultibodyPlant
 from pydrake.manipulation.planner import (
     DifferentialInverseKinematicsParameters)
 from pydrake.math import RigidTransform, RollPitchYaw
-from pydrake.systems.analysis import Simulator, ImplicitEulerIntegrator
+from pydrake.systems.analysis import Simulator, Radau3Integrator
 from pydrake.systems.framework import (BasicVector, DiagramBuilder,
                                        LeafSystem)
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from pydrake.systems.primitives import FirstOrderLowPassFilter
 
-from differential_ik import DifferentialIK
+from drake.examples.manipulation_station.differential_ik import DifferentialIK
 import sys
 
 try:
@@ -48,7 +48,7 @@ def print_instructions():
 
 class TeleopMouseKeyboardManager():
 
-    def __init__(self):
+    def __init__(self, grab_focus=True):
         pygame.init()
         # We don't actually want a screen, but
         # I can't get this to work without a tiny screen.
@@ -58,7 +58,8 @@ class TeleopMouseKeyboardManager():
 
         self.side_button_back_DOWN = False
         self.side_button_fwd_DOWN = False
-        self.grab_mouse_focus()
+        if grab_focus:
+            self.grab_mouse_focus()
 
     def grab_mouse_focus(self):
         pygame.event.set_grab(True)
@@ -120,7 +121,7 @@ class TeleopMouseKeyboardManager():
 
 
 class MouseKeyboardTeleop(LeafSystem):
-    def __init__(self):
+    def __init__(self, grab_focus=True):
         LeafSystem.__init__(self)
         self._DeclareVectorOutputPort("rpy_xyz", BasicVector(6),
                                       self._DoCalcOutput)
@@ -133,7 +134,7 @@ class MouseKeyboardTeleop(LeafSystem):
         #       time step causes more lag in the response.
         self._DeclarePeriodicPublish(0.01, 0.0)
 
-        self.teleop_manager = TeleopMouseKeyboardManager()
+        self.teleop_manager = TeleopMouseKeyboardManager(grab_focus=grab_focus)
         self.roll = self.pitch = self.yaw = 0
         self.x = self.y = self.z = 0
         self.gripper_max = 0.107
@@ -233,7 +234,7 @@ class MouseKeyboardTeleop(LeafSystem):
 
 def OutputStats(sim):
     integrator = sim.get_mutable_integrator()
-    print('Time: ' + str(sim.get_context().get_time))
+    print('Time: ' + str(sim.get_context().get_time()))
     print('# shrinkages from step failures: ' + str(integrator.get_num_step_shrinkages_from_substep_failures()))
     print('# shrinkages from error control: ' + str(integrator.get_num_step_shrinkages_from_error_control()))
     print('# ODE evaluations: ' + str(integrator.get_num_derivative_evaluations()))
@@ -322,10 +323,9 @@ differential_ik = builder.AddSystem(DifferentialIK(
 builder.Connect(differential_ik.GetOutputPort("joint_position_desired"),
                 station.GetInputPort("iiwa_position"))
 
-teleop = builder.AddSystem(MouseKeyboardTeleop())
-if args.test:
-    # Don't let mouse grab focus during testing.
-    teleop.teleop_manager.release_mouse_focus()
+# Don't let mouse grab focus during testing.
+grab_focus = not args.test
+teleop = builder.AddSystem(MouseKeyboardTeleop(grab_focus=grab_focus))
 filter = builder.AddSystem(
     FirstOrderLowPassFilter(time_constant=args.filter_time_const, size=6))
 
@@ -340,9 +340,9 @@ builder.Connect(teleop.GetOutputPort("force_limit"),
 
 diagram = builder.Build()
 simulator = Simulator(diagram)
-integrator = ImplicitEulerIntegrator(system=diagram, context=simulator.get_context())
+integrator = Radau3Integrator(system=diagram, context=simulator.get_context())
 simulator.reset_integrator(integrator)
-integrator.set_target_accuracy(1e-1)
+integrator.set_target_accuracy(5e-3)
 integrator.set_maximum_step_size(1e-2)
 
 station_context = diagram.GetMutableSubsystemContext(
@@ -373,5 +373,5 @@ t = 0
 dt = 0.002
 while t < args.duration:
   t += dt
-  simulator.StepTo(t)
+  simulator.AdvanceTo(t)
   OutputStats(simulator)

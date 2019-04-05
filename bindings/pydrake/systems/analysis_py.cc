@@ -5,6 +5,7 @@
 #include "drake/bindings/pydrake/systems/systems_pybind.h"
 #include "drake/systems/analysis/implicit_euler_integrator.h"
 #include "drake/systems/analysis/integrator_base.h"
+#include "drake/systems/analysis/radau3_integrator.h"
 #include "drake/systems/analysis/runge_kutta2_integrator.h"
 #include "drake/systems/analysis/runge_kutta3_integrator.h"
 #include "drake/systems/analysis/simulator.h"
@@ -85,6 +86,19 @@ PYBIND11_MODULE(analysis, m) {
             // Keep alive, reference: `self` keeps `Context` alive.
             py::keep_alive<1, 3>(), doc.RungeKutta3Integrator.ctor.doc);
 
+    DefineTemplateClassWithDefault<Radau3Integrator<T>,
+        IntegratorBase<T>>(m, "Radau3Integrator", GetPyParam<T>(),
+        doc.Radau3Integrator.doc)
+        .def(py::init<const System<T>&, Context<T>*>(), py::arg("system"),
+            py::arg("context") = nullptr,
+            // Keep alive, reference: `self` keeps `System` alive.
+            py::keep_alive<1, 2>(),
+            // Keep alive, reference: `self` keeps `Context` alive.
+            py::keep_alive<1, 3>(), doc.Radau3Integrator.ctor.doc)
+        .def("get_num_newton_raphson_iterations",
+            &Radau3Integrator<T>::get_num_newton_raphson_iterations,
+            doc.Radau3Integrator.get_num_newton_raphson_iterations.doc);
+
     DefineTemplateClassWithDefault<ImplicitEulerIntegrator<T>,
         IntegratorBase<T>>(m, "ImplicitEulerIntegrator", GetPyParam<T>(),
         doc.ImplicitEulerIntegrator.doc)
@@ -109,7 +123,8 @@ PYBIND11_MODULE(analysis, m) {
             py::keep_alive<3, 1>(), doc.Simulator.ctor.doc)
         .def("Initialize", &Simulator<T>::Initialize,
             doc.Simulator.Initialize.doc)
-        .def("StepTo", &Simulator<T>::StepTo, doc.Simulator.StepTo.doc)
+        .def("AdvanceTo", &Simulator<T>::AdvanceTo, doc.Simulator.AdvanceTo.doc)
+        .def("StepTo", &Simulator<T>::StepTo, "Use AdvanceTo() instead.")
         .def("get_context", &Simulator<T>::get_context, py_reference_internal,
             doc.Simulator.get_context.doc)
         .def("get_integrator", &Simulator<T>::get_integrator,
@@ -123,7 +138,7 @@ PYBIND11_MODULE(analysis, m) {
                 std::unique_ptr<IntegratorBase<T>> integrator) {
               return self->reset_integrator(std::move(integrator));
             },
-            // Keep alive, ownership: 'Integrator' keeps 'self' alive.
+            // Keep alive, ownership: `Integrator` keeps `self` alive.
             py::keep_alive<2, 1>(),
             doc.Simulator.reset_integrator.doc_1args_stduniqueptr)
         .def("set_publish_every_time_step",

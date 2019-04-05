@@ -165,9 +165,26 @@ TEST_F(BouncingBallTest, Simulate) {
   drake::systems::Simulator<double> simulator(*dut_, std::move(context_));
   simulator.reset_integrator<systems::RungeKutta3Integrator<double>>(*dut_,
       &simulator.get_mutable_context());
-  simulator.get_mutable_context().set_accuracy(accuracy);
+  simulator.get_mutable_context().SetAccuracy(accuracy);
   simulator.get_mutable_integrator()->request_initial_step_size_target(1e-3);
   simulator.get_mutable_integrator()->set_target_accuracy(accuracy);
+
+  // Note: the witness function isolation for the bouncing ball does not require
+  // the ball to have a non-negative signed distance, the assumption being that
+  // the signed distance will be positive after the next integration step (after
+  // the impact event which reverses the velocity). But a second order
+  // integrator is able to simulate a parabolic trajectory without error, so
+  // the Simulator will actually see two negative signed distances on its next
+  // witness function evaluations! We limit the step size (constants taken
+  // from CalcClosedFormHeightAndVelocity()) to fix this. Step size limit only
+  // works when restitution is unity.
+  ASSERT_EQ(dut_->get_restitution_coef(), 1.0);
+  const double g = dut_->get_gravitational_acceleration();
+  const double a = g/2;
+  const double c = x0;
+  const double drop_time = std::sqrt(-c/a);
+  simulator.get_mutable_integrator()->set_maximum_step_size(drop_time);
+
   simulator.Initialize();
 
   // Set the initial state for the bouncing ball.
@@ -177,7 +194,7 @@ TEST_F(BouncingBallTest, Simulate) {
   xc.SetAtIndex(1, v0);
 
   // Integrate.
-  simulator.StepTo(t_final);
+  simulator.AdvanceTo(t_final);
   EXPECT_EQ(simulator.get_mutable_context().get_time(), t_final);
 
   // Check against closed form solution for the bouncing ball. We anticipate

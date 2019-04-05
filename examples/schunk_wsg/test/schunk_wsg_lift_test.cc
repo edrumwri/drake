@@ -450,7 +450,7 @@ TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   double t = 0;
   do {
     t += dt;
-    simulator.StepTo(t);
+    simulator.AdvanceTo(t);
     OutputStats(simulator);
   } while (t <= kLiftStart);
 
@@ -471,7 +471,7 @@ TEST_P(SchunkWsgLiftTest, BoxLiftTest) {
   // Now run to the end of the simulation.
   do {
       t += dt;
-      simulator.StepTo(t);
+      simulator.AdvanceTo(t);
       OutputStats(simulator);
   } while (t <= kSimDuration);
 

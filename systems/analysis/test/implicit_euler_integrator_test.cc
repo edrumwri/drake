@@ -7,6 +7,7 @@
 #include "drake/systems/analysis/test_utilities/spring_mass_damper_system.h"
 #include "drake/systems/analysis/test_utilities/stiff_double_mass_spring_system.h"
 #include "drake/systems/plants/spring_mass_system/spring_mass_system.h"
+#include "drake/common/text_logging.h"
 
 namespace drake {
 namespace systems {
@@ -40,40 +41,12 @@ class StationarySystem final : public LeafSystem<T> {
   }
 };
 
-// Tests the implicit integrator on a stationary system problem, which
-// stresses numerical differentiation (since the state does not change).
-GTEST_TEST(ImplicitEulerIntegratorTest, Stationary) {
-  std::unique_ptr<StationarySystem<double>> stationary =
-    std::make_unique<StationarySystem<double>>();
-  std::unique_ptr<Context<double>> context = stationary->CreateDefaultContext();
-  context->EnableCaching();
-
-  // Set the initial condition for the stationary system.
-  VectorBase<double>& state = context->get_mutable_continuous_state().
-      get_mutable_vector();
-  state.SetAtIndex(0, 0.0);
-  state.SetAtIndex(1, 0.0);
-
-  // Create the integrator.
-  ImplicitEulerIntegrator<double> integrator(*stationary, context.get());
-  integrator.set_maximum_step_size(1.0);
-  integrator.set_target_accuracy(1e-3);
-  integrator.request_initial_step_size_target(1e-4);
-
-  // Integrate the system
-  integrator.Initialize();
-  integrator.IntegrateWithMultipleStepsToTime(1.0);
-
-  // Verify the solution.
-  EXPECT_NEAR(state.GetAtIndex(0), 0, std::numeric_limits<double>::epsilon());
-  EXPECT_NEAR(state.GetAtIndex(1), 0, std::numeric_limits<double>::epsilon());
-}
-
 // Tests the implicit integrator on Robertson's stiff chemical reaction
 // problem, which has been used to benchmark various implicit integrators.
 // This problem is particularly good at testing large step sizes (since the
 // solution quickly converges) and long simulation times.
 GTEST_TEST(ImplicitEulerIntegratorTest, Robertson) {
+  //drake::logging::set_log_level("debug");
   std::unique_ptr<analysis::test::RobertsonSystem<double>> robertson =
     std::make_unique<analysis::test::RobertsonSystem<double>>();
   std::unique_ptr<Context<double>> context = robertson->CreateDefaultContext();
@@ -103,6 +76,7 @@ GTEST_TEST(ImplicitEulerIntegratorTest, Robertson) {
   integrator.set_throw_on_minimum_step_size_violation(false);
   integrator.set_target_accuracy(tol);
   integrator.request_initial_step_size_target(1e-4);
+  integrator.set_reuse(false);
 
   // Integrate the system
   integrator.Initialize();
@@ -113,6 +87,36 @@ GTEST_TEST(ImplicitEulerIntegratorTest, Robertson) {
   EXPECT_NEAR(state.GetAtIndex(0), sol(0), tol);
   EXPECT_NEAR(state.GetAtIndex(1), sol(1), tol);
   EXPECT_NEAR(state.GetAtIndex(2), sol(2), tol);
+  drake::logging::set_log_level("off");
+}
+
+// Tests the implicit integrator on a stationary system problem, which
+// stresses numerical differentiation (since the state does not change).
+GTEST_TEST(ImplicitEulerIntegratorTest, Stationary) {
+  std::unique_ptr<StationarySystem<double>> stationary =
+    std::make_unique<StationarySystem<double>>();
+  std::unique_ptr<Context<double>> context = stationary->CreateDefaultContext();
+  context->EnableCaching();
+
+  // Set the initial condition for the stationary system.
+  VectorBase<double>& state = context->get_mutable_continuous_state().
+      get_mutable_vector();
+  state.SetAtIndex(0, 0.0);
+  state.SetAtIndex(1, 0.0);
+
+  // Create the integrator.
+  ImplicitEulerIntegrator<double> integrator(*stationary, context.get());
+  integrator.set_maximum_step_size(1.0);
+  integrator.set_target_accuracy(1e-3);
+  integrator.request_initial_step_size_target(1e-4);
+
+  // Integrate the system
+  integrator.Initialize();
+  integrator.IntegrateWithMultipleStepsToTime(1.0);
+
+  // Verify the solution.
+  EXPECT_NEAR(state.GetAtIndex(0), 0, std::numeric_limits<double>::epsilon());
+  EXPECT_NEAR(state.GetAtIndex(1), 0, std::numeric_limits<double>::epsilon());
 }
 
 class ImplicitIntegratorTest : public ::testing::TestWithParam<bool> {
@@ -272,7 +276,7 @@ TEST_F(ImplicitIntegratorTest, ContextAccess) {
   // Create the integrator.
   ImplicitEulerIntegrator<double> integrator(*spring_, context_.get());
 
-  integrator.get_mutable_context()->set_time(3.);
+  integrator.get_mutable_context()->SetTime(3.);
   EXPECT_EQ(integrator.get_context().get_time(), 3.);
   EXPECT_EQ(context_->get_time(), 3.);
   integrator.reset_context(nullptr);
@@ -419,7 +423,7 @@ TEST_P(ImplicitIntegratorTest, SpringMassDamperStiff) {
       kCentralDifference);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   spring_damper_->set_position(context_.get(), initial_position);
   spring_damper_->set_velocity(context_.get(), initial_velocity);
 
@@ -440,7 +444,7 @@ TEST_P(ImplicitIntegratorTest, SpringMassDamperStiff) {
       kAutomatic);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   spring_damper_->set_position(context_.get(), initial_position);
   spring_damper_->set_velocity(context_.get(), initial_velocity);
 
@@ -516,7 +520,7 @@ TEST_P(ImplicitIntegratorTest, SpringMassStep) {
       kCentralDifference);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   spring_mass.set_position(context_.get(), initial_position);
   spring_mass.set_velocity(context_.get(), initial_velocity);
 
@@ -538,7 +542,7 @@ TEST_P(ImplicitIntegratorTest, SpringMassStep) {
       kAutomatic);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   spring_mass.set_position(context_.get(), initial_position);
   spring_mass.set_velocity(context_.get(), initial_velocity);
 
@@ -608,7 +612,7 @@ TEST_P(ImplicitIntegratorTest, ErrorEstimation) {
   for (int j = 0; j < n_dts; ++j) {
     for (int i = 0; i < n_initial_conditions; ++i) {
       // Reset the time.
-      context_->set_time(0.0);
+      context_->SetTime(0.0);
 
       // Set initial condition.
       spring_mass.set_position(context_.get(), initial_position[i]);
@@ -692,7 +696,7 @@ TEST_P(ImplicitIntegratorTest, SpringMassStepAccuracyEffects) {
   EXPECT_NEAR(integrator.get_accuracy_in_use(), 100.0,
               std::numeric_limits<double>::epsilon());
   integrator.Initialize();
-  context_->set_time(0);
+  context_->SetTime(0);
   spring_mass.set_position(context_.get(), initial_position);
   spring_mass.set_velocity(context_.get(), initial_velocity);
   integrator.IntegrateWithMultipleStepsToTime(context_->get_time() + large_dt_);
@@ -751,7 +755,7 @@ TEST_P(ImplicitIntegratorTest, DiscontinuousSpringMassDamper) {
       kCentralDifference);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   mod_spring_damper_->set_position(context_.get(), initial_position);
   mod_spring_damper_->set_velocity(context_.get(), initial_velocity);
 
@@ -771,7 +775,7 @@ TEST_P(ImplicitIntegratorTest, DiscontinuousSpringMassDamper) {
       kAutomatic);
 
   // Reset the time, position, and velocity.
-  context_->set_time(0.0);
+  context_->SetTime(0.0);
   mod_spring_damper_->set_position(context_.get(), initial_position);
   mod_spring_damper_->set_velocity(context_.get(), initial_velocity);
 

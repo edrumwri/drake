@@ -1,14 +1,16 @@
 from __future__ import absolute_import, division, print_function
 
 import pydrake.math as mut
+import pydrake.math._test as mtest
 from pydrake.math import (BarycentricMesh, wrap_to)
 from pydrake.common.eigen_geometry import Isometry3, Quaternion, AngleAxis
 
-import numpy as np
-import six
+import copy
+import math
 import unittest
 
-import math
+import numpy as np
+import six
 
 
 class TestBarycentricMesh(unittest.TestCase):
@@ -103,6 +105,7 @@ class TestMath(unittest.TestCase):
         X_I = np.eye(4)
         check_equality(mut.RigidTransform(), X_I)
         check_equality(mut.RigidTransform(other=mut.RigidTransform()), X_I)
+        check_equality(copy.copy(mut.RigidTransform()), X_I)
         R_I = mut.RotationMatrix()
         p_I = np.zeros(3)
         rpy_I = mut.RollPitchYaw(0, 0, 0)
@@ -137,12 +140,19 @@ class TestMath(unittest.TestCase):
                 eval("X @ mut.RigidTransform()"), mut.RigidTransform)
             self.assertIsInstance(eval("X @ [0, 0, 0]"), np.ndarray)
 
+    def test_isometry_implicit(self):
+        # Explicitly disabled, to mirror C++ API.
+        with self.assertRaises(TypeError):
+            self.assertTrue(mtest.TakeRigidTransform(Isometry3()))
+        self.assertTrue(mtest.TakeIsometry3(mut.RigidTransform()))
+
     def test_rotation_matrix(self):
         # - Constructors.
         R = mut.RotationMatrix()
         self.assertTrue(np.allclose(
             mut.RotationMatrix(other=R).matrix(), np.eye(3)))
         self.assertTrue(np.allclose(R.matrix(), np.eye(3)))
+        self.assertTrue(np.allclose(copy.copy(R).matrix(), np.eye(3)))
         self.assertTrue(np.allclose(
             mut.RotationMatrix.Identity().matrix(), np.eye(3)))
         R = mut.RotationMatrix(R=np.eye(3))
