@@ -134,6 +134,37 @@ class Radau3Integrator final : public ImplicitIntegrator<T> {
   /// @}
 
  private:
+  int64_t do_get_num_newton_raphson_iterations() const final {
+    return num_nr_iterations_;
+  }
+
+  int64_t do_get_num_iteration_matrix_factorizations() const final {
+    return num_iter_factorizations_;
+  }
+
+  int64_t do_get_num_error_estimator_derivative_evaluations() const final {
+    return num_err_est_function_evaluations_;
+  }
+
+  int64_t do_get_num_error_estimator_derivative_evaluations_for_jacobian()
+      const final {
+    return num_err_est_jacobian_function_evaluations_;
+  }
+
+  int64_t do_get_num_error_estimator_newton_raphson_iterations()
+      const final {
+    return num_err_est_nr_iterations_;
+  }
+
+  int64_t do_get_num_error_estimator_jacobian_evaluations() const final {
+    return num_err_est_jacobian_reforms_;
+  }
+
+  int64_t do_get_num_error_estimator_iteration_matrix_factorizations()
+      const final {
+    return num_err_est_iter_factorizations_;
+  }
+
   bool AttemptStepPaired(const T& t0, const T& dt,
       const VectorX<T>& xt0, VectorX<T>* xtplus_radau3, VectorX<T>* xtplus_itr);
   const VectorX<T>& ComputeFofg(

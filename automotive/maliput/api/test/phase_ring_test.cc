@@ -24,22 +24,28 @@ Phase CreateFullPhase(const Phase::Id& id) {
       id,
       {{RightOfWayRule::Id("rule_a"), RightOfWayRule::State::Id("GO")},
        {RightOfWayRule::Id("rule_b"), RightOfWayRule::State::Id("STOP")}},
-      {{{Bulb::Id("rule_a_green"), BulbState::kOn},
-        {Bulb::Id("rule_a_red"), BulbState::kOff},
-        {Bulb::Id("rule_b_green"), BulbState::kOff},
-        {Bulb::Id("rule_b_red"), BulbState::kOn}}}};
+      {{{{TrafficLight::Id("my_intersection"), BulbGroup::Id("my_bulb_group"),
+          Bulb::Id("rule_a_green")},
+         BulbState::kOn},
+        {{TrafficLight::Id("my_intersection"), BulbGroup::Id("my_bulb_group"),
+          Bulb::Id("rule_a_red")},
+         BulbState::kOff},
+        {{TrafficLight::Id("my_intersection"), BulbGroup::Id("my_bulb_group"),
+          Bulb::Id("rule_b_green")},
+         BulbState::kOff},
+        {{TrafficLight::Id("my_intersection"), BulbGroup::Id("my_bulb_group"),
+          Bulb::Id("rule_b_red")},
+         BulbState::kOn}}}};
 }
 
-Phase CreatePhaseWithMissingRuleStates(
-    const Phase::Id& id) {
+Phase CreatePhaseWithMissingRuleStates(const Phase::Id& id) {
   const Phase mock_phase = CreateFullPhase(id);
   RuleStates rule_states = mock_phase.rule_states();
   rule_states.erase(rule_states.begin());
   return Phase(id, rule_states, mock_phase.bulb_states());
 }
 
-Phase CreatePhaseWithMissingBulbStates(
-    const Phase::Id& id) {
+Phase CreatePhaseWithMissingBulbStates(const Phase::Id& id) {
   const Phase mock_phase = CreateFullPhase(id);
   BulbStates bulb_states = *mock_phase.bulb_states();
   bulb_states.erase(bulb_states.begin());
@@ -90,8 +96,8 @@ TEST_F(PhaseRingTest, Constructor) {
 
   // Next phases defines an unknown phase.
   const std::unordered_map<Phase::Id, std::vector<PhaseRing::NextPhase>>
-      unknown_next_phases = {{Phase::Id("unknown"),
-                              std::vector<PhaseRing::NextPhase>()}};
+      unknown_next_phases = {
+          {Phase::Id("unknown"), std::vector<PhaseRing::NextPhase>()}};
   EXPECT_THROW(
       PhaseRing(id_,
                 {CreateFullPhase(phase_id_1_), CreateFullPhase(phase_id_2_)},
@@ -112,8 +118,7 @@ TEST_F(PhaseRingTest, Accessors) {
 TEST_F(PhaseRingTest, NextPhases) {
   const double kDuration1{30};
   const double kDuration2{60};
-  std::unordered_map<Phase::Id, std::vector<PhaseRing::NextPhase>>
-      next_phases;
+  std::unordered_map<Phase::Id, std::vector<PhaseRing::NextPhase>> next_phases;
   next_phases.emplace(std::make_pair(
       phase_id_1_,
       std::vector<PhaseRing::NextPhase>{{phase_id_2_, kDuration1}}));

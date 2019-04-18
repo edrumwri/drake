@@ -100,9 +100,9 @@ TEST_F(BouncingBallTest, Transmogrification) {
 }
 
 TEST_F(BouncingBallTest, Topology) {
-  ASSERT_EQ(0, dut_->get_num_input_ports());
+  ASSERT_EQ(0, dut_->num_input_ports());
 
-  ASSERT_EQ(1, dut_->get_num_output_ports());
+  ASSERT_EQ(1, dut_->num_output_ports());
   const auto& output_port = dut_->get_output_port(0);
   EXPECT_EQ(systems::kVectorValued, output_port.get_data_type());
 }
@@ -166,25 +166,8 @@ TEST_F(BouncingBallTest, Simulate) {
   simulator.reset_integrator<systems::RungeKutta3Integrator<double>>(*dut_,
       &simulator.get_mutable_context());
   simulator.get_mutable_context().SetAccuracy(accuracy);
-  simulator.get_mutable_integrator()->request_initial_step_size_target(1e-3);
-  simulator.get_mutable_integrator()->set_target_accuracy(accuracy);
-
-  // Note: the witness function isolation for the bouncing ball does not require
-  // the ball to have a non-negative signed distance, the assumption being that
-  // the signed distance will be positive after the next integration step (after
-  // the impact event which reverses the velocity). But a second order
-  // integrator is able to simulate a parabolic trajectory without error, so
-  // the Simulator will actually see two negative signed distances on its next
-  // witness function evaluations! We limit the step size (constants taken
-  // from CalcClosedFormHeightAndVelocity()) to fix this. Step size limit only
-  // works when restitution is unity.
-  ASSERT_EQ(dut_->get_restitution_coef(), 1.0);
-  const double g = dut_->get_gravitational_acceleration();
-  const double a = g/2;
-  const double c = x0;
-  const double drop_time = std::sqrt(-c/a);
-  simulator.get_mutable_integrator()->set_maximum_step_size(drop_time);
-
+  simulator.get_mutable_integrator().request_initial_step_size_target(1e-3);
+  simulator.get_mutable_integrator().set_target_accuracy(accuracy);
   simulator.Initialize();
 
   // Set the initial state for the bouncing ball.
