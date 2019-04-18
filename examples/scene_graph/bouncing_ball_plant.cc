@@ -48,7 +48,7 @@ BouncingBallPlant<T>::BouncingBallPlant(SourceId source_id,
   static_assert(BouncingBallVectorIndices::kNumCoordinates == 1 + 1, "");
 
   ball_frame_id_ = scene_graph->RegisterFrame(
-      source_id, GeometryFrame("ball_frame", Isometry3<double>::Identity()));
+      source_id, GeometryFrame("ball_frame"));
   ball_id_ = scene_graph->RegisterGeometry(
       source_id, ball_frame_id_,
       make_unique<GeometryInstance>(Isometry3<double>::Identity(), /*X_FG*/
@@ -118,8 +118,8 @@ void BouncingBallPlant<T>::DoCalcTimeDerivatives(
   BouncingBallVector<T>& derivative_vector = get_mutable_state(derivatives);
 
   const geometry::QueryObject<T>& query_object =
-      this->EvalAbstractInput(context, geometry_query_port_)
-          ->template GetValue<geometry::QueryObject<T>>();
+      get_geometry_query_input_port().
+          template Eval<geometry::QueryObject<T>>(context);
 
   std::vector<PenetrationAsPointPair<T>> penetrations =
       query_object.ComputePointPairPenetration();

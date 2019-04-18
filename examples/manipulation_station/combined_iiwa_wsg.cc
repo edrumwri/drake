@@ -16,7 +16,6 @@
 #include "drake/systems/primitives/pass_through.h"
 #include "drake/systems/sensors/dev/rgbd_camera.h"
 
-using drake::Isometry3;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
 using drake::VectorX;
@@ -121,7 +120,7 @@ template <typename T>
 ModelInstanceIndex AddAndWeldModelFrom(
     const std::string& model_path, const std::string& model_name,
     const Frame<T>& parent, const std::string& child_frame_name,
-    const Isometry3<double>& X_PC, MultibodyPlant<T>* plant) {
+    const RigidTransform<double>& X_PC, MultibodyPlant<T>* plant) {
   DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
 
   Parser parser(plant);
@@ -150,7 +149,7 @@ void CombinedIiwaWsg<T>::MakeIiwaControllerModel() {
       controller_plant_.world_frame(),
       controller_plant_.GetFrameByName(iiwa_model_.child_frame->name(),
                                               controller_iiwa_model),
-      iiwa_model_.X_PC.GetAsIsometry3());
+      iiwa_model_.X_PC);
   // Add a single body to represent the IIWA pendant's calibration of the
   // gripper.  The body of the WSG accounts for >90% of the total mass
   // (according to the sdf)... and we don't believe our inertia calibration
@@ -167,7 +166,7 @@ void CombinedIiwaWsg<T>::MakeIiwaControllerModel() {
   controller_plant_.WeldFrames(
       controller_plant_.GetFrameByName(wsg_model_.parent_frame->name(),
                                               controller_iiwa_model),
-      wsg_equivalent.body_frame(), wsg_model_.X_PC.GetAsIsometry3());
+      wsg_equivalent.body_frame(), wsg_model_.X_PC);
 
   controller_plant_.template AddForceElement<UniformGravityFieldElement>();
   controller_plant_.set_name("controller_plant");
@@ -195,7 +194,7 @@ void CombinedIiwaWsg<T>::AddRobotModelToMultibodyPlant() {
   const auto X_WI = RigidTransform<double>::Identity();
   auto iiwa_instance = ::internal::AddAndWeldModelFrom(
       iiwa_sdf_path, "iiwa", this->plant_->world_frame(), "iiwa_link_0",
-      X_WI.GetAsIsometry3(), this->plant_);
+      X_WI, this->plant_);
   RegisterIiwaControllerModel(
       iiwa_sdf_path, iiwa_instance, this->plant_->world_frame(),
       this->plant_->GetFrameByName("iiwa_link_0", iiwa_instance), X_WI);
@@ -207,8 +206,7 @@ void CombinedIiwaWsg<T>::AddRobotModelToMultibodyPlant() {
   const RigidTransform<double> X_7G(RollPitchYaw<double>(M_PI_2, 0, M_PI_2),
                                     Vector3d(0, 0, 0.114));
   auto wsg_instance = ::internal::AddAndWeldModelFrom(
-      wsg_sdf_path, "gripper", link7, "body", X_7G.GetAsIsometry3(),
-      this->plant_);
+      wsg_sdf_path, "gripper", link7, "body", X_7G, this->plant_);
   RegisterWsgControllerModel(wsg_sdf_path, wsg_instance, link7,
                              this->plant_->GetFrameByName("body", wsg_instance),
                              X_7G);

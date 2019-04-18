@@ -8,6 +8,7 @@
 
 #include "drake/common/symbolic.h"
 #include "drake/common/value.h"
+#include "drake/solvers/binding.h"
 #include "drake/solvers/solution_result.h"
 #include "drake/solvers/solver_result.h"
 
@@ -122,7 +123,7 @@ class MathematicalProgramResult final {
   template <typename Solver>
   const typename Solver::Details& get_solver_details() const {
     return get_abstract_solver_details().
-        template GetValueOrThrow<typename Solver::Details>();
+        template get_value<typename Solver::Details>();
   }
 
   /** (Advanced.) Gets the type-erased solver details. Most users should use
@@ -146,7 +147,7 @@ class MathematicalProgramResult final {
         (solver_details_->static_type_info() != typeid(T))) {
       solver_details_ = std::make_unique<Value<T>>();
     }
-    return solver_details_->GetMutableValue<T>();
+    return solver_details_->get_mutable_value<T>();
   }
 
   /**
@@ -223,6 +224,26 @@ class MathematicalProgramResult final {
       }
     }
     return value;
+  }
+
+  /**
+   * Evaluate a Binding at the solution.
+   * @param binding A binding between a constraint/cost and the variables.
+   * @pre The binding.variables() must be the within the decision variables in
+   * the MathematicalProgram that generated this %MathematicalProgramResult.
+   * @pre The user must have called set_decision_variable_index() function.
+   */
+  template <typename Evaluator>
+  Eigen::VectorXd EvalBinding(const Binding<Evaluator>& binding) const {
+    DRAKE_ASSERT(decision_variable_index_.has_value());
+    Eigen::VectorXd binding_x(binding.GetNumElements());
+    for (int i = 0; i < binding_x.rows(); ++i) {
+      binding_x(i) =
+          x_val_(decision_variable_index_->at(binding.variables()(i).get_id()));
+    }
+    Eigen::VectorXd binding_y(binding.evaluator()->num_outputs());
+    binding.evaluator()->Eval(binding_x, &binding_y);
+    return binding_y;
   }
 
   /**

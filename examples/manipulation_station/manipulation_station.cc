@@ -7,6 +7,7 @@
 
 #include "drake/common/find_resource.h"
 #include "drake/examples/manipulation_station/combined_manipulator_and_gripper_model.h"
+#include "drake/geometry/dev/render/render_engine_vtk.h"
 #include "drake/geometry/dev/scene_graph.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/math/rotation_matrix.h"
@@ -27,7 +28,6 @@ namespace drake {
 namespace examples {
 namespace manipulation_station {
 
-using Eigen::Isometry3d;
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
@@ -57,7 +57,7 @@ template <typename T>
 multibody::ModelInstanceIndex AddAndWeldModelFrom(
     const std::string& model_path, const std::string& model_name,
     const multibody::Frame<T>& parent, const std::string& child_frame_name,
-    const Isometry3<double>& X_PC, MultibodyPlant<T>* plant) {
+    const RigidTransform<double>& X_PC, MultibodyPlant<T>* plant) {
   DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
 
   multibody::Parser parser(plant);
@@ -133,16 +133,13 @@ void ManipulationStation<T>::SetupClutterClearingStation(
     const std::string sdf_path = FindResourceOrThrow(
         "drake/examples/manipulation_station/models/bin.sdf");
 
-    Isometry3<double> X_WC =
-        RigidTransform<double>(RotationMatrix<double>::MakeZRotation(M_PI_2),
-                               Vector3d(-0.145, -0.63, 0.235))
-            .GetAsIsometry3();
+    RigidTransform<double> X_WC(RotationMatrix<double>::MakeZRotation(M_PI_2),
+                               Vector3d(-0.145, -0.63, 0.235));
     internal::AddAndWeldModelFrom(sdf_path, "bin1", plant_->world_frame(),
                                   "bin_base", X_WC, plant_);
 
     X_WC = RigidTransform<double>(RotationMatrix<double>::MakeZRotation(M_PI),
-                                  Vector3d(0.5, -0.1, 0.235))
-               .GetAsIsometry3();
+                                  Vector3d(0.5, -0.1, 0.235));
     internal::AddAndWeldModelFrom(sdf_path, "bin2", plant_->world_frame(),
                                   "bin_base", X_WC, plant_);
   }
@@ -163,8 +160,7 @@ void ManipulationStation<T>::SetupClutterClearingStation(
     const int kWidth = 848;
     const double fov_y = std::atan(kHeight / 2. / kFocalY) * 2;
     geometry::dev::render::DepthCameraProperties camera_properties(
-        kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
-        2.0);
+        kWidth, kHeight, fov_y, default_renderer_name_, 0.1, 2.0);
 
     RegisterRgbdCamera("0", plant_->world_frame(),
                        X_WCameraBody.value_or(math::RigidTransformd(
@@ -189,10 +185,8 @@ void ManipulationStation<T>::SetupDefaultStation() {
         "drake/examples/manipulation_station/models/"
         "amazon_table_simplified.sdf");
 
-    const Isometry3<double> X_WT =
-        RigidTransform<double>(Vector3d(dx_table_center_to_robot_base, 0,
-                                        -dz_table_top_robot_base))
-            .GetAsIsometry3();
+    const RigidTransform<double> X_WT(Vector3d(dx_table_center_to_robot_base, 0,
+                                        -dz_table_top_robot_base));
     internal::AddAndWeldModelFrom(sdf_path, "table", plant_->world_frame(),
                                   "amazon_table", X_WT, plant_);
   }
@@ -208,14 +202,12 @@ void ManipulationStation<T>::SetupDefaultStation() {
     const std::string sdf_path = FindResourceOrThrow(
         "drake/examples/manipulation_station/models/cupboard.sdf");
 
-    const Isometry3<double> X_WC =
-        RigidTransform<double>(
+    const RigidTransform<double> X_WC(
             RotationMatrix<double>::MakeZRotation(M_PI),
             Vector3d(
                 dx_table_center_to_robot_base + dx_cupboard_to_table_center, 0,
                 dz_cupboard_to_table_center + cupboard_height / 2.0 -
-                    dz_table_top_robot_base))
-            .GetAsIsometry3();
+                    dz_table_top_robot_base));
     internal::AddAndWeldModelFrom(sdf_path, "cupboard", plant_->world_frame(),
                                   "cupboard_body", X_WC, plant_);
   }
@@ -255,8 +247,7 @@ void ManipulationStation<T>::SetupDefaultStation() {
     const int kWidth = 848;
     const double fov_y = std::atan(kHeight / 2. / kFocalY) * 2;
     geometry::dev::render::DepthCameraProperties camera_properties(
-        kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
-        2.0);
+        kWidth, kHeight, fov_y, default_renderer_name_, 0.1, 2.0);
     for (const auto& camera_pair : camera_poses) {
       RegisterRgbdCamera(camera_pair.first, plant_->world_frame(),
                          camera_pair.second, camera_properties);
@@ -280,7 +271,7 @@ void ManipulationStation<T>::SetDefaultState(
   for (uint64_t i = 0; i < object_ids_.size(); i++) {
     plant_->SetFreeBodyPose(plant_context, &plant_state,
                             plant_->get_body(object_ids_[i]),
-                            object_poses_[i].GetAsIsometry3());
+                            object_poses_[i]);
   }
 
   // TODO: Make sure the controller state is initialized to the robot state.
@@ -319,22 +310,19 @@ void ManipulationStation<T>::SetRandomState(
     z_offset += 0.1;
     plant_->SetFreeBodyPose(plant_context, &plant_state,
                             plant_->get_body(body_index),
-                            pose.GetAsIsometry3());
+                            pose);
   }
 
-  // TODO: Make sure the controller state is initialized to the robot state.
   // Use SetIiwaPosition to make sure the controller state is initialized to
   // the IIWA state.
-/*
   robot_model_->SetManipulatorPositions(station_context,
-      robot_model_->GetManipulatorPositions(station_context), state);
+      robot_model_->GetManipulatorPositions(station_context, *this),
+      *this, state);
   robot_model_->SetManipulatorVelocities(station_context,
-      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), state);
-  robot_model_->SetGripperPositions(station_context,
-      robot_model_->GetGripperPositions(station_context), state);
+      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), *this, state);
+  robot_model_->SetGripperPositionsToDefaultOpen(station_context, *this, state);
   robot_model_->SetGripperVelocities(station_context,
-      VectorX<T>::Zero(robot_model_->num_gripper_joints()), state);
-*/
+      VectorX<T>::Zero(robot_model_->num_gripper_joints()), *this, state);
 }
 
 template <typename T>
@@ -344,60 +332,15 @@ ManipulationStation<T>::get_controller_plant() const {
   return robot_model_->get_controller_plant();
 }
 
-/*
-template <typename T>
-T ManipulationStation<T>::GetWsgPosition(
-    const systems::Context<T>& station_context) const {
-  const auto& plant_context =
-      this->GetSubsystemContext(*plant_, station_context);
-
-  Vector2<T> positions =
-      plant_->GetPositions(plant_context, wsg_model_.model_instance);
-  return positions(1) - positions(0);
-}
-
-template <typename T>
-T ManipulationStation<T>::GetWsgVelocity(
-    const systems::Context<T>& station_context) const {
-  const auto& plant_context =
-      this->GetSubsystemContext(*plant_, station_context);
-
-  Vector2<T> velocities =
-      plant_->GetVelocities(plant_context, wsg_model_.model_instance);
-  return velocities(1) - velocities(0);
-}
-
-template <typename T>
-void ManipulationStation<T>::SetGripperPosition(
-    const drake::systems::Context<T>& station_context, systems::State<T>* state,
-    const T& q) const {
-  DRAKE_DEMAND(state != nullptr);
-  auto& plant_context = this->GetSubsystemContext(*plant_, station_context);
-  auto& plant_state = this->GetMutableSubsystemState(*plant_, state);
-  robot_model_->SetPositions(plant_context, &plant_state,
-      wsg_model_.model_instance, positions);
-
-  // Set the position history in the state interpolator to match.
-  const auto& wsg_controller = dynamic_cast<
-      const manipulation::schunk_wsg::SchunkWsgPositionController&>(
-      this->GetSubsystemByName("wsg_controller"));
-  wsg_controller.set_initial_position(
-      &this->GetMutableSubsystemState(wsg_controller, state), q);
-}
-
-template <typename T>
-void ManipulationStation<T>::SetGripperVelocity(
-    const drake::systems::Context<T>& station_context, systems::State<T>* state,
-    const T& v) const {
-  DRAKE_DEMAND(state != nullptr);
-  auto& plant_context = this->GetSubsystemContext(*plant_, station_context);
-  auto& plant_state = this->GetMutableSubsystemState(*plant_, state);
-  robot_model_->SetGripperVelocity(plant_context, &plant_state, v);
-}
-*/
-
 template <typename T>
 void ManipulationStation<T>::Finalize() {
+  Finalize({});
+}
+
+template <typename T>
+void ManipulationStation<T>::Finalize(
+    std::map<std::string, std::unique_ptr<geometry::dev::render::RenderEngine>>
+        render_engines) {
   // Note: This deferred diagram construction method/workflow exists because we
   //   - cannot finalize plant until all of my objects are added, and
   //   - cannot wire up my diagram until we have finalized the plant.
@@ -417,11 +360,20 @@ void ManipulationStation<T>::Finalize() {
   // Build the control diagram for the manipulator+gripper model.
   robot_model_->BuildControlDiagram(&builder);
 
-  // Add the RBG-D cameras.
-  {
+ {  // RGB-D Cameras
     render_scene_graph_ =
-        builder.template AddSystem<geometry::dev::SceneGraph>(*scene_graph_);
+        builder.template AddSystem<geometry::dev::SceneGraph>();
     render_scene_graph_->set_name("dev_scene_graph_for_rendering");
+    if (render_engines.size() > 0) {
+      for (auto& pair : render_engines) {
+        render_scene_graph_->AddRenderer(pair.first, std::move(pair.second));
+      }
+    } else {
+      render_scene_graph_->AddRenderer(
+          default_renderer_name_,
+          std::make_unique<geometry::dev::render::RenderEngineVtk>());
+    }
+    render_scene_graph_->CopyFrom(*scene_graph_);
 
     builder.Connect(plant_->get_geometry_poses_output_port(),
                     render_scene_graph_->get_source_pose_port(
@@ -434,9 +386,8 @@ void ManipulationStation<T>::Finalize() {
       const optional<geometry::FrameId> parent_body_id =
           plant_->GetBodyFrameIdIfExists(info.parent_frame->body().index());
       DRAKE_THROW_UNLESS(parent_body_id.has_value());
-      const Isometry3<double> X_PC =
-          info.parent_frame->GetFixedPoseInBodyFrame() *
-          info.X_PC.GetAsIsometry3();
+      const RigidTransform<double> X_PC =
+          info.parent_frame->GetFixedPoseInBodyFrame() * info.X_PC;
 
       auto camera =
           builder.template AddSystem<systems::sensors::dev::RgbdCamera>(

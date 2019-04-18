@@ -41,6 +41,8 @@ using systems::InputPort;
 using systems::OutputPort;
 using systems::State;
 
+using drake::math::RigidTransform;
+using drake::math::RotationMatrix;
 using drake::multibody::MultibodyForces;
 using drake::multibody::SpatialAcceleration;
 using drake::multibody::SpatialForce;
@@ -184,9 +186,9 @@ struct JointLimitsPenaltyParametersEstimator {
 
           const SpatialInertia<T>& M_PPo_P =
               body->default_spatial_inertia().template cast<T>();
-          const Isometry3<T> X_PJ = frame.GetFixedPoseInBodyFrame();
+          const RigidTransform<T> X_PJ = frame.GetFixedPoseInBodyFrame();
           const Vector3<T>& p_PJ = X_PJ.translation();
-          const math::RotationMatrix<T> R_PJ(X_PJ.linear());
+          const math::RotationMatrix<T>& R_PJ = X_PJ.rotation();
           const SpatialInertia<T> M_PJo_J =
               M_PPo_P.Shift(p_PJ).ReExpress(R_PJ);
           const RotationalInertia<T> I_PJo_J =
@@ -262,9 +264,10 @@ void MultibodyPlant<T>::SetFreeBodyRandomRotationDistributionToUniform(
   SetFreeBodyRandomRotationDistribution(body, q_FM);
 }
 
-template<typename T>
+template <typename T>
 const WeldJoint<T>& MultibodyPlant<T>::WeldFrames(
-    const Frame<T>& A, const Frame<T>& B, const Isometry3<double>& X_AB) {
+    const Frame<T>& A, const Frame<T>& B,
+    const math::RigidTransform<double>& X_AB) {
   const std::string joint_name = A.name() + "_welds_to_" + B.name();
   return this->mutable_tree().AddJoint(
       std::make_unique<WeldJoint<T>>(joint_name, A, B, X_AB));
@@ -289,7 +292,7 @@ geometry::SourceId MultibodyPlant<T>::RegisterAsSourceForSceneGraph(
 
 template <typename T>
 geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
-    const Body<T>& body, const Isometry3<double>& X_BG,
+    const Body<T>& body, const math::RigidTransform<double>& X_BG,
     const geometry::Shape& shape, const std::string& name,
     geometry::SceneGraph<T>* scene_graph) {
   return RegisterVisualGeometry(
@@ -298,7 +301,7 @@ geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
 
 template <typename T>
 geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
-    const Body<T>& body, const Isometry3<double>& X_BG,
+    const Body<T>& body, const math::RigidTransform<double>& X_BG,
     const geometry::Shape& shape, const std::string& name,
     const Vector4<double>& diffuse_color,
     SceneGraph<T>* scene_graph) {
@@ -309,7 +312,7 @@ geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
 
 template <typename T>
 geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
-    const Body<T>& body, const Isometry3<double>& X_BG,
+    const Body<T>& body, const math::RigidTransform<double>& X_BG,
     const geometry::Shape& shape, const std::string& name,
     const geometry::IllustrationProperties& properties,
     SceneGraph<T>* scene_graph) {
@@ -325,8 +328,9 @@ geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
   // TODO(amcastro-tri): Consider doing this after finalize so that we can
   // register geometry that has a fixed path to world to the world body (i.e.,
   // as anchored geometry).
-  GeometryId id = RegisterGeometry(
-      body, X_BG, shape, GetScopedName(*this, body.model_instance(), name));
+  GeometryId id =
+      RegisterGeometry(body, X_BG, shape,
+                       GetScopedName(*this, body.model_instance(), name));
   member_scene_graph().AssignRole(*source_id_, id, properties);
   const int visual_index = geometry_id_to_visual_index_.size();
   geometry_id_to_visual_index_[id] = visual_index;
@@ -343,7 +347,7 @@ MultibodyPlant<T>::GetVisualGeometriesForBody(const Body<T>& body) const {
 
 template <typename T>
 geometry::GeometryId MultibodyPlant<T>::RegisterCollisionGeometry(
-    const Body<T>& body, const Isometry3<double>& X_BG,
+    const Body<T>& body, const math::RigidTransform<double>& X_BG,
     const geometry::Shape& shape, const std::string& name,
     const CoulombFriction<double>& coulomb_friction,
     SceneGraph<T>* scene_graph) {
@@ -354,8 +358,9 @@ geometry::GeometryId MultibodyPlant<T>::RegisterCollisionGeometry(
   // TODO(amcastro-tri): Consider doing this after finalize so that we can
   // register geometry that has a fixed path to world to the world body (i.e.,
   // as anchored geometry).
-  GeometryId id = RegisterGeometry(
-      body, X_BG, shape, GetScopedName(*this, body.model_instance(), name));
+  GeometryId id =
+      RegisterGeometry(body, X_BG, shape,
+                       GetScopedName(*this, body.model_instance(), name));
 
   // TODO(SeanCurtis-TRI): Push the contact parameters into the
   // ProximityProperties.
@@ -420,7 +425,7 @@ std::vector<const Body<T>*> MultibodyPlant<T>::GetBodiesWeldedTo(
 
 template <typename T>
 geometry::GeometryId MultibodyPlant<T>::RegisterGeometry(
-    const Body<T>& body, const Isometry3<double>& X_BG,
+    const Body<T>& body, const math::RigidTransform<double>& X_BG,
     const geometry::Shape& shape,
     const std::string& name) {
   DRAKE_ASSERT(!is_finalized());
@@ -431,8 +436,6 @@ geometry::GeometryId MultibodyPlant<T>::RegisterGeometry(
         source_id_.value(),
         GeometryFrame(
             GetScopedName(*this, body.model_instance(), body.name()),
-            /* Initial pose: Not really used by GS. Will get removed. */
-            Isometry3<double>::Identity(),
             /* TODO(@SeanCurtis-TRI): Add test coverage for this
              * model-instance support as requested in #9390. */
             body.model_instance()));
@@ -442,7 +445,8 @@ geometry::GeometryId MultibodyPlant<T>::RegisterGeometry(
 
   // Register geometry in the body frame.
   std::unique_ptr<geometry::GeometryInstance> geometry_instance =
-      std::make_unique<GeometryInstance>(X_BG, shape.Clone(), name);
+      std::make_unique<GeometryInstance>(X_BG.GetAsIsometry3(), shape.Clone(),
+                                         name);
   GeometryId geometry_id = member_scene_graph().RegisterGeometry(
       source_id_.value(), body_index_to_frame_id_[body.index()],
       std::move(geometry_instance));
@@ -453,7 +457,7 @@ geometry::GeometryId MultibodyPlant<T>::RegisterGeometry(
 template<typename T>
 void MultibodyPlant<T>::SetFreeBodyPoseInWorldFrame(
     systems::Context<T>* context,
-    const Body<T>& body, const Isometry3<T>& X_WB) const {
+    const Body<T>& body, const math::RigidTransform<T>& X_WB) const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
   internal_tree().SetFreeBodyPoseOrThrow(body, X_WB, context);
 }
@@ -462,7 +466,7 @@ template<typename T>
 void MultibodyPlant<T>::SetFreeBodyPoseInAnchoredFrame(
     systems::Context<T>* context,
     const Frame<T>& frame_F, const Body<T>& body,
-    const Isometry3<T>& X_FB) const {
+    const math::RigidTransform<T>& X_FB) const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
 
   if (!internal_tree().get_topology().IsBodyAnchored(frame_F.body().index())) {
@@ -471,11 +475,11 @@ void MultibodyPlant<T>::SetFreeBodyPoseInAnchoredFrame(
   }
 
   // Pose of frame F in its parent body frame P.
-  const Isometry3<T> X_PF = frame_F.GetFixedPoseInBodyFrame();
+  const RigidTransform<T> X_PF = frame_F.GetFixedPoseInBodyFrame();
   // Pose of frame F's parent body P in the world.
-  const Isometry3<T>& X_WP = EvalBodyPoseInWorld(*context, frame_F.body());
+  const RigidTransform<T>& X_WP = EvalBodyPoseInWorld(*context, frame_F.body());
   // Pose of "body" B in the world frame.
-  const Isometry3<T> X_WB = X_WP * X_PF * X_FB;
+  const RigidTransform<T> X_WB = X_WP * X_PF * X_FB;
   SetFreeBodyPoseInWorldFrame(context, body, X_WB);
 }
 
@@ -728,10 +732,6 @@ void MultibodyPlant<T>::FilterAdjacentBodies() {
     const Joint<T>& joint = internal_tree().get_joint(j);
     const Body<T>& child = joint.child_body();
     const Body<T>& parent = joint.parent_body();
-    // TODO(SeanCurtis-TRI): Determine the correct action for a body
-    // joined to the world -- should it filter out collisions between the
-    // body and all *anchored* geometry? That seems really heavy-handed. So,
-    // for now, we skip the joints to the world.
     if (parent.index() == world_index()) continue;
     optional<FrameId> child_id = GetBodyFrameIdIfExists(child.index());
     optional<FrameId> parent_id = GetBodyFrameIdIfExists(parent.index());
@@ -742,6 +742,11 @@ void MultibodyPlant<T>::FilterAdjacentBodies() {
           geometry::GeometrySet(*parent_id));
     }
   }
+  // We must explictly exclude collisions between all geometries registered
+  // against the world.
+  // TODO(eric.cousineau): Do this in a better fashion (#11117).
+  auto g_world = CollectRegisteredGeometries(GetBodiesWeldedTo(world_body()));
+  member_scene_graph().ExcludeCollisionsWithin(g_world);
 }
 
 template <typename T>
@@ -764,7 +769,7 @@ void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
     const systems::Context<T>& context,
     const std::vector<geometry::PenetrationAsPointPair<T>>& point_pairs_set,
     MatrixX<T>* Jn_ptr, MatrixX<T>* Jt_ptr,
-    std::vector<Matrix3<T>>* R_WC_set) const {
+    std::vector<RotationMatrix<T>>* R_WC_set) const {
   DRAKE_DEMAND(Jn_ptr != nullptr);
   DRAKE_DEMAND(Jt_ptr != nullptr);
 
@@ -835,13 +840,13 @@ void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
     // that the z-axis Cz equals to nhat_BA_W. The tangent vectors are
     // arbitrary, with the only requirement being that they form a valid right
     // handed basis with nhat_BA.
-    const Matrix3<T> R_WC = math::ComputeBasisFromAxis(2, nhat_BA_W);
+    const RotationMatrix<T> R_WC(math::ComputeBasisFromAxis(2, nhat_BA_W));
     if (R_WC_set != nullptr) {
       R_WC_set->push_back(R_WC);
     }
 
-    const Vector3<T> that1_W = R_WC.col(0);  // that1 = Cx.
-    const Vector3<T> that2_W = R_WC.col(1);  // that2 = Cy.
+    const Vector3<T> that1_W = R_WC.matrix().col(0);  // that1 = Cx.
+    const Vector3<T> that2_W = R_WC.matrix().col(1);  // that2 = Cy.
 
     // The velocity of Bc relative to Ac is
     //   v_AcBc_W = v_WBc - v_WAc.
@@ -913,8 +918,7 @@ void MultibodyPlant<T>::set_penetration_allowance(
   penalty_method_contact_parameters_.time_scale = time_scale;
 }
 
-// Specialize this function so that *only* double is supported; we cannot
-// compute penetrations for AutoDiff or Expression currently.
+// Specialize this function so that double is fully supported.
 template <>
 std::vector<PenetrationAsPointPair<double>>
 MultibodyPlant<double>::CalcPointPairPenetrations(
@@ -933,11 +937,31 @@ MultibodyPlant<double>::CalcPointPairPenetrations(
   return std::vector<PenetrationAsPointPair<double>>();
 }
 
+// Specialize this function so that AutoDiffXd is (partially) supported. This
+// AutoDiffXd specialization will throw if there are any collisions.
+// TODO(SeanCurtis-TRI): Move this logic into SceneGraph.
+template <>
+std::vector<PenetrationAsPointPair<AutoDiffXd>>
+MultibodyPlant<AutoDiffXd>::CalcPointPairPenetrations(
+    const systems::Context<AutoDiffXd>& context) const {
+  if (num_collision_geometries() > 0) {
+    const auto &query_object = get_geometry_query_input_port().
+        Eval<geometry::QueryObject<AutoDiffXd>>(context);
+    auto results = query_object.ComputePointPairPenetration();
+    if (results.size() > 0) {
+      throw std::logic_error(
+          "CalcPointPairPenetration() with AutoDiffXd requires scenarios with "
+          "no collisions.");
+    }
+  }
+  return {};
+}
+
 template<typename T>
 std::vector<PenetrationAsPointPair<T>>
-MultibodyPlant<T>::CalcPointPairPenetrations(
-    const systems::Context<T>&) const {
-  throw std::domain_error("This method only supports T = double.");
+MultibodyPlant<T>::CalcPointPairPenetrations(const systems::Context<T>&) const {
+  throw std::domain_error(fmt::format("This method doesn't support T = {}.",
+                                      NiceTypeName::Get<T>()));
 }
 
 template<typename T>
@@ -983,7 +1007,7 @@ void MultibodyPlant<T>::CalcContactResults(
 
   const std::vector<PenetrationAsPointPair<T>>& point_pairs =
       EvalPointPairPenetrations(context);
-  const std::vector<Matrix3<T>>& R_WC_set =
+  const std::vector<RotationMatrix<T>>& R_WC_set =
       EvalContactJacobians(context).R_WC_list;
   const internal::ImplicitStribeckSolverResults<T>& solver_results =
       EvalImplicitStribeckResults(context);
@@ -1010,7 +1034,7 @@ void MultibodyPlant<T>::CalcContactResults(
 
     const Vector3<T> p_WC = 0.5 * (pair.p_WCa + pair.p_WCb);
 
-    const Matrix3<T>& R_WC = R_WC_set[icontact];
+    const RotationMatrix<T>& R_WC = R_WC_set[icontact];
 
     // Contact forces applied on B at contact point C.
     const Vector3<T> f_Bc_C(-ft(2 * icontact), -ft(2 * icontact + 1),
@@ -1159,9 +1183,7 @@ void MultibodyPlant<T>::AddAppliedExternalSpatialForces(
     const auto body_node_index = body.node_index();
 
     // Get the pose for this body in the world frame.
-    // TODO(amcastro) When we can evaluate body poses and return a reference
-    // to a RigidTransform, use that reference here instead.
-    math::RigidTransform<T> X_WB(EvalBodyPoseInWorld(context, body));
+    const RigidTransform<T>& X_WB = EvalBodyPoseInWorld(context, body);
 
     // Get the position vector from the body origin (Bo) to the point of
     // force application (Bq), expressed in the world frame (W).
@@ -1401,8 +1423,8 @@ void MultibodyPlant<T>::CalcImplicitStribeckResults(
     const drake::systems::Context<T>& context0,
     internal::ImplicitStribeckSolverResults<T>* results) const {
   // Assert this method was called on a context storing discrete state.
-  DRAKE_ASSERT(context0.get_num_discrete_state_groups() == 1);
-  DRAKE_ASSERT(context0.get_continuous_state().size() == 0);
+  DRAKE_ASSERT(context0.num_discrete_state_groups() == 1);
+  DRAKE_ASSERT(context0.num_continuous_states() == 0);
 
   const int nq = this->num_positions();
   const int nv = this->num_velocities();
@@ -1720,12 +1742,12 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
       [this](const systems::ContextBase& context_base,
              AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
-        auto& point_pairs_cache = cache_value->GetMutableValue<
+        auto& point_pairs_cache = cache_value->get_mutable_value<
             std::vector<geometry::PenetrationAsPointPair<T>>>();
         point_pairs_cache = this->CalcPointPairPenetrations(context);
       },
       {this->configuration_ticket()});
-  cache_indexes_.point_pairs_ = point_pairs_cache_entry.cache_index();
+  cache_indexes_.point_pairs = point_pairs_cache_entry.cache_index();
 
   // Cache contact Jacobians.
   auto& contact_jacobians_cache_entry = this->DeclareCacheEntry(
@@ -1735,7 +1757,7 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
              AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
         auto& contact_jacobians_cache =
-            cache_value->GetMutableValue<internal::ContactJacobians<T>>();
+            cache_value->get_mutable_value<internal::ContactJacobians<T>>();
         this->CalcNormalAndTangentContactJacobians(
             context, EvalPointPairPenetrations(context),
             &contact_jacobians_cache.Jn, &contact_jacobians_cache.Jt,
@@ -1745,7 +1767,7 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
       // Eval() above implicitly evaluates configuration dependent cache
       // entries.
       {this->configuration_ticket()});
-  cache_indexes_.contact_jacobians_ =
+  cache_indexes_.contact_jacobians =
       contact_jacobians_cache_entry.cache_index();
 
   // Cache ImplicitStribeckSolver computations.
@@ -1758,17 +1780,34 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
       [this](const systems::ContextBase& context_base,
              AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
-        auto& implicit_stribeck_solver_cache =
-            cache_value
-                ->GetMutableValue<internal::ImplicitStribeckSolverResults<T>>();
+        auto& implicit_stribeck_solver_cache = cache_value->get_mutable_value<
+            internal::ImplicitStribeckSolverResults<T>>();
         this->CalcImplicitStribeckResults(context,
                                           &implicit_stribeck_solver_cache);
       },
-      // We explicitly declare the kinematics (q and v) dependence even though
-      // the Eval() above implicitly evaluates kinematics dependent cache
-      // entries.
-      {this->kinematics_ticket()});
-  cache_indexes_.implicit_stribeck_solver_results_ =
+      // The Correct Solution:
+      // The Implicit Stribeck solver solution S is a function of state x,
+      // actuation input u (and externally applied forces) and even time if any
+      // of the force elements in the model is time dependent. We can write this
+      // as S = S(t, x, u).
+      // Even though this variables can change continuously with time, we want
+      // the solver solution to be updated periodically (with period
+      // time_step()) only. That is, ImplicitStribeckSolverResults should be
+      // handled as an abstract state with periodic updates. In the systems::
+      // framework terminology, we'd like to have an "unrestricted update" with
+      // a periodic event trigger.
+      // The Problem (#10149):
+      // From issue #10149 we know unrestricted updates incur a very noticeably
+      // performance hit that at this stage we are not willing to pay.
+      // The Work Around (#10888):
+      // To emulate the correct behavior until #10149 is addressed we declare
+      // the Implicit Stribeck solver solution dependent only on the discrete
+      // state. This is not the correct solution given these results do depend
+      // on time and (even continuous) inputs. However it does emulate the
+      // discrete update of these values as if zero-order held, which is what we
+      // want.
+      {this->xd_ticket()});
+  cache_indexes_.implicit_stribeck_solver_results =
       implicit_stribeck_solver_cache_entry.cache_index();
 
   // Cache contact results.
@@ -1779,14 +1818,14 @@ void MultibodyPlant<T>::DeclareCacheEntries() {
              AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
         auto& contact_results_cache =
-            cache_value->GetMutableValue<ContactResults<T>>();
+            cache_value->get_mutable_value<ContactResults<T>>();
         this->CalcContactResults(context, &contact_results_cache);
       },
       // We explicitly declare the dependence on the implicit Stribeck solver
       // even though the Eval() above does the evaluation.
       {this->cache_entry_ticket(
-          cache_indexes_.implicit_stribeck_solver_results_)});
-  cache_indexes_.contact_results_ = contact_results_cache_entry.cache_index();
+          cache_indexes_.implicit_stribeck_solver_results)});
+  cache_indexes_.contact_results = contact_results_cache_entry.cache_index();
 }
 
 template <typename T>
@@ -1943,7 +1982,7 @@ void MultibodyPlant<T>::DeclareSceneGraphPorts() {
   typename systems::LeafOutputPort<T>::CalcCallback pose_callback = [this](
       const Context<T>& context, AbstractValue* value) {
     this->CalcFramePoseOutput(
-        context, &value->GetMutableValue<FramePoseVector<T>>());
+        context, &value->get_mutable_value<FramePoseVector<T>>());
   };
   geometry_pose_port_ = this->DeclareAbstractOutputPort(
       "geometry_pose", pose_alloc, pose_callback).get_index();
