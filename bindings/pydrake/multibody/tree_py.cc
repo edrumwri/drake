@@ -188,7 +188,9 @@ PYBIND11_MODULE(tree, m) {
         .def("get_angle", &Class::get_angle, py::arg("context"),
             doc.RevoluteJoint.get_angle.doc)
         .def("set_angle", &Class::set_angle, py::arg("context"),
-            py::arg("angle"), doc.RevoluteJoint.set_angle.doc);
+            py::arg("angle"), doc.RevoluteJoint.set_angle.doc)
+        .def("set_default_angle", &Class::set_default_angle,
+            py::arg("angle"), doc.RevoluteJoint.set_default_angle.doc);
   }
 
   {

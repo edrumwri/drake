@@ -14,14 +14,10 @@ enum class IiwaCollisionModel { kNoCollision, kBoxCollision };
 template <typename T>
 class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
  public:
-  CombinedIiwaWsg(IiwaCollisionModel model,
-      multibody::MultibodyPlant<T>* plant) :
+  CombinedIiwaWsg(
+      multibody::MultibodyPlant<T>* plant,
+      IiwaCollisionModel model) :
       CombinedManipulatorAndGripperModel<T>(plant), collision_model_(model) {}
-
-  void Finalize(
-      ManipulationStationSetup setup,
-      systems::DiagramBuilder<T>* builder)
-      final;
 
   /// Notifies the ManipulationStation that the IIWA robot model instance can
   /// be identified by @p iiwa_instance as well as necessary information to
@@ -82,21 +78,16 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
       const math::RigidTransform<double>& X_PC);
 
   void SetGripperPositionsToDefaultOpen(
-      const systems::Context<T>& robot_context, systems::State<T>* state) const;
-
-  /// Return a reference to the plant used by the inverse dynamics controller
-  /// (which contains only a model of the iiwa + equivalent mass of the
-  /// gripper).
-  const multibody::MultibodyPlant<T>& get_controller_plant() const {
-    return *owned_controller_plant_;
-  }
+      const systems::Context<T>& diagram_context,
+      const systems::Diagram<T>& diagram,
+      systems::State<T>* state) const;
 
   /// Gets the number of joints in the gripper.
-  int num_gripper_joints() const override final { return 1; }
+  int num_gripper_joints() const final { return 1; }
 
   /// Get the number of joints in the IIWA (only -- does not include the
   /// gripper).
-  int num_manipulator_joints() const override final { return 7; }
+  int num_manipulator_joints() const final { return 7; }
 
   /// Set the gains for the WSG controller.
   /// @throws exception if Finalize() has been called.
@@ -125,94 +116,125 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
 
   /// Convenience method for getting all of the joint angles of the Kuka IIWA.
   /// This does not include the gripper.
-  VectorX<T> GetManipulatorPositions(const systems::Context<T>& robot_context)
-      const override;
+  VectorX<T> GetManipulatorPositions(
+      const systems::Context<T>& diagram_context,
+      const systems::Diagram<T>& diagram) const final;
 
   /// Convenience method for setting all of the joint angles of the Kuka IIWA.
   /// Also sets the position history in the velocity command generator.
   /// @p q must have size num_iiwa_joints().
   /// @pre `state` must be the systems::State<T> object contained in
-  /// `robot_context`.
+  /// `diagram_context`.
   void SetManipulatorPositions(
-      const systems::Context<T>& robot_context,
+      const systems::Context<T>& diagram_context,
       const Eigen::Ref<const VectorX<T>>& q,
-      systems::State<T>* state) const override final;
+      const systems::Diagram<T>& diagram,
+      systems::State<T>* state) const final;
 
   /// Convenience method for setting all of the joint angles of the Kuka IIWA.
   /// Also sets the position history in the velocity command generator.
   /// @p q must have size num_iiwa_joints().
-  void SetIiwaPosition(systems::Context<T>* robot_context,
-      const Eigen::Ref<const VectorX<T>>& q) const {
+  void SetIiwaPosition(
+      systems::Context<T>* diagram_context,
+      const Eigen::Ref<const VectorX<T>>& q,
+      const systems::Diagram<T>& diagram) const {
     SetManipulatorPositions(
-        *robot_context, &robot_context->get_mutable_state(), q);
+        *diagram_context, q, diagram, &diagram_context->get_mutable_state());
   }
 
   /// Convenience method for getting all of the joint velocities of the Kuka
   // IIWA.  This does not include the gripper.
   VectorX<T> GetManipulatorVelocities(
-      const systems::Context<T>& robot_context) const override final;
+      const systems::Context<T>& diagram_context,
+      const systems::Diagram<T>& diagram) const final;
 
   /// Convenience method for setting all of the joint velocities of the Kuka
   /// IIWA. @v must have size num_iiwa_joints().
-  /// @pre `state` must be the systems::State<T> object contained in
-  /// `robot_context`.
-  void SetManipulatorVelocities(const systems::Context<T>& robot_context,
+  /// @pre `diagram_state` must be the systems::State<T> object contained in
+  /// `diagram_context`.
+  void SetManipulatorVelocities(const systems::Context<T>& diagram_context,
       const Eigen::Ref<const VectorX<T>>& v,
-      systems::State<T>* state) const;
+      const systems::Diagram<T>& diagram,
+      systems::State<T>* diagram_state) const;
 
   /// Convenience method for setting all of the joint velocities of the Kuka
   /// IIWA. @v must have size num_iiwa_joints().
-  void SetIiwaVelocity(systems::Context<T>* robot_context,
-      const Eigen::Ref<const VectorX<T>>& v) const {
+  void SetIiwaVelocity(
+      systems::Context<T>* diagram_context,
+      const Eigen::Ref<const VectorX<T>>& v,
+      const systems::Diagram<T>& diagram) const {
     SetManipulatorVelocities(
-        *robot_context, &robot_context->get_mutable_state(), v);
+        *diagram_context, v, diagram, &diagram_context->get_mutable_state());
   }
 
   /// Convenience method for getting the position of the Schunk WSG. Note
   /// that the WSG position is the signed distance between the two fingers
-  /// (not the state of the fingers individually).
-  VectorX<T> GetGripperPositions(const systems::Context<T>& robot_context)
-      const override final;
+  /// (not the diagram_state of the fingers individually).
+  VectorX<T> GetGripperPositions(
+      const systems::Context<T>& diagram_context,
+      const systems::Diagram<T>& diagram) const final;
 
   /// Convenience method for getting the velocity of the Schunk WSG.
-  VectorX<T> GetGripperVelocities(const systems::Context<T>& robot_context)
-      const override final;
+  VectorX<T> GetGripperVelocities(
+      const systems::Context<T>& diagram_context,
+      const systems::Diagram<T>& diagram) const final;
 
   /// Convenience method for setting the position of the Schunk WSG. Also
   /// sets the position history in the velocity interpolator.  Note that the
   /// WSG position is the signed distance between the two fingers (not the
-  /// state of the fingers individually).
-  /// @pre `state` must be the systems::State<T> object contained in
-  /// `robot_context`.
-  void SetGripperPositions(const systems::Context<T>& robot_context,
+  /// diagram_state of the fingers individually).
+  /// @pre `diagram_state` must be the systems::State<T> object contained in
+  /// `diagram_context`.
+  void SetGripperPositions(const systems::Context<T>& diagram_context,
       const Eigen::Ref<const VectorX<T>>& q,
-      systems::State<T>* state) const override final;
+      const systems::Diagram<T>& diagram,
+      systems::State<T>* diagram_state) const final;
 
   /// Convenience method for setting the position of the Schunk WSG. Also
   /// sets the position history in the velocity interpolator.  Note that the
   /// WSG position is the signed distance between the two fingers (not the
-  /// state of the fingers individually).
+  /// diagram_state of the fingers individually).
   void SetWsgPosition(
-        systems::Context<T>* robot_context,
-        const Eigen::Ref<const VectorX<T>>& q) const {
-    SetGripperPosition(*robot_context, &robot_context->get_mutable_state(), q);
+        systems::Context<T>* diagram_context,
+        const Eigen::Ref<const VectorX<T>>& q,
+        const systems::Diagram<T>& diagram) const {
+    SetGripperPositions(
+        *diagram_context, q, diagram, &diagram_context->get_mutable_state());
   }
 
   /// Convenience method for setting the velocity of the Schunk WSG.
-  /// @pre `state` must be the systems::State<T> object contained in
-  /// `robot_context`.
-  void SetGripperVelocities(const systems::Context<T>& robot_context,
+  /// @pre `diagram_state` must be the systems::State<T> object contained in
+  /// `diagram_context`.
+  void SetGripperVelocities(const systems::Context<T>& diagram_context,
       const Eigen::Ref<const VectorX<T>>& v,
-      systems::State<T>* state) const override final;
+      const systems::Diagram<T>& diagram,
+      systems::State<T>* diagram_state) const final;
 
   /// Convenience method for setting the velocity of the Schunk WSG.
-  void SetWsgVelocity(systems::Context<T>* robot_context,
-      const Eigen::Ref<const VectorX<T>>& v) const {
+  void SetWsgVelocity(systems::Context<T>* diagram_context,
+      const Eigen::Ref<const VectorX<T>>& v,
+      const systems::Diagram<T>& diagram) const {
     SetGripperVelocities(
-        *robot_context, &robot_context->get_mutable_state(), v);
+        *diagram_context, v, diagram, &diagram_context->get_mutable_state());
   }
 
-  void AddRobotModelToMultibodyPlant() override;
+  void AddRobotModelToMultibodyPlant() final;
+
+  /// Return a reference to the plant used by the inverse dynamics controller
+  /// (which contains only a model of the iiwa + equivalent mass of the
+  /// gripper).
+  const multibody::MultibodyPlant<T>& get_controller_plant() const final {
+    return controller_plant_;
+  }
+
+  multibody::ModelInstanceIndex manipulator_model_instance() const final {
+    return iiwa_model_.model_instance;
+  }
+
+  /// Gets the model instance for the gripper in the internal plant.
+  multibody::ModelInstanceIndex gripper_model_instance() const final {
+    return wsg_model_.model_instance;
+  }
 
  private:
   // Struct defined to store information about the how to parse and add a model.
@@ -231,7 +253,9 @@ class CombinedIiwaWsg : public CombinedManipulatorAndGripperModel<T> {
   // Should only be called from Finalize().
   void MakeIiwaControllerModel();
 
-  std::unique_ptr<multibody::MultibodyPlant<T>> owned_controller_plant_;
+  // The plant used strictly for control (i.e., it will not contain anything
+  // but the manipulator model, except possibly the gripper model).
+  multibody::MultibodyPlant<T> controller_plant_;
 
   // Populated by RegisterIiwaControllerModel() and
   // RegisterWsgControllerModel().

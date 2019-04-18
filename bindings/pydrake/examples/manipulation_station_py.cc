@@ -2,6 +2,7 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
+#include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -38,21 +39,21 @@ PYBIND11_MODULE(manipulation_station, m) {
           "TODO")
       .export_values();
 
+  DefineTemplateClassWithDefault<CombinedManipulatorAndGripperModel<T>>(
+      m, "CombinedManipulatorAndGripperModel", GetPyParam<T>(),
+          "fill_me_in")
+        .def("manipulator_model_instance",
+            &CombinedManipulatorAndGripperModel<T>::manipulator_model_instance,
+            "fill_me_in")
+        .def("gripper_model_instance",
+            &CombinedManipulatorAndGripperModel<T>::gripper_model_instance,
+            "fill_me_in");
+
   py::class_<CombinedIiwaWsg<T>, CombinedManipulatorAndGripperModel<T>>
       (m, "CombinedIiwaWsg")
-      .def(py::init<IiwaCollisionModel, multibody::MultibodyPlant<T>*>(),
-          py::arg("collision_model"), py::arg("plant"), "fill_me_in");
+      .def(py::init<multibody::MultibodyPlant<T>*, IiwaCollisionModel>(),
+          py::arg("plant"), py::arg("collision_model"), "fill_me_in");
 
-/*
-  auto bind_scalar_types = [m](auto dummy) {
-    //using T = decltype(dummy);
-    DefineTemplateClassWithDefault<CombinedManipulatorAndGripper<T>>(
-        m, "CombinedManipulatorAndGripper", GetPyParam<T>(),
-            doc.CombinedManipulatorAndGripper.doc);
-//        .def("set_fixed_step_mode", &IntegratorBase<T>::set_fixed_step_mode,
-//            doc.IntegratorBase.set_fixed_step_mode.doc)
-  }
-*/
   // TODO(siyuan.feng): Add RegisterRgbdCamera when we have bindings for
   // creating a geometry::dev::render::DepthCameraProperties struct.
   py::class_<ManipulationStation<T>, Diagram<T>>(m, "ManipulationStation")

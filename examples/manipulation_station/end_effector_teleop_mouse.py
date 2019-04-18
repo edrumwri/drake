@@ -3,9 +3,10 @@ import numpy as np
 
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface,
-    CreateDefaultYcbObjectList)
+    CreateDefaultYcbObjectList, CombinedIiwaWsg, IiwaCollisionModel)
 from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.multibody.plant import MultibodyPlant
+from pydrake.multibody.tree import RevoluteJoint
 from pydrake.manipulation.planner import (
     DifferentialInverseKinematicsParameters)
 from pydrake.math import RigidTransform, RollPitchYaw
@@ -274,8 +275,8 @@ if args.hardware:
     station.Connect(wait_for_cameras=False)
 else:
     all_plant = MultibodyPlant(time_step=2e-3)
-    kuka_wsg = CombinedIiwaWsgModel(all_plant, IiwaCollisionModel.kBoxCollision)
-    station = builder.AddSystem(ManipulationStation(kuka_wsg, all_plant))
+    kuka_wsg = CombinedIiwaWsg(all_plant, IiwaCollisionModel.kBoxCollision)
+    station = builder.AddSystem(ManipulationStation(all_plant, kuka_wsg))
 
     # Initializes the chosen station type.
     if args.setup == 'default':
@@ -298,6 +299,26 @@ else:
 robot = station.get_controller_plant()
 params = DifferentialInverseKinematicsParameters(robot.num_positions(),
                                                  robot.num_velocities())
+
+# Set the initial configuration for the arm.
+if args.setup == 'default':
+    # Set the initial positions of the IIWA to a comfortable configuration
+    # inside the workspace of the station.
+    q0_iiwa = np.array([0, 0.6, 0, -1.75, 0, 1.0, 0])
+elif args.setup == 'clutter_clearing':
+    q0_iiwa = np.array([-1.57, 0.1, 0, -1.2, 0, 1.6, 0])
+else:
+    assert False
+iiwa_joint_indices = all_plant.GetJointIndices(
+        kuka_wsg.manipulator_model_instance())
+q0_index = 0;
+for joint_index in iiwa_joint_indices:
+    joint = all_plant.get_joint(joint_index)
+    # Note: iiwa_joint_indices includes the WeldJoint at the base.  Only set
+    # the RevoluteJoints.
+    if isinstance(joint, RevoluteJoint):
+      joint.set_default_angle(q0_iiwa[q0_index])
+      q0_index+= 1
 
 time_step = 0.005
 params.set_timestep(time_step)

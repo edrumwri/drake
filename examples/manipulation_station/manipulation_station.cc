@@ -285,12 +285,13 @@ void ManipulationStation<T>::SetDefaultState(
 
   // TODO: Make sure the controller state is initialized to the robot state.
   robot_model_->SetManipulatorPositions(station_context,
-      robot_model_->GetManipulatorPositions(station_context), state);
+      robot_model_->GetManipulatorPositions(station_context, *this),
+      *this, state);
   robot_model_->SetManipulatorVelocities(station_context,
-      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), state);
-  robot_model_->SetGripperPositionsToDefaultOpen(station_context, state);
+      VectorX<T>::Zero(robot_model_->num_manipulator_joints()), *this, state);
+  robot_model_->SetGripperPositionsToDefaultOpen(station_context, *this, state);
   robot_model_->SetGripperVelocities(station_context,
-      VectorX<T>::Zero(robot_model_->num_gripper_joints()), state);
+      VectorX<T>::Zero(robot_model_->num_gripper_joints()), *this, state);
 }
 
 template <typename T>
@@ -342,6 +343,58 @@ ManipulationStation<T>::get_controller_plant() const {
   DRAKE_DEMAND(robot_model_.get());
   return robot_model_->get_controller_plant();
 }
+
+/*
+template <typename T>
+T ManipulationStation<T>::GetWsgPosition(
+    const systems::Context<T>& station_context) const {
+  const auto& plant_context =
+      this->GetSubsystemContext(*plant_, station_context);
+
+  Vector2<T> positions =
+      plant_->GetPositions(plant_context, wsg_model_.model_instance);
+  return positions(1) - positions(0);
+}
+
+template <typename T>
+T ManipulationStation<T>::GetWsgVelocity(
+    const systems::Context<T>& station_context) const {
+  const auto& plant_context =
+      this->GetSubsystemContext(*plant_, station_context);
+
+  Vector2<T> velocities =
+      plant_->GetVelocities(plant_context, wsg_model_.model_instance);
+  return velocities(1) - velocities(0);
+}
+
+template <typename T>
+void ManipulationStation<T>::SetGripperPosition(
+    const drake::systems::Context<T>& station_context, systems::State<T>* state,
+    const T& q) const {
+  DRAKE_DEMAND(state != nullptr);
+  auto& plant_context = this->GetSubsystemContext(*plant_, station_context);
+  auto& plant_state = this->GetMutableSubsystemState(*plant_, state);
+  robot_model_->SetPositions(plant_context, &plant_state,
+      wsg_model_.model_instance, positions);
+
+  // Set the position history in the state interpolator to match.
+  const auto& wsg_controller = dynamic_cast<
+      const manipulation::schunk_wsg::SchunkWsgPositionController&>(
+      this->GetSubsystemByName("wsg_controller"));
+  wsg_controller.set_initial_position(
+      &this->GetMutableSubsystemState(wsg_controller, state), q);
+}
+
+template <typename T>
+void ManipulationStation<T>::SetGripperVelocity(
+    const drake::systems::Context<T>& station_context, systems::State<T>* state,
+    const T& v) const {
+  DRAKE_DEMAND(state != nullptr);
+  auto& plant_context = this->GetSubsystemContext(*plant_, station_context);
+  auto& plant_state = this->GetMutableSubsystemState(*plant_, state);
+  robot_model_->SetGripperVelocity(plant_context, &plant_state, v);
+}
+*/
 
 template <typename T>
 void ManipulationStation<T>::Finalize() {

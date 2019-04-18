@@ -373,6 +373,8 @@ PYBIND11_MODULE(plant, m) {
             doc.MultibodyPlant.GetBodyByName.doc_2args)
         .def("GetBodyIndices", &Class::GetBodyIndices,
             py::arg("model_instance"), doc.MultibodyPlant.GetBodyIndices.doc)
+        .def("GetJointIndices", &Class::GetJointIndices,
+            py::arg("model_instance"), doc.MultibodyPlant.GetJointIndices.doc)
         .def("GetJointByName",
             [](const Class* self, const string& name,
                 optional<ModelInstanceIndex> model_instance) -> auto& {
