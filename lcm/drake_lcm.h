@@ -6,6 +6,7 @@
 #include "lcm/lcm-cpp.hpp"
 
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/lcm/drake_lcm_interface.h"
 
 namespace drake {
@@ -40,10 +41,17 @@ class DrakeLcm : public DrakeLcmInterface {
    * this method must be called for subscribers to receive any messages.
    *
    * @warning Almost no Drake uses of LCM should require a background thread.
-   * Please use HandleSubscriptions() instead.
+   * Please use HandleSubscriptions() or systems::LcmInterfaceSystem instead.
    *
    * @pre StartReceiveThread() was not called.
    */
+  DRAKE_DEPRECATED("2019-08-01",
+      "Almost no Drake uses of LCM should require a background thread. "
+      "Please use DrakeLcmInterface::HandleSubscriptions() or "
+      "drake::systems::lcm::LcmInterfaceSystem instead. "
+      "In the unlikely event you really do need a thread, the implementation "
+      "of Start+Stop+IsRunning is simple; feel free to copy and adapt it, or "
+      "see https://github.com/RobotLocomotion/drake/pull/11166 for more ideas.")
   void StartReceiveThread();
 
   /**
@@ -51,18 +59,32 @@ class DrakeLcm : public DrakeLcmInterface {
    * subscribers being destroyed.
    *
    * @warning Almost no Drake uses of LCM should require a background thread.
-   * Please use HandleSubscriptions() instead.
+   * Please use HandleSubscriptions() or systems::LcmInterfaceSystem instead.
    *
    * @pre StartReceiveThread() was called.
    */
+  DRAKE_DEPRECATED("2019-08-01",
+      "Almost no Drake uses of LCM should require a background thread. "
+      "Please use DrakeLcmInterface::HandleSubscriptions() or "
+      "drake::systems::lcm::LcmInterfaceSystem instead. "
+      "In the unlikely event you really do need a thread, the implementation "
+      "of Start+Stop+IsRunning is simple; feel free to copy and adapt it, or "
+      "see https://github.com/RobotLocomotion/drake/pull/11166 for more ideas.")
   void StopReceiveThread();
 
   /**
    * (Advanced.) Indicates that the receiving thread is running.
    *
    * @warning Almost no Drake uses of LCM should require a background thread.
-   * Please use HandleSubscriptions() instead.
+   * Please use HandleSubscriptions() or systems::LcmInterfaceSystem instead.
    */
+  DRAKE_DEPRECATED("2019-08-01",
+      "Almost no Drake uses of LCM should require a background thread. "
+      "Please use DrakeLcmInterface::HandleSubscriptions() or "
+      "drake::systems::lcm::LcmInterfaceSystem instead. "
+      "In the unlikely event you really do need a thread, the implementation "
+      "of Start+Stop+IsRunning is simple; feel free to copy and adapt it, or "
+      "see https://github.com/RobotLocomotion/drake/pull/11166 for more ideas.")
   bool IsReceiveThreadRunning() const;
 
   /**
@@ -75,6 +97,7 @@ class DrakeLcm : public DrakeLcmInterface {
   /**
    * Returns the LCM URL passed into the constructor; this can be empty.
    */
+  DRAKE_DEPRECATED("2019-06-01", "Call get_lcm_url instead.")
   std::string get_requested_lcm_url() const;
 
   /**

@@ -11,6 +11,7 @@
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/geometry/shape_specification.h"
+#include "drake/math/autodiff_gradient.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/math/rotation_matrix.h"
 
@@ -61,6 +62,7 @@ class ProximityEngineTester {
 
 namespace {
 
+using math::RigidTransform;
 using math::RigidTransformd;
 using math::RollPitchYawd;
 using math::RotationMatrixd;
@@ -355,12 +357,14 @@ using std::shared_ptr;
 GTEST_TEST(SignedDistanceToPointBroadphaseTest, MultipleThreshold) {
   ProximityEngine<double> engine;
   std::vector<GeometryId> geometry_map;
+  std::vector<Isometry3d> X_WGs;
   const double radius = 0.1;
   const Vector3d center1(1., 1., 1.);
   const Vector3d center2(-1, -1, -1.);
   int index = 0;
   for (const Vector3d p_WG : {center1, center2}) {
     const RigidTransformd X_WG(p_WG);
+    X_WGs.push_back(X_WG.GetAsIsometry3());
     engine.AddAnchoredGeometry(Sphere(radius), X_WG.GetAsIsometry3(),
                                GeometryIndex(index++));
     geometry_map.push_back(GeometryId::get_new_id());
@@ -368,38 +372,44 @@ GTEST_TEST(SignedDistanceToPointBroadphaseTest, MultipleThreshold) {
   const Vector3d p_WQ(3., 3., 3.);
   // This small threshold allows no sphere.
   double threshold = 0.001;
-  auto results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map,
+  auto results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs,
                                                      threshold);
   EXPECT_EQ(0, results.size());
   // This threshold touches the corner of the bounding box of the first sphere.
   // It is still too small to yield any result.
   threshold = (p_WQ - (center1 + Vector3d(radius, radius, radius))).norm();
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(0, results.size());
   // This threshold barely touches outside the first sphere, so it still gives
   // no result.
   threshold = (p_WQ - center1).norm() - radius - 1e-10;
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(0, results.size());
   // This threshold barely touches inside the first sphere, so it gives
   // one result.
   threshold = (p_WQ - center1).norm() - radius + 1e-10;
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(1, results.size());
   // This threshold touches the corner of the bounding box of the second
   // sphere, so it is still too small to allow the second sphere.
   threshold = (p_WQ - (center2 + Vector3d(radius, radius, radius))).norm();
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(1, results.size());
   // This threshold barely touches the outside the second sphere, so it still
   // gives one result.
   threshold = (p_WQ - center2).norm() - radius - 1e-10;
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(1, results.size());
   // This threshold barely touches inside the second sphere, so it starts to
   // give two results.
   threshold = (p_WQ - center2).norm() - radius + 1e-10;
-  results = engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, threshold);
+  results =
+      engine.ComputeSignedDistanceToPoint(p_WQ, geometry_map, X_WGs, threshold);
   EXPECT_EQ(2, results.size());
 }
 
@@ -474,19 +484,22 @@ std::vector<SignedDistanceToPointTestData> GenDistanceTestDataSphere(
       {sphere, X_WG, X_WG * Vector3d{2.0, 3.0, 6.0},
        SignedDistanceToPoint<double>(
            GeometryId::get_new_id(), Vector3d(0.2, 0.3, 0.6), 6.3,
-           X_WG.rotation() * Vector3d(2.0, 3.0, 6.0) / 7.0)},
+           X_WG.rotation() * Vector3d(2.0, 3.0, 6.0) / 7.0,
+           true /* grad_W is well defined. */)},
       // p_GQ = (0.1,0.15,0.3) is inside G at the negative distance -0.35.
       {sphere, X_WG, X_WG * Vector3d{0.1, 0.15, 0.3},
        SignedDistanceToPoint<double>(
            GeometryId::get_new_id(), Vector3d(0.2, 0.3, 0.6), -0.35,
-           X_WG.rotation() * Vector3d(2.0, 3.0, 6.0) / 7.0)},
+           X_WG.rotation() * Vector3d(2.0, 3.0, 6.0) / 7.0,
+           true /* grad_W is well defined */)},
       // Reports an arbitrary gradient vector (as defined in the
       // QueryObject::ComputeSignedDistanceToPoint() documentation) at the
       // center of the sphere.
       {sphere, X_WG, X_WG * Vector3d{0.0, 0.0, 0.0},
-       SignedDistanceToPoint<double>(
-           GeometryId::get_new_id(), Vector3d(0.7, 0., 0.), -0.7,
-           X_WG.rotation() * Vector3d(1.0, 0.0, 0.0))}};
+       SignedDistanceToPoint<double>(GeometryId::get_new_id(),
+                                     Vector3d(0.7, 0., 0.), -0.7,
+                                     X_WG.rotation() * Vector3d(1.0, 0.0, 0.0),
+                                     false /* grad_W is not well defined */)}};
   return test_data;
 }
 
@@ -525,7 +538,8 @@ std::vector<SignedDistanceToPointTestData> GenDistanceTestDataOutsideBox(
     const Vector3d& grad_W = data.expected_result.grad_W;
     test_data.emplace_back(
         shape, X_WG, p_WQ,
-        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W,
+                                      true /* grad_W is well defined */));
   }
   return test_data;
 }
@@ -583,9 +597,16 @@ std::vector<SignedDistanceToPointTestData> GenDistanceTestDataBoxBoundary(
         const RotationMatrixd& R_WG = X_WG.rotation();
         const Vector3d grad_G = s_G.normalized();
         const Vector3d grad_W = R_WG * grad_G;
+        // grad_W is not well defined if the query point Q is on the edge or
+        // vertex of the box.
+        const int num_dim_on_boundary = static_cast<int>(sx != 0) +
+                                        static_cast<int>(sy != 0) +
+                                        static_cast<int>(sz != 0);
+        const bool is_grad_W_well_defined = num_dim_on_boundary <= 1;
         test_data.emplace_back(
             box, X_WG, p_WQ,
-            SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+            SignedDistanceToPoint<double>(id, p_GN, distance, grad_W,
+                                          is_grad_W_well_defined));
       }
     }
   }
@@ -645,7 +666,8 @@ std::vector<SignedDistanceToPointTestData> GenDistTestDataInsideBoxUnique(
       const Vector3d grad_W = R_WG * grad_G;
       test_data.emplace_back(
           box, X_WG, p_WQ,
-          SignedDistanceToPoint<double>(id, p_GN, -d, grad_W));
+          SignedDistanceToPoint<double>(id, p_GN, -d, grad_W,
+                                        true /* grad_W is well defined */));
     }
   }
   return test_data;
@@ -674,31 +696,36 @@ std::vector<SignedDistanceToPointTestData> GenDistTestDataInsideBoxNonUnique() {
       {box, X_WG, X_WG * Vector3d{6., 1., 2.},
        SignedDistanceToPoint<double>(GeometryId::get_new_id(),
                                      Vector3d(6., 1., 5.), -3.,
-                                     X_WG.rotation() * Vector3d(0., 0., 1.))},
+                                     X_WG.rotation() * Vector3d(0., 0., 1.),
+                                     true /* grad_W is well defined */)},
       // Q is nearest to two faces {10}x[-5,5]x[-5,5] and [-10,10]x[-5,5]x{5}.
       {box, X_WG, X_WG * Vector3d{6., 0., 1.},
        SignedDistanceToPoint<double>(GeometryId::get_new_id(),
                                      Vector3d(10., 0., 1.), -4.,
-                                     X_WG.rotation() * Vector3d(1., 0., 0.))},
+                                     X_WG.rotation() * Vector3d(1., 0., 0.),
+                                     true /* grad_W is well defined */)},
       // Q is nearest to three faces {10}x[-5,5]x[-5,5], [-10,10]x{5}x[-5,5],
       // and [-10,10]x[-5,5]x{5}.
       {box, X_WG, X_WG * Vector3d{6., 1., 1.},
        SignedDistanceToPoint<double>(GeometryId::get_new_id(),
                                      Vector3d(10., 1., 1.), -4.,
-                                     X_WG.rotation() * Vector3d(1., 0., 0.))},
+                                     X_WG.rotation() * Vector3d(1., 0., 0.),
+                                     true /* grad_W is well defined */)},
       // Q at the center of the box is nearest to four faces
       // [-10,10]x{5}x[-5,5], [-10,10]x{-5}x[-5,5], [-10,10]x[5,-5]x{5},
       // and [-10,10]x[5,-5]x{-5}.
       {box, X_WG, X_WG * Vector3d{0., 0., 0.},
        SignedDistanceToPoint<double>(GeometryId::get_new_id(),
                                      Vector3d(0., 5., 0.), -5.,
-                                     X_WG.rotation() * Vector3d(0., 1., 0.))},
+                                     X_WG.rotation() * Vector3d(0., 1., 0.),
+                                     true /* grad_W is well defined */)},
       // Q is nearest to five faces {10}x[-5,5]x[-5,5], [-10,10]x{5}x[-5,5],
       // [-10,10]x{-5}x[-5,5], [-10,10]x[5,-5]x{5}, and [-10,10]x[5,-5]x{-5}.
       {box, X_WG, X_WG * Vector3d{5., 0., 0.},
        SignedDistanceToPoint<double>(GeometryId::get_new_id(),
                                      Vector3d(10., 0., 0.), -5.,
-                                     X_WG.rotation() * Vector3d(1., 0., 0.))}};
+                                     X_WG.rotation() * Vector3d(1., 0., 0.),
+                                     true /* grad_W is well defined */)}};
   return test_data;
 }
 
@@ -710,10 +737,10 @@ std::vector<SignedDistanceToPointTestData> GenDistanceTestDataTranslateBox() {
       // The position of the query point p_WQ(23,20,30) is closest to G at
       // (20,20,30) in World frame, which is p_GN=(10,0,0) in G's frame.
       // The gradient vector is expressed in both frames as (1,0,0).
-      {box, RigidTransformd(Vector3d(10., 20., 30.)), Vector3d{23., 20., 30.},
-       SignedDistanceToPoint<double>(GeometryId::get_new_id(),
-                                     Vector3d(10., 0., 0.), 3.,
-                                     Vector3d(1., 0., 0.))}};
+      {box, Translation3d(10., 20., 30.), Vector3d{23., 20., 30.},
+       SignedDistanceToPoint<double>(
+           GeometryId::get_new_id(), Vector3d(10., 0., 0.), 3.,
+           Vector3d(1., 0., 0.), true /* grad_W is well defined.*/)}};
   return test_data;
 }
 
@@ -783,9 +810,10 @@ GenDistTestDataCylinderBoundaryCircle(
       // undefined.
       const Vector3d grad_G = (xy_vector + z_vector).normalized();
       const Vector3d grad_W = R_WG * grad_G;
-      test_data.emplace_back(
-          cylinder, X_WG, p_WQ,
-          SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+      test_data.emplace_back(cylinder, X_WG, p_WQ,
+                             SignedDistanceToPoint<double>(
+                                 id, p_GN, distance, grad_W,
+                                 false /* grad_W is not well defined */));
     }
   }
   return test_data;
@@ -875,7 +903,8 @@ GenDistTestDataCylinderBoundarySurface(
     const Vector3d grad_W = R_WG * local.grad_G;
     test_data.emplace_back(
         cylinder, X_WG, p_WQ,
-        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W,
+                                      true /* grad_W is well defined */));
   };
   std::for_each(test_data_barrel.begin(), test_data_barrel.end(), convert);
   std::for_each(test_data_caps.begin(), test_data_caps.end(), convert);
@@ -922,7 +951,8 @@ std::vector<SignedDistanceToPointTestData> GenDistTestDataOutsideCylinder(
     const Vector3d& grad_W = data.expected_result.grad_W;
     test_data.emplace_back(
         shape, X_WG, p_WQ,
-        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+        SignedDistanceToPoint<double>(id, p_GN, distance, grad_W,
+                                      true /* grad_W is well defined */));
   }
   return test_data;
 }
@@ -954,7 +984,8 @@ std::vector<SignedDistanceToPointTestData> GenDistTestDataInsideCylinder(
     const Vector3d& grad_W = data.expected_result.grad_W;
     test_data.emplace_back(
         shape, X_WG, p_WQ,
-        SignedDistanceToPoint<double>(id, p_GN, kNegativeDistance, grad_W));
+        SignedDistanceToPoint<double>(id, p_GN, kNegativeDistance, grad_W,
+                                      true /* grad_W is well defined */));
   }
   return test_data;
 }
@@ -979,7 +1010,8 @@ std::vector<SignedDistanceToPointTestData> GenDistTestDataCylinderCenter(
   std::vector<SignedDistanceToPointTestData> test_data;
   test_data.emplace_back(
       long_cylinder, X_WG, p_WQ,
-      SignedDistanceToPoint<double>(id, p_GN, distance, grad_W));
+      SignedDistanceToPoint<double>(id, p_GN, distance, grad_W,
+                                    true /* grad_W is well defined */));
   return test_data;
 }
 
@@ -1006,6 +1038,7 @@ struct SignedDistanceToPointTest
     : public testing::TestWithParam<SignedDistanceToPointTestData> {
   ProximityEngine<double> engine;
   std::vector<GeometryId> geometry_map;
+  std::vector<Isometry3d> X_WGs;
 
   // The tolerance value for determining equivalency between expected and
   // tested results. The underlying algorithms have an empirically-determined,
@@ -1017,6 +1050,7 @@ struct SignedDistanceToPointTest
     auto data = GetParam();
     engine.AddAnchoredGeometry(*(data.geometry), data.X_WG.GetAsIsometry3(),
                                GeometryIndex(0));
+    X_WGs.push_back(data.X_WG.GetAsIsometry3());
     geometry_map.push_back(data.expected_result.id_G);
   }
 };
@@ -1024,7 +1058,8 @@ struct SignedDistanceToPointTest
 TEST_P(SignedDistanceToPointTest, SingleQueryPoint) {
   auto data = GetParam();
 
-  auto results = engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map);
+  auto results =
+      engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map, X_WGs);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].id_G, data.expected_result.id_G);
   EXPECT_TRUE(
@@ -1042,14 +1077,14 @@ TEST_P(SignedDistanceToPointTest, SingleQueryPointWithThreshold) {
 
   const double large_threshold = data.expected_result.distance + 0.01;
   auto results =
-      engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map,
+      engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map, X_WGs,
                                           large_threshold);
   // The large threshold allows one object in the results.
   EXPECT_EQ(results.size(), 1);
 
   const double small_threshold = data.expected_result.distance - 0.01;
   results =
-      engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map,
+      engine.ComputeSignedDistanceToPoint(data.p_WQ, geometry_map, X_WGs,
                                           small_threshold);
   // The small threshold skips all objects.
   EXPECT_EQ(results.size(), 0);
@@ -2530,8 +2565,8 @@ GenDistPairRepeatabilityTestData() {
       make_shared<const Convex>(
           drake::FindResourceOrThrow("drake/geometry/test/quad_cube.obj"),
           1.1)};
-  const RigidTransformd X_WA = RigidTransformd(Vector3d(0.1, 0.2, 0.3));
-  const RigidTransformd X_WB = RigidTransformd(Vector3d(0.11, 0.21, 0.31));
+  const Translation3d X_WA(0.1, 0.2, 0.3);
+  const Translation3d X_WB(0.11, 0.21, 0.31);
   std::vector<SignedDistancePairRepeatTestData> test_data;
   for (shared_ptr<const Shape>& a : shapes_A)
     for (shared_ptr<const Shape>& b : shapes_B)
@@ -3200,6 +3235,119 @@ GTEST_TEST(ProximityEngineTests, AnchoredBroadPhaseInitialization) {
   engine_copy.UpdateWorldPoses({X_WD}, {index_D});
   auto pairs_copy = engine_copy.ComputePointPairPenetration(geometry_map);
   EXPECT_EQ(pairs_copy.size(), 1);
+}
+
+// Basic smoke test for the autodiffibility of the signed distance computation.
+// Tests against the anchored geometry. Specifically, it confirms that while
+// poses are set with double, the calculation is done with AutoDiff and
+// derivatives come through.
+GTEST_TEST(ProximityEngineTests, ComputeSignedDistanceAutoDiffAnchored) {
+  ProximityEngine<AutoDiffXd> engine;
+
+  const double kEps = std::numeric_limits<double>::epsilon();
+
+  // Given a sphere with radius 0.7, centered on p_WSo, the point p_SQ = (2,3,6)
+  // is outside G at the positive distance 6.3.
+  const double expected_distance = 6.3;
+  const Vector3d p_SQ_W{2.0, 3.0, 6.0};
+  const Vector3d p_WS_W{0.5, 1.25, -2};
+  const Vector3d p_WQ{p_SQ_W + p_WS_W};
+  Vector3<AutoDiffXd> p_WQ_ad = math::initializeAutoDiff(p_WQ);
+
+  // An empty world inherently produces no results.
+  {
+    std::vector<GeometryId> geometry_map;
+    std::vector<Isometry3<AutoDiffXd>> X_WGs;
+    const auto results = engine.ComputeSignedDistanceToPoint(
+        p_WQ_ad, geometry_map, X_WGs);
+    EXPECT_EQ(results.size(), 0);
+  }
+
+  // Against an anchored sphere.
+  {
+    const RigidTransformd X_WS = RigidTransformd(p_WS_W);
+    engine.AddAnchoredGeometry(Sphere(0.7), X_WS, GeometryIndex(0));
+    std::vector<GeometryId> geometry_map{GeometryId::get_new_id()};
+    const RigidTransform<AutoDiffXd> X_WS_ad = X_WS.cast<AutoDiffXd>();
+    std::vector<Isometry3<AutoDiffXd>> X_WGs{X_WS_ad};
+
+    // Distance is just beyond the threshold.
+    {
+      std::vector<SignedDistanceToPoint<AutoDiffXd>> results =
+          engine.ComputeSignedDistanceToPoint(p_WQ_ad, geometry_map, X_WGs,
+                                              expected_distance - 1e-14);
+      EXPECT_EQ(results.size(), 0);
+    }
+
+    // Distance is just within the threshold
+    {
+      std::vector<SignedDistanceToPoint<AutoDiffXd>> results =
+          engine.ComputeSignedDistanceToPoint(p_WQ_ad, geometry_map, X_WGs,
+                                              expected_distance + 1e-14);
+      EXPECT_EQ(results.size(), 1);
+      const SignedDistanceToPoint<AutoDiffXd>& distance_data = results[0];
+      // The autodiff seems to lose a couple of bits relative to the known
+      // answer.
+      EXPECT_NEAR(distance_data.distance.value(), expected_distance, 4 * kEps);
+      // The analytical `grad_W` value should match the autodiff-computed
+      // gradient.
+      const Vector3d ddistance_dp_WQ = distance_data.distance.derivatives();
+      const Vector3d grad_W = math::autoDiffToValueMatrix(distance_data.grad_W);
+      EXPECT_TRUE(CompareMatrices(ddistance_dp_WQ, grad_W, kEps));
+    }
+  }
+}
+
+// Basic smoke test for the autodiffibility of the signed distance computation.
+// Tests against the dynamic geometry. Specifically, it confirms that while
+// poses are set with double, the calculation is done with AutoDiff and
+// derivatives come through.
+GTEST_TEST(ProximityEngineTests, ComputeSignedDistanceAutoDiffDynamic) {
+  ProximityEngine<AutoDiffXd> engine;
+
+  const double kEps = std::numeric_limits<double>::epsilon();
+
+  // Given a sphere with radius 0.7, centered on p_WSo, the point p_SQ = (2,3,6)
+  // is outside G at the positive distance 6.3.
+  const double expected_distance = 6.3;
+  const Vector3d p_SQ{2.0, 3.0, 6.0};
+  const Vector3d p_WS{0.5, 1.25, -2};
+  const Vector3d p_WQ{p_SQ + p_WS};
+  Vector3<AutoDiffXd> p_WQ_ad = math::initializeAutoDiff(p_WQ);
+
+  // Against a dynamic sphere.
+  GeometryIndex index(0);
+  engine.AddDynamicGeometry(Sphere(0.7), index);
+  std::vector<GeometryId> geometry_map{GeometryId::get_new_id()};
+  const auto X_WS_ad =
+      RigidTransformd(p_WS).cast<AutoDiffXd>().GetAsIsometry3();
+  std::vector<Isometry3<AutoDiffXd>> X_WGs{X_WS_ad};
+  engine.UpdateWorldPoses(X_WGs, {index});
+
+  // Distance is just beyond the threshold.
+  {
+    std::vector<SignedDistanceToPoint<AutoDiffXd>> results =
+        engine.ComputeSignedDistanceToPoint(p_WQ_ad, geometry_map, X_WGs,
+                                            expected_distance - 1e-14);
+    EXPECT_EQ(results.size(), 0);
+  }
+
+  // Distance is just within the threshold
+  {
+    std::vector<SignedDistanceToPoint<AutoDiffXd>> results =
+        engine.ComputeSignedDistanceToPoint(p_WQ_ad, geometry_map, X_WGs,
+                                            expected_distance + 1e-14);
+    EXPECT_EQ(results.size(), 1);
+    const SignedDistanceToPoint<AutoDiffXd>& distance_data = results[0];
+    // The autodiff seems to lose a couple of bits relative to the known
+    // answer.
+    EXPECT_NEAR(distance_data.distance.value(), expected_distance, 4 * kEps);
+    // The analytical `grad_W` value should match the autodiff-computed
+    // gradient.
+    const Vector3d ddistance_dp_WQ = distance_data.distance.derivatives();
+    const Vector3d grad_W = math::autoDiffToValueMatrix(distance_data.grad_W);
+    EXPECT_TRUE(CompareMatrices(ddistance_dp_WQ, grad_W, kEps));
+  }
 }
 
 

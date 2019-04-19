@@ -22,7 +22,7 @@ from pydrake.multibody.tree import (
     WeldJoint,
     world_index,
 )
-from pydrake.multibody.math import SpatialVelocity
+from pydrake.multibody.math import SpatialForce, SpatialVelocity
 from pydrake.multibody.plant import (
     AddMultibodyPlantSceneGraph,
     ContactResults,
@@ -419,10 +419,8 @@ class TestPlant(unittest.TestCase):
             file_name=wsg50_sdf_path, model_name='gripper')
 
         # Weld the base of arm and gripper to reduce the number of states.
-        X_EeGripper = Isometry3.Identity()
-        X_EeGripper.set_translation([0, 0, 0.081])
-        X_EeGripper.set_rotation(
-            RollPitchYaw(np.pi / 2, 0, np.pi / 2).ToRotationMatrix().matrix())
+        X_EeGripper = RigidTransform(
+            RollPitchYaw(np.pi / 2, 0, np.pi / 2), [0, 0, 0.081])
         plant.WeldFrames(A=plant.world_frame(),
                          B=plant.GetFrameByName("iiwa_link_0", iiwa_model))
         plant.WeldFrames(
@@ -664,7 +662,7 @@ class TestPlant(unittest.TestCase):
         plant.SetFreeBodyPose(
             context, plant.GetBodyByName("iiwa_link_0"),
             RigidTransform(RollPitchYaw([0.1, 0.2, 0.3]),
-                           p=[0.4, 0.5, 0.6]).GetAsIsometry3())
+                           p=[0.4, 0.5, 0.6]))
         v_expected = np.linspace(start=-1.0, stop=-nv, num=nv)
         qdot = plant.MapVelocityToQDot(context, v_expected)
         v_remap = plant.MapQDotToVelocity(context, qdot)
@@ -705,7 +703,7 @@ class TestPlant(unittest.TestCase):
                     distal_frame, instances[0]).body_frame(),
                 child_frame_C=plant.GetBodyByName(
                     proximal_frame, instances[1]).body_frame(),
-                X_PC=Isometry3.Identity()),
+                X_PC=RigidTransform.Identity()),
         ]
         for joint in joints:
             joint_out = plant.AddJoint(joint)
@@ -720,8 +718,8 @@ class TestPlant(unittest.TestCase):
     def test_multibody_add_frame(self):
         plant = MultibodyPlant()
         frame = plant.AddFrame(frame=FixedOffsetFrame(
-            name="frame", P=plant.world_frame(), X_PF=Isometry3.Identity(),
-            model_instance=None))
+            name="frame", P=plant.world_frame(),
+            X_PF=RigidTransform.Identity(), model_instance=None))
         self.assertIsInstance(frame, Frame)
         np.testing.assert_equal(
             np.eye(4), frame.GetFixedPoseInBodyFrame().GetAsMatrix4())
@@ -762,6 +760,29 @@ class TestPlant(unittest.TestCase):
 
         forces = MultibodyForces(plant=plant)
         plant.CalcForceElementsContribution(context=context, forces=forces)
+
+        # Test generalized forces.
+        forces.mutable_generalized_forces()[:] = 1
+        np.testing.assert_equal(forces.generalized_forces(), 1)
+        forces.SetZero()
+        np.testing.assert_equal(forces.generalized_forces(), 0)
+        # Test body force accessors and mutators.
+        link2 = plant.GetBodyByName("Link2")
+        self.assertIsInstance(
+            link2.GetForceInWorld(context, forces), SpatialForce)
+        forces.SetZero()
+        F_expected = np.array([1, 2, 3, 4, 5, 6])
+        link2.AddInForceInWorld(
+            context, F_Bo_W=SpatialForce(F=F_expected), forces=forces)
+        np.testing.assert_equal(
+            link2.GetForceInWorld(context, forces).get_coeffs(), F_expected)
+        link2.AddInForce(
+            context, p_BP_E=[0, 0, 0], F_Bp_E=SpatialForce(F=F_expected),
+            frame_E=plant.world_frame(), forces=forces)
+        # Also check accumulation.
+        np.testing.assert_equal(
+            link2.GetForceInWorld(context, forces).get_coeffs(),
+            2 * F_expected)
 
     def test_contact(self):
         # PenetrationAsContactPair

@@ -194,6 +194,23 @@ class TestMath(unittest.TestCase):
         self.assertTrue(np.allclose(rpy.ToQuaternion().wxyz(), q_I.wxyz()))
         R = rpy.ToRotationMatrix().matrix()
         self.assertTrue(np.allclose(R, np.eye(3)))
+        # - Converting changes in orientation
+        self.assertTrue(np.allclose(rpy.CalcRotationMatrixDt(rpyDt=[0, 0, 0]),
+                                    np.zeros((3, 3))))
+        self.assertTrue(np.allclose(
+            rpy.CalcAngularVelocityInParentFromRpyDt(rpyDt=[0, 0, 0]),
+            [0, 0, 0]))
+        self.assertTrue(np.allclose(
+            rpy.CalcAngularVelocityInChildFromRpyDt(rpyDt=[0, 0, 0]),
+            [0, 0, 0]))
+        self.assertTrue(np.allclose(
+            rpy.CalcRpyDtFromAngularVelocityInParent(w_AD_A=[0, 0, 0]),
+            [0, 0, 0]))
+        self.assertTrue(np.allclose(
+            rpy.CalcRpyDDtFromRpyDtAndAngularAccelInParent(
+                rpyDt=[0, 0, 0], alpha_AD_A=[0, 0, 0]), [0, 0, 0]))
+        self.assertTrue(np.allclose(rpy.CalcRpyDDtFromAngularAccelInChild(
+            rpyDt=[0, 0, 0], alpha_AD_D=[0, 0, 0]), [0, 0, 0]))
 
     def test_orthonormal_basis(self):
         R = mut.ComputeBasisFromAxis(axis_index=0, axis_W=[1, 0, 0])
@@ -210,3 +227,20 @@ class TestMath(unittest.TestCase):
         self.assertEqual(np.size(R, 0), 4)
         self.assertEqual(np.size(R, 1), 3)
         self.assertEqual(len(d), 4)
+
+    def test_riccati_lyapunov(self):
+        A = 0.1*np.eye(2)
+        B = np.eye(2)
+        Q = np.eye(2)
+        R = np.eye(2)
+
+        mut.ContinuousAlgebraicRiccatiEquation(A=A, B=B, Q=Q, R=R)
+        mut.RealContinuousLyapunovEquation(A=A, Q=Q)
+        mut.RealDiscreteLyapunovEquation(A=A, Q=Q)
+
+        A = np.array([[1, 1], [0, 1]])
+        B = np.array([[0], [1]])
+        Q = np.array([[1, 0], [0, 0]])
+        R = [0.3]
+
+        mut.DiscreteAlgebraicRiccatiEquation(A=A, B=B, Q=Q, R=R)
