@@ -764,6 +764,20 @@ void MultibodyPlant<T>::ExcludeCollisionsWithVisualGeometry() {
   member_scene_graph().ExcludeCollisionsBetween(visual, collision);
 }
 
+template <typename T>
+void MultibodyPlant<T>::CalcContactForcesFromHydroelasticModel(
+    const systems::Context<T>& context) const {
+
+  std::vector<ContactSurface<T>> contact_surfaces =
+      query_object.ComputeContactSurfaces();
+  for (const auto& contact_surface : contact_surfaces) {
+
+  }
+}
+
+template <typename T>
+void MultibodyPlant<T>::CalcTraction(const systems::Context<T>& context, )
+
 template<typename T>
 void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
     const systems::Context<T>& context,
