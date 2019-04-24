@@ -38,9 +38,9 @@ namespace geometry {
 
   For hydroelastic-pressure-field contact model, each of the two bodies M and
   N is discretized into a 3-d VolumeMesh consisting of tetrahedral elements,
-  and their ContactSurface is discretized into a 3-d SurfaceMesh consisting of
-  triangular elements. The term _element_ refers to a tetrahedron in
-  VolumeMesh and a triangle in SurfaceMesh.
+  and their ContactSurface--a free surface bounding no volume--is discretized
+  into a 3-d SurfaceMesh consisting of triangular elements. The term _element_
+  refers to a tetrahedron in VolumeMesh and a triangle in SurfaceMesh.
 
   On each finite element E, we have one _shape function_ Nᵢ for each
   node nᵢ of the element,
@@ -147,7 +147,10 @@ class MeshField {
   virtual FieldType Evaluate(const typename MeshType::ElementIndex e,
                              const typename MeshType::Barycentric& b) const = 0;
 
-  virtual ~MeshField() {}
+ protected:
+  MeshField() = default;
+  virtual ~MeshField() = default;
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(MeshField)
 };
 
 /**
@@ -260,19 +263,15 @@ class MeshFieldQuadratic final : public MeshField<FieldType, MeshType> {
   MeshType* mesh_;
 };
 
-template <typename FieldValue, typename CoordType>
-using SurfaceMeshFieldLinear =
-    MeshFieldLinear<FieldValue, SurfaceMesh<CoordType>>;
-
 // TODO(DamrongGuoy): Define VolumeMeshFieldLinear and/or
 //  VolumeMeshFieldQuadratic when we have VolumeMesh like this:
-//  template <typename FieldValue, typename CoordType>
+//  template <typename FieldValue, typename T>
 //  using VolumeMeshFieldQuadratic =
-//      MeshFieldQuadratic<FieldValue, VolumeMesh<CoordType>>;
+//      MeshFieldQuadratic<FieldValue, VolumeMesh<T>>;
 
-template <typename FieldValue, typename CoordType>
+template <typename FieldType, typename T>
 using SurfaceMeshFieldLinear =
-    MeshFieldLinear<FieldValue, SurfaceMesh<CoordType>>;
+    MeshFieldLinear<FieldType, SurfaceMesh<T>>;
 
 }  // namespace geometry
 }  // namespace drake

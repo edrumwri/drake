@@ -23,9 +23,10 @@ using SurfaceFaceIndex = TypeSafeIndex<class SurfaceFaceTag>;
 
 /** %SurfaceVertex represents a vertex in SurfaceMesh of a contact surface
  between bodies M and N.
- @tparam CoordType the underlying scalar type. Must be a valid Eigen scalar.
+ @tparam T The underlying scalar type for coordinates, e.g., double
+           or AutoDiffXd. Must be a valid Eigen scalar.
 */
-template <class CoordType>
+template <class T>
 class SurfaceVertex {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SurfaceVertex)
@@ -34,18 +35,18 @@ class SurfaceVertex {
    @param r_MV  displacement vector from the origin of M's frame to this
    vertex, expressed in M's frame.
    */
-  explicit SurfaceVertex(const Vector3<CoordType>& r_MV)
+  explicit SurfaceVertex(const Vector3<T>& r_MV)
       : r_MV_(r_MV) {}
 
   /** Returns the displacement vector from the origin of M's frame to this
    vertex, expressed in M's frame.
    */
-  const Vector3<CoordType>& r_MV() const { return r_MV_; }
+  const Vector3<T>& r_MV() const { return r_MV_; }
 
  private:
   // Displacement vector from the origin of M's frame to this vertex,
   // expressed in M's frame.
-  Vector3<CoordType> r_MV_;
+  Vector3<T> r_MV_;
 };
 
 /** %SurfaceFace represents a triangular face in a SurfaceMesh of a contact
@@ -95,10 +96,10 @@ class SurfaceFace {
 
 /** %SurfaceMesh represents a triangulated surface of a contact surface.
   A field variable can be defined on SurfaceMesh using SurfaceMeshField.
- @tparam CoordType The underlying scalar type for coordinates, e.g., double
-                   or AutoDiffXd. Must be a valid Eigen scalar.
+ @tparam T The underlying scalar type for coordinates, e.g., double
+           or AutoDiffXd. Must be a valid Eigen scalar.
  */
-template <class CoordType>
+template <class T>
 class SurfaceMesh {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SurfaceMesh)
@@ -133,7 +134,7 @@ class SurfaceMesh {
   /**
     Type of barycentric coordinates on a triangular element.
    */
-  using Barycentric = Vector<CoordType, kDim + 1>;
+  using Barycentric = Vector<T, kDim + 1>;
 
   /** Returns the triangular element identified by a given index.
     @param e   The index of the triangular element.
@@ -148,7 +149,7 @@ class SurfaceMesh {
     @param v  The index of the vertex.
     @pre v ∈ [0, vertices.size()).
    */
-  const SurfaceVertex<CoordType>& vertex(VertexIndex v) const {
+  const SurfaceVertex<T>& vertex(VertexIndex v) const {
     DRAKE_DEMAND(0 <= v && v < vertices_.size());
     return vertices_[v];
   }
@@ -160,7 +161,7 @@ class SurfaceMesh {
     @param vertices  The vertices.
    */
   SurfaceMesh(std::vector<SurfaceFace>&& faces,
-              std::vector<SurfaceVertex<CoordType>>&& vertices)
+              std::vector<SurfaceVertex<T>>&& vertices)
   : faces_(std::move(faces)), vertices_(std::move(vertices))
   {}
 
@@ -176,7 +177,7 @@ class SurfaceMesh {
   // The triangles that comprise the surface.
   std::vector<SurfaceFace> faces_;
   // The vertices that are shared between the triangles.
-  std::vector<SurfaceVertex<CoordType>> vertices_;
+  std::vector<SurfaceVertex<T>> vertices_;
 };
 
 
