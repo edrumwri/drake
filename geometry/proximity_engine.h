@@ -247,11 +247,12 @@ class ProximityEngine {
       const std::vector<GeometryId>& geometry_map) const;
 
   /**
-   Computes the penetrations across all pairs of geometries in the world with
-   the penetrations characterized by contact surfaces (see ContactSurface).
+   Computes the intersections across all pairs of geometries in the world with
+   the intersections characterized by contact surfaces (see ContactSurface).
 
    For two penetrating geometries g₁ and g₂, it is guaranteed that they will
-   map to `id_A` and `id_B` in a fixed, repeatable manner.
+   map to `id_A` and `id_B` in a fixed, repeatable manner, where `id_A` and
+   `id_B` are GeometryId's of geometries g₁ and g₂ respectively.
 
    @param[in]   geometry_map  A map from geometry _index_ to the corresponding
                               global geometry identifier.

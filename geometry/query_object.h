@@ -105,7 +105,8 @@ class QueryObject {
    characteristics of that collision.
 
    For two penetrating geometries g₁ and g₂, it is guaranteed that they will
-   map to `id_A` and `id_B` in a fixed, repeatable manner.
+   map to `id_A` and `id_B` in a fixed, repeatable manner, where `id_A` and
+   `id_B` are GeometryId's of geometries g₁ and g₂ respectively.
 
    These methods are affected by collision filtering; element pairs that
    have been filtered will not produce contacts, even if their collision
@@ -140,11 +141,12 @@ class QueryObject {
 
   /**
    Computes contact surfaces for all pairs of penetrating geometries in the
-   world. Only reports results for _penetrating_ geometries; if two
-   geometries are separated, there will be no result for that pair. Pairs of
-   _anchored_ geometry are also not reported. The penetration between two
-   geometries is characterized as a contact surface (see ContactSurface).
-   This method is affected by collision filtering.
+   world subject to collision filtering and other conditions described below.
+   Only reports results for _penetrating_ geometries; if two geometries are
+   separated, there will be no result for that pair. Pairs of _anchored_
+   geometry are also not reported. The penetration between two geometries is
+   characterized as a contact surface (see ContactSurface). This method is
+   affected by collision filtering.
 
    @returns A vector populated with contact surfaces of all detected
             penetrating pairs of geometries.

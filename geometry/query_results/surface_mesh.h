@@ -22,8 +22,7 @@ using SurfaceVertexIndex = TypeSafeIndex<class SurfaceVertexTag>;
 using SurfaceFaceIndex = TypeSafeIndex<class SurfaceFaceTag>;
 
 /** %SurfaceVertex represents a vertex in SurfaceMesh of a contact surface
- between bodies M and N. Right now it has only one member variable, but we
- plan to add more later.
+ between bodies M and N.
  @tparam CoordType the underlying scalar type. Must be a valid Eigen scalar.
 */
 template <class CoordType>
@@ -32,21 +31,24 @@ class SurfaceVertex {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SurfaceVertex)
 
   /** Constructs SurfaceVertex.
-   @param r_MV   position of vertex v in M's frame.
+   @param r_MV  displacement vector from the origin of M's frame to this
+   vertex, expressed in M's frame.
    */
   explicit SurfaceVertex(const Vector3<CoordType>& r_MV)
       : r_MV_(r_MV) {}
 
-  /** Returns the position of this vertex in M's frame.
+  /** Returns the displacement vector from the origin of M's frame to this
+   vertex, expressed in M's frame.
    */
   const Vector3<CoordType>& r_MV() const { return r_MV_; }
 
  private:
-  // Position of this vertex in M's frame.
+  // Displacement vector from the origin of M's frame to this vertex,
+  // expressed in M's frame.
   Vector3<CoordType> r_MV_;
 };
 
-/** %SurfaceFace represents a triangular face in SurfaceMesh of a contact
+/** %SurfaceFace represents a triangular face in a SurfaceMesh of a contact
  surface between bodies M and N.
  */
 class SurfaceFace {
@@ -58,7 +60,8 @@ class SurfaceFace {
    @param v1 Index of the second vertex in SurfaceMesh.
    @param v2 Index of the last vertex in SurfaceMesh.
    @note   The order of the three vertices gives the counterclockwise normal
-          direction towards increasing eₘ the scalar field on body M.
+          direction towards increasing eₘ the scalar field on body M. See
+          ContactSurface.
    */
   SurfaceFace(SurfaceVertexIndex v0,
               SurfaceVertexIndex v1,
@@ -104,8 +107,11 @@ class SurfaceMesh {
    @name Interface to MeshField
 
    The following definitions are needed by a MeshField defined on this
-   SurfaceMesh.  MeshField uses the generic term _element_ that corresponds
-   to _face_ in SurfaceMesh.
+   SurfaceMesh.
+
+   MeshField uses the term _elements_ (inspired by Finite Element Method)
+   for _faces_, i.e., triangles, in a triangulated surface mesh. (For a
+   tetrahedral volume mesh, the term elements would be for tetrahedrons.)
   */
   //@{
 
@@ -131,13 +137,19 @@ class SurfaceMesh {
 
   /** Returns the triangular element identified by a given index.
     @param e   The index of the triangular element.
+    @pre e ∈ [0, faces_.size()).
    */
-  const SurfaceFace& element(ElementIndex e) const { return faces_[e]; }
+  const SurfaceFace& element(ElementIndex e) const {
+    DRAKE_DEMAND(0 <= e && e < faces_.size());
+    return faces_[e];
+  }
 
   /** Returns the vertex identified by a given index.
     @param v  The index of the vertex.
+    @pre v ∈ [0, vertices.size()).
    */
   const SurfaceVertex<CoordType>& vertex(VertexIndex v) const {
+    DRAKE_DEMAND(0 <= v && v < vertices_.size());
     return vertices_[v];
   }
 

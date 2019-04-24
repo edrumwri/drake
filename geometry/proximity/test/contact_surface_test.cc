@@ -45,6 +45,7 @@ GTEST_TEST(ContactSurfaceTest, TestInstantiationDouble) {
   for (int v = 0; v < 4; ++v) vertices.emplace_back(vertex_data[v]);
   auto surface_mesh = std::make_unique<SurfaceMesh<double>>(
       std::move(faces), std::move(vertices));
+
   // Increasing values of `e` from one vertex to the next.
   // We give names to the values at vertices for testing later.
   const double e0 = 0.;
@@ -52,20 +53,24 @@ GTEST_TEST(ContactSurfaceTest, TestInstantiationDouble) {
   const double e2 = 2.;
   const double e3 = 3.;
   std::vector<double> e_values = {e0, e1, e2, e3};
-  SurfaceMeshField<double, double> e_field("e", std::move(e_values),
+  SurfaceMeshFieldLinear<double, double> e_field("e", std::move(e_values),
                                            surface_mesh.get());
-  // Slightly different values of grad_h_M at each vertex.
+
+  // Slightly different values of grad_h_MN_M at each vertex.
   // We give names to the values at vertices for testing later.
   const Vector3<double> g0(-0.1, -0.1, 1.);
   const Vector3<double> g1(0.1, -0.1, 1.);
   const Vector3<double> g2(0.1, 0.1, 1.);
   const Vector3<double> g3(-0.1, 0.1, 1.);
-  std::vector<Vector3<double>> grad_h_M_values = {g0, g1, g2, g3};
-  SurfaceMeshField<Vector3<double>, double> grad_h_M_field(
-      "grad_h_M", std::move(grad_h_M_values), surface_mesh.get());
+  std::vector<Vector3<double>> grad_h_MN_M_values = {g0, g1, g2, g3};
+  SurfaceMeshFieldLinear<Vector3<double>, double> grad_h_MN_M_field(
+      "grad_h_MN_M", std::move(grad_h_MN_M_values), surface_mesh.get());
+
   ContactSurface<double> contact_surface(id_M, id_N, std::move(surface_mesh),
                                          std::move(e_field),
-                                         std::move(grad_h_M_field));
+                                         std::move(grad_h_MN_M_field));
+
+  // Start testing the ContactSurface<> data structure.
   EXPECT_EQ(id_M, contact_surface.id_M());
   EXPECT_EQ(id_N, contact_surface.id_N());
   EXPECT_EQ(2, contact_surface.num_faces());
@@ -77,20 +82,20 @@ GTEST_TEST(ContactSurfaceTest, TestInstantiationDouble) {
     const double expect_e = b(0) * e0 + b(1) * e1 + b(2) * e2;
     EXPECT_EQ(expect_e, contact_surface.EvaluateE(f0, b));
   }
-  // Tests evaluation of `grad_h_M` on face f1 {2, 3, 0}.
+  // Tests evaluation of `grad_h_MN_M` on face f1 {2, 3, 0}.
   {
     const SurfaceFaceIndex f1(1);
     const SurfaceMesh<double>::Barycentric b{0.6, 0.3, 0.1};
     // On face f1, we have these quantities.
-    //---+--------+----------+--------------
-    // v | vertex | grad_h_M | barycentric
-    //---+--------+----------+--------------
-    // 0 |   v2   |   g2     |     0.6
-    // 1 |   v3   |   g3     |     0.3
-    // 2 |   v0   |   g0     |     0.1
-    //---+--------+----------+--------------
+    //---+--------+----------+-----------------
+    // v | vertex | grad_h_MN_M | barycentric
+    //---+--------+-------------+--------------
+    // 0 |   v2   |      g2     |     0.6
+    // 1 |   v3   |      g3     |     0.3
+    // 2 |   v0   |      g0     |     0.1
+    //---+--------+-------------+--------------
     const Vector3<double> expect_g = 0.6 * g2 + 0.3 * g3 + 0.1 * g0;
-    EXPECT_EQ(expect_g, contact_surface.EvaluateGrad_h_M(f1, b));
+    EXPECT_EQ(expect_g, contact_surface.EvaluateGrad_h_MN_M(f1, b));
   }
 }
 
