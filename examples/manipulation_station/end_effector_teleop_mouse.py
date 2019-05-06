@@ -342,7 +342,7 @@ diagram = builder.Build()
 simulator = Simulator(diagram)
 integrator = Radau3Integrator(system=diagram, context=simulator.get_context())
 simulator.reset_integrator(integrator)
-integrator.set_target_accuracy(5e-3)
+integrator.set_target_accuracy(5e-1)
 integrator.set_maximum_step_size(1e-2)
 
 station_context = diagram.GetMutableSubsystemContext(
