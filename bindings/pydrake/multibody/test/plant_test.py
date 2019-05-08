@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+import unittest
+
+from six import text_type as unicode
+import numpy as np
+
 from pydrake.multibody.tree import (
     Body,
     BodyIndex,
@@ -22,12 +27,15 @@ from pydrake.multibody.tree import (
     WeldJoint,
     world_index,
 )
-from pydrake.multibody.math import SpatialForce, SpatialVelocity
+from pydrake.multibody.math import (
+    SpatialForce,
+    SpatialVelocity,
+)
 from pydrake.multibody.plant import (
     AddMultibodyPlantSceneGraph,
+    ConnectContactResultsToDrakeVisualizer,
     ContactResults,
     ContactResultsToLcmSystem,
-    ConnectContactResultsToDrakeVisualizer,
     CoulombFriction,
     MultibodyPlant,
     PointPairContactInfo,
@@ -38,29 +46,26 @@ from pydrake.multibody.benchmarks.acrobot import (
     MakeAcrobotPlant,
 )
 
-from pydrake.common.eigen_geometry import Isometry3
+from pydrake.common import FindResourceOrThrow
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.geometry import (
     Box,
     GeometryId,
     PenetrationAsPointPair,
-    SignedDistancePair,
     SceneGraph,
+    SignedDistancePair,
+    SignedDistanceToPoint,
 )
-from pydrake.systems.framework import AbstractValue, DiagramBuilder
-
-import copy
-import math
-import unittest
-import warnings
-
-from six import text_type as unicode
-import numpy as np
-
-from pydrake.common import FindResourceOrThrow
-from pydrake.common.eigen_geometry import Isometry3
-from pydrake.common.test_utilities.deprecation import catch_drake_warnings
-from pydrake.systems.framework import InputPort, OutputPort
-from pydrake.math import RigidTransform, RollPitchYaw
+from pydrake.math import (
+    RigidTransform,
+    RollPitchYaw,
+)
+from pydrake.systems.framework import (
+    AbstractValue,
+    DiagramBuilder,
+    InputPort,
+    OutputPort,
+)
 from pydrake.systems.lcm import LcmPublisherSystem
 
 
@@ -162,7 +167,11 @@ class TestPlant(unittest.TestCase):
         self.assertIsInstance(
             plant.get_actuation_input_port(), InputPort)
         self.assertIsInstance(
-            plant.get_continuous_state_output_port(), OutputPort)
+            plant.get_state_output_port(), OutputPort)
+        # Smoke test of deprecated methods.
+        with catch_drake_warnings(expected_count=2):
+            plant.get_continuous_state_output_port()
+            plant.get_continuous_state_output_port(model_instance)
         self.assertIsInstance(
             plant.get_contact_results_output_port(), OutputPort)
         self.assertIsInstance(plant.num_frames(), int)
@@ -393,7 +402,7 @@ class TestPlant(unittest.TestCase):
         self.assertIsInstance(
             plant.get_actuation_input_port(iiwa_model), InputPort)
         self.assertIsInstance(
-            plant.get_continuous_state_output_port(gripper_model), OutputPort)
+            plant.get_state_output_port(gripper_model), OutputPort)
         self.assertIsInstance(
             plant.get_generalized_contact_forces_output_port(
                 model_instance=gripper_model),
@@ -737,11 +746,11 @@ class TestPlant(unittest.TestCase):
         # Set an arbitrary configuration away from the model's fixed point.
         plant.SetPositions(context, [0.1, 0.2])
 
-        H = plant.CalcMassMatrixViaInverseDynamics(context)
+        M = plant.CalcMassMatrixViaInverseDynamics(context)
         Cv = plant.CalcBiasTerm(context)
 
-        self.assertTrue(H.shape == (2, 2))
-        self.assert_sane(H)
+        self.assertTrue(M.shape == (2, 2))
+        self.assert_sane(M)
         self.assertTrue(Cv.shape == (2, ))
         self.assert_sane(Cv, nonzero=False)
         nv = plant.num_velocities()
@@ -757,6 +766,9 @@ class TestPlant(unittest.TestCase):
         tau_g = plant.CalcGravityGeneralizedForces(context)
         self.assertEqual(tau_g.shape, (nv,))
         self.assert_sane(tau_g, nonzero=True)
+
+        B = plant.MakeActuationMatrix()
+        np.testing.assert_equal(B, np.array([[0.], [1.]]))
 
         forces = MultibodyForces(plant=plant)
         plant.CalcForceElementsContribution(context=context, forces=forces)
@@ -863,6 +875,13 @@ class TestPlant(unittest.TestCase):
         signed_distance_pair, = query_object.\
             ComputeSignedDistancePairwiseClosestPoints()
         self.assertIsInstance(signed_distance_pair, SignedDistancePair)
+        signed_distance_to_point = query_object.\
+            ComputeSignedDistanceToPoint(p_WQ=np.ones(3))
+        self.assertEqual(len(signed_distance_to_point), 2)
+        self.assertIsInstance(signed_distance_to_point[0],
+                              SignedDistanceToPoint)
+        self.assertIsInstance(signed_distance_to_point[1],
+                              SignedDistanceToPoint)
         inspector = query_object.inspector()
 
         def get_body_from_frame_id(frame_id):

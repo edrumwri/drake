@@ -7,6 +7,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_nodiscard.h"
 #include "drake/common/text_logging.h"
 #include "drake/systems/analysis/dense_output.h"
 #include "drake/systems/analysis/hermitian_dense_output.h"
@@ -214,7 +215,8 @@ class IntegratorBase {
     return (!supports_error_estimation() || fixed_step_mode_);
   }
 
-  /** Request that the integrator attempt to achieve a particular accuracy for
+  /**
+   * Request that the integrator attempt to achieve a particular accuracy for
    * the continuous portions of the simulation. Otherwise a default accuracy is
    * chosen for you. This may be ignored for fixed-step integration since
    * accuracy control requires variable step sizes. You should call
@@ -232,6 +234,14 @@ class IntegratorBase {
    * results. By convention it is supplied as `10^-digits`, meaning that an
    * accuracy of 1e-3 provides about three significant digits. For more
    * information, see [Sherman 2011].
+   *
+   * Implicit integrators additionally use the accuracy setting for determining
+   * when the underlying Newton-Raphson root finding process has converged. For
+   * those integrators, the accuracy setting also limits the allowable iteration
+   * error in the Newton-Raphson process. Looser accuracy in that process
+   * certainly implies greater error in the ODE solution and might impact the
+   * stability of the solution negatively as well.
+   *
    * - M. Sherman, et al. Procedia IUTAM 2:241-261 (2011), Section 3.3.
    *   http://dx.doi.org/10.1016/j.piutam.2011.04.023
    * @throws std::logic_error if integrator does not support error
@@ -640,13 +650,13 @@ class IntegratorBase {
   /// @throws std::logic_error If the integrator has not been initialized or
   ///                          `t_target` is in the past or the integrator
   ///                          is not operating in fixed step mode.
-  /// @throws std::runtime_error If the integrator was unable to take a single
-  ///         fixed step to realize `t_target`.
   /// @sa IntegrateNoFurtherThanTime(), which is designed to be operated by
   ///     Simulator and accounts for publishing and state reinitialization.
   /// @sa IntegrateWithMultipleStepsToTime(), which is also designed to be
   ///     operated *outside of* Simulator, but will take as many integration
   ///     steps as necessary until time has been stepped forward to `t_target`.
+  /// @returns `true` if the integrator was able to take a single fixed step to
+  ///          `t_target`.
   ///
   /// This method at a glance:
   ///
@@ -654,7 +664,7 @@ class IntegratorBase {
   /// - Fixed step integration (no step size reductions for error control or
   ///   integrator convergence)
   /// - Takes only a single step forward.
-  void IntegrateWithSingleFixedStepToTime(const T& t_target) {
+  DRAKE_NODISCARD bool IntegrateWithSingleFixedStepToTime(const T& t_target) {
     using std::max;
     using std::abs;
 
@@ -666,10 +676,9 @@ class IntegratorBase {
     if (!this->get_fixed_step_mode())
       throw std::logic_error("IntegrateWithSingleFixedStepToTime() requires "
                              "fixed stepping.");
-    if (!Step(dt)) {
-      throw std::runtime_error("Integrator was unable to take a single fixed "
-                               "step of the requested size.");
-    }
+
+    if (!Step(dt))
+      return false;
 
     UpdateStepStatistics(dt);
 
@@ -680,6 +689,8 @@ class IntegratorBase {
         ExtractDoubleOrThrow(max(t_target, context_->get_time()));
     DRAKE_DEMAND(abs(context_->get_time() - t_target) < tol);
     context_->SetTime(t_target);
+
+    return true;
   }
 
   /**
@@ -900,17 +911,14 @@ class IntegratorBase {
 
   /**
    * Derived classes must override this function to return the order of
-   * the integrator's error estimate, meaning the asymptotic error of the error
-   * estimate. The error estimator approximates the true error e(.) between the
-   * actual state (obtained via a perhaps hypothetical closed form solution to
-   * the initial value problem) and the state computed by the integrator. e(.)
-   * is approximated by a Taylor Series expansion in the neighborhood around t:
+   * the integrator's error estimate. The error estimator approximates the true
+   * error e(.) between the actual state (obtained via a perhaps hypothetical
+   * closed form solution to the initial value problem) and the state computed
+   * by the integrator. e(.) is approximated by a Taylor Series expansion in the
+   * neighborhood around t:
    * @verbatim
    * e(t+h) ≈ e(t) + he(t) + he'(t) + ½h²e''(t) + ...
-   * @endverbatim
-   * The equation above can also be written as:
-   * @verbatim
-   * e(t+h) ≈ e(t) + he(t) + he'(t) + ½h²e''(t) + O(h³)
+   *        ≈ e(t) + he(t) + he'(t) + ½h²e''(t) + O(h³)
    * @endverbatim
    * where we have replaced the "..." with the asymptotic error of all terms
    * truncated from the series. An error estimator that exhibits O(h³)
@@ -1714,8 +1722,8 @@ bool IntegratorBase<T>::StepOnceErrorControlledAtMost(const T& dt_max) {
     T next_step_size;
     std::tie(step_succeeded, next_step_size) = CalcAdjustedStepSize(
         err_norm, step_size_to_attempt, &at_minimum_step_size);
-    SPDLOG_DEBUG(drake::log(), "Step succeeded? {}", step_succeeded);
-    SPDLOG_DEBUG(drake::log(), "Next step size: {}", next_step_size);
+    SPDLOG_DEBUG(drake::log(), "Succeeded? {}, Next step size: {}",
+        step_succeeded, next_step_size);
 
     if (step_succeeded) {
       // Only update the next step size (retain the previous one) if the

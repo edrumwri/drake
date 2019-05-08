@@ -4,9 +4,9 @@
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/drake_optional_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_geometry_pybind.h"
+#include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/bindings/pydrake/systems/systems_pybind.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/math/rigid_transform.h"
@@ -339,6 +339,8 @@ PYBIND11_MODULE(plant, m) {
         .def("CalcGravityGeneralizedForces",
             &Class::CalcGravityGeneralizedForces, py::arg("context"),
             cls_doc.CalcGravityGeneralizedForces.doc)
+        .def("MakeActuationMatrix", &Class::MakeActuationMatrix,
+            cls_doc.MakeActuationMatrix.doc)
         .def("MapVelocityToQDot",
             [](const Class* self, const Context<T>& context,
                 const Eigen::Ref<const VectorX<T>>& v) {
@@ -511,17 +513,29 @@ PYBIND11_MODULE(plant, m) {
                 multibody::ModelInstanceIndex>(
                 &Class::get_actuation_input_port),
             py_reference_internal, cls_doc.get_actuation_input_port.doc_1args)
-        .def("get_continuous_state_output_port",
+        .def("get_state_output_port",
             overload_cast_explicit<const systems::OutputPort<T>&>(
-                &Class::get_continuous_state_output_port),
-            py_reference_internal,
-            cls_doc.get_continuous_state_output_port.doc_0args)
+                &Class::get_state_output_port),
+            py_reference_internal, cls_doc.get_state_output_port.doc_0args)
         .def("get_continuous_state_output_port",
-            overload_cast_explicit<const systems::OutputPort<T>&,
-                multibody::ModelInstanceIndex>(
-                &Class::get_continuous_state_output_port),
+            [](Class* self) -> const systems::OutputPort<T>& {
+              WarnDeprecated("Use get_state_output_port() instead");
+              return self->get_state_output_port();
+            },
             py_reference_internal,
-            cls_doc.get_continuous_state_output_port.doc_1args)
+            cls_doc.get_continuous_state_output_port.doc_deprecated_0args)
+        .def("get_state_output_port",
+            overload_cast_explicit<const systems::OutputPort<T>&,
+                multibody::ModelInstanceIndex>(&Class::get_state_output_port),
+            py_reference_internal, cls_doc.get_state_output_port.doc_1args)
+        .def("get_continuous_state_output_port",
+            [](Class* self, multibody::ModelInstanceIndex model_instance)
+                -> const systems::OutputPort<T>& {
+              WarnDeprecated("Use get_state_output_port() instead");
+              return self->get_state_output_port(model_instance);
+            },
+            py_reference_internal,
+            cls_doc.get_continuous_state_output_port.doc_deprecated_1args)
         .def("get_contact_results_output_port",
             overload_cast_explicit<const systems::OutputPort<T>&>(
                 &Class::get_contact_results_output_port),
@@ -685,7 +699,7 @@ PYBIND11_MODULE(plant, m) {
             py::arg("point_pair_info"), cls_doc.AddContactInfo.doc)
         .def("contact_info", &Class::contact_info, py::arg("i"),
             cls_doc.contact_info.doc);
-    pysystems::AddValueInstantiation<Class>(m);
+    AddValueInstantiation<Class>(m);
   }
 
   // ContactResultsToLcmSystem

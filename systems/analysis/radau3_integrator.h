@@ -587,9 +587,9 @@ bool Radau3Integrator<T>::StepImplicitTrapezoid(const T& t0, const T& h,
 }
 
 // Does all of the real work for the implicit trapezoid method.
-template <class T>
-bool Radau3Integrator<T>::StepImplicitTrapezoidDetail(const T& t0, const T& dt,
-    const VectorX<T>& xt0, const std::function<VectorX<T>()>& g,
+template <class T, int num_stages>
+bool Radau3Integrator<T, num_stages>::StepImplicitTrapezoidDetail(const T& t0,
+    const T& dt, const VectorX<T>& xt0, const std::function<VectorX<T>()>& g,
     VectorX<T>* xtplus, int trial) {
   using std::max;
   using std::min;

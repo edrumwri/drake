@@ -29,6 +29,7 @@
 #include "drake/multibody/benchmarks/pendulum/make_pendulum_plant.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
+#include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/systems/framework/context.h"
@@ -159,10 +160,10 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
       default_model_instance()).size(), 1);
   EXPECT_EQ(plant->get_actuation_input_port(
       pendulum_model_instance).size(), 1);
-  EXPECT_EQ(plant->get_continuous_state_output_port().size(), 6);
-  EXPECT_EQ(plant->get_continuous_state_output_port(
+  EXPECT_EQ(plant->get_state_output_port().size(), 6);
+  EXPECT_EQ(plant->get_state_output_port(
       default_model_instance()).size(), 4);
-  EXPECT_EQ(plant->get_continuous_state_output_port(
+  EXPECT_EQ(plant->get_state_output_port(
       pendulum_model_instance).size(), 2);
 
   // Check that model-instance ports get named properly.
@@ -171,10 +172,10 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
   EXPECT_EQ(
       plant->get_actuation_input_port(default_model_instance()).get_name(),
       "DefaultModelInstance_actuation");
-  EXPECT_EQ(plant->get_continuous_state_output_port(default_model_instance())
+  EXPECT_EQ(plant->get_state_output_port(default_model_instance())
                 .get_name(),
             "DefaultModelInstance_continuous_state");
-  EXPECT_EQ(plant->get_continuous_state_output_port(pendulum_model_instance)
+  EXPECT_EQ(plant->get_state_output_port(pendulum_model_instance)
                 .get_name(),
             "SplitPendulum_continuous_state");
 
@@ -263,6 +264,15 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
   EXPECT_EQ(pin.name(), "pin");
   EXPECT_THROW(plant->GetJointByName(kInvalidName), std::logic_error);
 
+  // Templatized version throws when the requested joint doesn't have the
+  // expected type.
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant->GetJointByName<PrismaticJoint>(parameters.shoulder_joint_name(),
+                                            shoulder.model_instance()),
+      std::logic_error,
+      ".*not of type '.*PrismaticJoint<double>' but of type "
+      "'.*RevoluteJoint<double>'.");
+
   // MakeAcrobotPlant() has already called Finalize() on the acrobot model.
   // Therefore no more modeling elements can be added. Verify this.
   DRAKE_EXPECT_THROWS_MESSAGE(
@@ -283,7 +293,8 @@ GTEST_TEST(MultibodyPlant, SimpleModelCreation) {
           "AnotherJoint", link1.body_frame(), link2.body_frame(),
           Vector3d::UnitZ())),
       std::logic_error,
-      ".*MultibodyTree.*finalized already.*");
+      "Post-finalize calls to '.*' are not allowed; "
+      "calls to this method must happen before Finalize\\(\\).");
   // TODO(amcastro-tri): add test to verify that requesting a joint of the wrong
   // type throws an exception. We need another joint type to do so.
 }
@@ -376,11 +387,20 @@ class AcrobotPlantTests : public ::testing::Test {
     EXPECT_NO_THROW(plant_->get_geometry_poses_output_port());
 
     DRAKE_EXPECT_THROWS_MESSAGE(
-        plant_->get_continuous_state_output_port(),
+        plant_->get_state_output_port(),
         std::logic_error,
         /* Verify this method is throwing for the right reasons. */
         "Pre-finalize calls to '.*' are not allowed; "
         "you must call Finalize\\(\\) first.");
+
+    link1_ = &plant_->GetBodyByName(parameters_.link1_name());
+    link2_ = &plant_->GetBodyByName(parameters_.link2_name());
+
+    // Test we can call these methods pre-finalize.
+    const FrameId link1_frame_id =
+        plant_->GetBodyFrameIdOrThrow(link1_->index());
+    EXPECT_EQ(link1_frame_id, *plant_->GetBodyFrameIdIfExists(link1_->index()));
+    EXPECT_EQ(plant_->GetBodyFromFrameId(link1_frame_id), link1_);
 
     // Finalize() the plant.
     plant_->Finalize();
@@ -388,8 +408,6 @@ class AcrobotPlantTests : public ::testing::Test {
     // And build the Diagram:
     diagram_ = builder.Build();
 
-    link1_ = &plant_->GetBodyByName(parameters_.link1_name());
-    link2_ = &plant_->GetBodyByName(parameters_.link2_name());
     shoulder_ = &plant_->GetMutableJointByName<RevoluteJoint>(
         parameters_.shoulder_joint_name());
     elbow_ = &plant_->GetMutableJointByName<RevoluteJoint>(
@@ -676,11 +694,10 @@ TEST_F(AcrobotPlantTests, VisualGeometryRegistration) {
   EXPECT_NO_THROW(poses_value->get_value<FramePoseVector<double>>());
   const FramePoseVector<double>& poses =
       poses_value->get_value<FramePoseVector<double>>();
-  EXPECT_EQ(poses.source_id(), plant_->get_source_id());
-  EXPECT_EQ(poses.size(), 2);  // Only two frames move.
 
   // Compute the poses for each geometry in the model.
   plant_->get_geometry_poses_output_port().Calc(*context, poses_value.get());
+  EXPECT_EQ(poses.size(), 2);  // Only two frames move.
 
   const FrameId world_frame_id =
       plant_->GetBodyFrameIdOrThrow(plant_->world_body().index());
@@ -1070,26 +1087,34 @@ GTEST_TEST(MultibodyPlantTest, CollectRegisteredGeometries) {
 
 // Verifies the process of getting welded bodies.
 GTEST_TEST(MultibodyPlantTest, GetBodiesWeldedTo) {
-  using ::testing::UnorderedElementsAreArray;
+  using ::testing::UnorderedElementsAre;
   // This test expects that the following model has a world body and a pair of
   // welded-together bodies.
-  const std::string sdf_file = FindResourceOrThrow(
-      "drake/multibody/plant/test/split_pendulum.sdf");
+  const std::string sdf_file =
+      FindResourceOrThrow("drake/multibody/plant/test/split_pendulum.sdf");
   MultibodyPlant<double> plant;
   Parser(&plant).AddModelFromFile(sdf_file);
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetBodiesWeldedTo(plant.world_body()), std::logic_error,
-      "Pre-finalize calls to 'GetBodiesWeldedTo\\(\\)' are not "
-      "allowed; you must call Finalize\\(\\) first.");
-  plant.Finalize();
   const Body<double>& upper = plant.GetBodyByName("upper_section");
   const Body<double>& lower = plant.GetBodyByName("lower_section");
-  EXPECT_THAT(
-      plant.GetBodiesWeldedTo(plant.world_body()),
-      UnorderedElementsAreArray({&plant.world_body()}));
-  EXPECT_THAT(
-      plant.GetBodiesWeldedTo(lower),
-      UnorderedElementsAreArray({&upper, &lower}));
+
+  // Add a new body, and weld it using `WeldFrames` (to ensure that topology is
+  // updated via this API).
+  const Body<double>& extra = plant.AddRigidBody(
+      "extra", default_model_instance(), SpatialInertia<double>());
+  plant.WeldFrames(plant.world_frame(), extra.body_frame());
+
+  // Verify we can call GetBodiesWeldedTo() pre-finalize.
+  EXPECT_THAT(plant.GetBodiesWeldedTo(plant.world_body()),
+              UnorderedElementsAre(&plant.world_body(), &extra));
+  EXPECT_THAT(plant.GetBodiesWeldedTo(lower),
+              UnorderedElementsAre(&upper, &lower));
+
+  // And post-finalize.
+  plant.Finalize();
+  EXPECT_THAT(plant.GetBodiesWeldedTo(plant.world_body()),
+              UnorderedElementsAre(&plant.world_body(), &extra));
+  EXPECT_THAT(plant.GetBodiesWeldedTo(lower),
+              UnorderedElementsAre(&upper, &lower));
 }
 
 // Verifies the process of collision geometry registration with a
@@ -1133,6 +1158,10 @@ GTEST_TEST(MultibodyPlantTest, CollisionGeometryRegistration) {
   // We are done defining the model.
   plant.Finalize();
 
+  // There is no direct feedthrough of any kind, even with the new ports
+  // related to SceneGraph interaction.
+  EXPECT_FALSE(plant.HasAnyDirectFeedthrough());
+
   EXPECT_EQ(plant.num_visual_geometries(), 0);
   EXPECT_EQ(plant.num_collision_geometries(), 3);
   EXPECT_TRUE(plant.geometry_source_is_registered());
@@ -1156,11 +1185,10 @@ GTEST_TEST(MultibodyPlantTest, CollisionGeometryRegistration) {
   EXPECT_NO_THROW(poses_value->get_value<FramePoseVector<double>>());
   const FramePoseVector<double>& pose_data =
       poses_value->get_value<FramePoseVector<double>>();
-  EXPECT_EQ(pose_data.source_id(), plant.get_source_id());
-  EXPECT_EQ(pose_data.size(), 2);  // Only two frames move.
 
   // Compute the poses for each geometry in the model.
   plant.get_geometry_poses_output_port().Calc(*context, poses_value.get());
+  EXPECT_EQ(pose_data.size(), 2);  // Only two frames move.
 
   const double kTolerance = 5 * std::numeric_limits<double>::epsilon();
   for (BodyIndex body_index(1);
@@ -1350,14 +1378,14 @@ TEST_F(AcrobotPlantTests, EvalContinuousStateOutputPort) {
   elbow_->set_angular_rate(context.get(), 2.5);
 
   unique_ptr<AbstractValue> state_value =
-      plant_->get_continuous_state_output_port().Allocate();
+      plant_->get_state_output_port().Allocate();
   EXPECT_NO_THROW(state_value->get_value<BasicVector<double>>());
   const BasicVector<double>& state_out =
       state_value->get_value<BasicVector<double>>();
   EXPECT_EQ(state_out.size(), plant_->num_multibody_states());
 
   // Compute the poses for each geometry in the model.
-  plant_->get_continuous_state_output_port().Calc(*context, state_value.get());
+  plant_->get_state_output_port().Calc(*context, state_value.get());
 
   // Get continuous state_out from context.
   const VectorBase<double>& state = context->get_continuous_state_vector();
@@ -1958,6 +1986,10 @@ class KukaArmTest : public ::testing::TestWithParam<double> {
         plant_->WeldFrames(plant_->world_frame(),
                            plant_->GetFrameByName("iiwa_link_0"));
     plant_->Finalize();
+
+    // There is no direct feedthrough of any kind, for either continuous or
+    // discrete plants.
+    EXPECT_FALSE(plant_->HasAnyDirectFeedthrough());
 
     EXPECT_EQ(plant_->num_positions(), 7);
     EXPECT_EQ(plant_->num_velocities(), 7);

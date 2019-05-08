@@ -2,101 +2,28 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/common/unused.h"
 #include "drake/systems/analysis/test_utilities/discontinuous_spring_mass_damper_system.h"
 #include "drake/systems/analysis/test_utilities/robertson_system.h"
 #include "drake/systems/analysis/test_utilities/spring_mass_damper_system.h"
+#include "drake/systems/analysis/test_utilities/stationary_system.h"
 #include "drake/systems/analysis/test_utilities/stiff_double_mass_spring_system.h"
 #include "drake/systems/plants/spring_mass_system/spring_mass_system.h"
-#include "drake/common/text_logging.h"
 
 namespace drake {
 namespace systems {
 namespace {
 
+using analysis_test::StationarySystem;
 using implicit_integrator_test::SpringMassDamperSystem;
 using implicit_integrator_test::DiscontinuousSpringMassDamperSystem;
-
-/// System with no state evolution for testing numerical differentiation.
-template <class T>
-class StationarySystem final : public LeafSystem<T> {
- public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(StationarySystem)
-
-  StationarySystem()
-      : LeafSystem<T>(SystemTypeTag<systems::StationarySystem>{}) {
-    this->DeclareContinuousState(1 /* num q */, 1 /* num v */, 0 /* num z */);
-  }
-
-  /// Scalar-converting copy constructor. See @ref system_scalar_conversion.
-  template <typename U>
-  explicit StationarySystem(const StationarySystem<U>&)
-      : StationarySystem<T>() {}
-
- protected:
-  void DoCalcTimeDerivatives(const Context<T>& context,
-                             ContinuousState<T>* derivatives) const override {
-    // State does not evolve.
-    derivatives->get_mutable_vector().SetAtIndex(0, 0.0);
-    derivatives->get_mutable_vector().SetAtIndex(1, 0.0);
-  }
-};
-
-// Tests the implicit integrator on Robertson's stiff chemical reaction
-// problem, which has been used to benchmark various implicit integrators.
-// This problem is particularly good at testing large step sizes (since the
-// solution quickly converges) and long simulation times.
-GTEST_TEST(ImplicitEulerIntegratorTest, Robertson) {
-  //drake::logging::set_log_level("debug");
-  std::unique_ptr<analysis::test::RobertsonSystem<double>> robertson =
-    std::make_unique<analysis::test::RobertsonSystem<double>>();
-  std::unique_ptr<Context<double>> context = robertson->CreateDefaultContext();
-  context->EnableCaching();
-
-  // Set the initial conditions for Robertson's system.
-  VectorBase<double>& state = context->get_mutable_continuous_state().
-                                get_mutable_vector();
-  state.SetAtIndex(0, 1);
-  state.SetAtIndex(1, 0);
-  state.SetAtIndex(2, 0);
-
-  const double t_final = robertson->get_end_time();
-  const double tol = 5e-5;
-
-  // Create the integrator.
-  ImplicitEulerIntegrator<double> integrator(*robertson, context.get());
-
-  // Very large step is necessary for this problem since given solution is
-  // at t = 1e11. However, the current initial step size selection algorithm
-  // will use a large factor of the maximum step size, which can result in
-  // too large an initial step for this problem. Accordingly, we explicitly
-  // select a small initial step size.
-  // @TODO(edrumwri): Explore a better algorithm for selecting the initial
-  //                  step size (see issue #6329).
-  integrator.set_maximum_step_size(10000000.0);
-  integrator.set_throw_on_minimum_step_size_violation(false);
-  integrator.set_target_accuracy(tol);
-  integrator.request_initial_step_size_target(1e-4);
-  integrator.set_reuse(false);
-
-  // Integrate the system
-  integrator.Initialize();
-  integrator.IntegrateWithMultipleStepsToTime(t_final);
-
-  // Verify the solution.
-  const Eigen::Vector3d sol = robertson->GetSolution(t_final);
-  EXPECT_NEAR(state.GetAtIndex(0), sol(0), tol);
-  EXPECT_NEAR(state.GetAtIndex(1), sol(1), tol);
-  EXPECT_NEAR(state.GetAtIndex(2), sol(2), tol);
-  drake::logging::set_log_level("off");
-}
 
 // Tests the implicit integrator on a stationary system problem, which
 // stresses numerical differentiation (since the state does not change).
 GTEST_TEST(ImplicitEulerIntegratorTest, Stationary) {
-  std::unique_ptr<StationarySystem<double>> stationary =
-    std::make_unique<StationarySystem<double>>();
+  auto stationary = std::make_unique<StationarySystem>();
   std::unique_ptr<Context<double>> context = stationary->CreateDefaultContext();
-  context->EnableCaching();
 
   // Set the initial condition for the stationary system.
   VectorBase<double>& state = context->get_mutable_continuous_state().
@@ -119,6 +46,74 @@ GTEST_TEST(ImplicitEulerIntegratorTest, Stationary) {
   EXPECT_NEAR(state.GetAtIndex(1), 0, std::numeric_limits<double>::epsilon());
 }
 
+// Tests the implicit integrator on Robertson's stiff chemical reaction
+// problem, which has been used to benchmark various implicit integrators.
+// This problem is particularly good at testing large step sizes (since the
+// solution quickly converges) and long simulation times.
+GTEST_TEST(ImplicitEulerIntegratorTest, Robertson) {
+  std::unique_ptr<analysis::test::RobertsonSystem<double>> robertson =
+    std::make_unique<analysis::test::RobertsonSystem<double>>();
+  std::unique_ptr<Context<double>> context = robertson->CreateDefaultContext();
+
+  const double t_final = robertson->get_end_time();
+  const double tol = 5e-5;
+
+  // Create the integrator.
+  ImplicitEulerIntegrator<double> integrator(*robertson, context.get());
+
+  // Very large step is necessary for this problem since given solution is
+  // at t = 1e11. However, the current initial step size selection algorithm
+  // will use a large factor of the maximum step size, which can result in
+  // too large an initial step for this problem. Accordingly, we explicitly
+  // select a small initial step size.
+  // @TODO(edrumwri): Explore a better algorithm for selecting the initial
+  //                  step size (see issue #6329).
+  integrator.set_maximum_step_size(10000000.0);
+  integrator.set_throw_on_minimum_step_size_violation(false);
+  integrator.set_target_accuracy(tol);
+  integrator.request_initial_step_size_target(1e-4);
+
+  // Integrate the system
+  integrator.Initialize();
+  integrator.IntegrateWithMultipleStepsToTime(t_final);
+
+  // Verify the solution.
+  const VectorBase<double>& state = context->get_continuous_state().
+      get_vector();
+  const Eigen::Vector3d sol = robertson->GetSolution(t_final);
+  EXPECT_NEAR(state.GetAtIndex(0), sol(0), tol);
+  EXPECT_NEAR(state.GetAtIndex(1), sol(1), tol);
+  EXPECT_NEAR(state.GetAtIndex(2), sol(2), tol);
+}
+
+GTEST_TEST(ImplicitEulerIntegratorTest, FixedStepThrowsOnMultiStep) {
+  auto robertson = std::make_unique<analysis::test::RobertsonSystem<double>>();
+  std::unique_ptr<Context<double>> context = robertson->CreateDefaultContext();
+
+  // Relatively large step size that we know fails to converge from the initial
+  // state.
+  const double dt = 1e-2;
+
+  // Create the integrator.
+  ImplicitEulerIntegrator<double> integrator(*robertson, context.get());
+
+  // Make sure integrator can take the size we want.
+  integrator.set_maximum_step_size(dt);
+
+  // Enable fixed stepping.
+  integrator.set_fixed_step_mode(true);
+
+  // Values we have used successfully in other Robertson system tests.
+  integrator.set_target_accuracy(5e-5);
+
+  // Integrate to the desired step time. We expect this to return false because
+  // the integrator is generally unlikely to converge for such a relatively
+  // large step.
+  integrator.Initialize();
+  EXPECT_FALSE(integrator.IntegrateWithSingleFixedStepToTime(
+      context->get_time() + dt));
+}
+
 class ImplicitIntegratorTest : public ::testing::TestWithParam<bool> {
  public:
   ImplicitIntegratorTest() {
@@ -138,11 +133,9 @@ class ImplicitIntegratorTest : public ::testing::TestWithParam<bool> {
 
     // One context will be usable for three of the systems.
     context_ = spring_->CreateDefaultContext();
-    context_->EnableCaching();
 
     // Separate context necessary for the double spring mass system.
     dspring_context_ = stiff_double_system_->CreateDefaultContext();
-    dspring_context_->EnableCaching();
   }
 
   std::unique_ptr<Context<double>> context_;
@@ -193,23 +186,33 @@ TEST_F(ImplicitIntegratorTest, AutoDiff) {
   // Create the integrator for a System<AutoDiffXd>.
   auto system = spring_->ToAutoDiffXd();
   auto context = system->CreateDefaultContext();
-  context->EnableCaching();
   ImplicitEulerIntegrator<AutoDiffXd> integrator(*system, context.get());
 
   // Set reasonable integrator parameters.
+  integrator.set_fixed_step_mode(true);
   integrator.set_maximum_step_size(large_dt_);
   integrator.request_initial_step_size_target(large_dt_);
   integrator.set_target_accuracy(1e-5);
   integrator.set_requested_minimum_step_size(small_dt_);
+  integrator.set_jacobian_computation_scheme(ImplicitIntegrator<AutoDiffXd>::
+      JacobianComputationScheme::kAutomatic);
   integrator.Initialize();
 
-  // Integrate for one step. We expect this to throw because the integrator
-  // is generally unlikely to converge for such a relatively large step.
-  EXPECT_THROW(integrator.IntegrateWithSingleFixedStepToTime(
-      context_->get_time() + large_dt_), std::logic_error);
+  // Integrate for one step. We expect this to throw since we've requested
+  // using an automatically differentiated Jacobian matrix on the AutoDiff'd
+  // integrator.
+  bool result;
+  DRAKE_EXPECT_THROWS_MESSAGE(result = integrator.
+      IntegrateWithSingleFixedStepToTime(context_->get_time() + large_dt_),
+      std::runtime_error,
+      "AutoDiff'd Jacobian not supported.*");
 
-  // TODO(edrumwri): Add test that an automatic differentiation of an implicit
-  // integrator produces the expected result.
+  // Revert to forward difference and try again; we now expect no throw.
+  integrator.set_jacobian_computation_scheme(ImplicitIntegrator<AutoDiffXd>::
+      JacobianComputationScheme::kForwardDifference);
+  EXPECT_NO_THROW(result = integrator.IntegrateWithSingleFixedStepToTime(
+      context_->get_time() + large_dt_));
+  unused(result);
 }
 
 TEST_P(ImplicitIntegratorTest, MiscAPI) {
@@ -242,34 +245,31 @@ TEST_P(ImplicitIntegratorTest, MiscAPI) {
 }
 
 TEST_F(ImplicitIntegratorTest, FixedStepThrowsOnMultiStep) {
-  // Create a new spring-mass system.
-  SpringMassSystem<double> spring_mass(spring_k_, mass_,
-                                       false /* no forcing */);
+  auto robertson = std::make_unique<analysis::test::RobertsonSystem<double>>();
+  std::unique_ptr<Context<double>> context = robertson->CreateDefaultContext();
 
-  // Set the integrator to operate in fixed step mode and with very tight
-  // tolerances.
-  ImplicitEulerIntegrator<double> integrator(spring_mass, context_.get());
-  const double huge_dt = 100.0;
-  integrator.set_maximum_step_size(huge_dt);
+  // Relatively large step size that we know fails to converge from the initial
+  // state.
+  const double dt = 1e-2;
+
+  // Create the integrator.
+  ImplicitEulerIntegrator<double> integrator(*robertson, context.get());
+
+  // Make sure integrator can take the size we want.
+  integrator.set_maximum_step_size(dt);
+
+  // Enable fixed stepping.
   integrator.set_fixed_step_mode(true);
 
-  // Use automatic differentiation because we can.
-  integrator.set_jacobian_computation_scheme(
-      ImplicitEulerIntegrator<double>::JacobianComputationScheme::
-      kAutomatic);
+  // Values we have used successfully in other Robertson system tests.
+  integrator.set_target_accuracy(5e-5);
 
-  // Set initial condition to something significant.
-  spring_mass.set_position(context_.get(), 1.0);
-  spring_mass.set_velocity(context_.get(), -1.0);
-
-  // Take all the defaults.
+  // Integrate to the desired step time. We expect this to return false because
+  // the integrator is generally unlikely to converge for such a relatively
+  // large step.
   integrator.Initialize();
-
-  // Integrate to the desired step time. We expect this to throw because the
-  // integrator is generally unlikely to converge for such a relatively large
-  // step.
-  EXPECT_THROW(integrator.IntegrateWithSingleFixedStepToTime(
-      context_->get_time() + huge_dt), std::runtime_error);
+  EXPECT_FALSE(integrator.IntegrateWithSingleFixedStepToTime(
+      context->get_time() + dt));
 }
 
 TEST_F(ImplicitIntegratorTest, ContextAccess) {
@@ -512,7 +512,8 @@ TEST_P(ImplicitIntegratorTest, SpringMassStep) {
   EXPECT_NEAR(x_final_true, x_final, 5e-3);
 
   // Verify that integrator statistics are valid and reset the statistics.
-  CheckGeneralStatsValidity(&integrator);
+  CheckG  deformation
+exactly   and   therefore   all   points   slide   simultaneously.eneralStatsValidity(&integrator);
 
   // Switch to central differencing.
   integrator.set_jacobian_computation_scheme(
@@ -619,8 +620,8 @@ TEST_P(ImplicitIntegratorTest, ErrorEstimation) {
       spring_mass.set_velocity(context_.get(), initial_velocity[i]);
 
       // Integrate for the desired step size.
-      integrator.IntegrateWithSingleFixedStepToTime(
-          context_->get_time() + dts[j]);
+      ASSERT_TRUE(integrator.IntegrateWithSingleFixedStepToTime(
+          context_->get_time() + dts[j]));
 
       // Check the time.
       EXPECT_NEAR(context_->get_time(), dts[j], ttol);

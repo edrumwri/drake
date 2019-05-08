@@ -220,8 +220,8 @@ GTEST_TEST(QuaternionFloatingMobilizer, Simulation) {
   const Vector4d q_WB_vec4(q_WB.w(), q_WB.x(), q_WB.y(), q_WB.z());
 
   // After numerical integration, and with no projection, the quaternion
-  // representing the body's orientation is no longer unit length, however close
-  // to it by kTolerance.
+  // representing the body's orientation is no longer unit length.
+  // Test whether the quaternion is within kTolerance of a unit quaternion.
   EXPECT_TRUE(std::abs(q_WB.norm() - 1.0) < kTolerance);
 
   // Since the quaternion must live in the unit sphere (in 4D), we must have
@@ -229,13 +229,12 @@ GTEST_TEST(QuaternionFloatingMobilizer, Simulation) {
   EXPECT_TRUE(std::abs(q_WB_vec4.dot(DtW_quat)) < 10 * kEpsilon);
 
   // The time derivative of the quaternion component can only be expected to be
-  // accurate within kTolerance due to the loss of normalization in
-  // the quaternion.
+  // accurate within kTolerance due to the loss of normalization in the
+  // quaternion.
   EXPECT_TRUE(CompareMatrices(DtW_quat, quatDt_WB_exact,
-                              kTolerance,
-                              MatrixCompareType::relative));
+      kTolerance, MatrixCompareType::relative));
   EXPECT_TRUE(CompareMatrices(DtW_p_WBcm, v_WB, kEpsilon,
-                              MatrixCompareType::relative));
+      MatrixCompareType::relative));
 
   // Verify MultibodyTree::MapQDotToVelocity() does indeed map back to the
   // original generalized velocities.
