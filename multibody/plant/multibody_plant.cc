@@ -755,6 +755,139 @@ void MultibodyPlant<T>::ExcludeCollisionsWithVisualGeometry() {
   member_scene_graph().ExcludeCollisionsBetween(visual, collision);
 }
 
+template <typename T>
+void MultibodyPlant<T>::AugmentContactSurface(ContactSurface<T>* surface) {
+  // Add a linear slip velocity field to the contact surface.
+
+  // Add a traction field to the contact surface.
+}
+
+template <typename T>
+void MultibodyPlant<T>::CalcContactForcesFromHydroelasticModel(
+    const systems::Context<T>& context) const {
+
+  GaussianTriangleQuadratureRule gaussian_quadrature_rule;
+  std::vector<ContactSurface<T>> contact_surfaces =
+      query_object.ComputeContactSurfaces();
+  for (const auto& contact_surface : contact_surfaces) {
+    // Get the two geometries.
+    GeometryId geom_M = contact_surface.id_M();
+    GeometryId geom_N = contact_surface.id_N();
+
+    // Iterate over each triangle in the contact surface.
+    const SurfaceMesh<T>& mesh = contact_surface.mesh();
+    for (SurfaceFaceIndex i(0); i < mesh.num_faces(); ++i) {
+      // TODO(DamrongGuoy) This should be converted to a constant reference in
+      // the API and here.
+      const T triangle_area = mesh.area(i);
+
+      // Form the traction evaluation function.
+      auto fn = [this, geom_M, geom_N, contact_surface, i](
+          const Vector2<T>& r_barycentric) {
+        // Convert the barycentric coordinate to a point in 3D.
+      }
+
+      VectorX<T> generalized_force =
+          TriangleQuadrature<SpatialForce<T>, T>::Integrate(
+              fn, gaussian_quadrature_rule, triangle_area);
+    }
+  }
+}
+
+template <typename T>
+T MultibodyPlant<T>::CalcFrictionMagnitude(const Vector3<T>& slip_velocity) {
+  const double squared_slip_tol = 1e-8 * 1e-8;
+  const T squared_slip_velocity = slip_velocity.normSquared();
+  if (squared_slip_velocity < squared_slip_tol)
+    return slip_velocity * 0;
+
+  const T vt = sqrt(vt_squared);
+        // Stribeck friction coefficient.
+        const T mu_stribeck = stribeck_model_.ComputeFrictionCoefficient(
+            vt, combined_friction_pairs[icontact]);
+
+}
+
+template <typename T>
+VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
+    const systems::Context<T>& context, GeometryId geometry_M,
+    GeometryId geometry_N, const AugmentedContactSurface<T>& surface,
+    SurfaceFaceElement face_index, Vector2<T>& r_barycentric) const {
+  // Convert the barycentric coordinate to 3D.
+
+  // Get the hydroelastic pressure at the point.
+  const T E_MN = surface.EvaluateE_MN(face_index, r_barycentric);
+
+  // Get the normal to the contact surface at r.
+  const Vector3<T> h_MN_M = surface.EvaluateGrad_h_MN_M(
+      face_index, r_barycentric);
+  const Vector3<T> nhat_MN_M = h_MN_M.normalized();
+
+  // Form an orthonormal basis from the normal to the surface.
+
+
+  // Get the Jacobian matrix that transforms generalized velocities into
+  // velocities at point r and expressed in the contact frame.
+
+  // Get the normal component of the Jacobian matrix.
+
+  // Get the relative velocity at the given point between the bodies that M and
+  // N are attached to.
+  const Vector3<T> rdot_MN = Gnst * v;
+
+  // Get the velocity along the normal to the contact surface. Note that a
+  // positive value indicates that bodies are separating at r while a negative
+  // value indicates that bodies are approaching at r.
+  const T rdot_nhat_MN = rdot_MN(0);
+  const double c = 0.0;
+
+  // TODO(edrumwri): Use Hunt/Crossley model instead.
+  // Determine the contribution from dissipation.
+
+  // Determine the normal pressure at the point.
+  const T normal_pressure = E_MN - rdot_nhat_MN * c;
+
+  // Compute the normal traction.
+  const Vector3<T> normal_traction = nhat_MN_M * normal_pressure;
+
+  // Get the slip velocity at the point by subtracting the normal contribution
+  // to velocity.
+  const Vector2<T> rdot_tan_MN(rdot_MN(1), rdot_MN(2));
+
+  // Determine the traction.
+  const double squared_vslip_tol = 1e-8 * 1e-8;
+  const T squared_rdot_tan = rdot_tan_MN.squaredNorm();
+  if (squared_rdot_tan > squared_vslip_tol) {
+    using std::atan;
+    using std::sqrt;
+
+    // Get the slip speed.
+    const T norm_rdot_tan = sqrt(squared_rdot_tan);
+
+    // TODO(edrumwri) Obtain mu from material properties.
+    const double mu = 0.1;
+
+    // Get the direction of slip.
+    const Vector2<T> rdot_hat_tan_MN = rdot_tan_MN / norm_rdot_tan;
+
+    // Compute the frictional traction.
+    return Gn.transpose() * normal_pressure + Gst.transpose() * (
+        -rdot_hat_tan_MN * mu * normal_pressure * 2.0/M_PI *
+            atan(squared_vslip_tol / squared_vslip_tol));
+  } else {
+    // Only normal traction (no frictional traction).
+    return Gn.transpose() * normal_pressure;
+  }
+}
+
+template<typename T>
+void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
+    const systems::Context<T>& context,
+    const Vector3<T>& point,
+    const RotationMatrix<T>& R_WC,
+    MatrixX<T>* Jn_ptr, MatrixX<T>* Jt_ptr) const {
+}
+
 template<typename T>
 void MultibodyPlant<T>::CalcNormalAndTangentContactJacobians(
     const systems::Context<T>& context,
