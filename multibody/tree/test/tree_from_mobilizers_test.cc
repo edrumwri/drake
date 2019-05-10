@@ -1,5 +1,5 @@
 // clang-format: off
-#include "drake/multibody/tree/multibody_tree.h"
+#include "drake/multibody/tree/multibody_tree-inl.h"
 // clang-format: on
 
 #include <functional>
@@ -176,8 +176,7 @@ class PendulumTests : public ::testing::Test {
     // In this case the frame is created explicitly from the body frame of
     // upper_link.
     shoulder_outboard_frame_ =
-        &model_->AddFrame<FixedOffsetFrame>(
-            upper_link_->body_frame(), X_USo_.GetAsIsometry3());
+        &model_->AddFrame<FixedOffsetFrame>(upper_link_->body_frame(), X_USo_);
 
     // Adds the shoulder and elbow mobilizers of the pendulum.
     // Using:
@@ -207,7 +206,7 @@ class PendulumTests : public ::testing::Test {
     // MultibodyTree::AddJoint() method do that for us:
     elbow_joint_ = &model_->AddJoint<RevoluteJoint>(
         "ElbowJoint",
-        *upper_link_, X_UEi_.GetAsIsometry3(), /* Pose of Ei in U. */
+        *upper_link_, X_UEi_, /* Pose of Ei in U. */
         *lower_link_, {},     /* No pose provided, frame Eo IS frame L. */
         Vector3d::UnitZ()     /* revolute axis */);
     elbow_inboard_frame_ = &elbow_joint_->frame_on_parent();
@@ -276,7 +275,7 @@ class PendulumTests : public ::testing::Test {
   // this method initializes the poses of each link in the position kinematics
   // cache.
   void SetPendulumPoses(PositionKinematicsCache<double>* pc) {
-    pc->get_mutable_X_WB(BodyNodeIndex(1)) = X_WL_.GetAsIsometry3();
+    pc->get_mutable_X_WB(BodyNodeIndex(1)) = X_WL_;
   }
 
   // Add elements to this model_ and then transfer the whole thing to
@@ -431,7 +430,7 @@ TEST_F(PendulumTests, Finalize) {
   SpatialInertia<double> M_Bo_B;
   EXPECT_THROW(model_->AddBody<RigidBody>(M_Bo_B), std::logic_error);
   EXPECT_THROW(
-      model_->AddFrame<FixedOffsetFrame>(*lower_link_, X_LEo_.GetAsIsometry3()),
+      model_->AddFrame<FixedOffsetFrame>(*lower_link_, X_LEo_),
       std::logic_error);
   EXPECT_THROW(model_->AddMobilizer<RevoluteMobilizer>(
       *shoulder_inboard_frame_, *shoulder_outboard_frame_,
@@ -485,22 +484,18 @@ TEST_F(PendulumTests, CreateContext) {
   std::unique_ptr<Context<double>> context;
   EXPECT_NO_THROW(context = system.CreateDefaultContext());
 
-  // Tests MultibodyTreeContext accessors.
-  auto mbt_context =
-      dynamic_cast<MultibodyTreeContext<double>*>(context.get());
-  ASSERT_TRUE(mbt_context != nullptr);
+  // Tests MultibodyTree state accessors.
+  const auto& tree = GetInternalTree(system);
 
   // Verifies the correct number of generalized positions and velocities.
-  EXPECT_EQ(mbt_context->get_positions().size(), 2);
-  EXPECT_EQ(mbt_context->get_mutable_positions().size(), 2);
-  EXPECT_EQ(mbt_context->get_velocities().size(), 2);
-  EXPECT_EQ(mbt_context->get_mutable_velocities().size(), 2);
+  EXPECT_EQ(tree.get_positions(*context).size(), 2);
+  EXPECT_EQ(tree.get_mutable_positions(&*context).size(), 2);
+  EXPECT_EQ(tree.get_velocities(*context).size(), 2);
+  EXPECT_EQ(tree.get_mutable_velocities(&*context).size(), 2);
 
   // Verifies methods to retrieve fixed-sized segments of the state.
-  EXPECT_EQ(mbt_context->get_state_segment<1>(1).size(), 1);
-  EXPECT_EQ(mbt_context->get_mutable_state_segment<1>(1).size(), 1);
-
-  const auto& tree = GetInternalTree(system);
+  EXPECT_EQ(tree.get_state_segment<1>(*context, 1).size(), 1);
+  EXPECT_EQ(tree.get_mutable_state_segment<1>(&*context, 1).size(), 1);
 
   // Set the poses of each body in the position kinematics cache to have an
   // arbitrary value that we can use for unit testing. In practice the poses in
@@ -535,8 +530,6 @@ class PendulumKinematicTests : public PendulumTests {
     // Only for testing, in this case we do know our Joint model IS a
     // RevoluteMobilizer.
     elbow_mobilizer_ = JointTester::get_mobilizer(*elbow_joint_);
-    mbt_context_ =
-        dynamic_cast<MultibodyTreeContext<double>*>(context_.get());
   }
 
   /// Verifies that we can compute the mass matrix of the system using inverse
@@ -701,7 +694,7 @@ class PendulumKinematicTests : public PendulumTests {
     tau.setConstant(std::numeric_limits<double>::quiet_NaN());
     tau_applied.setZero();
     tree().CalcInverseDynamics(
-        *context_, pc, vc, vdot, Fapplied_Bo_W_array, tau_applied,
+        *context_, vdot, Fapplied_Bo_W_array, tau_applied,
         &A_WB_array, &F_BMo_W_array, &tau);
     // The result from inverse dynamics must be tau = -tau_g(q).
     EXPECT_TRUE(tau.isApprox(-tau_g_expected, kTolerance));
@@ -710,7 +703,7 @@ class PendulumKinematicTests : public PendulumTests {
     // Fapplied_Bo_W_array will get overwritten through the output argument).
     tau_applied.setZero();  // This will now get overwritten.
     tree().CalcInverseDynamics(
-        *context_, pc, vc, vdot, Fapplied_Bo_W_array, tau_applied,
+        *context_, vdot, Fapplied_Bo_W_array, tau_applied,
         &A_WB_array, &Fapplied_Bo_W_array, &tau_applied);
     // The result from inverse dynamics must be tau = -tau_g(q).
     EXPECT_TRUE(tau.isApprox(-tau_g_expected, kTolerance));
@@ -749,7 +742,6 @@ class PendulumKinematicTests : public PendulumTests {
  protected:
   std::unique_ptr<MultibodyTreeSystem<double>> system_;
   std::unique_ptr<Context<double>> context_;
-  MultibodyTreeContext<double>* mbt_context_;
   // Reference benchmark for verification.
   Acrobot<double> acrobot_benchmark_{
       Vector3d::UnitZ() /* Plane normal */, Vector3d::UnitY() /* Up vector */,
@@ -809,7 +801,7 @@ class PendulumKinematicTests : public PendulumTests {
     VectorXd tau(tree().num_velocities());
     vector<SpatialAcceleration<double>> A_WB_array(tree().num_bodies());
     vector<SpatialForce<double>> F_BMo_W_array(tree().num_bodies());
-    tree().CalcInverseDynamics(*context_, pc, vc, vdot, {}, VectorXd(),
+    tree().CalcInverseDynamics(*context_, vdot, {}, VectorXd(),
                                 &A_WB_array, &F_BMo_W_array, &tau);
 
     // ======================================================================
@@ -879,8 +871,8 @@ TEST_F(PendulumKinematicTests, CalcPositionKinematics) {
       EXPECT_EQ(elbow_joint_->get_angle(*context_), elbow_angle);
 
       // Verify this matches the corresponding entries in the context.
-      EXPECT_EQ(mbt_context_->get_positions()(0), shoulder_angle);
-      EXPECT_EQ(mbt_context_->get_positions()(1), elbow_angle);
+      EXPECT_EQ(tree().get_positions(*context_)(0), shoulder_angle);
+      EXPECT_EQ(tree().get_positions(*context_)(1), elbow_angle);
 
       tree().CalcPositionKinematicsCache(*context_, &pc);
 
@@ -895,10 +887,9 @@ TEST_F(PendulumKinematicTests, CalcPositionKinematics) {
       RigidTransformd X_EiEo(RotationMatrixd::MakeZRotation(elbow_angle));
 
       // Verify the values in the position kinematics cache.
-      EXPECT_TRUE(pc.get_X_FM(shoulder_node).matrix().isApprox(
-          X_SiSo.GetAsMatrix4()));
-      EXPECT_TRUE(pc.get_X_FM(elbow_node).matrix().isApprox(
-          X_EiEo.GetAsMatrix4()));
+      EXPECT_TRUE(
+          pc.get_X_FM(shoulder_node).IsNearlyEqualTo(X_SiSo, kTolerance));
+      EXPECT_TRUE(pc.get_X_FM(elbow_node).IsNearlyEqualTo(X_EiEo, kTolerance));
 
       // Verify that both, const and mutable versions point to the same address.
       EXPECT_EQ(&pc.get_X_FM(shoulder_node),

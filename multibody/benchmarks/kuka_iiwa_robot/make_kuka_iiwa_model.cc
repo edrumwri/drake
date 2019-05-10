@@ -3,6 +3,7 @@
 #include "drake/common/default_scalars.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/tree/fixed_offset_frame.h"
+#include "drake/multibody/tree/multibody_tree-inl.h"
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/uniform_gravity_field_element.h"
 
@@ -41,8 +42,7 @@ KukaIiwaModelBuilder<T>::AddRevoluteJointFromSpaceXYZAnglesAndXYZ(
   const math::RigidTransformd X_BBa;  // Identity transform.
 
   return model->template AddJoint<RevoluteJoint>(joint_name,
-                              A, X_AAb.GetAsIsometry3(),
-                              B, X_BBa.GetAsIsometry3(), revolute_unit_vector);
+                              A, X_AAb, B, X_BBa, revolute_unit_vector);
 }
 
 template <typename T>

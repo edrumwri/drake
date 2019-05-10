@@ -11,7 +11,16 @@
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/symbolic_types_pybind.h"
-#include "drake/bindings/pydrake/util/wrap_pybind.h"
+
+#pragma GCC diagnostic push
+// Apple LLVM version 10.0.1 (clang-1001.0.46.3) adds `-Wself-assign-overloaded`
+// to `-Wall`, which generates warnings on Pybind11's operator-overloading idiom
+// that is using py::self (example: `def(py::self + py::self)`).
+// Here, we suppress the warning using `#pragma diagnostic`.
+#if (__APPLE__) && (__clang__) && (__clang_major__ >= 10) && \
+    (__clang_minor__ >= 0) && (__clang_patchlevel__ >= 1)
+#pragma GCC diagnostic ignored "-Wself-assign-overloaded"
+#endif
 
 namespace drake {
 namespace pydrake {
@@ -28,11 +37,11 @@ PYBIND11_MODULE(symbolic, m) {
   // Install NumPy warning filtres.
   // N.B. This may interfere with other code, but until that is a confirmed
   // issue, we should aggressively try to avoid these warnings.
-  py::module::import("pydrake.util.deprecation")
+  py::module::import("pydrake.common.deprecation")
       .attr("install_numpy_warning_filters")();
 
   // Install NumPy formatters patch.
-  py::module::import("pydrake.util.compatibility")
+  py::module::import("pydrake.common.compatibility")
       .attr("maybe_patch_numpy_formatters")();
 
   m.doc() =
@@ -225,6 +234,8 @@ PYBIND11_MODULE(symbolic, m) {
             return self.EvaluatePartial(Environment{env});
           },
           doc.Expression.EvaluatePartial.doc)
+      .def("GetVariables", &Expression::GetVariables,
+          doc.Expression.GetVariables.doc)
       .def("Substitute",
           [](const Expression& self, const Variable& var, const Expression& e) {
             return self.Substitute(var, e);
@@ -313,7 +324,7 @@ PYBIND11_MODULE(symbolic, m) {
       .def("Differentiate", &Expression::Differentiate,
           doc.Expression.Differentiate.doc)
       .def("Jacobian", &Expression::Jacobian, doc.Expression.Jacobian.doc)
-      // TODO(eric.cousineau): Figure out how to consolidate with the below
+      // TODO(eric.cousineau): Figure out how to consolidate with the `math`
       // methods.
       .def("log", &symbolic::log, doc.log.doc)
       .def("__abs__", &symbolic::abs)
@@ -335,30 +346,10 @@ PYBIND11_MODULE(symbolic, m) {
       .def("floor", &symbolic::floor, doc.floor.doc);
   DefCopyAndDeepCopy(&expr_cls);
 
-  // TODO(eric.cousineau): Consider deprecating these methods?
-  // TODO(m-chaturvedi) Add Pybind11 documentation.
-  auto math = py::module::import("pydrake.math");
-  MirrorDef<py::module, py::module>(&math, &m)
-      .def("log", &symbolic::log)
-      .def("abs", &symbolic::abs)
-      .def("exp", &symbolic::exp)
-      .def("sqrt", &symbolic::sqrt)
-      .def("pow", py::overload_cast<const Expression&, const Expression&>(
-                      &symbolic::pow))
-      .def("sin", &symbolic::sin)
-      .def("cos", &symbolic::cos)
-      .def("tan", &symbolic::tan)
-      .def("asin", &symbolic::asin)
-      .def("acos", &symbolic::acos)
-      .def("atan", &symbolic::atan)
-      .def("atan2", &symbolic::atan2)
-      .def("sinh", &symbolic::sinh)
-      .def("cosh", &symbolic::cosh)
-      .def("tanh", &symbolic::tanh)
-      .def("min", &symbolic::min)
-      .def("max", &symbolic::max)
-      .def("ceil", &symbolic::ceil)
-      .def("floor", &symbolic::floor);
+  // TODO(eric.cousineau): These should actually exist on the class, and should
+  // be should be consolidated with the above repeated definitions. This would
+  // yield the same parity with AutoDiff.
+  pydrake::internal::BindSymbolicMathOverloads(&m);
 
   m.def("if_then_else", &symbolic::if_then_else);
 
@@ -368,6 +359,25 @@ PYBIND11_MODULE(symbolic, m) {
         return Jacobian(f, vars);
       },
       doc.Expression.Jacobian.doc);
+
+  m.def("Evaluate",
+      [](const MatrixX<Expression>& M, const Environment::map& env,
+          RandomGenerator* random_generator) {
+        return Evaluate(M, Environment{env}, random_generator);
+      },
+      py::arg("m"), py::arg("env") = Environment::map{},
+      py::arg("generator") = nullptr, doc.Evaluate.doc);
+
+  m.def("Substitute",
+      [](const MatrixX<Expression>& M, const Substitution& subst) {
+        return Substitute(M, subst);
+      },
+      py::arg("m"), py::arg("subst"), doc.Substitute.doc_2args);
+
+  m.def("Substitute",
+      [](const MatrixX<Expression>& M, const Variable& var,
+          const Expression& e) { return Substitute(M, var, e); },
+      py::arg("m"), py::arg("var"), py::arg("e"), doc.Substitute.doc_3args);
 
   py::class_<Formula> formula_cls(m, "Formula", doc.Formula.doc);
   formula_cls
@@ -421,7 +431,7 @@ PYBIND11_MODULE(symbolic, m) {
             "You should not call `__bool__` / `__nonzero__` on `Formula`. "
             "If you are trying to make a map with `Variable`, `Expression`, "
             "or `Polynomial` as keys (and then access the map in Python), "
-            "please use pydrake.util.containers.EqualToDict`.");
+            "please use pydrake.common.containers.EqualToDict`.");
       });
   formula_cls.attr("__bool__") = formula_cls.attr("__nonzero__");
 
@@ -523,6 +533,10 @@ PYBIND11_MODULE(symbolic, m) {
       .def("Differentiate", &Polynomial::Differentiate,
           doc.Polynomial.Differentiate.doc)
       .def("AddProduct", &Polynomial::AddProduct, doc.Polynomial.AddProduct.doc)
+      .def("RemoveTermsWithSmallCoefficients",
+          &Polynomial::RemoveTermsWithSmallCoefficients,
+          py::arg("coefficient_tol"),
+          doc.Polynomial.RemoveTermsWithSmallCoefficients.doc)
       .def(py::self + py::self)
       .def(py::self + Monomial())
       .def(Monomial() + py::self)
@@ -575,7 +589,10 @@ PYBIND11_MODULE(symbolic, m) {
       drake::symbolic::Polynomial>();
 
   ExecuteExtraPythonCode(m);
+  // NOLINTNEXTLINE(readability/fn_size)
 }
 
 }  // namespace pydrake
 }  // namespace drake
+
+#pragma GCC diagnostic pop

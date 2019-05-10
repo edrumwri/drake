@@ -59,11 +59,11 @@ class IdmControllerTest
                        const double relative_sdot = 0.,
                        const double relative_rdot = 0.) {
     DRAKE_DEMAND(ego_pose_input_index_ >= 0 &&
-                 ego_pose_input_index_ < dut_->get_num_input_ports());
+                 ego_pose_input_index_ < dut_->num_input_ports());
     DRAKE_DEMAND(ego_velocity_input_index_ >= 0 &&
-                 ego_velocity_input_index_ < dut_->get_num_input_ports());
+                 ego_velocity_input_index_ < dut_->num_input_ports());
     DRAKE_DEMAND(traffic_input_index_ >= 0 &&
-                 traffic_input_index_ < dut_->get_num_input_ports());
+                 traffic_input_index_ < dut_->num_input_ports());
 
     auto ego_pose = std::make_unique<PoseVector<double>>();
     auto ego_velocity = std::make_unique<FrameVelocity<double>>();
@@ -95,7 +95,7 @@ class IdmControllerTest
     traffic_poses.set_velocity(kLeadIndex, lead_velocity);
     traffic_poses.set_pose(kEgoIndex, Eigen::Isometry3d(translation_ego));
     context_->FixInputPort(traffic_input_index_,
-                           systems::AbstractValue::Make(traffic_poses));
+                           AbstractValue::Make(traffic_poses));
   }
 
   std::unique_ptr<systems::System<double>> dut_;  //< The device under test.
@@ -115,7 +115,7 @@ class IdmControllerTest
 TEST_P(IdmControllerTest, Topology) {
   SetUpIdm(ScanStrategy::kPath);
 
-  ASSERT_EQ(3, dut_->get_num_input_ports());
+  ASSERT_EQ(3, dut_->num_input_ports());
   const auto& ego_pose_input_port =
       dut_->get_input_port(ego_pose_input_index_);
   EXPECT_EQ(systems::kVectorValued, ego_pose_input_port.get_data_type());
@@ -129,10 +129,10 @@ TEST_P(IdmControllerTest, Topology) {
       dut_->get_input_port(traffic_input_index_);
   EXPECT_EQ(systems::kAbstractValued, traffic_input_port.get_data_type());
 
-  ASSERT_EQ(1, dut_->get_num_output_ports());
+  ASSERT_EQ(1, dut_->num_output_ports());
   const auto& output_port = dut_->get_output_port(acceleration_output_index_);
   EXPECT_EQ(systems::kVectorValued, output_port.get_data_type());
-  EXPECT_EQ(1 /* accleration output */, output_port.size());
+  EXPECT_EQ(1 /* acceleration output */, output_port.size());
 }
 
 // Tests that the unrestricted update has been registered and updates to the
@@ -140,7 +140,7 @@ TEST_P(IdmControllerTest, Topology) {
 TEST_P(IdmControllerTest, UnrestrictedUpdate) {
   SetUpIdm(ScanStrategy::kPath);
   if (cache_or_search_ == RoadPositionStrategy::kCache) {
-    EXPECT_EQ(1, context_->get_num_abstract_states());
+    EXPECT_EQ(1, context_->num_abstract_states());
 
     SetDefaultPoses(10. /* ego_speed */, 0. /* s_offset */, -5. /* rel_sdot */);
 
@@ -255,7 +255,7 @@ TEST_P(IdmControllerTest, ToAutoDiff) {
     poses.set_velocity(0, traffic_velocity);
     poses.set_pose(0, Isometry3<AutoDiffXd>(translation));
     other_context->FixInputPort(traffic_input_index_,
-                                systems::AbstractValue::Make(poses));
+                                AbstractValue::Make(poses));
 
     const auto result =
         other_output->get_vector_data(acceleration_output_index_);
@@ -264,8 +264,14 @@ TEST_P(IdmControllerTest, ToAutoDiff) {
     // It suffices to check that the autodiff derivative seeded at the inputs
     // produces a sane value and that the derivatives field is correctly sized.
     EXPECT_LT(0., (*result)[0]);
-    EXPECT_EQ(1, (*result)[0].derivatives().size());
-    EXPECT_EQ(0., (*result)[0].derivatives()(0));
+    // We expect the derivative to be zero. Therefore the derivatives vector
+    // either:
+    //   1. It has zero size or,
+    //   2. Has size of one (1) and first entry equal to zero.
+    // Note: C++'s "short-circuit evaluation" ensures that the second expression
+    //       is never evaluated if the derivatives vector has zero size.
+    EXPECT_TRUE((*result)[0].derivatives().size() == 0 ||
+                (*result)[0].derivatives()(0) == 0.);
   }));
 }
 

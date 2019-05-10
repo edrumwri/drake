@@ -297,7 +297,7 @@ void ParseSecondOrderConeConstraints(
     const VectorXDecisionVariable& x = lorentz_cone_constraint.variables();
     const std::vector<int> x_indices = prog.FindDecisionVariableIndices(x);
     const Eigen::SparseMatrix<double> Ai =
-        lorentz_cone_constraint.evaluator()->A().sparseView();
+        lorentz_cone_constraint.evaluator()->A();
     const std::vector<Eigen::Triplet<double>> Ai_triplets =
         math::SparseMatrixToTriplets(Ai);
     for (const auto& Ai_triplet : Ai_triplets) {
@@ -318,7 +318,7 @@ void ParseSecondOrderConeConstraints(
     const VectorXDecisionVariable& x = rotated_lorentz_cone.variables();
     const std::vector<int> x_indices = prog.FindDecisionVariableIndices(x);
     const Eigen::SparseMatrix<double> Ai =
-        rotated_lorentz_cone.evaluator()->A().sparseView();
+        rotated_lorentz_cone.evaluator()->A();
     const Eigen::VectorXd& bi = rotated_lorentz_cone.evaluator()->b();
     const std::vector<Eigen::Triplet<double>> Ai_triplets =
         math::SparseMatrixToTriplets(Ai);
@@ -422,6 +422,45 @@ void ParsePositiveSemidefiniteConstraint(
   cone->s = static_cast<scs_int*>(scs_calloc(cone->ssize, sizeof(scs_int)));
   for (int i = 0; i < cone->ssize; ++i) {
     cone->s[i] = psd_cone_length[i];
+  }
+}
+
+void ParseExponentialConeConstraint(
+    const MathematicalProgram& prog,
+    std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
+    int* A_row_count, ScsCone* cone) {
+  cone->ep = static_cast<int>(prog.exponential_cone_constraints().size());
+  for (const auto& binding : prog.exponential_cone_constraints()) {
+    // drake::solvers::ExponentialConstraint enforces that z = A * x + b is in
+    // the exponential cone (z₀ ≥ z₁*exp(z₂ / z₁)). This is different from the
+    // exponential cone used in SCS. In SCS, a vector s is in the exponential
+    // cone, if s₂≥ s₁*exp(s₀ / s₁). To transform drake's Exponential cone to
+    // SCS's exponential cone, we use
+    // -[A.row(2); A.row(1); A.row(0)] * x + s = [b(2); b(1); b(0)], and s is
+    // in SCS's exponential cone, where A = binding.evaluator()->A(), b =
+    // binding.evaluator()->b().
+    const int num_bound_variables = binding.variables().rows();
+    for (int i = 0; i < num_bound_variables; ++i) {
+      A_triplets->reserve(A_triplets->size() +
+                          binding.evaluator()->A().nonZeros());
+      const int decision_variable_index =
+          prog.FindDecisionVariableIndex(binding.variables()(i));
+      for (Eigen::SparseMatrix<double>::InnerIterator it(
+               binding.evaluator()->A(), i);
+           it; ++it) {
+        // 2 - it.row() is used for reverse the row order, as mentioned in the
+        // function documentation above.
+        A_triplets->emplace_back(*A_row_count + 2 - it.row(),
+                                 decision_variable_index, -it.value());
+      }
+    }
+    // The exponential cone constraint is on a 3 x 1 vector, hence for each
+    // ExponentialConeConstraint, we append 3 rows to A and b.
+    b->reserve(b->size() + 3);
+    for (int i = 0; i < 3; ++i) {
+      b->push_back(binding.evaluator()->b()(2 - i));
+    }
+    *A_row_count += 3;
   }
 }
 
@@ -569,18 +608,14 @@ void SetScsSettings(
 }
 }  // namespace
 
-void ScsSolver::Solve(const MathematicalProgram& prog,
-                      const optional<Eigen::VectorXd>& initial_guess,
-                      const optional<SolverOptions>& solver_options,
-                      MathematicalProgramResult* result) const {
-  *result = {};
+void ScsSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
   // TODO(hongkai.dai): allow warm starting SCS with initial guess on
   // primal/dual variables and primal residues.
   unused(initial_guess);
-  if (!AreProgramAttributesSatisfied(prog)) {
-    throw std::invalid_argument(
-        "SCS doesn't have the capability required by the program.");
-  }
   // The initial guess for SCS is unused.
   // SCS solves the problem in this form
   // min  cᵀx
@@ -672,6 +707,9 @@ void ScsSolver::Solve(const MathematicalProgram& prog,
   ParsePositiveSemidefiniteConstraint(prog, &A_triplets, &b, &A_row_count,
                                       cone);
 
+  // Parse ExponentialConeConstraint.
+  ParseExponentialConeConstraint(prog, &A_triplets, &b, &A_row_count, cone);
+
   Eigen::SparseMatrix<double> A(A_row_count, num_x);
   A.setFromTriplets(A_triplets.begin(), A_triplets.end());
   A.makeCompressed();
@@ -679,20 +717,12 @@ void ScsSolver::Solve(const MathematicalProgram& prog,
   ScsData* scs_problem_data =
       static_cast<ScsData*>(scs_calloc(1, sizeof(ScsData)));
   SetScsProblemData(A_row_count, num_x, A, b, c, scs_problem_data);
-  std::unordered_map<std::string, int> prog_solver_options_int =
-      prog.GetSolverOptionsInt(id());
-  std::unordered_map<std::string, double> prog_solver_options_double =
-      prog.GetSolverOptionsDouble(id());
-  SetScsSettings(&prog_solver_options_int, scs_problem_data->stgs);
-  SetScsSettings(&prog_solver_options_double, scs_problem_data->stgs);
-  if (solver_options.has_value()) {
-    std::unordered_map<std::string, int> input_solver_options_int =
-        solver_options->GetOptionsInt(id());
-    std::unordered_map<std::string, double> input_solver_options_double =
-        solver_options->GetOptionsDouble(id());
-    SetScsSettings(&input_solver_options_int, scs_problem_data->stgs);
-    SetScsSettings(&input_solver_options_double, scs_problem_data->stgs);
-  }
+  std::unordered_map<std::string, int> input_solver_options_int =
+      merged_options.GetOptionsInt(id());
+  std::unordered_map<std::string, double> input_solver_options_double =
+      merged_options.GetOptionsDouble(id());
+  SetScsSettings(&input_solver_options_int, scs_problem_data->stgs);
+  SetScsSettings(&input_solver_options_double, scs_problem_data->stgs);
 
   ScsInfo scs_info{0};
 
@@ -714,7 +744,6 @@ void ScsSolver::Solve(const MathematicalProgram& prog,
   solver_details.scs_solve_time = scs_info.solve_time;
 
   SolutionResult solution_result{SolutionResult::kUnknownError};
-  result->set_solver_id(id());
   solver_details.y.resize(A_row_count);
   solver_details.s.resize(A_row_count);
   for (int i = 0; i < A_row_count; ++i) {
@@ -750,12 +779,5 @@ void ScsSolver::Solve(const MathematicalProgram& prog,
   scs_free_sol(scs_sol);
 }
 
-SolutionResult ScsSolver::Solve(MathematicalProgram& prog) const {
-  MathematicalProgramResult result;
-  Solve(prog, {}, {}, &result);
-  const SolverResult solver_result = result.ConvertToSolverResult();
-  prog.SetSolverResult(solver_result);
-  return result.get_solution_result();
-}
 }  // namespace solvers
 }  // namespace drake

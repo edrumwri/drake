@@ -42,6 +42,7 @@ drake_cc_library(
         "//common:essential",
         "//math:wrap_to",
         "//solvers:mathematical_program",
+        "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/framework",
         "//systems/primitives:barycentric_system",
@@ -81,6 +82,7 @@ drake_cc_library(
     hdrs = ["linear_model_predictive_controller.h"],
     deps = [
         "//common/trajectories:piecewise_polynomial",
+        "//solvers:solve",
         "//systems/primitives:linear_system",
         "//systems/trajectory_optimization:direct_transcription",
     ],

@@ -43,6 +43,7 @@ kind("cc_library", visible("//tools/install/libdrake:libdrake.so", "//..."))
         "//examples/compass_gait/..."
         "//examples/manipulation_station/..."
         "//examples/pendulum/..."
+        "//examples/quadrotor/..."
         "//examples/rimless_wheel/..."
         "//examples/van_der_pol/..."
       ))
@@ -103,7 +104,7 @@ def main():
         original_lines = original.readlines()
 
     # Extract the header (group 0) and footer (group 2), discarding the list of
-    # components inbetween (group 1).
+    # components in between (group 1).
     header_lines = []
     footer_lines = []
     current_group = 0

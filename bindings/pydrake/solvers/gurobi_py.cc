@@ -2,24 +2,25 @@
 
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/bindings/pydrake/solvers/solvers_pybind.h"
 #include "drake/solvers/gurobi_solver.h"
 
 namespace drake {
 namespace pydrake {
 
 PYBIND11_MODULE(gurobi, m) {
-  using drake::solvers::GurobiSolver;
-
-  m.doc() = "Gurobi solver bindings for MathematicalProgram";
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace drake::solvers;
   constexpr auto& doc = pydrake_doc.drake.solvers;
 
-  py::object solverinterface =
-      py::module::import("pydrake.solvers.mathematicalprogram")
-          .attr("MathematicalProgramSolverInterface");
+  m.doc() = "Gurobi solver bindings for MathematicalProgram";
 
-  py::class_<GurobiSolver>(
-      m, "GurobiSolver", solverinterface, doc.GurobiSolver.doc)
-      .def(py::init<>(), doc.GurobiSolver.ctor.doc);
+  py::module::import("pydrake.solvers.mathematicalprogram");
+
+  py::class_<GurobiSolver, SolverInterface> cls(
+      m, "GurobiSolver", doc.GurobiSolver.doc);
+  cls.def(py::init<>(), doc.GurobiSolver.ctor.doc);
+  pysolvers::BindAcquireLicense(&cls, doc.GurobiSolver);
 }
 
 }  // namespace pydrake

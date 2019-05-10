@@ -7,7 +7,6 @@
 #include "drake/multibody/rigid_body_tree.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/leaf_system.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace manipulation {
@@ -26,6 +25,7 @@ enum class InterpolatorType {
 /// It has two input ports, one for robot_plan_t messages containing a
 /// plan to follow, and another vector-valued port which expects the
 /// current (q,v) state of the robot.
+/// (The q,v input port is vestigial and should be left disconnected.)
 ///
 /// The system has two output ports, one with the current desired
 /// state (q,v) of the robot and another for the accelerations.
@@ -43,6 +43,7 @@ class RobotPlanInterpolator : public systems::LeafSystem<double> {
                         double update_interval = kDefaultPlanUpdateInterval);
   ~RobotPlanInterpolator() override;
 
+  /// N.B. This input port is useless and may be left disconnected.
   const systems::InputPort<double>& get_plan_input_port() const {
     return this->get_input_port(plan_input_port_);
   }
@@ -89,7 +90,7 @@ class RobotPlanInterpolator : public systems::LeafSystem<double> {
   void OutputState(const systems::Context<double>& context,
                    systems::BasicVector<double>* output) const;
 
-  // Calculator method for the accleration output port.
+  // Calculator method for the acceleration output port.
   void OutputAccel(const systems::Context<double>& context,
                    systems::BasicVector<double>* output) const;
 

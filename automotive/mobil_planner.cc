@@ -41,8 +41,7 @@ MobilPlanner<T>::MobilPlanner(const RoadGeometry& road, bool initial_with_s,
       ego_acceleration_index_{
           this->DeclareVectorInputPort(BasicVector<T>(1)).get_index()},
       traffic_index_{this->DeclareAbstractInputPort(
-          systems::kUseDefaultName, systems::Value<PoseBundle<T>>())
-              .get_index()},
+          systems::kUseDefaultName, Value<PoseBundle<T>>()).get_index()},
       lane_index_{
           this->DeclareAbstractOutputPort(&MobilPlanner::CalcLaneDirection)
               .get_index()} {
@@ -56,7 +55,7 @@ MobilPlanner<T>::MobilPlanner(const RoadGeometry& road, bool initial_with_s,
   // a caching scheme once #4364 lands, preventing the need to use abstract
   // states and periodic sampling time.
   if (road_position_strategy == RoadPositionStrategy::kCache) {
-    this->DeclareAbstractState(systems::AbstractValue::Make<RoadPosition>(
+    this->DeclareAbstractState(AbstractValue::Make<RoadPosition>(
         RoadPosition()));
     this->DeclarePeriodicUnrestrictedUpdate(period_sec, 0);
   }
@@ -122,7 +121,7 @@ void MobilPlanner<T>::CalcLaneDirection(const systems::Context<T>& context,
   // Obtain the state if we've allocated it.
   RoadPosition ego_rp;
   if (context.get_state().get_abstract_state().size() != 0) {
-    DRAKE_ASSERT(context.get_num_abstract_states() == 1);
+    DRAKE_ASSERT(context.num_abstract_states() == 1);
     ego_rp = context.template get_abstract_state<RoadPosition>(0);
   }
 
@@ -306,7 +305,7 @@ void MobilPlanner<T>::DoCalcUnrestrictedUpdate(
     const systems::Context<T>& context,
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>&,
     systems::State<T>* state) const {
-  DRAKE_ASSERT(context.get_num_abstract_states() == 1);
+  DRAKE_ASSERT(context.num_abstract_states() == 1);
 
   // Obtain the input and state data.
   const PoseVector<T>* const ego_pose =

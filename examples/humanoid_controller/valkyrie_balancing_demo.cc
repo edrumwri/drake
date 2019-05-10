@@ -39,14 +39,14 @@ void controller_loop() {
           systems::lcm::UtimeMessageToSeconds<bot_core::robot_state_t>>());
 
   // Initializes based on the first received message.
-  const systems::AbstractValue& first_msg = loop.WaitForMessage();
+  const AbstractValue& first_msg = loop.WaitForMessage();
   double msg_time =
       loop.get_message_to_time_converter().GetTimeInSeconds(first_msg);
-  loop.get_mutable_context().set_time(msg_time);
+  loop.get_mutable_context().SetTime(msg_time);
 
   // Decodes the message into q and v.
   const bot_core::robot_state_t& raw_msg =
-      first_msg.GetValueOrThrow<bot_core::robot_state_t>();
+      first_msg.get_value<bot_core::robot_state_t>();
   RigidBodyTree<double> robot;
   parsers::urdf::AddModelInstanceFromUrdfFileToWorld(
       kModelFileName, multibody::joints::kRollPitchYaw, &robot);

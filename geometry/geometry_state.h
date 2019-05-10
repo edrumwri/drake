@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -125,6 +126,9 @@ class GeometryState {
   /** Implementation of SceneGraphInspector::GetNumAnchoredGeometries().  */
   int GetNumAnchoredGeometries() const;
 
+  /** Implementation of SceneGraphInspector::GetCollisionCandidates().  */
+  std::set<std::pair<GeometryId, GeometryId>> GetCollisionCandidates() const;
+
   //@}
 
   /** @name          Sources and source-related data  */
@@ -150,6 +154,10 @@ class GeometryState {
   /** Implementation of
    SceneGraphInspector::BelongsToSource(FrameId, SourceId) const.  */
   bool BelongsToSource(FrameId frame_id, SourceId source_id) const;
+
+  /** Implementation of
+   SceneGraphInspector::GetOwningSourceName(FrameId) const.  */
+  const std::string& GetOwningSourceName(FrameId id) const;
 
   /** Implementation of SceneGraphInspector::GetName(FrameId) const.  */
   const std::string& get_frame_name(FrameId frame_id) const;
@@ -185,11 +193,19 @@ class GeometryState {
    SceneGraphInspector::BelongsToSource(GeometryId, SourceId) const.  */
   bool BelongsToSource(GeometryId geometry_id, SourceId source_id) const;
 
+  /** Implementation of
+   SceneGraphInspector::GetOwningSourceName(GeometryId) const.  */
+  const std::string& GetOwningSourceName(GeometryId id) const;
+
+
   /** Implementation of SceneGraphInspector::GetFrameId().  */
   FrameId GetFrameId(GeometryId geometry_id) const;
 
   /** Implementation of SceneGraphInspector::GetName(GeometryId) const.  */
   const std::string& get_name(GeometryId geometry_id) const;
+
+  /** Implementation of SceneGraphInspector::GetShape().  */
+  const Shape& GetShape(GeometryId id) const;
 
   /** Implementation of SceneGraphInspector::X_FG().  */
   const Isometry3<double>& GetPoseInFrame(GeometryId geometry_id) const;
@@ -446,21 +462,22 @@ class GeometryState {
    * anchored object. We DO NOT report the distance between two anchored
    * objects.
    */
-  std::vector<SignedDistancePair<double>>
+  std::vector<SignedDistancePair<T>>
   ComputeSignedDistancePairwiseClosestPoints() const {
     return geometry_engine_->ComputeSignedDistancePairwiseClosestPoints(
-        geometry_index_to_id_map_);
+        geometry_index_to_id_map_, X_WG_);
   }
 
   /** Performs work in support of QueryObject::ComputeSignedDistanceToPoint().
    */
-  std::vector<SignedDistanceToPoint<double>>
+  std::vector<SignedDistanceToPoint<T>>
   ComputeSignedDistanceToPoint(
-      const Vector3<double> &p_WQ,
+      const Vector3<T> &p_WQ,
       const double threshold) const {
     return geometry_engine_->ComputeSignedDistanceToPoint(
-        p_WQ, geometry_index_to_id_map_, threshold);
+        p_WQ, geometry_index_to_id_map_, X_WG_, threshold);
   }
+
   //@}
 
   /** @name Scalar conversion  */
@@ -481,6 +498,9 @@ class GeometryState {
 
   // Conversion constructor. In the initial implementation, this is only
   // intended to be used to clone an AutoDiffXd instance from a double instance.
+  // It is _vitally_ important that all members are _explicitly_ accounted for
+  // (either in the initialization list or in the body). Failure to do so will
+  // lead to errors in the converted GeometryState instance.
   template <typename U>
   GeometryState(const GeometryState<U>& source)
       : self_source_(source.self_source_),
@@ -492,6 +512,8 @@ class GeometryState {
         geometries_(source.geometries_),
         geometry_index_to_id_map_(source.geometry_index_to_id_map_),
         frame_index_to_id_map_(source.frame_index_to_id_map_),
+        dynamic_proximity_index_to_internal_map_(
+            source.dynamic_proximity_index_to_internal_map_),
         geometry_engine_(std::move(source.geometry_engine_->ToAutoDiffXd())) {
     // NOTE: Can't assign Isometry3<double> to Isometry3<AutoDiff>. But we _can_
     // assign Matrix<double> to Matrix<AutoDiff>, so that's what we're doing.
@@ -548,16 +570,19 @@ class GeometryState {
 
   // Sets the kinematic poses for the frames indicated by the given ids.
   // @param poses The frame id and pose values.
+  // @pre source_id is a registered source.
   // @throws std::logic_error  If the ids are invalid as defined by
   // ValidateFrameIds().
-  void SetFramePoses(const FramePoseVector<T>& poses);
+  void SetFramePoses(SourceId source_id, const FramePoseVector<T>& poses);
 
   // Confirms that the set of ids provided include _all_ of the frames
   // registered to the set's source id and that no extra frames are included.
   // @param values The kinematics values (ids and values) to validate.
+  // @pre source_id is a registered source.
   // @throws std::runtime_error if the set is inconsistent with known topology.
   template <typename ValueType>
-  void ValidateFrameIds(const FrameKinematicsVector<ValueType>& values) const;
+  void ValidateFrameIds(SourceId source_id,
+                        const FrameKinematicsVector<ValueType>& values) const;
 
   // Method that performs any final book-keeping/updating on the state after
   // _all_ of the state's frames have had their poses updated.
@@ -566,6 +591,10 @@ class GeometryState {
   // Gets the source id for the given frame id. Throws std::logic_error if the
   // frame belongs to no registered source.
   SourceId get_source_id(FrameId frame_id) const;
+
+  // Gets the source id for the given frame id. Throws std::logic_error if the
+  // geometry belongs to no registered source.
+  SourceId get_source_id(GeometryId frame_id) const;
 
   // The origin from where an invocation of RemoveGeometryUnchecked was called.
   // The origin changes the work that is required.
@@ -621,11 +650,14 @@ class GeometryState {
   void AssignRoleInternal(SourceId source_id, GeometryId geometry_id,
                           PropertyType properties, Role role);
 
+  // NOTE: If adding a member it is important that it be _explicitly_ copied
+  // in the converting copy constructor and likewise tested in the unit test
+  // for that constructor.
+
   // The GeometryState gets its own source so it can own entities (such as the
   // world frame).
   SourceId self_source_;
 
-  // ---------------------------------------------------------------------
   // Maps from registered source ids to the entities registered to those
   // sources (e.g., frames and geometries). This lives in the state to support
   // runtime topology changes. This data should only change at _discrete_
@@ -679,18 +711,15 @@ class GeometryState {
   // This contains internal indices into X_WG_. If a _dynamic_ geometry G has a
   // proximity role, in addition to its internal index, it will
   // also have a proximity index. It must be the case that
-  // G.internal_index == X_WG_proximity_[G.proximity_index] if it has a
-  // proximity role.
+  // G.internal_index ==
+  //      dynamic_proximity_index_to_internal_map_[G.proximity_index]
+  // if it has a proximity role.
   // Generally, internal_index is not equal to the role index. This allows
   // just those geometries with the proximity role to be provided to
   // the proximity engine.
   // NOTE: There is no equivalent for anchored geometries because anchored
   // geometries do not need updating.
-
-  // For proximity, the mapping from ProximityIndex to InternalIndex is implicit
-  // because anchored and dynamic geometries are segregated; they draw from
-  // independent index sets.
-  std::vector<GeometryIndex> X_WG_proximity_;
+  std::vector<GeometryIndex> dynamic_proximity_index_to_internal_map_;
 
   // ---------------------------------------------------------------------
   // These values depend on time-dependent input values (e.g., current frame
@@ -713,6 +742,7 @@ class GeometryState {
   // frame Fₖ, and the world frame W is the parent of frame Fₙ.
   // In other words, it is the full evaluation of the kinematic chain from the
   // geometry to the world frame.
+  // TODO(SeanCurtis-TRI): Rename this to X_WGs_ to reflect multiplicity.
   std::vector<Isometry3<T>> X_WG_;
 
   // The pose of each frame relative to the _world_ frame.

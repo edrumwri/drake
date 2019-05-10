@@ -14,7 +14,7 @@ namespace systems {
 using std::runtime_error;
 
 ViewerDrawTranslator::ViewerDrawTranslator(const RigidBodyTree<double>& tree)
-    : LcmAndVectorBaseTranslator(tree.get_num_positions()), tree_(tree) {
+    : tree_(tree) {
   // Initializes the draw message.
   draw_message_.num_links = tree_.get_bodies().size();
   std::vector<float> position = {0, 0, 0};
@@ -29,7 +29,7 @@ ViewerDrawTranslator::ViewerDrawTranslator(const RigidBodyTree<double>& tree)
 
 void ViewerDrawTranslator::Deserialize(
     const void*, int, VectorBase<double>*) const {
-  DRAKE_ABORT_MSG(
+  throw std::logic_error(
     "The translator that converts from a drake::lcmt_viewer_draw message to "
     "a VectorBase object that contains the RigidBodyTree's state vector has not"
     "been implemented yet.");

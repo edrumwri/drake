@@ -16,7 +16,8 @@ using Eigen::Matrix3d;
 using Eigen::Vector3d;
 using Eigen::Matrix4d;
 
-void TestTrivialSDP(const MathematicalProgramSolverInterface& solver,
+const double kInf = std::numeric_limits<double>::infinity();
+void TestTrivialSDP(const SolverInterface& solver,
                     double tol) {
   MathematicalProgram prog;
 
@@ -33,12 +34,13 @@ void TestTrivialSDP(const MathematicalProgramSolverInterface& solver,
 
   const MathematicalProgramResult result = RunSolver(prog, solver);
 
-  auto S_value = prog.GetSolution(S, result);
+  auto S_value = result.GetSolution(S);
 
   EXPECT_TRUE(CompareMatrices(S_value, Eigen::Matrix2d::Ones(), tol));
+  EXPECT_NEAR(result.get_optimal_cost(), 2.0, tol);
 }
 
-void FindCommonLyapunov(const MathematicalProgramSolverInterface& solver,
+void FindCommonLyapunov(const SolverInterface& solver,
                         double tol) {
   MathematicalProgram prog;
   auto P = prog.NewSymmetricContinuousVariables<3>("P");
@@ -65,9 +67,9 @@ void FindCommonLyapunov(const MathematicalProgramSolverInterface& solver,
 
   const MathematicalProgramResult result = RunSolver(prog, solver);
 
-  const Matrix3d P_value = prog.GetSolution(P, result);
-  const auto Q1_flat_value = prog.GetSolution(binding1.variables(), result);
-  const auto Q2_flat_value = prog.GetSolution(binding2.variables(), result);
+  const Matrix3d P_value = result.GetSolution(P);
+  const auto Q1_flat_value = result.GetSolution(binding1.variables());
+  const auto Q2_flat_value = result.GetSolution(binding2.variables());
   const Eigen::Map<const Matrix3d> Q1_value(&Q1_flat_value(0));
   const Eigen::Map<const Matrix3d> Q2_value(&Q2_flat_value(0));
   Eigen::SelfAdjointEigenSolver<Matrix3d> eigen_solver_P(P_value);
@@ -90,7 +92,7 @@ void FindCommonLyapunov(const MathematicalProgramSolverInterface& solver,
                               -Q2_value, tol, MatrixCompareType::absolute));
 }
 
-void FindOuterEllipsoid(const MathematicalProgramSolverInterface& solver,
+void FindOuterEllipsoid(const SolverInterface& solver,
                         double tol) {
   std::array<Matrix3d, 3> Q;
   std::array<Vector3d, 3> b;
@@ -110,7 +112,7 @@ void FindOuterEllipsoid(const MathematicalProgramSolverInterface& solver,
   auto P = prog.NewSymmetricContinuousVariables<3>("P");
   prog.AddPositiveSemidefiniteConstraint(P);
   auto s = prog.NewContinuousVariables<3>("s");
-  prog.AddBoundingBoxConstraint(0, std::numeric_limits<double>::infinity(), s);
+  prog.AddBoundingBoxConstraint(0, kInf, s);
   auto c = prog.NewContinuousVariables<3>("c");
 
   for (int i = 0; i < 3; ++i) {
@@ -126,15 +128,17 @@ void FindOuterEllipsoid(const MathematicalProgramSolverInterface& solver,
 
   const MathematicalProgramResult result = RunSolver(prog, solver);
 
-  const auto P_value = prog.GetSolution(P, result);
-  const auto s_value = prog.GetSolution(s, result);
-  const auto c_value = prog.GetSolution(c, result);
+  const auto P_value = result.GetSolution(P);
+  const auto s_value = result.GetSolution(s);
+  const auto c_value = result.GetSolution(c);
+
+  EXPECT_NEAR(-P_value.trace(), result.get_optimal_cost(), tol);
 
   const Eigen::SelfAdjointEigenSolver<Matrix3d> es_P(P_value);
   EXPECT_TRUE((es_P.eigenvalues().array() >= -tol).all());
   // The minimal eigen value of M should be 0, since the optimality happens at
   // the boundary of the PSD cone.
-  double M_min_eigenvalue = std::numeric_limits<double>::infinity();
+  double M_min_eigenvalue = kInf;
   for (int i = 0; i < 3; ++i) {
     Matrix4d M_value;
     // clang-format off
@@ -149,7 +153,7 @@ void FindOuterEllipsoid(const MathematicalProgramSolverInterface& solver,
   EXPECT_NEAR(M_min_eigenvalue, 0, tol);
 }
 
-void SolveEigenvalueProblem(const MathematicalProgramSolverInterface& solver,
+void SolveEigenvalueProblem(const SolverInterface& solver,
                             double tol) {
   MathematicalProgram prog;
   auto x = prog.NewContinuousVariables<2>("x");
@@ -175,14 +179,100 @@ void SolveEigenvalueProblem(const MathematicalProgramSolverInterface& solver,
 
   const MathematicalProgramResult result = RunSolver(prog, solver);
 
-  const double z_value = prog.GetSolution(z(0), result);
-  const auto x_value = prog.GetSolution(x, result);
+  const double z_value = result.GetSolution(z(0));
+  const auto x_value = result.GetSolution(x);
   const auto xF_sum = x_value(0) * F1 + x_value(1) * F2;
 
+  EXPECT_NEAR(z_value, result.get_optimal_cost(), tol);
   Eigen::SelfAdjointEigenSolver<Matrix3d> eigen_solver_xF(xF_sum);
   EXPECT_NEAR(z_value, eigen_solver_xF.eigenvalues().maxCoeff(), tol);
   EXPECT_TRUE(((x_value - x_lb).array() >= -tol).all());
   EXPECT_TRUE(((x_value - x_ub).array() <= tol).all());
+}
+
+void SolveSDPwithSecondOrderConeExample1(const SolverInterface& solver,
+                                         double tol) {
+  MathematicalProgram prog;
+  auto X = prog.NewSymmetricContinuousVariables<3>();
+  auto x = prog.NewContinuousVariables<3>();
+  Eigen::Matrix3d C0;
+  // clang-format off
+  C0 << 2, 1, 0,
+        1, 2, 1,
+        0, 1, 2;
+  // clang-format on
+  prog.AddLinearCost((C0 * X.cast<symbolic::Expression>()).trace() + x(0));
+  prog.AddLinearConstraint(
+      (Eigen::Matrix3d::Identity() * X.cast<symbolic::Expression>()).trace() +
+          x(0) == 1);
+  prog.AddLinearConstraint(
+      (Eigen::Matrix3d::Ones() * X.cast<symbolic::Expression>()).trace() +
+          x(1) + x(2) == 0.5);
+  prog.AddPositiveSemidefiniteConstraint(X);
+  prog.AddLorentzConeConstraint(x.cast<symbolic::Expression>());
+
+  MathematicalProgramResult result;
+  solver.Solve(prog, {}, {}, &result);
+  EXPECT_TRUE(result.is_success());
+
+  const auto X_val = result.GetSolution(X);
+  const auto x_val = result.GetSolution(x);
+  EXPECT_NEAR((C0 * X_val).trace() + x_val(0), result.get_optimal_cost(), tol);
+  EXPECT_NEAR((Eigen::Matrix3d::Identity() * X_val).trace() + x_val(0), 1, tol);
+  EXPECT_NEAR((Eigen::Matrix3d::Ones() * X_val).trace() + x_val(1) + x_val(2),
+              0.5, tol);
+  EXPECT_GE(x_val(0),
+            std::sqrt(x_val(1) * x_val(1) + x_val(2) * x_val(2)) - tol);
+}
+
+void SolveSDPwithSecondOrderConeExample2(const SolverInterface& solver,
+                                         double tol) {
+  MathematicalProgram prog;
+  const auto X = prog.NewSymmetricContinuousVariables<3>();
+  const auto x = prog.NewContinuousVariables<1>()(0);
+  prog.AddLinearCost(X(0, 0) + X(1, 1) + x);
+  prog.AddBoundingBoxConstraint(0, kInf, x);
+  prog.AddLinearConstraint(X(0, 0) + 2 * X(1, 1) + X(2, 2) + 3 * x == 3);
+  Vector3<symbolic::Expression> lorentz_cone_expr;
+  lorentz_cone_expr << X(0, 0), X(1, 1) + x, X(1, 1) + X(2, 2);
+  prog.AddLorentzConeConstraint(lorentz_cone_expr);
+  prog.AddLinearConstraint(X(1, 0) + X(2, 1) == 1);
+  prog.AddPositiveSemidefiniteConstraint(X);
+
+  MathematicalProgramResult result;
+  solver.Solve(prog, {}, {}, &result);
+  EXPECT_TRUE(result.is_success());
+  const auto X_val = result.GetSolution(X);
+  const auto x_val = result.GetSolution(x);
+  EXPECT_NEAR(result.get_optimal_cost(), X_val(0, 0) + X_val(1, 1) + x_val,
+              tol);
+  Eigen::SelfAdjointEigenSolver<Matrix3d> es(X_val);
+  EXPECT_TRUE((es.eigenvalues().array() >= -tol).all());
+  EXPECT_NEAR(X_val(0, 0) + 2 * X_val(1, 1) + X_val(2, 2) + 3 * x_val, 3, tol);
+  EXPECT_GE(X_val(0, 0), std::sqrt(std::pow(X_val(1, 1) + x_val, 2) +
+                                   std::pow(X_val(1, 1) + X_val(2, 2), 2)) -
+                             tol);
+  EXPECT_NEAR(X_val(1, 0) + X_val(2, 1), 1, tol);
+  EXPECT_GE(x_val, -tol);
+}
+
+void SolveSDPwithOverlappingVariables(const SolverInterface& solver,
+                                      double tol) {
+  MathematicalProgram prog;
+  auto x = prog.NewContinuousVariables<3>();
+  prog.AddPositiveSemidefiniteConstraint(
+      (Matrix2<symbolic::Variable>() << x(0), x(1), x(1), x(0)).finished());
+  prog.AddPositiveSemidefiniteConstraint(
+      (Matrix2<symbolic::Variable>() << x(0), x(2), x(2), x(0)).finished());
+  prog.AddBoundingBoxConstraint(1, 1, x(1));
+  prog.AddLinearCost(2 * x(0) + x(2));
+
+  MathematicalProgramResult result;
+  solver.Solve(prog, {}, {}, &result);
+  EXPECT_TRUE(result.is_success());
+  EXPECT_TRUE(
+      CompareMatrices(result.GetSolution(x), Eigen::Vector3d(1, 1, -1), tol));
+  EXPECT_NEAR(result.get_optimal_cost(), 1, tol);
 }
 }  // namespace test
 }  // namespace solvers

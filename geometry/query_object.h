@@ -5,12 +5,12 @@
 #include <string>
 #include <vector>
 
-#include "drake/geometry/geometry_context.h"
 #include "drake/geometry/query_results/contact_surface.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/geometry/query_results/signed_distance_pair.h"
 #include "drake/geometry/query_results/signed_distance_to_point.h"
 #include "drake/geometry/scene_graph_inspector.h"
+#include "drake/systems/framework/context.h"
 
 namespace drake {
 namespace geometry {
@@ -43,9 +43,19 @@ class SceneGraph;
  operation, but the result is not live, and any geometry query performed on the
  copy will throw an exception.
 
+ <h2>Queries and scalar type</h2>
+
  A %QueryObject _cannot_ be converted to a different scalar type. A %QueryObject
- of scalar type S can only be acquired from the output port of a SceneGraph
- of type S evaluated on a corresponding GeometryContext, also of type S.
+ of scalar type T can only be acquired from the output port of a SceneGraph
+ of type T evaluated on a corresponding Context, also of type T.
+
+ %QueryObject's support for arbitrary scalar type is incomplete. Not all queries
+ support all scalar types to the same degree. In some cases the level of support
+ is obvious (such as when the query is declared *explicitly* in terms of a
+ double-valued scalar -- see ComputePointPairPenetration()). In other cases,
+ where the query is expressed in terms of scalar `T`, the query may have
+ restrictions. If a query has restricted scalar support, it is included in
+ the query's documentation.
 
  @tparam T The scalar type. Must be a valid Eigen scalar.
 
@@ -92,7 +102,15 @@ class QueryObject {
    if they overlap each other and are not explicitly excluded through
    @ref collision_filter_concepts "collision filtering". These algorithms find
    those colliding cases, characterize them, and report the essential
-   characteristics of that collision.  */
+   characteristics of that collision.
+
+   For two colliding geometries g_A and g_B, it is guaranteed that they will
+   map to `id_A` and `id_B` in a fixed, repeatable manner, where `id_A` and
+   `id_B` are GeometryId's of geometries g_A and g_B respectively.
+
+   These methods are affected by collision filtering; element pairs that
+   have been filtered will not produce contacts, even if their collision
+   geometry is penetrating.     */
   //@{
 
   /**
@@ -104,24 +122,37 @@ class QueryObject {
    Only reports results for _penetrating_ geometries; if two geometries are
    separated, there will be no result for that pair. Pairs of _anchored_
    geometry are also not reported. The penetration between two geometries is
-   characterized as a point pair (see PenetrationAsPointPair).
+   characterized as a point pair (see PenetrationAsPointPair). This method is
+   affected by collision filtering.
 
-   For two penetrating geometries g₁ and g₂, it is guaranteed that they will
-   map to `id_A` and `id_B` in a fixed, repeatable manner.
-
-   This method is affected by collision filtering; element pairs that
-   have been filtered will not produce contacts, even if their collision
-   geometry is penetrating.
+   <h3>Scalar support</h3>
+   This method only provides double-valued penetration results.
 
    <!--
-   NOTE: This is currently declared as double because we haven't exposed FCL's
-   templated functionality yet. When that happens, double -> T.
+   TODO (SeanCurtis-TRI): This can/should be changed to offer at least partial
+   AutoDiffXd support. At the very least, it should be declared on T and throw
+   for AutoDiffXd. This is related to PR 11143
+   https://github.com/RobotLocomotion/drake/pull/11143. In that PR, MBP is
+   taking responsibility to know whether or not QueryObject supports AutoDiff
+   penetration queries; MBP should not be responsible for that knowledge. By
+   moving the exception into SceneGraph, it removes the false dependency and
+   allows us to gradually increase the AutoDiff support for penetration.
    -->
 
    @returns A vector populated with all detected penetrations characterized as
             point pairs. */
   std::vector<PenetrationAsPointPair<double>> ComputePointPairPenetration()
       const;
+
+  /**
+   Reports pair-wise intersections and characterizes each non-empty
+   intersection as a ContactSurface. The computation is subject to collision
+   filtering.
+
+   @returns A vector populated with contact surfaces of all detected
+            intersecting pairs of geometries.
+   @note  This function is not implemented yet. */
+  std::vector<ContactSurface<T>> ComputeContactSurfaces() const;
 
   //@}
 
@@ -182,12 +213,27 @@ class QueryObject {
    filter. We report the distance between dynamic objects, and between dynamic
    and anchored objects. We DO NOT report the distance between two anchored
    objects.
+
+   <h3>Scalar support</h3>
+   This function does not support halfspaces. If an unfiltered pair contains
+   a halfspace, an exception will be thrown for all scalar types. Otherwise,
+   this query supports all other pairs of Drake geometry types for `double`.
+   For `AutoDiffXd`, it only supports distance between sphere-box and
+   sphere-sphere. If there are any unfiltered geometry pairs that include other
+   geometries, the AutoDiff throws an exception.
+
+   <!-- TODO(SeanCurtis-TRI): Document expected precision of answer based on
+   members of shape pair. See
+   https://github.com/RobotLocomotion/drake/issues/10907 -->
+   <!-- TODO(SeanCurtis-TRI): Support queries of halfspace-A, where A is _not_ a
+   halfspace. See https://github.com/RobotLocomotion/drake/issues/10905 -->
+
    @retval near_pairs The signed distance for all unfiltered geometry pairs.
   */
   // TODO(hongkai.dai): add a distance bound as an optional input, such that the
   // function doesn't return the pairs whose signed distance is larger than the
   // distance bound.
-  std::vector<SignedDistancePair<double>>
+  std::vector<SignedDistancePair<T>>
   ComputeSignedDistancePairwiseClosestPoints() const;
 
   // TODO(DamrongGuoy): Improve and refactor documentation of
@@ -198,8 +244,8 @@ class QueryObject {
    Computes the signed distances and gradients to a query point from each
    geometry in the scene.
 
-   @warning Currently supports spheres and boxes only. Silently ignores other
-   kinds of geometries, which will be added later.
+   @warning Currently supports spheres, boxes, and cylinders only. Silently
+   ignores other kinds of geometries, which will be added later.
 
    This query provides φᵢ(p), φᵢ:ℝ³→ℝ, the signed distance to the position
    p of a query point from geometry Gᵢ in the scene.  It returns an array of
@@ -222,6 +268,12 @@ class QueryObject {
    Note that ∇φᵢ(p) is also defined on Gᵢ's surface, but we cannot use the
    above formula.
 
+   <h3>Scalar support</h3>
+   This query only supports computing distances from the point to spheres,
+   boxes, and cylinders for both `double` and `AutoDiffXd` scalar types. If
+   the SceneGraph contains any other geometry shapes, they will be silently
+   ignored.
+
    @note For a sphere G, the signed distance function φᵢ(p) has an undefined
    gradient vector at the center of the sphere--every point on the sphere's
    surface has the same distance to the center.  In this case, we will assign
@@ -233,7 +285,7 @@ class QueryObject {
    will assign a unit vector in the direction of the average of the outward
    face unit normals of the incident faces of the edge or the corner.
    A point p is considered being on a face, or an edge, or a corner of the
-   box if its lies within a certain tolerance from them.
+   box if it lies within a certain tolerance from them.
 
    @note For a box B, if a point p is inside the box, and it is equidistant to
    to multiple nearest faces, the signed distance function φᵢ(p) at p will have
@@ -260,8 +312,8 @@ class QueryObject {
                               distance values (and supporting data).
                               See SignedDistanceToPoint.
    */
-  std::vector<SignedDistanceToPoint<double>>
-  ComputeSignedDistanceToPoint(const Vector3<double> &p_WQ,
+  std::vector<SignedDistanceToPoint<T>>
+  ComputeSignedDistanceToPoint(const Vector3<T> &p_WQ,
                                const double threshold
                                = std::numeric_limits<double>::infinity()) const;
   //@}
@@ -274,8 +326,10 @@ class QueryObject {
 
   const GeometryState<T>& geometry_state() const;
 
-  void set(const GeometryContext<T>* context,
+  void set(const systems::Context<T>* context,
            const SceneGraph<T>* scene_graph) {
+    DRAKE_DEMAND(context);
+    DRAKE_DEMAND(scene_graph);
     context_ = context;
     scene_graph_ = scene_graph;
     inspector_.set(&geometry_state());
@@ -298,7 +352,7 @@ class QueryObject {
   // diagram. The context shares the same index in the parent diagram context.
   // Then the LeafSystem desiring to perform a query would pass itself and its
   // own context in (along with the query parameters). The QueryObject would
-  // use those and the index to get the SceneGraph and GeometryContext.
+  // use those and the index to get the SceneGraph and Context.
   //
   // Several issues:
   //  1. Leads to a clunky API (passing self and context into *every* query).
@@ -312,7 +366,7 @@ class QueryObject {
   // on the current context (fully-dependent on context). These pointers must
   // be null for "baked" contexts (e.g., the result of copying a "live"
   // context).
-  const GeometryContext<T>* context_{nullptr};
+  const systems::Context<T>* context_{nullptr};
   const SceneGraph<T>* scene_graph_{nullptr};
   SceneGraphInspector<T> inspector_;
 };

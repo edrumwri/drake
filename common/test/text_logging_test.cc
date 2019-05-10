@@ -68,13 +68,17 @@ GTEST_TEST(TextLoggingTest, ConstantTest) {
   #endif
 }
 
-// Abuse gtest internals to verify that logging actually prints, when enabled.
+// Abuse gtest internals to verify that logging actually prints when enabled,
+// and that the default level is INFO.
 GTEST_TEST(TextLoggingTest, CaptureOutputTest) {
   testing::internal::CaptureStderr();
-  drake::log()->info("sentinel string");
+  drake::log()->trace("bad sentinel");
+  drake::log()->debug("bad sentinel");
+  drake::log()->info("good sentinel");
   std::string output = testing::internal::GetCapturedStderr();
   #if TEXT_LOGGING_TEST_SPDLOG
-    EXPECT_TRUE(output.find("sentinel string") != std::string::npos);
+    EXPECT_TRUE(output.find("good sentinel") != std::string::npos);
+    EXPECT_TRUE(output.find("bad sentinel") == std::string::npos);
   #else
     EXPECT_EQ(output, "");
   #endif
@@ -129,6 +133,26 @@ GTEST_TEST(TextLoggingTest, DrakeMacrosDontEvaluateArguments) {
   #endif
   tracearg = 0;
   debugarg = 0;
+}
+
+GTEST_TEST(TextLoggingTest, SetLogLevel) {
+  using drake::logging::set_log_level;
+
+  #if TEXT_LOGGING_TEST_SPDLOG
+    EXPECT_THROW(set_log_level("bad"), std::runtime_error);
+    const std::vector<std::string> levels = {
+        "trace", "debug", "info", "warn", "err", "critical", "off"};
+    const std::string first_level = set_log_level("unchanged");
+    std::string prev_level = "off";
+    set_log_level(prev_level);
+    for (const std::string& level : levels) {
+      EXPECT_EQ(set_log_level(level), prev_level);
+      prev_level = level;
+    }
+    set_log_level(first_level);
+  #else
+    ASSERT_EQ(drake::logging::set_log_level("anything really"), "");
+  #endif
 }
 
 // We must run this test last because it changes the default configuration.

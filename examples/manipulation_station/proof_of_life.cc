@@ -23,11 +23,16 @@ namespace {
 // (e.g. picking up an object) and perhaps a slightly more descriptive name.
 
 using Eigen::VectorXd;
+using math::RigidTransform;
+using math::RollPitchYaw;
+using math::RotationMatrix;
 
 DEFINE_double(target_realtime_rate, 1.0,
               "Playback speed.  See documentation for "
               "Simulator::set_target_realtime_rate() for details.");
 DEFINE_double(duration, 4.0, "Simulation duration.");
+DEFINE_bool(test, false, "Disable random initial conditions in test mode.");
+DEFINE_string(setup, "clutter_clearing", "Manipulation Station setup option.");
 
 int do_main(int argc, char* argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -36,7 +41,18 @@ int do_main(int argc, char* argv[]) {
 
   // Create the "manipulation station".
   auto station = builder.AddSystem<ManipulationStation>();
-  station->SetupDefaultStation();
+  if (FLAGS_setup == "clutter_clearing") {
+    station->SetupClutterClearingStation(nullopt);
+    station->AddManipulandFromFile(
+        "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf",
+        RigidTransform<double>(RollPitchYaw<double>(-1.57, 0, 3),
+                               Eigen::Vector3d(-0.3, -0.55, 0.36)));
+  } else if (FLAGS_setup == "default") {
+    station->SetupDefaultStation();
+  } else {
+    throw std::domain_error(
+        "Unrecognized setup option. Options are {default, clutter_clearing}.");
+  }
   station->Finalize();
 
   geometry::ConnectDrakeVisualizer(&builder, station->get_mutable_scene_graph(),
@@ -58,9 +74,9 @@ int do_main(int argc, char* argv[]) {
   }
   auto image_array_lcm_publisher = builder.template AddSystem(
       systems::lcm::LcmPublisherSystem::Make<robotlocomotion::image_array_t>(
-          "DRAKE_RGBD_CAMERA_IMAGES", nullptr));
+          "DRAKE_RGBD_CAMERA_IMAGES", nullptr,
+          1.0 / 10 /* 10 fps publish period */));
   image_array_lcm_publisher->set_name("rgbd_publisher");
-  image_array_lcm_publisher->set_publish_period(1. / 10 /* 10 fps */);
   builder.Connect(image_to_lcm_image_array->image_array_t_msg_output_port(),
                   image_array_lcm_publisher->get_input_port());
 
@@ -87,14 +103,21 @@ int do_main(int argc, char* argv[]) {
   station_context.FixInputPort(
       station->GetInputPort("wsg_force_limit").get_index(), Vector1d(40.0));
 
+  if (!FLAGS_test) {
+    std::random_device rd;
+    RandomGenerator generator{rd()};
+    diagram->SetRandomContext(&simulator.get_mutable_context(), &generator);
+  }
+
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
-  simulator.StepTo(FLAGS_duration);
+  simulator.AdvanceTo(FLAGS_duration);
 
   // Check that the arm is (very roughly) in the commanded position.
   VectorXd q = station->GetIiwaPosition(station_context);
   if (!is_approx_equal_abstol(q, q0, 1.e-3)) {
-    std::cout << "q - q0  = " << (q - q0).transpose() << std::endl;
-    DRAKE_ABORT_MSG("q is not sufficiently close to q0.");
+    std::cout << "q is not sufficiently close to q0.\n";
+    std::cout << "q - q0  = " << (q - q0).transpose() << "\n";
+    return EXIT_FAILURE;
   }
 
   return 0;

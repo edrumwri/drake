@@ -267,7 +267,7 @@ class ImageWriterTest : public ::testing::Test {
     auto context = writer.AllocateContext();
     context->FixInputPort(port.get_index(),
                           AbstractValue::Make<Image<kPixelType>>(image));
-    context->set_time(0.);
+    context->SetTime(0.);
     writer.CalcNextUpdateTime(*context, events.get());
 
     const std::string expected_name = tester.MakeFileName(
@@ -594,7 +594,7 @@ TEST_F(ImageWriterTest, SingleConfiguredPort) {
   {
     auto events = writer.AllocateCompositeEventCollection();
     auto context = writer.AllocateContext();
-    context->set_time(0.);
+    context->SetTime(0.);
     double next_time = writer.CalcNextUpdateTime(*context, events.get());
     // Confirm start time fed into the periodic event.
     EXPECT_EQ(start_time, next_time);
@@ -618,7 +618,7 @@ TEST_F(ImageWriterTest, SingleConfiguredPort) {
       // in an error.
       DRAKE_EXPECT_THROWS_MESSAGE(
           writer.Publish(*context, events->get_publish_events()),
-          std::logic_error, ".* image input port \\d+ is not connected");
+          std::logic_error, ".*InputPort.* is not connected");
 
       // Confirms that a valid publish increments the counter.
       context->FixInputPort(
@@ -637,7 +637,7 @@ TEST_F(ImageWriterTest, SingleConfiguredPort) {
     }
 
     // Confirm period is correct.
-    context->set_time(start_time + 0.1 * period);
+    context->SetTime(start_time + 0.1 * period);
     events->Clear();
     next_time = writer.CalcNextUpdateTime(*context, events.get());
     EXPECT_EQ(start_time + period, next_time);

@@ -62,7 +62,7 @@ class RigidBodyPointCloudFilterTest : public ::testing::Test {
     context_ = filter_->CreateDefaultContext();
     context_->FixInputPort(
         filter_->point_cloud_input_port().get_index(),
-        systems::AbstractValue::Make<PointCloud>(*cloud_input_.get()));
+        AbstractValue::Make<PointCloud>(*cloud_input_.get()));
     context_->FixInputPort(filter_->state_input_port().get_index(),
                            state_input_);
 
@@ -74,7 +74,7 @@ class RigidBodyPointCloudFilterTest : public ::testing::Test {
   std::unique_ptr<systems::Context<double>> context_;
   VectorX<double> state_input_;
   std::unique_ptr<PointCloud> cloud_input_;
-  std::unique_ptr<systems::AbstractValue> output_;
+  std::unique_ptr<AbstractValue> output_;
 
  private:
   // Adds a RigidBody with a box shape to the RigidBodyTree at a fixed location.
@@ -140,7 +140,7 @@ class RigidBodyPointCloudFilterTest : public ::testing::Test {
 TEST_F(RigidBodyPointCloudFilterTest, RemoveBoxTest) {
   // Calculate the system's actual output.
   filter_->point_cloud_output_port().Calc(*context_, output_.get());
-  PointCloud output_cloud = output_->GetValueOrThrow<PointCloud>();
+  PointCloud output_cloud = output_->get_value<PointCloud>();
 
   EXPECT_GT(output_cloud.size(), 0);
 

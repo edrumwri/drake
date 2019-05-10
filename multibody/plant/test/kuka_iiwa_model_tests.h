@@ -58,7 +58,10 @@ class KukaIiwaModelTests : public ::testing::Test {
     context_autodiff_ = plant_autodiff_->CreateDefaultContext();
   }
 
-  void SetArbitraryConfiguration() {
+  // If unit_quaternion = false then the quaternion for the free floating base
+  // is not normalized. This configuration is useful to verify the computation
+  // of analytical Jacobians even if the state stores a non-unit quaternion.
+  void SetArbitraryConfiguration(bool unit_quaternion = true) {
     // Get an arbitrary set of angles and velocities for each joint.
     const VectorX<double> x0 = GetArbitraryJointConfiguration();
 
@@ -78,13 +81,21 @@ class KukaIiwaModelTests : public ::testing::Test {
         RollPitchYaw<double>(M_PI / 3, -M_PI / 2, M_PI / 8),
         Vector3<double>(0.05, -0.2, 0.05));
     plant_->SetFreeBodyPoseInAnchoredFrame(
-        context_.get(), plant_->world_frame(), base_body,
-        X_WB.GetAsIsometry3());
+        context_.get(), plant_->world_frame(), base_body, X_WB);
     // Set an arbitrary non-zero spatial velocity of the floating base link.
     const Vector3<double> w_WB{-1, 1, -1};
     const Vector3<double> v_WB{1, -1, 1};
     plant_->SetFreeBodySpatialVelocity(
         context_.get(), base_body, {w_WB, v_WB});
+
+    if (!unit_quaternion) {
+        VectorX<double> q = plant_->GetPositions(*context_);
+        // TODO(amcastro-tri): This assumes the first 4 entries in the
+        // generalized positions correspond to the quaternion for the free
+        // floating robot base. Provide API to access these values.
+        q.head<4>() *= 2;  // multiply quaternion by a factor.
+        plant_->SetPositions(context_.get(), q);
+    }
   }
 
   // Gets an arm state to an arbitrary configuration in which joint angles and

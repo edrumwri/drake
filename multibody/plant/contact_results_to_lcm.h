@@ -5,8 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/multibody_plant.h"
@@ -21,15 +21,7 @@ namespace multibody {
  message. It has a single input port with type ContactResults<T> and a single
  output port with lcmt_contact_results_for_viz.
 
- @tparam T The scalar type. Must be a valid Eigen scalar.
-
- Instantiated templates for the following kinds of T's are provided:
-
- - double
- - AutoDiffXd
-
- They are already available to link against in the containing library. No other
- values for T are currently supported.
+ @tparam T Must be one of drake's default scalar types.
  */
 template <typename T>
 class ContactResultsToLcmSystem final : public systems::LeafSystem<T> {
@@ -122,27 +114,8 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
     const systems::OutputPort<double>& contact_results_port,
     lcm::DrakeLcmInterface* lcm = nullptr);
 
-#ifndef DRAKE_DOXYGEN_CXX
-// TODO(#9314) Remove this transitional namespace on or about 2019-03-01.
-namespace multibody_plant {
-
-template <typename T>
-using ContactResultsToLcmSystem
-    DRAKE_DEPRECATED("Spell as drake::multibody::Contact...System instead.")
-    = ::drake::multibody::ContactResultsToLcmSystem<T>;
-
-DRAKE_DEPRECATED("Spell as drake::multibody::Connect...Visualizer instead.")
-inline systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
-    systems::DiagramBuilder<double>* builder,
-    const multibody::MultibodyPlant<double>& multibody_plant,
-    const systems::OutputPort<double>& contact_results_port,
-    lcm::DrakeLcmInterface* lcm = nullptr) {
-  return multibody::ConnectContactResultsToDrakeVisualizer(
-      builder, multibody_plant, contact_results_port, lcm);
-}
-
-}  // namespace multibody_plant
-#endif  // DRAKE_DOXYGEN_CXX
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class drake::multibody::ContactResultsToLcmSystem)

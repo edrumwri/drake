@@ -821,6 +821,40 @@ Evaluate(const Eigen::MatrixBase<Derived>& m,
   }
 }
 
+/// Substitutes a symbolic matrix @p m using a given substitution @p subst.
+///
+/// @returns a matrix of symbolic expressions whose size is the size of @p m.
+/// @throws std::runtime_error if NaN is detected during substitution.
+template <typename Derived>
+Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
+              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
+              Derived::MaxColsAtCompileTime>
+Substitute(const Eigen::MatrixBase<Derived>& m, const Substitution& subst) {
+  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
+                "Substitute only accepts a symbolic matrix.");
+  // Note that the return type is written out explicitly to help gcc 5 (on
+  // ubuntu).
+  return m.unaryExpr(
+      [&subst](const Expression& e) { return e.Substitute(subst); });
+}
+
+/// Substitutes @p var with @p e in a symbolic matrix @p m.
+///
+/// @returns a matrix of symbolic expressions whose size is the size of @p m.
+/// @throws std::runtime_error if NaN is detected during substitution.
+template <typename Derived>
+Eigen::Matrix<Expression, Derived::RowsAtCompileTime,
+              Derived::ColsAtCompileTime, 0, Derived::MaxRowsAtCompileTime,
+              Derived::MaxColsAtCompileTime>
+Substitute(const Eigen::MatrixBase<Derived>& m, const Variable& var,
+           const Expression& e) {
+  static_assert(std::is_same<typename Derived::Scalar, Expression>::value,
+                "Substitute only accepts a symbolic matrix.");
+  // Note that the return type is written out explicitly to help gcc 5 (on
+  // ubuntu).
+  return Substitute(m, Substitution{{var, e}});
+}
+
 }  // namespace symbolic
 
 /** Provides specialization of @c cond function defined in drake/common/cond.h
@@ -924,8 +958,7 @@ class uniform_real_distribution<drake::symbolic::Expression> {
 
   /// Generates a symbolic expression representing a random value that is
   /// distributed according to the associated probability function.
-  template <class Generator>
-  result_type operator()(Generator&) {
+  result_type operator()() {
     if (random_variables_->size() == index_) {
       random_variables_->emplace_back(
           "random_uniform_" + std::to_string(index_),
@@ -933,6 +966,16 @@ class uniform_real_distribution<drake::symbolic::Expression> {
     }
     const drake::symbolic::Variable& v{(*random_variables_)[index_++]};
     return a_ + (b_ - a_) * v;
+  }
+
+  /// Generates a symbolic expression representing a random value that is
+  /// distributed according to the associated probability function.
+  ///
+  /// @note We provide this method, which takes a random generator, for
+  /// compatibility with the std::uniform_real_distribution::operator().
+  template <class Generator>
+  result_type operator()(Generator&) {
+    return (*this)();
   }
 
   /// Returns the minimum value a.
@@ -1048,8 +1091,7 @@ class normal_distribution<drake::symbolic::Expression> {
 
   /// Generates a symbolic expression representing a random value that is
   /// distributed according to the associated probability function.
-  template <class Generator>
-  result_type operator()(Generator&) {
+  result_type operator()() {
     if (random_variables_->size() == index_) {
       random_variables_->emplace_back(
           "random_gaussian_" + std::to_string(index_),
@@ -1057,6 +1099,16 @@ class normal_distribution<drake::symbolic::Expression> {
     }
     const drake::symbolic::Variable& v{(*random_variables_)[index_++]};
     return mean_ + stddev_ * v;
+  }
+
+  /// Generates a symbolic expression representing a random value that is
+  /// distributed according to the associated probability function.
+  ///
+  /// @note We provide this method, which takes a random generator, for
+  /// compatibility with the std::normal_distribution::operator().
+  template <class Generator>
+  result_type operator()(Generator&) {
+    return (*this)();
   }
 
   /// Returns the mean μ distribution parameter.
@@ -1140,8 +1192,7 @@ class exponential_distribution<drake::symbolic::Expression> {
 
   /// Generates a symbolic expression representing a random value that is
   /// distributed according to the associated probability function.
-  template <class Generator>
-  result_type operator()(Generator&) {
+  result_type operator()() {
     if (random_variables_->size() == index_) {
       random_variables_->emplace_back(
           "random_exponential_" + std::to_string(index_),
@@ -1149,6 +1200,16 @@ class exponential_distribution<drake::symbolic::Expression> {
     }
     const drake::symbolic::Variable& v{(*random_variables_)[index_++]};
     return v / lambda_;
+  }
+
+  /// Generates a symbolic expression representing a random value that is
+  /// distributed according to the associated probability function.
+  ///
+  /// @note We provide this method, which takes a random generator, for
+  /// compatibility with the std::exponential_distribution::operator().
+  template <class Generator>
+  result_type operator()(Generator&) {
+    return (*this)();
   }
 
   /// Returns the lambda λ distribution parameter.

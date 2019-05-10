@@ -7,7 +7,6 @@
 #include "drake/common/nice_type_name.h"
 #include "drake/multibody/math/spatial_velocity.h"
 #include "drake/multibody/tree/frame_base.h"
-#include "drake/multibody/tree/multibody_tree_context.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 
@@ -59,7 +58,7 @@ class Frame : public FrameBase<T> {
   /// with this frame.
   /// In particular, if `this` **is** the body frame B, this method directly
   /// returns the identity transformation.
-  virtual Isometry3<T> CalcPoseInBodyFrame(
+  virtual math::RigidTransform<T> CalcPoseInBodyFrame(
       const systems::Context<T>& context) const = 0;
 
   /// Variant of CalcPoseInBodyFrame() that returns the fixed pose `X_BF` of
@@ -71,7 +70,7 @@ class Frame : public FrameBase<T> {
   // An example of a frame sub-class not implementing this method would be that
   // of a frame on a soft body, for which its pose in the body frame depends
   // on the state of deformation of the body.
-  virtual Isometry3<T> GetFixedPoseInBodyFrame() const {
+  virtual math::RigidTransform<T> GetFixedPoseInBodyFrame() const {
     throw std::logic_error(
         "Attempting to retrieve a fixed pose from a frame of type '" +
             drake::NiceTypeName::Get(*this) +
@@ -88,9 +87,9 @@ class Frame : public FrameBase<T> {
   /// identity transformation, this method directly returns `X_FQ`.
   /// Specific frame subclasses can override this method to provide faster
   /// implementations if needed.
-  virtual Isometry3<T> CalcOffsetPoseInBody(
+  virtual math::RigidTransform<T> CalcOffsetPoseInBody(
       const systems::Context<T>& context,
-      const Isometry3<T>& X_FQ) const {
+      const math::RigidTransform<T>& X_FQ) const {
     return CalcPoseInBodyFrame(context) * X_FQ;
   }
 
@@ -99,8 +98,8 @@ class Frame : public FrameBase<T> {
   /// frame B to which this frame is attached.
   /// @throws std::logic_error if called on a %Frame that does not have a
   /// fixed offset in the body frame.
-  virtual Isometry3<T> GetFixedOffsetPoseInBody(
-      const Isometry3<T>& X_FQ) const {
+  virtual math::RigidTransform<T> GetFixedOffsetPoseInBody(
+      const math::RigidTransform<T>& X_FQ) const {
     return GetFixedPoseInBodyFrame() * X_FQ;
   }
 
@@ -108,7 +107,8 @@ class Frame : public FrameBase<T> {
   /// frame W as a function of the state of the model stored in `context`.
   /// @note Body::EvalPoseInWorld() provides a more efficient way to obtain
   /// the pose for a body frame.
-  Isometry3<T> CalcPoseInWorld(const systems::Context<T>& context) const {
+  math::RigidTransform<T> CalcPoseInWorld(
+      const systems::Context<T>& context) const {
     return this->get_parent_tree().CalcRelativeTransform(
         context, this->get_parent_tree().world_frame(), *this);
   }
@@ -116,7 +116,7 @@ class Frame : public FrameBase<T> {
   /// Computes and returns the pose `X_MF` of `this` frame F in measured in
   /// `frame_M` as a function of the state of the model stored in `context`.
   /// @see CalcPoseInWorld().
-  Isometry3<T> CalcPose(
+  math::RigidTransform<T> CalcPose(
       const systems::Context<T>& context, const Frame<T>& frame_M) const {
     return this->get_parent_tree().CalcRelativeTransform(
         context, frame_M, *this);
@@ -128,7 +128,7 @@ class Frame : public FrameBase<T> {
   /// obtain the spatial velocity for a body frame.
   SpatialVelocity<T> CalcSpatialVelocityInWorld(
       const systems::Context<T>& context) const {
-    const Isometry3<T>& X_WB = body().EvalPoseInWorld(context);
+    const math::RigidTransform<T>& X_WB = body().EvalPoseInWorld(context);
     const Vector3<T> p_BF = CalcPoseInBodyFrame(context).translation();
     const Vector3<T> p_BF_W = X_WB.linear() * p_BF;
     const SpatialVelocity<T>& V_WB = body().EvalSpatialVelocityInWorld(context);
@@ -203,6 +203,9 @@ class Frame : public FrameBase<T> {
   /// Clones this %Frame (templated on T) to a frame templated on AutoDiffXd.
   virtual std::unique_ptr<Frame<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const = 0;
+
+  virtual std::unique_ptr<Frame<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const = 0;
   /// @}
 
  private:

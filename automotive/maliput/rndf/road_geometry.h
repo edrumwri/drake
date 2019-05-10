@@ -51,7 +51,7 @@ class RoadGeometry : public api::RoadGeometry {
   ~RoadGeometry() override = default;
 
  private:
-  const api::RoadGeometryId do_id() const override { return id_; }
+  api::RoadGeometryId do_id() const override { return id_; }
 
   int do_num_junctions() const override { return junctions_.size(); }
 
@@ -66,7 +66,9 @@ class RoadGeometry : public api::RoadGeometry {
   const api::BranchPoint* do_branch_point(int index) const override;
 
   // TODO(maddog@tri.global) Implement when someone needs it.
-  const IdIndex& DoById() const override { DRAKE_ABORT(); }
+  const IdIndex& DoById() const override {
+    throw std::runtime_error("RoadGeometry::DoById is not implemented");
+  }
 
   // This function will abort as it's not implemented and should not be called.
   api::RoadPosition DoToRoadPosition(const api::GeoPosition& geo_pos,

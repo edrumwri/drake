@@ -1,5 +1,6 @@
 #include "drake/geometry/geometry_state.h"
 
+#include <algorithm>
 #include <memory>
 #include <unordered_set>
 #include <utility>
@@ -8,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/eigen_types.h"
+#include "drake/common/nice_type_name.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/geometry/geometry_frame.h"
@@ -33,6 +35,10 @@ class GeometryStateTester {
 
   FrameId get_world_frame() const {
     return internal::InternalFrame::world_frame_id();
+  }
+
+  SourceId get_self_source_id() const {
+    return state_->self_source_;
   }
 
   const std::unordered_map<SourceId, std::string>& get_source_name_map() const {
@@ -68,8 +74,12 @@ class GeometryStateTester {
     return state_->geometry_index_to_id_map_;
   }
 
-  const vector<FrameId>& get_pose_index_frame_id_map() const {
+  const vector<FrameId>& get_frame_index_id_map() const {
     return state_->frame_index_to_id_map_;
+  }
+
+  const vector<GeometryIndex>& get_dynamic_pose_index_id_map() const {
+    return state_->dynamic_proximity_index_to_internal_map_;
   }
 
   const vector<Isometry3<T>>& get_geometry_world_poses() const {
@@ -84,8 +94,8 @@ class GeometryStateTester {
     return state_->X_PF_;
   }
 
-  void SetFramePoses(const FramePoseVector<T>& poses) {
-    state_->SetFramePoses(poses);
+  void SetFramePoses(SourceId source_id, const FramePoseVector<T>& poses) {
+    state_->SetFramePoses(source_id, poses);
   }
 
   void FinalizePoseUpdate() {
@@ -93,8 +103,9 @@ class GeometryStateTester {
   }
 
   template <typename ValueType>
-  void ValidateFrameIds(const FrameKinematicsVector<ValueType>& data) const {
-    state_->ValidateFrameIds(data);
+  void ValidateFrameIds(SourceId source_id,
+                        const FrameKinematicsVector<ValueType>& data) const {
+    state_->ValidateFrameIds(source_id, data);
   }
 
   int peek_next_clique() const {
@@ -118,11 +129,172 @@ using std::make_unique;
 using std::move;
 using std::unique_ptr;
 
+// Class to aid in testing Shape introspection. Instantiated with a model
+// Shape instance, it registers a copy of that shape and confirms that the
+// introspected Shape matches in type and parameters.
+template <typename ShapeType>
+class ShapeMatcher final : public ShapeReifier {
+ public:
+  explicit ShapeMatcher(const ShapeType& expected)
+      : expected_(expected), result_(::testing::AssertionFailure()) {}
+
+  // Tests shape introspection.
+  ::testing::AssertionResult ShapeIntrospects(GeometryState<double>* state,
+                                              SourceId source_id,
+                                              FrameId frame_id) {
+    GeometryId g_id = state->RegisterGeometry(
+        source_id, frame_id,
+        make_unique<GeometryInstance>(Isometry3d::Identity(),
+                                      make_unique<ShapeType>(expected_),
+                                      "shape"));
+    state->GetShape(g_id).Reify(this);
+    return result_;
+  }
+
+  // Shape reifier implementations.
+  void ImplementGeometry(const Sphere& sphere, void*) final {
+    if (IsExpectedType(sphere)) {
+      TestShapeParameters(sphere);
+    }
+  }
+
+  void ImplementGeometry(const Cylinder& cylinder, void*) final {
+    if (IsExpectedType(cylinder)) {
+      TestShapeParameters(cylinder);
+    }
+  }
+
+  void ImplementGeometry(const HalfSpace& half_space, void*) final {
+    // Halfspace has no parameters; so no further testing is necessary.
+    IsExpectedType(half_space);
+  }
+
+  void ImplementGeometry(const Box& box, void*) final {
+    if (IsExpectedType(box)) {
+      TestShapeParameters(box);
+    }
+  }
+
+  void ImplementGeometry(const Mesh& mesh, void*) final {
+    if (IsExpectedType(mesh)) {
+      TestShapeParameters(mesh);
+    }
+  }
+
+  void ImplementGeometry(const Convex& convex, void*) final {
+    if (IsExpectedType(convex)) {
+      TestShapeParameters(convex);
+    }
+  }
+
+ private:
+  // Base template signature for comparing shape parameters. By default, it
+  // fails.
+  template <typename TestType>
+  void TestShapeParameters(const TestType& test) {
+    error() << "Not implemented for " << NiceTypeName::Get<ShapeType>() << " vs"
+            << NiceTypeName::Get<TestType>();
+  }
+
+  // Convenience method for logging errors.
+  ::testing::AssertionResult error() {
+    if (result_) result_ = ::testing::AssertionFailure();
+    return result_;
+  }
+
+  // Tests type of parameter against reference type. If they match, resets the
+  // result to the best known answer (success). Subsequent parameter testing
+  // will revert it to false via invocations to error().
+  template <typename TestShape>
+  bool IsExpectedType(const TestShape& test) {
+    if (typeid(ShapeType) == typeid(const TestShape)) {
+      result_ = ::testing::AssertionSuccess();
+      return true;
+    } else {
+      result_ << "Expected '" << NiceTypeName::Get<ShapeType>() << "', given '"
+              << NiceTypeName::Get<TestShape>() << "'";
+      return false;
+    }
+  }
+
+  // The model shape.
+  const ShapeType expected_;
+
+  // The result of the test (with appropriate failure messages).
+  ::testing::AssertionResult result_;
+};
+
+// Specializations for where the ShapeMatcher's ShapeType match the reified
+// TestType.
+template <>
+template <>
+void ShapeMatcher<Sphere>::TestShapeParameters(const Sphere& test) {
+  if (test.get_radius() != expected_.get_radius()) {
+    error() << "\nExpected sphere radius " << expected_.get_radius() << ", "
+            << "received sphere radius " << test.get_radius();
+  }
+}
+
+template <>
+template <>
+void ShapeMatcher<Cylinder>::TestShapeParameters(const Cylinder& test) {
+  if (test.get_radius() != expected_.get_radius()) {
+    error() << "\nExpected cylinder radius " << expected_.get_radius() << ", "
+            << "received cylinder radius " << test.get_radius();
+  }
+  if (test.get_length() != expected_.get_length()) {
+    error() << "\nExpected cylinder length " << expected_.get_length()
+            << ", received cylinder length " << test.get_length();
+  }
+}
+
+template <>
+template <>
+void ShapeMatcher<Box>::TestShapeParameters(const Box& test) {
+  if (test.width() != expected_.width()) {
+    error() << "\nExpected box width " << expected_.width() << ", "
+            << "received box width " << test.width();
+  }
+  if (test.height() != expected_.height()) {
+    error() << "\nExpected box height " << expected_.height()
+            << ", received box height " << test.height();
+  }
+  if (test.depth() != expected_.depth()) {
+    error() << "\nExpected box depth " << expected_.depth()
+            << ", received box depth " << test.depth();
+  }
+}
+
+template <>
+template <>
+void ShapeMatcher<Mesh>::TestShapeParameters(const Mesh& test) {
+  if (test.filename() != expected_.filename()) {
+    error() << "\nExpected mesh filename " << expected_.filename() << ", "
+            << "received mesh filename " << test.filename();
+  }
+  if (test.scale() != expected_.scale()) {
+    error() << "\nExpected mesh scale " << expected_.scale()
+            << ", received mesh scale " << test.scale();
+  }
+}
+
+template <>
+template <>
+void ShapeMatcher<Convex>::TestShapeParameters(const Convex& test) {
+  if (test.filename() != expected_.filename()) {
+    error() << "\nExpected convex filename " << expected_.filename() << ", "
+            << "received convex filename " << test.filename();
+  }
+  if (test.scale() != expected_.scale()) {
+    error() << "\nExpected convex scale " << expected_.scale()
+            << ", received convex scale " << test.scale();
+  }
+}
+
 class GeometryStateTest : public ::testing::Test {
  protected:
   void SetUp() {
-    frame_ = make_unique<GeometryFrame>("ref_frame",
-                                        Isometry3<double>::Identity());
+    frame_ = make_unique<GeometryFrame>("ref_frame");
     instance_pose_.translation() << 10, 20, 30;
     instance_ = make_unique<GeometryInstance>(
         instance_pose_, make_unique<Sphere>(1.0), "instance");
@@ -185,7 +357,7 @@ class GeometryStateTest : public ::testing::Test {
     pose.translation() << 1, 2, 3;
     pose.linear() << 1, 0, 0, 0, 0, 1, 0, -1, 0;  // 90° around x-axis.
     frames_.push_back(geometry_state_.RegisterFrame(
-        source_id_, GeometryFrame("f0", pose)));
+        source_id_, GeometryFrame("f0")));
     X_WF_.push_back(pose);
     X_PF_.push_back(pose);
 
@@ -193,14 +365,14 @@ class GeometryStateTest : public ::testing::Test {
     pose.translation() << 10, 20, 30;
     pose.linear() << 0, 0, -1, 0, 1, 0, 1, 0, 0;  // 90° around y-axis.
     frames_.push_back(geometry_state_.RegisterFrame(
-        source_id_, GeometryFrame("f1", pose)));
+        source_id_, GeometryFrame("f1")));
     X_WF_.push_back(pose);
     X_PF_.push_back(pose);
 
     // Create f2.
     pose = pose.inverse();
     frames_.push_back(geometry_state_.RegisterFrame(
-        source_id_, frames_[1], GeometryFrame("f2", pose)));
+        source_id_, frames_[1], GeometryFrame("f2")));
     X_WF_.push_back(X_WF_[1] * pose);
     X_PF_.push_back(pose);
 
@@ -357,6 +529,51 @@ TEST_F(GeometryStateTest, Constructor) {
   EXPECT_EQ(geometry_state_.get_num_geometries(), 0);
 }
 
+// Confirms that the registered shapes are correctly returned upon
+// introspection.
+TEST_F(GeometryStateTest, IntrospectShapes) {
+  SourceId source_id = geometry_state_.RegisterNewSource("test_source");
+  FrameId frame_id = geometry_state_.RegisterFrame(
+      source_id, GeometryFrame("frame"));
+
+  // Test across all valid shapes.
+  {
+    ShapeMatcher<Sphere> matcher(Sphere(0.25));
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+  {
+    ShapeMatcher<Cylinder> matcher(Cylinder(0.25, 2.0));
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+  {
+    ShapeMatcher<Box> matcher(Box(0.25, 2.0, 32.0));
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+  {
+    ShapeMatcher<HalfSpace> matcher(HalfSpace{});
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+  {
+    ShapeMatcher<Mesh> matcher(Mesh{"Path/to/mesh", 0.25});
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+  {
+    ShapeMatcher<Convex> matcher(Convex{"Path/to/convex", 0.25});
+    EXPECT_TRUE(
+        matcher.ShapeIntrospects(&geometry_state_, source_id, frame_id));
+  }
+
+  // Test invalid id.
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.GetShape(GeometryId::get_new_id()),
+      std::logic_error, "No geometry available for invalid geometry id: .+");
+}
+
 // Confirms semantics of user-specified source name.
 //    - The source name is stored and retrievable,
 //    - duplicate names are detected and considered errors, and
@@ -409,6 +626,23 @@ TEST_F(GeometryStateTest, GeometryStatistics) {
   EXPECT_FALSE(geometry_state_.source_is_registered(false_id));
 }
 
+TEST_F(GeometryStateTest, GetOwningSourceName) {
+  SetUpSingleSourceTree();
+
+  EXPECT_EQ(kSourceName, geometry_state_.GetOwningSourceName(frames_[0]));
+  EXPECT_EQ(kSourceName, geometry_state_.GetOwningSourceName(geometries_[0]));
+  EXPECT_EQ(kSourceName,
+            geometry_state_.GetOwningSourceName(anchored_geometry_));
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.GetOwningSourceName(FrameId::get_new_id()),
+      std::logic_error, "Referenced frame .* has not been registered.");
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.GetOwningSourceName(GeometryId::get_new_id()),
+      std::logic_error, "Geometry id .* does not map to a registered geometry");
+}
+
 // Compares the autodiff geometry state (embedded in its tester) against the
 // double state to confirm they have the same values/topology.
 void ExpectSuccessfulTransmogrification(
@@ -416,7 +650,7 @@ void ExpectSuccessfulTransmogrification(
     const GeometryStateTester<double>& d_tester) {
 
   // 1. Test all of the identifier -> trivially testable value maps
-  EXPECT_EQ(ad_tester.get_source_name_map(), d_tester.get_source_name_map());
+  EXPECT_EQ(ad_tester.get_self_source_id(), d_tester.get_self_source_id());
   EXPECT_EQ(ad_tester.get_source_name_map(), d_tester.get_source_name_map());
   EXPECT_EQ(ad_tester.get_source_frame_id_map(),
             d_tester.get_source_frame_id_map());
@@ -430,10 +664,10 @@ void ExpectSuccessfulTransmogrification(
   // 2. Test the vectors of ids
   EXPECT_EQ(ad_tester.get_geometry_index_id_map(),
             d_tester.get_geometry_index_id_map());
-  EXPECT_EQ(ad_tester.get_geometry_index_id_map(),
-            d_tester.get_geometry_index_id_map());
-  EXPECT_EQ(ad_tester.get_pose_index_frame_id_map(),
-            d_tester.get_pose_index_frame_id_map());
+  EXPECT_EQ(ad_tester.get_frame_index_id_map(),
+            d_tester.get_frame_index_id_map());
+  EXPECT_EQ(ad_tester.get_dynamic_pose_index_id_map(),
+            d_tester.get_dynamic_pose_index_id_map());
 
   // 3. Compare Isometry3<double> with Isometry3<double>
   for (GeometryId id : ad_tester.get_geometry_index_id_map()) {
@@ -524,6 +758,7 @@ TEST_F(GeometryStateTest, ValidateSingleSourceTree) {
     const auto& internal_frames = gs_tester_.get_frames();
     // The world frame + the frames added by s_id.
     EXPECT_EQ(internal_frames.size(), kFrameCount + 1);
+
     auto test_frame = [internal_frames, this, s_id](
         FrameIndex i, FrameId parent_id, int num_child_frames) {
       const auto& frame = internal_frames.at(frames_[i]);
@@ -545,6 +780,23 @@ TEST_F(GeometryStateTest, ValidateSingleSourceTree) {
           CompareMatrices(frame_in_parent[frame.index()].matrix(),
                           X_PF_[i].matrix()));
     };
+
+    // When added, all frames' poses w.r.t. their parents are the identity.
+    const auto& frame_in_parent = gs_tester_.get_frame_parent_poses();
+    for (FrameId frame_id : frames_) {
+      const auto& frame = internal_frames.at(frame_id);
+      EXPECT_TRUE(CompareMatrices(frame_in_parent[frame.index()].matrix(),
+                                  Isometry3<double>::Identity().matrix()));
+    }
+
+    // Confirm posing positions the frames properly.
+    FramePoseVector<double> poses;
+    for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
+      poses.set_value(frames_[f], X_PF_[f]);
+    }
+    gs_tester_.SetFramePoses(s_id, poses);
+    gs_tester_.FinalizePoseUpdate();
+
     test_frame(FrameIndex(0), gs_tester_.get_world_frame(), 0);
     test_frame(FrameIndex(1), gs_tester_.get_world_frame(), 1);
     test_frame(FrameIndex(2), frames_[1], 0);
@@ -732,7 +984,7 @@ TEST_F(GeometryStateTest, RegisterGeometryGoodSource) {
   EXPECT_EQ(geometry_state_.GetFrameId(g_id), f_id);
   EXPECT_TRUE(geometry_state_.BelongsToSource(g_id, s_id));
   Isometry3<double> X_FG = geometry_state_.GetPoseInFrame(g_id);
-  CompareMatrices(X_FG.matrix(), instance_pose_.matrix());
+  EXPECT_TRUE(CompareMatrices(X_FG.matrix(), instance_pose_.matrix()));
 
   EXPECT_TRUE(gs_tester_.get_frames().at(f_id).has_child(g_id));
   const auto& geometry = gs_tester_.get_geometries().at(g_id);
@@ -949,12 +1201,11 @@ TEST_F(GeometryStateTest, RegisterAnchoredNullGeometry) {
 TEST_F(GeometryStateTest, RemoveGeometry) {
   SourceId s_id = SetUpSingleSourceTree(true);
   // Pose all of the frames to the specified poses in their parent frame.
-  FramePoseVector<double> poses(source_id_, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
     poses.set_value(frames_[f], X_PF_[f]);
   }
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(s_id, poses);
   gs_tester_.FinalizePoseUpdate();
 
   // The geometry to remove, its parent frame, and its engine index.
@@ -997,6 +1248,50 @@ TEST_F(GeometryStateTest, RemoveGeometry) {
   Isometry3<double> X_WG = X_WF_.back() * X_FG_.back();
   EXPECT_TRUE(CompareMatrices(gs_tester_.get_geometry_world_poses()[0].matrix(),
                               X_WG.matrix()));
+
+  // Confirm that, post removal, updating poses still works.
+  EXPECT_NO_THROW(gs_tester_.FinalizePoseUpdate());
+
+  // Adding a new geometry should bring the number of total geometries back to
+  // the original count.
+  GeometryId added_id = geometry_state_.RegisterGeometry(
+      source_id_, frames_[0],
+      make_unique<GeometryInstance>(Isometry3d::Identity(),
+                                    make_unique<Sphere>(1), "newest"));
+  const InternalGeometry& added_geo = gs_tester_.get_geometries().at(added_id);
+  // Highest index should be number of geometries - 1.
+  EXPECT_EQ(added_geo.index(),
+            GeometryIndex(single_tree_total_geometry_count() - 1));
+
+  // Adding proximity role to the new geometry brings the total number of
+  // dynamic geometries with proximity roles back up to the original value.
+  geometry_state_.AssignRole(source_id_, added_id, ProximityProperties());
+  // Only dynamic geometries have this index; highest index is total number
+  EXPECT_EQ(added_geo.proximity_index(),
+            ProximityIndex(single_tree_dynamic_geometry_count() - 1));
+
+  // Now remove the *final* geometry; even though it doesn't require re-ordering
+  // proximity indices, it should still keep things valid -- in other words,
+  // the mapping from proximity index to internal index for *dynamic* geometries
+  // should shrink appropriately.
+  geometry_state_.RemoveGeometry(s_id, added_id);
+  // Confirm that, post removal, updating poses still works.
+  EXPECT_NO_THROW(gs_tester_.FinalizePoseUpdate());
+
+  // Test the case where a geometry gets re-ordered, but it has no roles. To
+  // make sure the geometry moves, it needs to _not_ be the last added geometry.
+  // So, we add the geometry we're going to remove _and_ an additional geometry
+  // after it.
+  GeometryId no_role_id = geometry_state_.RegisterGeometry(
+      source_id_, frames_[0],
+      make_unique<GeometryInstance>(
+          Isometry3d::Identity(), make_unique<Sphere>(1), "no_role_geometry"));
+  geometry_state_.RegisterGeometry(
+      source_id_, frames_[0],
+      make_unique<GeometryInstance>(
+          Isometry3d::Identity(), make_unique<Sphere>(1), "no_role_geometry2"));
+  EXPECT_NO_THROW(geometry_state_.RemoveGeometry(s_id, no_role_id));
+  EXPECT_NO_THROW(gs_tester_.FinalizePoseUpdate());
 }
 
 // Tests the RemoveGeometry functionality in which the geometry removed has
@@ -1004,12 +1299,11 @@ TEST_F(GeometryStateTest, RemoveGeometry) {
 TEST_F(GeometryStateTest, RemoveGeometryTree) {
   SourceId s_id = SetUpSingleSourceTree(true);
   // Pose all of the frames to the specified poses in their parent frame.
-  FramePoseVector<double> poses(source_id_, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
     poses.set_value(frames_[f], X_PF_[f]);
   }
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(s_id, poses);
   gs_tester_.FinalizePoseUpdate();
 
   // The geometry to remove, its parent frame, and its proximity index.
@@ -1262,33 +1556,30 @@ TEST_F(GeometryStateTest, GetFrameIdFromBadId) {
 // Tests the validation of the ids provided in a frame kinematics vector.
 TEST_F(GeometryStateTest, ValidateFrameIds) {
   SourceId s_id = SetUpSingleSourceTree();
-  FramePoseVector<double> frame_set(s_id, frames_);
-  frame_set.clear();
+  FramePoseVector<double> frame_set;
   for (auto frame_id : frames_) {
     frame_set.set_value(frame_id, Isometry3<double>::Identity());
   }
   // Case: frame ids are valid.
-  EXPECT_NO_THROW(gs_tester_.ValidateFrameIds(frame_set));
+  EXPECT_NO_THROW(gs_tester_.ValidateFrameIds(s_id, frame_set));
 
   // Case: Right number, wrong frames.
-  vector<FrameId> bad_frames;
+  FramePoseVector<double> frame_set_2;
   for (int i = 0; i < kFrameCount; ++i) {
-    bad_frames.push_back(FrameId::get_new_id());
+    frame_set_2.set_value(FrameId::get_new_id(), Isometry3d::Identity());
   }
-  FramePoseVector<double> frame_set_2(s_id, bad_frames);
   DRAKE_EXPECT_THROWS_MESSAGE(
-      gs_tester_.ValidateFrameIds(frame_set_2), std::runtime_error,
+      gs_tester_.ValidateFrameIds(s_id, frame_set_2), std::runtime_error,
       "Registered frame id \\(\\d+\\) belonging to source \\d+ was not found "
           "in the provided kinematics data.");
 
   // Case: Too few frames.
-  vector<FrameId> missing_frames;
+  FramePoseVector<double> frame_set_3;
   for (int i = 0; i < kFrameCount - 1; ++i) {
-    missing_frames.push_back(frames_[i]);
+    frame_set.set_value(frames_[i], Isometry3<double>::Identity());
   }
-  FramePoseVector<double> frame_set_3(s_id, missing_frames);
   DRAKE_EXPECT_THROWS_MESSAGE(
-      gs_tester_.ValidateFrameIds(frame_set_3), std::runtime_error,
+      gs_tester_.ValidateFrameIds(s_id, frame_set_3), std::runtime_error,
       "Disagreement in expected number of frames \\(\\d+\\)"
       " and the given number of frames \\(\\d+\\).");
 }
@@ -1309,10 +1600,9 @@ TEST_F(GeometryStateTest, SetFramePoses) {
   }
 
   auto make_pose_vector =
-      [&s_id, &frame_poses, this]() -> FramePoseVector<double> {
+      [&frame_poses, this]() -> FramePoseVector<double> {
     const int count = static_cast<int>(this->frames_.size());
-    FramePoseVector<double> poses(s_id, this->frames_);
-    poses.clear();
+    FramePoseVector<double> poses;
     for (int i = 0; i < count; ++i) {
       poses.set_value(this->frames_[i], frame_poses[i]);
     }
@@ -1325,7 +1615,7 @@ TEST_F(GeometryStateTest, SetFramePoses) {
   // Case 1: Set all frames to identity poses. The world pose of all the
   // geometry should be that of the geometry in its frame.
   FramePoseVector<double> poses1 = make_pose_vector();
-  gs_tester_.SetFramePoses(poses1);
+  gs_tester_.SetFramePoses(s_id, poses1);
   const auto& world_poses = gs_tester_.get_geometry_world_poses();
   for (int i = 0; i < kFrameCount * kGeometryCount; ++i) {
     EXPECT_TRUE(CompareMatrices(world_poses[i].matrix().block<3, 4>(0, 0),
@@ -1340,7 +1630,7 @@ TEST_F(GeometryStateTest, SetFramePoses) {
   frame_poses[0] = offset;
   frame_poses[1] = offset;
   FramePoseVector<double> poses2 = make_pose_vector();
-  gs_tester_.SetFramePoses(poses2);
+  gs_tester_.SetFramePoses(s_id, poses2);
   for (int i = 0; i < kFrameCount * kGeometryCount; ++i) {
     EXPECT_TRUE(
         CompareMatrices(world_poses[i].matrix().block<3, 4>(0, 0),
@@ -1351,7 +1641,7 @@ TEST_F(GeometryStateTest, SetFramePoses) {
   // 0, 1, 2, & 3 moved up 1, and geometries 4 & 5 moved up two.
   frame_poses[2] = offset;
   FramePoseVector<double> poses3 = make_pose_vector();
-  gs_tester_.SetFramePoses(poses3);
+  gs_tester_.SetFramePoses(s_id, poses3);
   for (int i = 0; i < (kFrameCount - 1) * kGeometryCount; ++i) {
     EXPECT_TRUE(
         CompareMatrices(world_poses[i].matrix().block<3, 4>(0, 0),
@@ -1386,10 +1676,9 @@ TEST_F(GeometryStateTest, QueryFrameProperties) {
       "No frame name available for invalid frame id: \\d+");
 
   // Set the frame poses to query geometry and frame poses.
-  FramePoseVector<double> poses(s_id, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int i = 0; i < kFrameCount; ++i) poses.set_value(frames_[i], X_PF_[i]);
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(s_id, poses);
 
   EXPECT_TRUE(
       CompareMatrices(geometry_state_.get_pose_in_world(frames_[0]).matrix(),
@@ -1410,6 +1699,9 @@ TEST_F(GeometryStateTest, QueryFrameProperties) {
       geometry_state_.get_pose_in_world(GeometryId::get_new_id()),
       std::logic_error,
       "No world pose available for invalid geometry id: \\d+");
+  EXPECT_TRUE(CompareMatrices(
+      geometry_state_.get_pose_in_world(anchored_geometry_).matrix(),
+      X_WA_.matrix()));
 
   EXPECT_TRUE(
       CompareMatrices(geometry_state_.get_pose_in_parent(frames_[0]).matrix(),
@@ -1422,17 +1714,81 @@ TEST_F(GeometryStateTest, QueryFrameProperties) {
       std::logic_error, "No pose available for invalid frame id: \\d+");
 }
 
+TEST_F(GeometryStateTest, TestCollisionCandidates) {
+  SetUpSingleSourceTree(true /* assign proximity roles */);
+
+  // The explicit enumeration of candidate pairs. geometries 0 & 1, 2 & 3, and
+  // 4 & 5 are siblings, therefore they are not valid candidate pairs. All other
+  // combinations _are_.
+  std::set<std::pair<GeometryId, GeometryId>> expected_candidates =
+      {{geometries_[0], geometries_[2]}, {geometries_[0], geometries_[3]},
+       {geometries_[0], geometries_[4]}, {geometries_[0], geometries_[5]},
+       {geometries_[0], anchored_geometry_},
+       {geometries_[1], geometries_[2]}, {geometries_[1], geometries_[3]},
+       {geometries_[1], geometries_[4]}, {geometries_[1], geometries_[5]},
+       {geometries_[1], anchored_geometry_},
+       {geometries_[2], geometries_[4]}, {geometries_[2], geometries_[5]},
+       {geometries_[2], anchored_geometry_},
+       {geometries_[3], geometries_[4]}, {geometries_[3], geometries_[5]},
+       {geometries_[3], anchored_geometry_},
+       {geometries_[4], anchored_geometry_},
+       {geometries_[5], anchored_geometry_}};
+
+  auto candidates_in_set =
+      [](const std::set<std::pair<GeometryId, GeometryId>>& candidates,
+         const std::set<std::pair<GeometryId, GeometryId>>& expected) {
+        ::testing::AssertionResult result = ::testing::AssertionSuccess();
+        if (candidates != expected) {
+          result = ::testing::AssertionFailure();
+          auto print_difference = [&result](const auto& set1, const auto& set2,
+                                            const char* msg) {
+            std::set<std::pair<GeometryId, GeometryId>> diff;
+            std::set_difference(set1.begin(), set1.end(), set2.begin(),
+                                set2.end(), std::inserter(diff, diff.begin()));
+            if (!diff.empty()) {
+              result << "\n    " << msg;
+              for (const auto& p : diff) {
+                result << " (" << p.first << ", " << p.second << ")";
+              }
+            }
+          };
+          print_difference(
+              candidates, expected,
+              "The following pairs were reported but not expected:");
+          print_difference(expected, candidates,
+                           "The following pairs were expected but missing:");
+        }
+        return result;
+      };
+
+  // Confirm initial conditions.
+  EXPECT_TRUE(candidates_in_set(geometry_state_.GetCollisionCandidates(),
+                                expected_candidates));
+
+  // This assumes that ExcludeCollisionsBetween() (tested below) works.
+  while (!expected_candidates.empty()) {
+    auto pair = expected_candidates.begin();
+    geometry_state_.ExcludeCollisionsBetween(GeometrySet{pair->first},
+                                             GeometrySet{pair->second});
+    expected_candidates.erase(pair);
+    EXPECT_TRUE(candidates_in_set(geometry_state_.GetCollisionCandidates(),
+                                  expected_candidates));
+  }
+  // We've filtered everything, should report as empty.
+  EXPECT_TRUE(candidates_in_set(geometry_state_.GetCollisionCandidates(),
+                                expected_candidates));
+}
+
 // Test disallowing collisions among members of a group (self collisions).
 TEST_F(GeometryStateTest, ExcludeCollisionsWithin) {
   SetUpSingleSourceTree(true /* assign proximity roles */);
 
   // Pose all of the frames to the specified poses in their parent frame.
-  FramePoseVector<double> poses(source_id_, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
     poses.set_value(frames_[f], X_PF_[f]);
   }
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(source_id_, poses);
   gs_tester_.FinalizePoseUpdate();
 
   // This is *non* const; we'll decrement it as we filter more and more
@@ -1500,12 +1856,11 @@ TEST_F(GeometryStateTest, ExcludeCollisionsBetween) {
   SetUpSingleSourceTree(true  /* add proximity roles */);
 
   // Pose all of the frames to the specified poses in their parent frame.
-  FramePoseVector<double> poses(source_id_, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
     poses.set_value(frames_[f], X_PF_[f]);
   }
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(source_id_, poses);
   gs_tester_.FinalizePoseUpdate();
 
   // This is *non* const; we'll decrement it as we filter more and more
@@ -1540,12 +1895,11 @@ TEST_F(GeometryStateTest, NonProximityRoleInCollisionFilter) {
   SetUpSingleSourceTree(true  /* add proximity roles */);
 
   // Pose all of the frames to the specified poses in their parent frame.
-  FramePoseVector<double> poses(source_id_, frames_);
-  poses.clear();
+  FramePoseVector<double> poses;
   for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
     poses.set_value(frames_[f], X_PF_[f]);
   }
-  gs_tester_.SetFramePoses(poses);
+  gs_tester_.SetFramePoses(source_id_, poses);
   gs_tester_.FinalizePoseUpdate();
 
   // This is *non* const; we'll decrement it as we filter more and more
@@ -1716,7 +2070,7 @@ TEST_F(GeometryStateTest, CollisionFilteredExceptions) {
 
 // Tests the ability to query for a geometry from the name of a geometry.
 TEST_F(GeometryStateTest, GetGeometryIdFromName) {
-  SetUpSingleSourceTree(true /* intialize with proximity role */);
+  SetUpSingleSourceTree(true /* initialize with proximity role */);
   // Frame i has geometries f * kFrameCount + g, where g ∈ [0, kGeometryCount).
   for (int f = 0; f < kFrameCount; ++f) {
     for (int g = 0; g < kGeometryCount; ++g) {
@@ -1958,7 +2312,7 @@ TEST_F(GeometryStateTest, AssignRolesToGeometry) {
 TEST_F(GeometryStateTest, InstanceRoleAssignment) {
   SourceId s_id = NewSource();
   FrameId f_id = geometry_state_.RegisterFrame(
-      s_id, GeometryFrame("frame", Isometry3<double>::Identity()));
+      s_id, GeometryFrame("frame"));
 
   auto make_instance = [this](const std::string& name) {
     return make_unique<GeometryInstance>(
@@ -2139,6 +2493,24 @@ TEST_F(GeometryStateTest, RoleAssignExceptions) {
       std::logic_error,
       "The name .* has already been used by a geometry with the 'illustration' "
       "role.");
+}
+
+// Confirms that assigning a proximity role to a mesh is a no-op. If it
+// *weren't* no-op, the ProximityEngine would abort; so not aborting is
+// correlated with its no-op-ness. This test will go away when meshes are fully
+// supported in collision.
+TEST_F(GeometryStateTest, ProximityRoleOnMesh) {
+  SetUpSingleSourceTree();
+
+  // Add a mesh to a frame.
+  GeometryId mesh_id = geometry_state_.RegisterGeometry(
+      source_id_, frames_[0],
+      make_unique<GeometryInstance>(Isometry3d::Identity(),
+                                    make_unique<Mesh>("path", 1.0), "mesh"));
+  const InternalGeometry* mesh = gs_tester_.GetGeometry(mesh_id);
+  ASSERT_FALSE(mesh->has_proximity_role());
+  geometry_state_.AssignRole(source_id_, mesh_id, ProximityProperties());
+  ASSERT_FALSE(mesh->has_proximity_role());
 }
 
 // Tests the functionality that counts the number of children geometry a frame

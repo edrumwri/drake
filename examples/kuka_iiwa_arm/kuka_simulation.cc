@@ -16,7 +16,6 @@
 #include "drake/examples/kuka_iiwa_arm/iiwa_common.h"
 #include "drake/examples/kuka_iiwa_arm/iiwa_lcm.h"
 #include "drake/examples/kuka_iiwa_arm/kuka_torque_controller.h"
-#include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_iiwa_command.hpp"
 #include "drake/lcmt_iiwa_status.hpp"
 #include "drake/manipulation/util/sim_diagram_builder.h"
@@ -30,9 +29,12 @@
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/leaf_system.h"
+#include "drake/systems/lcm/lcm_interface_system.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
 #include "drake/systems/primitives/constant_vector_source.h"
+#include "drake/systems/primitives/demultiplexer.h"
+#include "drake/systems/primitives/discrete_derivative.h"
 
 DEFINE_double(simulation_sec, std::numeric_limits<double>::infinity(),
               "Number of seconds to simulate.");
@@ -50,8 +52,10 @@ namespace {
 using manipulation::util::SimDiagramBuilder;
 using systems::ConstantVectorSource;
 using systems::Context;
+using systems::Demultiplexer;
 using systems::Diagram;
 using systems::DiagramBuilder;
+using systems::StateInterpolatorWithDiscreteDerivative;
 using systems::FrameVisualizer;
 using systems::RigidBodyPlant;
 using systems::Simulator;
@@ -59,8 +63,8 @@ using systems::controllers::rbt::InverseDynamicsController;
 using systems::controllers::StateFeedbackControllerInterface;
 
 int DoMain() {
-  drake::lcm::DrakeLcm lcm;
   SimDiagramBuilder<double> builder;
+  systems::DiagramBuilder<double>* base_builder = builder.get_mutable_builder();
 
   // Adds a plant.
   RigidBodyPlant<double>* plant = nullptr;
@@ -77,7 +81,8 @@ int DoMain() {
     plant = builder.AddPlant(std::move(tree));
   }
   // Creates and adds LCM publisher for visualization.
-  builder.AddVisualizer(&lcm);
+  auto lcm = base_builder->AddSystem<systems::lcm::LcmInterfaceSystem>();
+  builder.AddVisualizer(lcm);
   builder.get_visualizer()->set_publish_period(kIiwaLcmStatusPeriod);
 
   const RigidBodyTree<double>& tree = plant->get_rigid_body_tree();
@@ -108,11 +113,9 @@ int DoMain() {
   }
 
   // Create the command subscriber and status publisher.
-  systems::DiagramBuilder<double>* base_builder = builder.get_mutable_builder();
-  IiwaCommandTranslator iiwa_cmd_to_vec(num_joints);
   auto command_sub = base_builder->AddSystem(
-      std::make_unique<systems::lcm::LcmSubscriberSystem>(
-          "IIWA_COMMAND", iiwa_cmd_to_vec, &lcm));
+      systems::lcm::LcmSubscriberSystem::Make<drake::lcmt_iiwa_command>(
+          "IIWA_COMMAND", lcm));
   command_sub->set_name("command_subscriber");
   auto command_receiver =
       base_builder->AddSystem<IiwaCommandReceiver>(num_joints);
@@ -122,38 +125,50 @@ int DoMain() {
   auto external_torque_converter =
       base_builder->AddSystem<IiwaContactResultsToExternalTorque>(
           tree, iiwa_instances);
+  auto plant_state_demux = base_builder->AddSystem<Demultiplexer>(
+      2 * num_joints, num_joints);
+  plant_state_demux->set_name("plant_state_demux");
+  auto desired_state_from_position = base_builder->AddSystem<
+      StateInterpolatorWithDiscreteDerivative>(
+          num_joints, kIiwaLcmStatusPeriod);
+  desired_state_from_position->set_name("desired_state_from_position");
   auto status_pub = base_builder->AddSystem(
-      systems::lcm::LcmPublisherSystem::Make<lcmt_iiwa_status>("IIWA_STATUS",
-                                                               &lcm));
+      systems::lcm::LcmPublisherSystem::Make<lcmt_iiwa_status>(
+          "IIWA_STATUS", lcm, kIiwaLcmStatusPeriod /* publish period */));
   status_pub->set_name("status_publisher");
-  status_pub->set_publish_period(kIiwaLcmStatusPeriod);
   auto status_sender = base_builder->AddSystem<IiwaStatusSender>(num_joints);
   status_sender->set_name("status_sender");
 
   base_builder->Connect(command_sub->get_output_port(),
-                        command_receiver->get_input_port(0));
-  base_builder->Connect(command_receiver->get_commanded_state_output_port(),
+                        command_receiver->get_input_port());
+  base_builder->Connect(command_receiver->get_commanded_position_output_port(),
+                        desired_state_from_position->get_input_port());
+  base_builder->Connect(desired_state_from_position->get_output_port(),
                         controller->get_input_port_desired_state());
   base_builder->Connect(plant->get_output_port(0),
-                        status_sender->get_state_input_port());
-  base_builder->Connect(command_receiver->get_output_port(0),
-                        status_sender->get_command_input_port());
+                        plant_state_demux->get_input_port(0));
+  base_builder->Connect(plant_state_demux->get_output_port(0),
+                        status_sender->get_position_measured_input_port());
+  base_builder->Connect(plant_state_demux->get_output_port(0),
+                        status_sender->get_velocity_estimated_input_port());
+  base_builder->Connect(command_receiver->get_commanded_position_output_port(),
+                        status_sender->get_position_commanded_input_port());
   base_builder->Connect(controller->get_output_port_control(),
-                        status_sender->get_commanded_torque_input_port());
+                        status_sender->get_torque_commanded_input_port());
   base_builder->Connect(plant->torque_output_port(),
-                        status_sender->get_measured_torque_input_port());
+                        status_sender->get_torque_measured_input_port());
   base_builder->Connect(plant->contact_results_output_port(),
                         external_torque_converter->get_input_port(0));
   base_builder->Connect(external_torque_converter->get_output_port(0),
-                        status_sender->get_external_torque_input_port());
-  base_builder->Connect(status_sender->get_output_port(0),
+                        status_sender->get_torque_external_input_port());
+  base_builder->Connect(status_sender->get_output_port(),
                         status_pub->get_input_port());
   // Connect the torque input in torque control
   if (FLAGS_torque_control) {
     KukaTorqueController<double>* torque_controller =
         dynamic_cast<KukaTorqueController<double>*>(controller);
     DRAKE_DEMAND(torque_controller);
-    base_builder->Connect(command_receiver->get_output_port(1),
+    base_builder->Connect(command_receiver->get_commanded_torque_output_port(),
                           torque_controller->get_input_port_commanded_torque());
   }
 
@@ -174,7 +189,7 @@ int DoMain() {
           RigidBodyFrame<double>("iiwa_link_7", tree.FindBody("iiwa_link_7"),
                                  Isometry3<double>::Identity()));
       auto frame_viz = base_builder->AddSystem<systems::FrameVisualizer>(
-          &tree, local_transforms, &lcm);
+          &tree, local_transforms, lcm);
       base_builder->Connect(plant->get_output_port(0),
                             frame_viz->get_input_port(0));
       frame_viz->set_publish_period(kIiwaLcmStatusPeriod);
@@ -190,7 +205,6 @@ int DoMain() {
 
   Simulator<double> simulator(*sys);
 
-  lcm.StartReceiveThread();
   simulator.set_publish_every_time_step(false);
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
   simulator.Initialize();
@@ -201,9 +215,8 @@ int DoMain() {
       VectorX<double>::Zero(tree.get_num_positions()));
 
   // Simulate for a very long time.
-  simulator.StepTo(FLAGS_simulation_sec);
+  simulator.AdvanceTo(FLAGS_simulation_sec);
 
-  lcm.StopReceiveThread();
   return 0;
 }
 

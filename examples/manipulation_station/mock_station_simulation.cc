@@ -8,7 +8,6 @@
 #include "drake/examples/kuka_iiwa_arm/iiwa_lcm.h"
 #include "drake/examples/manipulation_station/manipulation_station.h"
 #include "drake/geometry/geometry_visualization.h"
-#include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_iiwa_command.hpp"
 #include "drake/lcmt_iiwa_status.hpp"
 #include "drake/lcmt_schunk_wsg_command.hpp"
@@ -18,9 +17,9 @@
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
+#include "drake/systems/lcm/lcm_interface_system.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
-#include "drake/systems/primitives/demultiplexer.h"
 #include "drake/systems/primitives/matrix_gain.h"
 
 namespace drake {
@@ -54,9 +53,13 @@ int do_main(int argc, char* argv[]) {
     station->SetupDefaultStation();
   } else if (FLAGS_setup == "clutter_clearing") {
     station->SetupClutterClearingStation();
+    station->AddManipulandFromFile(
+        "drake/manipulation/models/ycb/sdf/003_cracker_box.sdf",
+        math::RigidTransform<double>(math::RollPitchYaw<double>(-1.57, 0, 3),
+                               Eigen::Vector3d(-0.3, -0.55, 0.36)));
   } else {
-    DRAKE_ABORT_MSG("Unrecognized station type. Options are "
-                    "{default, clutter_clearing}.");
+    throw std::domain_error(
+        "Unrecognized station type. Options are {default, clutter_clearing}.");
   }
   // TODO(russt): Load sdf objects specified at the command line.  Requires
   // #9747.
@@ -65,61 +68,48 @@ int do_main(int argc, char* argv[]) {
   geometry::ConnectDrakeVisualizer(&builder, station->get_scene_graph(),
                                    station->GetOutputPort("pose_bundle"));
 
-  lcm::DrakeLcm lcm;
-  lcm.StartReceiveThread();
+  auto lcm = builder.AddSystem<systems::lcm::LcmInterfaceSystem>();
 
-  // TODO(russt): IiwaCommandReceiver should output positions, not
-  // state.  (We are adding delay twice in this current implementation).
-  kuka_iiwa_arm::IiwaCommandTranslator iiwa_cmd_to_vec(7);
-  auto iiwa_command_subscriber =
-      builder.AddSystem(std::make_unique<systems::lcm::LcmSubscriberSystem>(
-          "IIWA_COMMAND", iiwa_cmd_to_vec, &lcm));
+  auto iiwa_command_subscriber = builder.AddSystem(
+      systems::lcm::LcmSubscriberSystem::Make<drake::lcmt_iiwa_command>(
+          "IIWA_COMMAND", lcm));
   auto iiwa_command = builder.AddSystem<kuka_iiwa_arm::IiwaCommandReceiver>();
   builder.Connect(iiwa_command_subscriber->get_output_port(),
-                  iiwa_command->GetInputPort("command_vector"));
+                  iiwa_command->get_input_port());
 
   // Pull the positions out of the state.
-  auto demux = builder.AddSystem<systems::Demultiplexer>(14, 7);
-  builder.Connect(iiwa_command->get_commanded_state_output_port(),
-                  demux->get_input_port(0));
-  builder.Connect(demux->get_output_port(0),
+  builder.Connect(iiwa_command->get_commanded_position_output_port(),
                   station->GetInputPort("iiwa_position"));
   builder.Connect(iiwa_command->get_commanded_torque_output_port(),
                   station->GetInputPort("iiwa_feedforward_torque"));
 
   auto iiwa_status = builder.AddSystem<kuka_iiwa_arm::IiwaStatusSender>();
-  // The IiwaStatusSender input port wants size 14, but only uses the first 7.
-  // TODO(russt): Consider cleaning up the IiwaStatusSender.
-  auto zero_padding =
-      builder.AddSystem<systems::MatrixGain>(Eigen::MatrixXd::Identity(14, 7));
   builder.Connect(station->GetOutputPort("iiwa_position_commanded"),
-                  zero_padding->get_input_port());
-  builder.Connect(zero_padding->get_output_port(),
-                  iiwa_status->get_command_input_port());
-  builder.Connect(station->GetOutputPort("iiwa_state_estimated"),
-                  iiwa_status->get_state_input_port());
+                  iiwa_status->get_position_commanded_input_port());
+  builder.Connect(station->GetOutputPort("iiwa_position_measured"),
+                  iiwa_status->get_position_measured_input_port());
+  builder.Connect(station->GetOutputPort("iiwa_velocity_estimated"),
+                  iiwa_status->get_velocity_estimated_input_port());
   builder.Connect(station->GetOutputPort("iiwa_torque_commanded"),
-                  iiwa_status->get_commanded_torque_input_port());
+                  iiwa_status->get_torque_commanded_input_port());
   builder.Connect(station->GetOutputPort("iiwa_torque_measured"),
-                  iiwa_status->get_measured_torque_input_port());
+                  iiwa_status->get_torque_measured_input_port());
   builder.Connect(station->GetOutputPort("iiwa_torque_external"),
-                  iiwa_status->get_external_torque_input_port());
+                  iiwa_status->get_torque_external_input_port());
   auto iiwa_status_publisher = builder.AddSystem(
       systems::lcm::LcmPublisherSystem::Make<drake::lcmt_iiwa_status>(
-          "IIWA_STATUS", &lcm));
-  iiwa_status_publisher->set_publish_period(0.005);
-  builder.Connect(iiwa_status->get_output_port(0),
+          "IIWA_STATUS", lcm, 0.005 /* publish period */));
+  builder.Connect(iiwa_status->get_output_port(),
                   iiwa_status_publisher->get_input_port());
 
   // Receive the WSG commands.
-  manipulation::schunk_wsg::SchunkWsgCommandTranslator wsg_cmd_to_vec;
-  auto wsg_command_subscriber =
-      builder.AddSystem(std::make_unique<systems::lcm::LcmSubscriberSystem>(
-          "SCHUNK_WSG_COMMAND", wsg_cmd_to_vec, &lcm));
+  auto wsg_command_subscriber = builder.AddSystem(
+      systems::lcm::LcmSubscriberSystem::Make<drake::lcmt_schunk_wsg_command>(
+          "SCHUNK_WSG_COMMAND", lcm));
   auto wsg_command =
       builder.AddSystem<manipulation::schunk_wsg::SchunkWsgCommandReceiver>();
   builder.Connect(wsg_command_subscriber->get_output_port(),
-                  wsg_command->GetInputPort("command_vector"));
+                  wsg_command->GetInputPort("command_message"));
   builder.Connect(wsg_command->get_position_output_port(),
                   station->GetInputPort("wsg_position"));
   builder.Connect(wsg_command->get_force_limit_output_port(),
@@ -134,8 +124,7 @@ int do_main(int argc, char* argv[]) {
                   wsg_status->get_force_input_port());
   auto wsg_status_publisher = builder.AddSystem(
       systems::lcm::LcmPublisherSystem::Make<drake::lcmt_schunk_wsg_status>(
-          "SCHUNK_WSG_STATUS", &lcm));
-  wsg_status_publisher->set_publish_period(0.05);
+          "SCHUNK_WSG_STATUS", lcm, 0.05 /* publish period */));
   builder.Connect(wsg_status->get_output_port(0),
                   wsg_status_publisher->get_input_port());
 
@@ -155,7 +144,7 @@ int do_main(int argc, char* argv[]) {
 
   simulator.set_publish_every_time_step(false);
   simulator.set_target_realtime_rate(FLAGS_target_realtime_rate);
-  simulator.StepTo(FLAGS_duration);
+  simulator.AdvanceTo(FLAGS_duration);
 
   return 0;
 }

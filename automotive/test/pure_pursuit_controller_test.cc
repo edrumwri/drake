@@ -43,7 +43,7 @@ class PurePursuitControllerTest : public ::testing::Test {
   void SetDefaultInputs(const double y_position, const double yaw) {
     // Set the LaneId.
     context_->FixInputPort(dut_->lane_input().get_index(),
-                           systems::AbstractValue::Make(*lane_direction_));
+                           AbstractValue::Make(*lane_direction_));
 
     // Set the ego car's pose.
     auto ego_pose = std::make_unique<PoseVector<double>>();
@@ -67,7 +67,7 @@ class PurePursuitControllerTest : public ::testing::Test {
 };
 
 TEST_F(PurePursuitControllerTest, Topology) {
-  ASSERT_EQ(2, dut_->get_num_input_ports());
+  ASSERT_EQ(2, dut_->num_input_ports());
   const auto& lane_input_port =
       dut_->get_input_port(dut_->lane_input().get_index());
   EXPECT_EQ(systems::kAbstractValued, lane_input_port.get_data_type());
@@ -76,7 +76,7 @@ TEST_F(PurePursuitControllerTest, Topology) {
   EXPECT_EQ(systems::kVectorValued, ego_input_port.get_data_type());
   EXPECT_EQ(7 /* PoseVector input */, ego_input_port.size());
 
-  ASSERT_EQ(1, dut_->get_num_output_ports());
+  ASSERT_EQ(1, dut_->num_output_ports());
   const auto& command_output_port =
       dut_->get_output_port(dut_->steering_command_output().get_index());
   EXPECT_EQ(systems::kVectorValued, command_output_port.get_data_type());
@@ -90,7 +90,7 @@ TEST_F(PurePursuitControllerTest, ToAutoDiff) {
     auto other_derivatives = other_dut.AllocateTimeDerivatives();
 
     other_context->FixInputPort(dut_->lane_input().get_index(),
-                                systems::AbstractValue::Make(*lane_direction_));
+                                AbstractValue::Make(*lane_direction_));
     auto ego_pose = std::make_unique<PoseVector<AutoDiffXd>>();
     other_context->FixInputPort(dut_->ego_pose_input().get_index(),
                                 std::move(ego_pose));

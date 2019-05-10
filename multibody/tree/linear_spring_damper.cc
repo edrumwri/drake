@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/autodiff.h"
 #include "drake/multibody/tree/body.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
@@ -30,14 +29,14 @@ LinearSpringDamper<T>::LinearSpringDamper(
 
 template <typename T>
 void LinearSpringDamper<T>::DoCalcAndAddForceContribution(
-    const internal::MultibodyTreeContext<T>&,
+    const systems::Context<T>&,
     const internal::PositionKinematicsCache<T>& pc,
     const internal::VelocityKinematicsCache<T>& vc,
     MultibodyForces<T>* forces) const {
   using std::sqrt;
 
-  const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
-  const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
+  const math::RigidTransform<T>& X_WA = pc.get_X_WB(bodyA().node_index());
+  const math::RigidTransform<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
   const Vector3<T> p_WP = X_WA * p_AP_.template cast<T>();
   const Vector3<T> p_WQ = X_WB * p_BQ_.template cast<T>();
@@ -78,10 +77,10 @@ void LinearSpringDamper<T>::DoCalcAndAddForceContribution(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcPotentialEnergy(
-    const internal::MultibodyTreeContext<T>&,
+    const systems::Context<T>&,
     const internal::PositionKinematicsCache<T>& pc) const {
-  const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
-  const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
+  const math::RigidTransform<T>& X_WA = pc.get_X_WB(bodyA().node_index());
+  const math::RigidTransform<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
   const Vector3<T> p_WP = X_WA * p_AP_.template cast<T>();
   const Vector3<T> p_WQ = X_WB * p_BQ_.template cast<T>();
@@ -97,7 +96,7 @@ T LinearSpringDamper<T>::CalcPotentialEnergy(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcConservativePower(
-    const internal::MultibodyTreeContext<T>&,
+    const systems::Context<T>&,
     const internal::PositionKinematicsCache<T>& pc,
     const internal::VelocityKinematicsCache<T>& vc) const {
   // Since the potential energy is:
@@ -106,8 +105,8 @@ T LinearSpringDamper<T>::CalcConservativePower(
   //  Pc = -d(V)/dt
   // being positive when the potential energy decreases.
 
-  const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
-  const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
+  const math::RigidTransform<T>& X_WA = pc.get_X_WB(bodyA().node_index());
+  const math::RigidTransform<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
   const Vector3<T> p_WP = X_WA * p_AP_.template cast<T>();
   const Vector3<T> p_WQ = X_WB * p_BQ_.template cast<T>();
@@ -129,7 +128,7 @@ T LinearSpringDamper<T>::CalcConservativePower(
 
 template <typename T>
 T LinearSpringDamper<T>::CalcNonConservativePower(
-    const internal::MultibodyTreeContext<T>&,
+    const systems::Context<T>&,
     const internal::PositionKinematicsCache<T>& pc,
     const internal::VelocityKinematicsCache<T>& vc) const {
   // The rate at which the length of the spring changes.
@@ -171,13 +170,20 @@ LinearSpringDamper<T>::DoCloneToScalar(
 }
 
 template <typename T>
+std::unique_ptr<ForceElement<symbolic::Expression>>
+LinearSpringDamper<T>::DoCloneToScalar(
+    const internal::MultibodyTree<symbolic::Expression>& tree_clone) const {
+  return TemplatedDoCloneToScalar(tree_clone);
+}
+
+template <typename T>
 T LinearSpringDamper<T>::SafeSoftNorm(const Vector3<T> &x) const {
   using std::sqrt;
   const double epsilon_length =
       std::numeric_limits<double>::epsilon() * free_length();
   const double epsilon_length_squared = epsilon_length * epsilon_length;
   const T x2 = x.squaredNorm();
-  if (x2 < epsilon_length_squared) {
+  if (scalar_predicate<T>::is_bool && (x2 < epsilon_length_squared)) {
     throw std::runtime_error("The length of the spring became nearly zero. "
                                  "Revisit your model to avoid this situation.");
   }
@@ -188,8 +194,8 @@ template <typename T>
 T LinearSpringDamper<T>::CalcLengthTimeDerivative(
     const internal::PositionKinematicsCache<T>& pc,
     const internal::VelocityKinematicsCache<T>& vc) const {
-  const Isometry3<T>& X_WA = pc.get_X_WB(bodyA().node_index());
-  const Isometry3<T>& X_WB = pc.get_X_WB(bodyB().node_index());
+  const math::RigidTransform<T>& X_WA = pc.get_X_WB(bodyA().node_index());
+  const math::RigidTransform<T>& X_WB = pc.get_X_WB(bodyB().node_index());
 
   const Vector3<T> p_WP = X_WA * p_AP_.template cast<T>();
   const Vector3<T> p_WQ = X_WB * p_BQ_.template cast<T>();
@@ -221,9 +227,8 @@ T LinearSpringDamper<T>::CalcLengthTimeDerivative(
   return length_dot;
 }
 
-// Explicitly instantiates on the most common scalar types.
-template class LinearSpringDamper<double>;
-template class LinearSpringDamper<AutoDiffXd>;
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::multibody::LinearSpringDamper)

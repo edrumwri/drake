@@ -7,6 +7,8 @@ default-jdk
 diffstat
 doxygen
 file
+fonts-dejavu-core
+fonts-dejavu-extra
 gdb
 gfortran
 git
@@ -24,7 +26,6 @@ libjpeg8-dev
 libjsoncpp-dev
 liblapack-dev
 liblz4-dev
-libnetcdf-cxx-legacy-dev
 libnetcdf-dev
 libnlopt-dev
 libogg-dev

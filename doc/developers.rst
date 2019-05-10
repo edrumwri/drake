@@ -15,12 +15,12 @@ Introduction
 
 If you have improvements to Drake, send us your pull requests!
 
-Our standard workflow is to fork `Drake's official Github repository
+Our standard workflow is to fork `Drake's official GitHub repository
 <https://github.com/RobotLocomotion/drake/>`_ into your
-own Github account and then push your changes into a branch on your fork. Once
+own GitHub account and then push your changes into a branch on your fork. Once
 you believe your code is ready to be merged into Drake's primary repository,
 open a `pull request <https://help.github.com/articles/using-pull-requests/>`_
-via the Github website. Your code will then undergo an interactive review
+via the GitHub website. Your code will then undergo an interactive review
 process and :ref:`Continuous Integration (CI) <continuous_integration_notes>`
 tests before it is merged into
 `Drake's primary repository <https://github.com/RobotLocomotion/drake>`_.
@@ -76,28 +76,29 @@ integration. All other configurations are provided on a best-effort basis.
 Drake requires a compiler running in C++14 mode or greater. MATLAB is only
 supported for CMake builds using the "Unix Makefiles" generator.
 
-+----------------------------------+-----------------+-----------------+------------+-------------------+--------+
-| Operating System                 | Build System    | C/C++ Compiler  | Java       | MATLAB (Optional) | Python |
-+==================================+=================+=================+============+===================+========+
-+----------------------------------+-----------------+-----------------+------------+-------------------+--------+
-| Ubuntu 16.04 LTS (Xenial Xerus)  | | Bazel 0.21.0  | | Clang 6.0     | OpenJDK 8  | R2017a            | 2.7.11 |
-|                                  | | CMake 3.5.1   | | GCC 5.4       |            |                   |        |
-+----------------------------------+-----------------+-----------------+------------+-------------------+--------+
-| Ubuntu 18.04 LTS (Bionic Beaver) | | Bazel 0.21.0  | | Clang 6.0     | OpenJDK 11 | R2018b            | 2.7.15 |
-|                                  | | CMake 3.10.2  | | GCC 7.3       |            |                   | 3.6.7  |
-+----------------------------------+-----------------+-----------------+------------+                   +--------+
-| macOS High Sierra (10.13)        | | Bazel 0.21.0  | Apple LLVM 10.0 | Oracle 11  |                   | 2.7.15 |
-+----------------------------------+ | CMake 3.13.2  |                 |            |                   | 3.7.2  |
-| macOS Mojave (10.14)             |                 |                 |            |                   |        |
-+----------------------------------+-----------------+-----------------+------------+-------------------+--------+
++----------------------------------+-------+-------+---------------------+------------+-------------------+--------+
+| Operating System                 | Bazel | CMake | C/C++ Compiler      | Java       | MATLAB (Optional) | Python |
++==================================+=======+=======+=====================+============+===================+========+
++----------------------------------+-------+-------+---------------------+------------+-------------------+--------+
+| Ubuntu 16.04 LTS (Xenial Xerus)  | 0.24  | 3.5   | | Clang 6.0         | OpenJDK 8  | R2017a            | 2.7    |
+|                                  |       |       | | GCC 5.4           |            |                   |        |
++----------------------------------+       +-------+---------------------+------------+-------------------+--------+
+| Ubuntu 18.04 LTS (Bionic Beaver) |       | 3.10  | | Clang 6.0         | OpenJDK 11 | R2018b            | | 2.7  |
+|                                  |       |       | | GCC 7.3           |            |                   | | 3.6  |
++----------------------------------+       +-------+---------------------+------------+                   +--------+
+| macOS High Sierra (10.13)        |       | 3.14  | | Apple LLVM 10.0.0 | Oracle 12  |                   | | 2.7  |
+|                                  |       |       | | (Xcode 10.1)      |            |                   | | 3.7  |
++----------------------------------+       |       +---------------------+            |                   |        |
+| macOS Mojave (10.14)             |       |       | | Apple LLVM 10.0.1 |            |                   |        |
+|                                  |       |       | | (Xcode 10.2)      |            |                   |        |
++----------------------------------+-------+-------+---------------------+------------+-------------------+--------+
 
-
-CPython is the only Python implementation supported. On all platforms, Python 2
-is the default version.
+CPython is the only Python implementation supported. On all platforms, Python 2.7
+is the default version. On Ubuntu, amd64 (i.e., x86_64) is the only supported
+architecture.
 
 The following configurations are presently untested in continuous integration:
 
--   macOS Mojave: C++, Python
 -   macOS, Ubuntu Bionic: MATLAB
 
 .. _configuration-management-non-determinism:
@@ -128,7 +129,7 @@ Binary Packages
 ---------------
 
 The binary releases of Drake are built with GCC 5.4 on Ubuntu Xenial, GCC 7.3
-on Ubuntu Bionic, and Apple LLVM 10.0 on macOS High Sierra.
+on Ubuntu Bionic, and Apple LLVM 10.0.1 on macOS Mojave.
 
 The links for these packages are listed in :ref:`binary-installation`.
 
@@ -139,9 +140,12 @@ Issue Tracking
     :maxdepth: 1
 
     issues
+    platform_reviewer_checklist
 
 Code Review
 ===========
+
+.. _review_process:
 
 Review Process
 --------------
@@ -181,6 +185,21 @@ lines, excluding files that are easily identified to meet the exemptions above.
 We use https://reviewable.io for code reviews. You can sign in for free with
 your GitHub identity. Before your first code review, please take a look at
 :doc:`reviewable`.
+
+If you have an expected pace for your review, please add a ``priority`` label
+(which have different meanings for PRs and
+:ref:`for issues <issues-priority>`). The response expectations, for both the
+author and reviewer:
+
+- ``priority: emergency`` - Very quick response time, nominally reserved for
+  build cop.
+- ``priority: high`` - Some urgency, quick response time.
+- ``priority: medium`` - (Default) Normal response time.
+- ``priority: low`` - No rush.
+- ``priority: backlog`` - Give priority to all other PRs on your plate.
+
+If you are an external contributor, you will need to request that a priority be
+added by a Drake Developer.
 
 **Feature Review.** After creating your pull request, assign it to someone
 else on your team for feature review. Choose the person most familiar
@@ -315,3 +334,4 @@ Version Control
     :maxdepth: 1
 
     no_push_to_origin
+

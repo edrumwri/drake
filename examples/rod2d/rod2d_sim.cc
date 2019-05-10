@@ -70,8 +70,8 @@ int main(int argc, char* argv[]) {
   LcmPublisherSystem* publisher =
       builder.template AddSystem<LcmPublisherSystem>(
           "DRAKE_VIEWER_DRAW",
-          std::make_unique<Serializer<drake::lcmt_viewer_draw>>(), &lcm);
-  publisher->set_publish_period(0.01);
+          std::make_unique<Serializer<drake::lcmt_viewer_draw>>(), &lcm,
+          0.01 /* publish period */);
 
   // Create the rod and add it to the diagram.
   Rod2D* rod;
@@ -136,13 +136,13 @@ int main(int argc, char* argv[]) {
     simulator.reset_integrator<RungeKutta3Integrator<double>>(*diagram,
                                                               &mut_context);
   }
-  simulator.get_mutable_integrator()->set_target_accuracy(FLAGS_accuracy);
-  simulator.get_mutable_integrator()->set_maximum_step_size(FLAGS_dt);
+  simulator.get_mutable_integrator().set_target_accuracy(FLAGS_accuracy);
+  simulator.get_mutable_integrator().set_maximum_step_size(FLAGS_dt);
 
   // Start simulating.
   simulator.set_target_realtime_rate(1.0);
   while (simulator.get_context().get_time() < FLAGS_sim_duration) {
     const double t = simulator.get_context().get_time();
-    simulator.StepTo(std::min(t + 1, FLAGS_sim_duration));
+    simulator.AdvanceTo(std::min(t + 1, FLAGS_sim_duration));
   }
 }

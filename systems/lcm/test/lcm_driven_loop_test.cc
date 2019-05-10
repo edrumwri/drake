@@ -28,7 +28,7 @@ class MilliSecTimeStampMessageToSeconds : public LcmMessageToTimeInterface {
   ~MilliSecTimeStampMessageToSeconds() {}
 
   double GetTimeInSeconds(const AbstractValue& abstract_value) const override {
-    const lcmt_drake_signal& msg = abstract_value.GetValue<lcmt_drake_signal>();
+    const auto& msg = abstract_value.get_value<lcmt_drake_signal>();
     return static_cast<double>(msg.timestamp) / 1e3;
   }
 };
@@ -45,11 +45,10 @@ class DummySys : public systems::LeafSystem<double> {
 
   void CalcTimestamp(const systems::Context<double>& context,
                      systems::BasicVector<double>* output) const {
-    const lcmt_drake_signal* msg =
-        EvalInputValue<lcmt_drake_signal>(context, 0);
-
+    const lcmt_drake_signal& msg =
+        this->get_input_port(0).Eval<lcmt_drake_signal>(context);
     auto out_vector = output->get_mutable_value();
-    out_vector(0) = static_cast<double>(msg->timestamp) / 1e3;
+    out_vector(0) = static_cast<double>(msg.timestamp) / 1e3;
   }
 };
 
@@ -90,8 +89,11 @@ GTEST_TEST(LcmDrivenLoopTest, TestLoop) {
   sub->set_name("subscriber");
   auto dummy = builder.AddSystem<DummySys>();
   dummy->set_name("dummy");
+
   auto logger = builder.AddSystem<SignalLogger<double>>(1);
   logger->set_name("logger");
+  logger->set_forced_publish_only();  // Log only when told to do so.
+
   builder.Connect(*sub, *dummy);
   builder.Connect(*dummy, *logger);
   auto sys = builder.Build();
@@ -99,9 +101,9 @@ GTEST_TEST(LcmDrivenLoopTest, TestLoop) {
   // Makes the lcm driven loop.
   lcm::LcmDrivenLoop dut(*sys, *sub, nullptr, &lcm,
       std::make_unique<MilliSecTimeStampMessageToSeconds>());
-  // This ensures that dut calls sys->Publish() every time it handles a
-  // message, which triggers the logger to save its input (message time stamp)
-  // to the log.
+  // This ensures that dut calls sys->Publish() (a.k.a. "forced publish")
+  // every time it handles a message, which triggers the logger to save its
+  // input (message time stamp) to the log.
   dut.set_publish_on_every_received_message(true);
 
   // Starts the publishing thread.
@@ -111,7 +113,7 @@ GTEST_TEST(LcmDrivenLoopTest, TestLoop) {
   const AbstractValue& first_msg = dut.WaitForMessage();
   double msg_time =
       dut.get_message_to_time_converter().GetTimeInSeconds(first_msg);
-  dut.get_mutable_context().set_time(msg_time);
+  dut.get_mutable_context().SetTime(msg_time);
 
   // Starts the loop.
   dut.RunToSecondsAssumingInitialized(static_cast<double>(kEnd));

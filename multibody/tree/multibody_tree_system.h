@@ -5,10 +5,10 @@
 #include <utility>
 #include <vector>
 
-#include "drake/common/drake_deprecated.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/eigen_types.h"
-#include "drake/multibody/tree/multibody_tree_forward_decl.h"
 #include "drake/multibody/tree/position_kinematics_cache.h"
+#include "drake/multibody/tree/spatial_inertia.h"
 #include "drake/multibody/tree/velocity_kinematics_cache.h"
 #include "drake/systems/framework/cache_entry.h"
 #include "drake/systems/framework/context.h"
@@ -17,6 +17,8 @@
 namespace drake {
 namespace multibody {
 namespace internal {
+
+template<typename T> class MultibodyTree;
 
 /** This is a bare Drake System providing just enough functionality to allow
 standalone exercise of a MultibodyTree. MultibodyTree requires a few System
@@ -63,11 +65,7 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
 
   @throws std::logic_error if `tree` is null. */
   explicit MultibodyTreeSystem(std::unique_ptr<MultibodyTree<T>> tree,
-                               bool is_discrete = false)
-      : MultibodyTreeSystem(
-            systems::SystemTypeTag<internal::MultibodyTreeSystem>{},
-            false,  // Null tree is not allowed here.
-            std::move(tree), is_discrete) {}
+                               bool is_discrete = false);
 
   /** Scalar-converting copy constructor. See @ref system_scalar_conversion. */
   template <typename U>
@@ -77,16 +75,11 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
 
   bool is_discrete() const { return is_discrete_; }
 
-  DRAKE_DEPRECATED("Please use MultibodyPlant methods directly.")
-  const internal::MultibodyTree<T>& tree() const {
-    return internal_tree();
-  }
-
   /** Returns a reference to the up to date PositionKinematicsCache in the
   given Context, recalculating it first if necessary. */
   const PositionKinematicsCache<T>& EvalPositionKinematics(
       const systems::Context<T>& context) const {
-    return this->get_cache_entry(position_kinematics_cache_index_)
+    return this->get_cache_entry(cache_indexes_.position_kinematics)
         .template Eval<PositionKinematicsCache<T>>(context);
   }
 
@@ -95,8 +88,28 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
   PositionKinematicsCache will be recalculated as well. */
   const VelocityKinematicsCache<T>& EvalVelocityKinematics(
       const systems::Context<T>& context) const {
-    return this->get_cache_entry(velocity_kinematics_cache_index_)
+    return this->get_cache_entry(cache_indexes_.velocity_kinematics)
         .template Eval<VelocityKinematicsCache<T>>(context);
+  }
+
+  /** Returns a reference to the up to date cache of per-body spatial inertias
+  in the given Context, recalculating it first if necessary. */
+  const std::vector<SpatialInertia<T>>& EvalSpatialInertiaInWorldCache(
+      const systems::Context<T>& context) const {
+    return this->get_cache_entry(cache_indexes_.spatial_inertia_in_world)
+        .template Eval<std::vector<SpatialInertia<T>>>(context);
+  }
+
+  /** Returns a reference to the up to date cache of per-body bias terms in
+  the given Context, recalculating it first if necessary.
+  For a body B, this is the bias term `b_Bo_W(q, v)` in the equation
+  `F_Bo_W = M_Bo_W * A_WB + b_Bo_W`, where `M_Bo_W` is the spatial inertia
+  about B's origin Bo, `A_WB` is the spatial acceleration of B in W and
+  `F_Bo_W` is the spatial force on B about Bo, expressed in W. */
+  const std::vector<SpatialForce<T>>& EvalDynamicBiasCache(
+      const systems::Context<T>& context) const {
+    return this->get_cache_entry(cache_indexes_.dynamic_bias)
+        .template Eval<std::vector<SpatialForce<T>>>(context);
   }
 
   /** Returns a reference to the up to date cached value for the
@@ -114,8 +127,8 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
   generalized velocities in the tree. */
   const std::vector<Vector6<T>>&
   EvalAcrossNodeGeometricJacobianExpressedInWorld(
-      const systems::Context<T> &context) const {
-    return this->get_cache_entry(H_PB_W_cache_index_)
+      const systems::Context<T>& context) const {
+    return this->get_cache_entry(cache_indexes_.across_node_jacobians)
         .template Eval<std::vector<Vector6<T>>>(context);
   }
 
@@ -131,11 +144,7 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
   /** Default constructor allocates a MultibodyTree, with the intent that it
   will be filled in later, using mutable_tree() for access. You must call
   Finalize() when done before performing any computations. */
-  explicit MultibodyTreeSystem(bool is_discrete = false)
-      : MultibodyTreeSystem(
-            systems::SystemTypeTag<internal::MultibodyTreeSystem>{},
-            true,  // Null tree is OK.
-            nullptr, is_discrete) {}
+  explicit MultibodyTreeSystem(bool is_discrete = false);
 
   /**  Constructor that specifies scalar-type conversion support.
   If `tree` is given, we'll finalize it. Otherwise, we'll allocate an
@@ -147,9 +156,7 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
       kinematics. Otherwise uses continuous state variables q and v. */
   MultibodyTreeSystem(systems::SystemScalarConverter converter,
                       std::unique_ptr<MultibodyTree<T>> tree,
-                      bool is_discrete = false)
-      : MultibodyTreeSystem(converter, true,  // Null tree is OK here.
-                            std::move(tree), is_discrete) {}
+                      bool is_discrete = false);
 
   template <typename U>
   friend const MultibodyTree<U>& GetInternalTree(
@@ -181,6 +188,16 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
   template <typename U>
   friend class MultibodyTreeSystem;
 
+  // This struct stores in one single place all indexes related to
+  // MultibodyTreeSystem specific cache entries.
+  struct CacheIndexes {
+    systems::CacheIndex dynamic_bias;
+    systems::CacheIndex across_node_jacobians;
+    systems::CacheIndex position_kinematics;
+    systems::CacheIndex spatial_inertia_in_world;
+    systems::CacheIndex velocity_kinematics;
+  };
+
   // This is the one real constructor. From the public API, a null tree is
   // illegal and gets an error message. From the protected API, a null tree
   // means we allocate an empty one and leave it un-finalized. In either case,
@@ -191,16 +208,13 @@ class MultibodyTreeSystem : public systems::LeafSystem<T> {
                       std::unique_ptr<MultibodyTree<T>> tree,
                       bool is_discrete);
 
-  // TODO(sherm1) Get rid of this and use just a plain Context<T>.
-  std::unique_ptr<systems::LeafContext<T>> DoMakeLeafContext() const final;
-
   // Use continuous state variables by default.
   bool is_discrete_{false};
 
   std::unique_ptr<drake::multibody::internal::MultibodyTree<T>> tree_;
-  systems::CacheIndex position_kinematics_cache_index_;
-  systems::CacheIndex velocity_kinematics_cache_index_;
-  systems::CacheIndex H_PB_W_cache_index_;
+
+  // All MultibodyTreeSystem cache indexes are stored in cache_indexes_.
+  CacheIndexes cache_indexes_;
 
   // Used to enforce "finalize once" restriction for protected-API users.
   bool already_finalized_{false};
@@ -213,25 +227,8 @@ const MultibodyTree<T>& GetInternalTree(const MultibodyTreeSystem<T>& system) {
 }
 
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using MultibodyTreeSystem
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::MultibodyTreeSystem<T>;
-
 }  // namespace multibody
 }  // namespace drake
 
-// Disable support for symbolic evaluation.
-// TODO(amcastro-tri): Allow symbolic evaluation once MultibodyTree supports it.
-namespace drake {
-namespace systems {
-namespace scalar_conversion {
-template <>
-struct Traits<drake::multibody::internal::MultibodyTreeSystem> :
-    public NonSymbolicTraits {};
-}  // namespace scalar_conversion
-}  // namespace systems
-}  // namespace drake
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class drake::multibody::internal::MultibodyTreeSystem)

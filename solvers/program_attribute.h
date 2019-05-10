@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ostream>
+#include <string>
 #include <unordered_set>
 
 #include "drake/common/hash.h"
@@ -27,6 +29,8 @@ enum class ProgramAttribute {
 
   kPositiveSemidefiniteConstraint,  /// A positive semidefinite constraint.
 
+  kExponentialConeConstraint,  /// An exponential cone constraint.
+
   kBinaryVariable,  /// variable taking binary value {0, 1}.
 
   kCallback,  /// support callback during solving the problem.
@@ -39,5 +43,11 @@ using ProgramAttributes = std::unordered_set<ProgramAttribute, DefaultHash>;
  */
 bool AreRequiredAttributesSupported(const ProgramAttributes& required,
                                     const ProgramAttributes& supported);
+
+std::string to_string(const ProgramAttribute&);
+std::ostream& operator<<(std::ostream&, const ProgramAttribute&);
+std::string to_string(const ProgramAttributes&);
+std::ostream& operator<<(std::ostream&, const ProgramAttributes&);
+
 }  // namespace solvers
 }  // namespace drake

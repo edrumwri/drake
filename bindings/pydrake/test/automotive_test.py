@@ -26,7 +26,7 @@ from pydrake.maliput.api import (
 from pydrake.maliput.dragway import (
     create_dragway,
 )
-from pydrake.multibody.multibody_tree.math import (
+from pydrake.multibody.math import (
     SpatialVelocity,
 )
 from pydrake.systems.analysis import (
@@ -37,7 +37,7 @@ from pydrake.systems.rendering import (
     PoseBundle,
     PoseVector,
 )
-from pydrake.util.eigen_geometry import (
+from pydrake.common.eigen_geometry import (
     Isometry3,
     Quaternion,
 )
@@ -251,7 +251,7 @@ class TestAutomotive(unittest.TestCase):
         # Initialize all the states to zero and take a simulation step.
         state = context.get_mutable_continuous_state_vector()
         state.SetFromVector([0.] * state.size())
-        simulator.StepTo(1.0)
+        simulator.AdvanceTo(1.0)
 
         # Verify the outputs.
         simple_car.CalcOutput(context, output)

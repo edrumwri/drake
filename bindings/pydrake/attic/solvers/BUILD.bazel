@@ -1,7 +1,6 @@
 # -*- python -*-
 
 load("@drake//tools/install:install.bzl", "install")
-load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
     "@drake//tools/skylark:pybind.bzl",
     "drake_pybind_library",
@@ -11,7 +10,9 @@ load(
 load(
     "@drake//tools/skylark:drake_py.bzl",
     "drake_py_library",
+    "drake_py_unittest",
 )
+load("//bindings/pydrake:pydrake.bzl", "add_lint_tests_pydrake")
 
 package(default_visibility = [
     "//bindings/pydrake:__subpackages__",
@@ -26,7 +27,7 @@ drake_py_library(
     srcs = ["__init__.py"],
     imports = PACKAGE_INFO.py_imports,
     deps = [
-        "//bindings/pydrake:module_py",
+        "//bindings/pydrake/attic:module_py",
     ],
 )
 
@@ -36,7 +37,7 @@ drake_pybind_library(
     cc_srcs = ["ik_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
-        "//bindings/pydrake/multibody:rigid_body_tree_py",
+        "//bindings/pydrake/attic/multibody:rigid_body_tree_py",
     ],
     py_srcs = ["_ik_extra.py"],
 )
@@ -69,10 +70,25 @@ install(
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
-# NOTE: Unittests on `attic` should not move until the forwarding modules
-# outside of the attic are deprecated!
-
-add_lint_tests(
-    cpplint_data = ["//bindings/pydrake:.clang-format"],
-    enable_clang_format_lint = True,
+drake_py_unittest(
+    name = "pr2_ik_test",
+    data = ["//examples/pr2:models"],
+    tags = ["snopt"],
+    deps = [
+        ":ik_py",
+        "//bindings/pydrake/attic/multibody:parsers_py",
+        "//bindings/pydrake/attic/multibody:rigid_body_tree_py",
+    ],
 )
+
+drake_py_unittest(
+    name = "rbt_ik_test",
+    data = ["//examples/pendulum:models"],
+    tags = ["snopt"],
+    deps = [
+        ":ik_py",
+        "//bindings/pydrake/attic/multibody:rigid_body_tree_py",
+    ],
+)
+
+add_lint_tests_pydrake()

@@ -4,13 +4,12 @@
 #include <string>
 #include <vector>
 
-#include "drake/common/autodiff.h"
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/unused.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/multibody_forces.h"
 #include "drake/multibody/tree/multibody_tree_element.h"
-#include "drake/multibody/tree/multibody_tree_forward_decl.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/multibody/tree/spatial_inertia.h"
@@ -62,23 +61,23 @@ class BodyFrame final : public Frame<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(BodyFrame)
 
-  Isometry3<T> CalcPoseInBodyFrame(
+  math::RigidTransform<T> CalcPoseInBodyFrame(
       const systems::Context<T>&) const override {
-    return Isometry3<T>::Identity();
+    return math::RigidTransform<T>::Identity();
   }
 
-  Isometry3<T> CalcOffsetPoseInBody(
+  math::RigidTransform<T> CalcOffsetPoseInBody(
       const systems::Context<T>&,
-      const Isometry3<T>& X_FQ) const override {
+      const math::RigidTransform<T>& X_FQ) const override {
     return X_FQ;
   }
 
-  Isometry3<T> GetFixedPoseInBodyFrame() const override {
-    return Isometry3<T>::Identity();
+  math::RigidTransform<T> GetFixedPoseInBodyFrame() const override {
+    return math::RigidTransform<T>::Identity();
   }
 
-  Isometry3<T> GetFixedOffsetPoseInBody(
-      const Isometry3<T>& X_FQ) const override {
+  math::RigidTransform<T> GetFixedOffsetPoseInBody(
+      const math::RigidTransform<T>& X_FQ) const override {
     return X_FQ;
   }
 
@@ -89,6 +88,9 @@ class BodyFrame final : public Frame<T> {
 
   std::unique_ptr<Frame<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
+
+  std::unique_ptr<Frame<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const override;
 
  private:
   // Body<T> and BodyFrame<T> are natural allies. A BodyFrame object is created
@@ -195,13 +197,13 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
 
   /// (Advanced) Returns the mass of this body stored in `context`.
   virtual T get_mass(
-      const internal::MultibodyTreeContext<T> &context)const = 0;
+      const systems::Context<T> &context)const = 0;
 
   /// (Advanced) Computes the center of mass `p_BoBcm_B` (or `p_Bcm` for short)
   /// of this body measured from this body's frame origin `Bo` and expressed in
   /// the body frame B.
   virtual const Vector3<T> CalcCenterOfMassInBodyFrame(
-      const internal::MultibodyTreeContext<T>& context) const = 0;
+      const systems::Context<T>& context) const = 0;
 
   /// (Advanced) Computes the SpatialInertia `I_BBo_B` of `this` body about its
   /// frame origin `Bo` (not necessarily its center of mass) and expressed in
@@ -212,11 +214,11 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
   /// describing its state of deformation. As a particular case, the spatial
   /// inertia of a RigidBody in its body frame is constant.
   virtual SpatialInertia<T> CalcSpatialInertiaInBodyFrame(
-      const internal::MultibodyTreeContext<T>& context) const = 0;
+      const systems::Context<T>& context) const = 0;
 
   /// Returns the pose `X_WB` of this body B in the world frame W as a function
   /// of the state of the model stored in `context`.
-  const Isometry3<T>& EvalPoseInWorld(
+  const math::RigidTransform<T>& EvalPoseInWorld(
       const systems::Context<T>& context) const {
     return this->get_parent_tree().EvalBodyPoseInWorld(context, *this);
   }
@@ -229,15 +231,24 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
         context, *this);
   }
 
+  /// Gets the sptatial force on `this` body B from `forces` as F_BBo_W:
+  /// applied at body B's origin Bo and expressed in world world frame W.
+  const SpatialForce<T>& GetForceInWorld(
+      const systems::Context<T>&, const MultibodyForces<T>& forces) const {
+    DRAKE_THROW_UNLESS(
+        forces.CheckHasRightSizeForModel(this->get_parent_tree()));
+    return forces.body_forces()[node_index()];
+  }
+
   /// Adds the spatial force on `this` body B, applied at body B's origin Bo and
   /// expressed in the world frame W into `forces`.
-  void AddInForceInWorld(const systems::Context<T>& context,
+  void AddInForceInWorld(const systems::Context<T>&,
                          const SpatialForce<T>& F_Bo_W,
                          MultibodyForces<T>* forces) const {
     DRAKE_THROW_UNLESS(forces != nullptr);
     DRAKE_THROW_UNLESS(
         forces->CheckHasRightSizeForModel(this->get_parent_tree()));
-    forces->mutable_body_forces()[node_index()] = F_Bo_W;
+    forces->mutable_body_forces()[node_index()] += F_Bo_W;
   }
 
   /// Adds the spatial force on `this` body B, applied at point P and
@@ -262,7 +273,7 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
     DRAKE_THROW_UNLESS(forces != nullptr);
     DRAKE_THROW_UNLESS(
         forces->CheckHasRightSizeForModel(this->get_parent_tree()));
-    const Isometry3<T> X_WE = frame_E.CalcPoseInWorld(context);
+    const math::RigidTransform<T> X_WE = frame_E.CalcPoseInWorld(context);
     const Matrix3<T>& R_WE = X_WE.linear();
     const Vector3<T> p_PB_W = -R_WE * p_BP_E;
     const SpatialForce<T> F_Bo_W = (R_WE * F_Bp_E).Shift(p_PB_W);
@@ -305,6 +316,10 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
   virtual std::unique_ptr<Body<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const = 0;
 
+  /// Clones this %Body (templated on T) to a body templated on Expression.
+  virtual std::unique_ptr<Body<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const = 0;
+
   /// @}
 
  private:
@@ -346,3 +361,6 @@ class Body : public MultibodyTreeElement<Body<T>, BodyIndex> {
 
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class drake::multibody::BodyFrame)

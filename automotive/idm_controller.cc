@@ -40,8 +40,7 @@ IdmController<T>::IdmController(const RoadGeometry& road,
       ego_velocity_index_(
           this->DeclareVectorInputPort(FrameVelocity<T>()).get_index()),
       traffic_index_(this->DeclareAbstractInputPort(
-          systems::kUseDefaultName, systems::Value<PoseBundle<T>>())
-              .get_index()),
+          systems::kUseDefaultName, Value<PoseBundle<T>>()).get_index()),
       acceleration_index_(
           this->DeclareVectorOutputPort(systems::BasicVector<T>(1),
                                         &IdmController::CalcAcceleration)
@@ -51,7 +50,7 @@ IdmController<T>::IdmController(const RoadGeometry& road,
   // a caching scheme once #4364 lands, preventing the need to use abstract
   // states and periodic sampling time.
   if (road_position_strategy == RoadPositionStrategy::kCache) {
-    this->DeclareAbstractState(systems::AbstractValue::Make<RoadPosition>(
+    this->DeclareAbstractState(AbstractValue::Make<RoadPosition>(
         RoadPosition()));
     this->DeclarePeriodicUnrestrictedUpdate(period_sec, 0);
   }
@@ -107,7 +106,7 @@ void IdmController<T>::CalcAcceleration(
   // Obtain the state if we've allocated it.
   RoadPosition ego_rp;
   if (context.get_state().get_abstract_state().size() != 0) {
-    DRAKE_ASSERT(context.get_num_abstract_states() == 1);
+    DRAKE_ASSERT(context.num_abstract_states() == 1);
     ego_rp = context.template get_abstract_state<RoadPosition>(0);
   }
 
@@ -168,7 +167,7 @@ void IdmController<T>::DoCalcUnrestrictedUpdate(
     const systems::Context<T>& context,
     const std::vector<const systems::UnrestrictedUpdateEvent<T>*>&,
     systems::State<T>* state) const {
-  DRAKE_ASSERT(context.get_num_abstract_states() == 1);
+  DRAKE_ASSERT(context.num_abstract_states() == 1);
 
   // Obtain the input and state data.
   const PoseVector<T>* const ego_pose =

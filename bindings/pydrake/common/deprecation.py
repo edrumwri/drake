@@ -114,7 +114,7 @@ def _warn_deprecated(message, stacklevel=2):
 
 class _DeprecatedDescriptor(object):
     """Wraps a descriptor to warn that it is deprecated any time it is
-    acccessed.
+    accessed.
     """
 
     def __init__(self, original, message):
@@ -165,10 +165,10 @@ def install_numpy_warning_filters(force=False):
         return
     _installed_numpy_warning_filters = True
     # Warnings specific to comparison with `dtype=object` should be raised to
-    # errors (#8315, #8491). Without them, NumPy will return effectively
-    # garbage values (e.g. comparison based on object ID): either a scalar bool
-    # or an array of bools (based on what objects are present and the NumPy
-    # version).
+    # errors (#8315, #8491). Without them, NumPy will swallow the errors and
+    # make a DeprecationWarning, while returning effectively garbage values
+    # (e.g. comparison based on object ID): either a scalar bool or an array of
+    # bools (based on what objects are present and the NumPy version).
     # N.B. Using a `module=` regex filter does not work, as the warning is
     # raised from C code, and thus inherits the calling module, which may not
     # be "numpy\..*" (numpy/numpy#10861).
@@ -177,6 +177,41 @@ def install_numpy_warning_filters(force=False):
     warnings.filterwarnings(
         "error", category=DeprecationWarning,
         message="elementwise == comparison failed")
+    # Error changed in 1.16.0
+    warnings.filterwarnings(
+        "error", category=DeprecationWarning,
+        message="elementwise comparison failed")
+
+
+def _deprecated_callable(f, message):
+
+    def wrapper(*args, **kwargs):
+        _warn_deprecated(message, stacklevel=3)
+        return f(*args, **kwargs)
+
+    wrapper.__name__ = f.__name__
+    wrapper.__qualname__ = f.__name__
+    wrapper.__doc__ = "Warning:\n\n    {}".format(message)
+    return wrapper
+
+
+def _forward_callables_as_deprecated(var_dict, m_new, date):
+    # Forwards public symbols from `m_new` to `var_dict`, while wrapping
+    # each symbol to emit a deprecation warning when it is called.
+    # Warning: This assumes all relevant symbols are callable!
+    all_public = [x for x in m_new.__dict__ if not x.startswith("_")]
+    symbols = getattr(m_new, "__all__", all_public)
+    for symbol in symbols:
+        new = getattr(m_new, symbol)
+        assert hasattr(new, "__call__")
+        old_name = var_dict["__name__"]
+        message = (
+            "``{}.{}`` is deprecated and will be removed on or around {}; "
+            "please use ``{}.{}`` instead.").format(
+            old_name, symbol, date, m_new.__name__, symbol)
+        old = _deprecated_callable(new, message)
+        old.__module__ = old_name
+        var_dict[symbol] = old
 
 
 warnings.simplefilter('once', DrakeDeprecationWarning)

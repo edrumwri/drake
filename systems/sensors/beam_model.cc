@@ -38,7 +38,7 @@ BeamModel<T>::BeamModel(int num_depth_readings, double max_range)
   // one.   Since probability_hit() is defined implicitly, this becomes the
   // inequality constraint:
   //   1 - probability_short() - probability_miss() - probability_uniform() ≥ 0.
-  typename SystemConstraint<T>::CalcCallback
+  ContextConstraintCalc<T>
       calc_event_probabilities_constraint =
           [](const Context<T>& context, VectorX<T>* value) {
             const auto* params = dynamic_cast<const BeamModelParams<T>*>(
@@ -48,10 +48,10 @@ BeamModel<T>::BeamModel(int num_depth_readings, double max_range)
                           params->probability_miss() -
                           params->probability_uniform();
           };
-  this->AddConstraint(std::make_unique<SystemConstraint<T>>(
+  this->DeclareInequalityConstraint(
       calc_event_probabilities_constraint,
       SystemConstraintBounds(Vector1d(0), nullopt),
-      "event probabilities sum to one"));
+      "event probabilities sum to one");
 }
 
 template <typename T>
@@ -66,11 +66,11 @@ void BeamModel<T>::CalcOutput(const systems::Context<T>& context,
   const auto params = dynamic_cast<const BeamModelParams<T>*>(
       &context.get_numeric_parameter(0));
   DRAKE_DEMAND(params != nullptr);
-  const auto& depth = this->EvalEigenVectorInput(context, 0);
-  const auto& w_event = this->EvalEigenVectorInput(context, 1);
-  const auto& w_hit = this->EvalEigenVectorInput(context, 2);
-  const auto& w_short = this->EvalEigenVectorInput(context, 3);
-  const auto& w_uniform = this->EvalEigenVectorInput(context, 4);
+  const auto& depth = get_depth_input_port().Eval(context);
+  const auto& w_event = get_event_random_input_port().Eval(context);
+  const auto& w_hit = get_hit_random_input_port().Eval(context);
+  const auto& w_short = get_short_random_input_port().Eval(context);
+  const auto& w_uniform = get_uniform_random_input_port().Eval(context);
 
   auto measurement = output->get_mutable_value();
 

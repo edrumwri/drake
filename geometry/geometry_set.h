@@ -9,6 +9,9 @@
 namespace drake {
 namespace geometry {
 
+template <typename T>
+class GeometryState;
+
 /** The %GeometrySet, as its name implies, is a convenience class for defining a
  set of geometries. What makes it unique from a simple `std::set<GeometryId>`
  instance is that membership doesn't require explicit GeometryId enumeration;
@@ -154,6 +157,7 @@ class GeometrySet {
      - an iterable object containing frame ids
      - two iterable objects, the first containing geometry ids, the second
        containing frame ids.
+     - another %GeometrySet instance.
 
    NOTE: the iterable objects don't have to be the same type. The "iterable"
    can also be an initializer list. All of the following invocations are valid
@@ -232,33 +236,48 @@ class GeometrySet {
     Add(frames);
   }
 
+  void Add(const GeometrySet& other) {
+    frames_.insert(other.frames_.begin(), other.frames_.end());
+    geometries_.insert(other.geometries_.begin(), other.geometries_.end());
+  }
+
   //@}
 
-  /** Returns the frame ids in the set. */
+ private:
+  // Provide access to the two entities that need access to the set's internals.
+  friend class GeometrySetTester;
+  template <typename>
+  friend class GeometryState;
+
+  // Returns the frame ids in the set.
   const std::unordered_set<FrameId> frames() const { return frames_; }
 
-  /** Reports the number of frames in the set. */
+  // Reports the number of frames in the set.
   int num_frames() const { return static_cast<int>(frames_.size()); }
 
-  /** Returns the geometry ids in the set. */
+  // Returns the geometry ids in the set -- these are only the geometry ids
+  // explicitly added to the set and _not_ those implied by added frames.
   const std::unordered_set<GeometryId> geometries() const {
     return geometries_;
   }
 
-  /** Reports the number of geometries _explicitly_ in the set. It does
-   _not_ count the geometries that belong to the added frames.  */
-  int num_geometries() const { return static_cast<int>(geometries_.size()); }
+  // Reports the number of geometries _explicitly_ in the set. It does _not_
+  // count the geometries that belong to the added frames.
+  int num_geometries() const {
+    return static_cast<int>(geometries_.size());
+  }
 
-  /** Reports if the given `frame_id` has been added to the group. */
-  bool contains(FrameId frame_id) const { return frames_.count(frame_id) > 0; }
+  // Reports if the given `frame_id` has been added to the group.
+  bool contains(FrameId frame_id) const {
+    return frames_.count(frame_id) > 0;
+  }
 
-  /** Reports if the given `geometry_id` has been *explicitly* added to the
-   group. It will *not* capture geometry ids affixed to added frames.  */
+  // Reports if the given `geometry_id` has been *explicitly* added to the
+  // group. It will *not* capture geometry ids affixed to added frames.
   bool contains(GeometryId geometry_id) const {
     return geometries_.count(geometry_id) > 0;
   }
 
- private:
   std::unordered_set<FrameId> frames_;
   std::unordered_set<GeometryId> geometries_;
 };

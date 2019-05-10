@@ -7,6 +7,8 @@ default-jdk
 diffstat
 doxygen
 file
+fonts-dejavu-core
+fonts-dejavu-extra
 gdb
 gfortran
 git
@@ -24,7 +26,6 @@ libjpeg8-dev
 libjsoncpp-dev
 liblapack-dev
 liblz4-dev
-libnetcdf-cxx-legacy-dev
 libnetcdf-dev
 libnlopt-dev
 libogg-dev
@@ -50,7 +51,9 @@ python-protobuf
 python-pygame
 python-sphinx
 python-sphinx-rtd-theme
+python3-dateutil
 python3-dev
+python3-jwcrypto
 python3-protobuf
 python3-sphinx
 python3-sphinx-rtd-theme

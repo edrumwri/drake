@@ -74,8 +74,9 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
         mass * UnitInertia<double>::SolidBox(box_size, box_size, box_size));
     const RigidBody<double>& body = plant.AddRigidBody("Body", M_B);
     const PrismaticJoint<double>& slider = plant.AddJoint<PrismaticJoint>(
-        "Slider", plant.world_body(), {}, body, {}, Vector3<double>::UnitZ(),
-        0.0 /* lower limit */, 0.1 /* upper limit */, 0.0 /* damping */);
+        "Slider", plant.world_body(), nullopt, body, nullopt,
+        Vector3<double>::UnitZ(), 0.0 /* lower limit */, 0.1 /* upper limit */,
+        0.0 /* damping */);
     plant.AddJointActuator("ForceAlongZ", slider);
     plant.Finalize();
 
@@ -85,9 +86,11 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
 
     Simulator<double> simulator(plant);
     Context<double>& context = simulator.get_mutable_context();
-    context.FixInputPort(0, Vector1<double>::Constant(-10.0));
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(-10.0));
     simulator.Initialize();
-    simulator.StepTo(simulation_time);
+    simulator.AdvanceTo(simulation_time);
 
     // We expect a second order convergence with the time step. That is, we
     // expect the error to be lower than:
@@ -95,19 +98,21 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
     // where the constant 1100 is simply obtained through previous runs of this
     // test. See description of this test at the top.
 
-    EXPECT_NEAR(
-        slider.get_translation(context), slider.lower_limit(), expected_error);
+    EXPECT_NEAR(slider.get_translation(context), slider.position_lower_limit(),
+                expected_error);
     // After a second of simulation we expect the slider to be at rest.
     EXPECT_NEAR(slider.get_translation_rate(context), 0.0, kVelocityTolerance);
 
     // Set the force to be positive and re-start the simulation.
-    context.FixInputPort(0, Vector1<double>::Constant(10.0));
-    context.set_time(0.0);
-    simulator.StepTo(simulation_time);
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(10.0));
+    context.SetTime(0.0);
+    simulator.AdvanceTo(simulation_time);
 
     // Verify we are at rest near the upper limit.
-    EXPECT_NEAR(
-        slider.get_translation(context), slider.upper_limit(), expected_error);
+    EXPECT_NEAR(slider.get_translation(context), slider.position_upper_limit(),
+                expected_error);
     EXPECT_NEAR(slider.get_translation_rate(context), 0.0, kVelocityTolerance);
   }
 }
@@ -145,9 +150,9 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
             rod_radius, rod_length, Vector3<double>::UnitX()));
     const RigidBody<double>& body = plant.AddRigidBody("Body", M_B);
     const RevoluteJoint<double>& pin = plant.AddJoint<RevoluteJoint>(
-        "Pin", plant.world_body(), {}, body, {}, Vector3<double>::UnitZ(),
-        -M_PI / 5.0 /* lower limit */, M_PI / 3.0 /* upper limit */,
-        0.0 /* damping */);
+        "Pin", plant.world_body(), nullopt, body, nullopt,
+        Vector3<double>::UnitZ(), -M_PI / 5.0 /* lower limit */,
+        M_PI / 3.0 /* upper limit */, 0.0 /* damping */);
     plant.AddJointActuator("TorqueAboutZ", pin);
     plant.Finalize();
 
@@ -157,9 +162,11 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
 
     Simulator<double> simulator(plant);
     Context<double>& context = simulator.get_mutable_context();
-    context.FixInputPort(0, Vector1<double>::Constant(1.5));
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(1.5));
     simulator.Initialize();
-    simulator.StepTo(simulation_time);
+    simulator.AdvanceTo(simulation_time);
 
     // We expect a second order convergence with the time step. That is, we
     // expect the error to be lower than:
@@ -167,17 +174,21 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
     // where the constant 5100 is simply obtained through previous runs of this
     // test. See description of this test at the top.
 
-    EXPECT_NEAR(pin.get_angle(context), pin.upper_limit(), expected_error);
+    EXPECT_NEAR(pin.get_angle(context), pin.position_upper_limit(),
+                expected_error);
     // After a second of simulation we expect the pint to be at rest.
     EXPECT_NEAR(pin.get_angular_rate(context), 0.0, kVelocityTolerance);
 
     // Set the torque to be negative and re-start the simulation.
-    context.FixInputPort(0, Vector1<double>::Constant(-1.5));
-    context.set_time(0.0);
-    simulator.StepTo(simulation_time);
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(-1.5));
+    context.SetTime(0.0);
+    simulator.AdvanceTo(simulation_time);
 
     // Verify we are at rest near the lower limit.
-    EXPECT_NEAR(pin.get_angle(context), pin.lower_limit(), expected_error);
+    EXPECT_NEAR(pin.get_angle(context), pin.position_lower_limit(),
+                expected_error);
     EXPECT_NEAR(pin.get_angular_rate(context), 0.0, kVelocityTolerance);
   }
 }
@@ -240,9 +251,11 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
     const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
-    EXPECT_NEAR(joint.lower_limit(), lower_limits_expected(joint_number-1),
+    EXPECT_NEAR(joint.position_lower_limit(),
+                lower_limits_expected(joint_number - 1),
                 std::numeric_limits<double>::epsilon());
-    EXPECT_NEAR(joint.upper_limit(), upper_limits_expected(joint_number-1),
+    EXPECT_NEAR(joint.position_upper_limit(),
+                upper_limits_expected(joint_number - 1),
                 std::numeric_limits<double>::epsilon());
   }
 
@@ -250,30 +263,36 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   Context<double>& context = simulator.get_mutable_context();
 
   // Drive all the joints to their upper limit by applying a positive torque.
-  context.FixInputPort(0, VectorX<double>::Constant(nq, 0.4));
+  context.FixInputPort(
+    plant.get_actuation_input_port().get_index(),
+    VectorX<double>::Constant(nq, 0.4));
   simulator.Initialize();
-  simulator.StepTo(simulation_time);
+  simulator.AdvanceTo(simulation_time);
 
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
     const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
-    EXPECT_LT(std::abs(
-        (joint.get_angle(context)-joint.upper_limit())/joint.upper_limit()),
-              kRelativePositionTolerance);
+    EXPECT_LT(
+        std::abs((joint.get_angle(context) - joint.position_upper_limit()) /
+                 joint.position_upper_limit()),
+        kRelativePositionTolerance);
     EXPECT_NEAR(joint.get_angular_rate(context), 0.0, kVelocityTolerance);
   }
 
   // Drive all the joints to their lower limit by applying a negative torque.
-  context.FixInputPort(0, VectorX<double>::Constant(nq, -0.4));
+  context.FixInputPort(
+    plant.get_actuation_input_port().get_index(),
+    VectorX<double>::Constant(nq, -0.4));
   plant.SetDefaultContext(&context);
-  context.set_time(0.0);
-  simulator.StepTo(simulation_time);
+  context.SetTime(0.0);
+  simulator.AdvanceTo(simulation_time);
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
     const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
-    EXPECT_LT(std::abs(
-        (joint.get_angle(context)-joint.lower_limit())/joint.lower_limit()),
-              kRelativePositionTolerance);
+    EXPECT_LT(
+        std::abs((joint.get_angle(context) - joint.position_lower_limit()) /
+                 joint.position_lower_limit()),
+        kRelativePositionTolerance);
     EXPECT_NEAR(joint.get_angular_rate(context), 0.0, kVelocityTolerance);
   }
 }

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -656,14 +657,12 @@ class Builder : public BuilderBase {
                 case -1: { return true; }
                 case 1: { return false; }
                 case 0: { return false; }
-                default: { DRAKE_ABORT(); }
               }
             }
-            default: { DRAKE_ABORT(); }
           }
         }
-        default: { DRAKE_ABORT(); }
       }
+      throw std::domain_error("fuzzy_compare domain error");
     }
 
    private:

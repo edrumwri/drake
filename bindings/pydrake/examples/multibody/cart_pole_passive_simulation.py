@@ -5,8 +5,8 @@ import argparse
 from pydrake.common import FindResourceOrThrow
 from pydrake.geometry import (ConnectDrakeVisualizer, SceneGraph)
 from pydrake.lcm import DrakeLcm
-from pydrake.multibody.multibody_tree import UniformGravityFieldElement
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
+from pydrake.multibody.tree import UniformGravityFieldElement
+from pydrake.multibody.plant import MultibodyPlant
 from pydrake.multibody.parsing import Parser
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
@@ -65,7 +65,7 @@ def main():
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(args.target_realtime_rate)
     simulator.Initialize()
-    simulator.StepTo(args.simulation_time)
+    simulator.AdvanceTo(args.simulation_time)
 
 
 if __name__ == "__main__":

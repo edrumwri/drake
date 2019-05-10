@@ -17,7 +17,7 @@ from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from pydrake.systems.primitives import FirstOrderLowPassFilter
-from pydrake.util.eigen_geometry import Isometry3
+from pydrake.common.eigen_geometry import Isometry3
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
@@ -55,7 +55,8 @@ else:
                            station.GetOutputPort("pose_bundle"))
     if args.meshcat:
         meshcat = builder.AddSystem(MeshcatVisualizer(
-                station.get_scene_graph(), zmq_url=args.meshcat))
+                station.get_scene_graph(), zmq_url=args.meshcat,
+                open_browser=args.open_browser))
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         meshcat.get_input_port(0))
 
@@ -79,6 +80,9 @@ builder.Connect(wsg_buttons.GetOutputPort("force_limit"),
 diagram = builder.Build()
 simulator = Simulator(diagram)
 
+# This is important to avoid duplicate publishes to the hardware interface:
+simulator.set_publish_every_time_step(False)
+
 station_context = diagram.GetMutableSubsystemContext(
     station, simulator.get_mutable_context())
 
@@ -86,14 +90,12 @@ station_context.FixInputPort(station.GetInputPort(
     "iiwa_feedforward_torque").get_index(), np.zeros(7))
 
 # Eval the output port once to read the initial positions of the IIWA.
+simulator.AdvanceTo(1e-6)
 q0 = station.GetOutputPort("iiwa_position_measured").Eval(
-    station_context).get_value()
+    station_context)
 teleop.set_position(q0)
 filter.set_initial_output_value(diagram.GetMutableSubsystemContext(
     filter, simulator.get_mutable_context()), q0)
 
-# This is important to avoid duplicate publishes to the hardware interface:
-simulator.set_publish_every_time_step(False)
-
 simulator.set_target_realtime_rate(args.target_realtime_rate)
-simulator.StepTo(args.duration)
+simulator.AdvanceTo(args.duration)

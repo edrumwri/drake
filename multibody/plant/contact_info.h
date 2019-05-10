@@ -4,8 +4,8 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
@@ -23,17 +23,12 @@ namespace multibody {
     - Separation speed.
     - Slip speed.
 
- @tparam T      The scalar type. It must be a valid Eigen scalar.
-
- Instantiated templates for the following ScalarTypes are provided:
-
- - double
- - AutoDiffXd
+ @tparam T Must be one of drake's default scalar types.
  */
 template <typename T>
 class PointPairContactInfo {
  public:
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(PointPairContactInfo)
+  DRAKE_DECLARE_COPY_AND_MOVE_AND_ASSIGN(PointPairContactInfo)
   /**
    Constructs the contact information for a given pair of two colliding bodies.
    @param bodyA_index
@@ -111,15 +106,10 @@ class PointPairContactInfo {
   T slip_speed_;
 };
 
-#ifndef DRAKE_DOXYGEN_CXX
-// TODO(#9314) Remove this transitional namespace on or about 2019-03-01.
-namespace multibody_plant {
-template <typename T>
-using PointPairContactInfo
-    DRAKE_DEPRECATED("Spell as drake::multibody::PointPairContactInfo instead.")
-    = ::drake::multibody::PointPairContactInfo<T>;
-}  // namespace multibody_plant
-#endif  // DRAKE_DOXYGEN_CXX
+DRAKE_DEFINE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN_T(PointPairContactInfo)
 
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::multibody::PointPairContactInfo)

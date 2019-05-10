@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/multibody/tree/joint.h"
 #include "drake/multibody/tree/multibody_forces.h"
@@ -30,6 +31,7 @@ namespace multibody {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -41,13 +43,15 @@ class RevoluteJoint final : public Joint<T> {
   template<typename Scalar>
   using Context = systems::Context<Scalar>;
 
+  static const char kTypeName[];
+
   /// Constructor to create a revolute joint between two bodies so that
   /// frame F attached to the parent body P and frame M attached to the child
   /// body B, rotate relatively to one another about a common axis. See this
   /// class's documentation for further details on the definition of these
   /// frames and rotation angle.
   /// This constructor signature creates a joint with no joint limits, i.e. the
-  /// joint limits are the pair `(-∞, ∞)`.
+  /// joint position, velocity and acceleration limits are the pair `(-∞, ∞)`.
   /// The first three arguments to this constructor are those of the Joint class
   /// constructor. See the Joint class's documentation for details.
   /// The additional parameters are:
@@ -91,11 +95,11 @@ class RevoluteJoint final : public Joint<T> {
   ///   equal to one.
   ///   This vector can have any length, only the direction is used. This method
   ///   aborts if `axis` is the zero vector.
-  /// @param[in] lower_limit
-  ///   Lower limit, in radians, for the rotation coordinate
+  /// @param[in] pos_lower_limit
+  ///   Lower position limit, in radians, for the rotation coordinate
   ///   (see get_angle()).
-  /// @param[in] upper_limit
-  ///   Upper limit, in radians, for the rotation coordinate
+  /// @param[in] pos_upper_limit
+  ///   Upper position limit, in radians, for the rotation coordinate
   ///   (see get_angle()).
   /// @param[in] damping
   ///   Viscous damping coefficient, in N⋅m⋅s, used to model losses within the
@@ -103,23 +107,32 @@ class RevoluteJoint final : public Joint<T> {
   ///   opposing motion, with ω the angular rate for `this` joint (see
   ///   get_angular_rate()).
   /// @throws std::exception if damping is negative.
-  /// @throws std::exception if lower_limit > upper_limit.
-  RevoluteJoint(const std::string& name,
-                const Frame<T>& frame_on_parent, const Frame<T>& frame_on_child,
-                const Vector3<double>& axis,
-                double lower_limit, double upper_limit,
-                double damping = 0) :
-      Joint<T>(name, frame_on_parent, frame_on_child,
-               VectorX<double>::Constant(1, lower_limit),
-               VectorX<double>::Constant(1, upper_limit)) {
+  /// @throws std::exception if pos_lower_limit > pos_upper_limit.
+  RevoluteJoint(const std::string& name, const Frame<T>& frame_on_parent,
+                const Frame<T>& frame_on_child, const Vector3<double>& axis,
+                double pos_lower_limit, double pos_upper_limit,
+                double damping = 0)
+      : Joint<T>(name, frame_on_parent, frame_on_child,
+                 VectorX<double>::Constant(1, pos_lower_limit),
+                 VectorX<double>::Constant(1, pos_upper_limit),
+                 VectorX<double>::Constant(
+                     1, -std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, -std::numeric_limits<double>::infinity()),
+                 VectorX<double>::Constant(
+                     1, std::numeric_limits<double>::infinity())) {
     const double kEpsilon = std::numeric_limits<double>::epsilon();
     DRAKE_DEMAND(!axis.isZero(kEpsilon));
     DRAKE_THROW_UNLESS(damping >= 0);
-    DRAKE_THROW_UNLESS(lower_limit <= upper_limit);
     axis_ = axis.normalized();
     damping_ = damping;
-    lower_limit_ = lower_limit;
-    upper_limit_ = upper_limit;
+  }
+
+  const std::string& type_name() const override {
+    static const never_destroyed<std::string> name{kTypeName};
+    return name.access();
   }
 
   /// Returns the axis of revolution of `this` joint as a unit vector.
@@ -133,16 +146,37 @@ class RevoluteJoint final : public Joint<T> {
   /// Returns `this` joint's damping constant in N⋅m⋅s.
   double damping() const { return damping_; }
 
-  /// Returns the lower limit for `this` joint in radians.
-  double lower_limit() const { return lower_limit_; }
+  /// Returns the position lower limit for `this` joint in radians.
+  double position_lower_limit() const {
+    return this->position_lower_limits()[0];
+  }
 
-  /// Returns the upper limit for `this` joint in radians.
-  double upper_limit() const { return upper_limit_; }
+  /// Returns the position upper limit for `this` joint in radians.
+  double position_upper_limit() const {
+    return this->position_upper_limits()[0];
+  }
+
+  /// Returns the velocity lower limit for `this` joint in radians / s.
+  double velocity_lower_limit() const {
+    return this->velocity_lower_limits()[0];
+  }
+
+  /// Returns the velocity upper limit for `this` joint in radians / s.
+  double velocity_upper_limit() const {
+    return this->velocity_upper_limits()[0];
+  }
+
+  /// Returns the acceleration lower limit for `this` joint in radians / s².
+  double acceleration_lower_limit() const {
+    return this->acceleration_lower_limits()[0];
+  }
+
+  /// Returns the acceleration upper limit for `this` joint in radians / s².
+  double acceleration_upper_limit() const {
+    return this->acceleration_upper_limits()[0];
+  }
 
   /// @name Context-dependent value access
-  ///
-  /// These methods require the provided context to be an instance of
-  /// MultibodyTreeContext. Failure to do so leads to a std::logic_error.
   /// @{
 
   /// Gets the rotation angle of `this` mobilizer from `context`.
@@ -164,6 +198,10 @@ class RevoluteJoint final : public Joint<T> {
       Context<T>* context, const T& angle) const {
     get_mobilizer()->set_angle(context, angle);
     return *this;
+  }
+
+  void set_default_angle(double angle) {
+    get_mutable_mobilizer()->set_default_position(Vector1d{angle});
   }
 
   void set_random_angle_distribution(const symbolic::Expression& angle) {
@@ -286,6 +324,9 @@ class RevoluteJoint final : public Joint<T> {
   std::unique_ptr<Joint<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
 
+  std::unique_ptr<Joint<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const override;
+
   // Make RevoluteJoint templated on every other scalar type a friend of
   // RevoluteJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can access
   // private members of RevoluteJoint<T>.
@@ -326,12 +367,12 @@ class RevoluteJoint final : public Joint<T> {
 
   // This joint's damping constant in N⋅m⋅s.
   double damping_{0};
-
-  // The lower and upper joint limits in radians.
-  // lower_limit_ <= upper_limit_ always (enforced at construction).
-  double lower_limit_{-std::numeric_limits<double>::infinity()};
-  double upper_limit_{std::numeric_limits<double>::infinity()};
 };
+
+template <typename T> const char RevoluteJoint<T>::kTypeName[] = "revolute";
 
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::multibody::RevoluteJoint)

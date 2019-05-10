@@ -5,10 +5,11 @@
 #include <utility>
 
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_nodiscard.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/continuous_state.h"
 #include "drake/systems/framework/event_status.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -42,7 +43,7 @@ class EventData {
   }
 
  protected:
-  virtual EventData* DoClone() const = 0;
+  DRAKE_NODISCARD virtual EventData* DoClone() const = 0;
 };
 
 /**
@@ -68,7 +69,7 @@ class PeriodicEventData : public EventData {
   void set_offset_sec(double offset_sec) { offset_sec_ = offset_sec; }
 
  private:
-  EventData* DoClone() const override {
+  DRAKE_NODISCARD EventData* DoClone() const override {
     PeriodicEventData* clone = new PeriodicEventData;
     clone->period_sec_ = period_sec_;
     clone->offset_sec_ = offset_sec_;
@@ -91,7 +92,7 @@ template <class T>
 class WitnessTriggeredEventData : public EventData {
  public:
   WitnessTriggeredEventData() {}
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(WitnessTriggeredEventData);
+  DRAKE_DECLARE_COPY_AND_MOVE_AND_ASSIGN(WitnessTriggeredEventData);
 
   /// Gets the witness function that triggered the event handler.
   const WitnessFunction<T>* triggered_witness() const {
@@ -136,7 +137,7 @@ class WitnessTriggeredEventData : public EventData {
   void set_xcf(const ContinuousState<T>* xcf) { xcf_ = xcf; }
 
  private:
-  EventData* DoClone() const override {
+  DRAKE_NODISCARD EventData* DoClone() const override {
     WitnessTriggeredEventData<T>* clone = new WitnessTriggeredEventData;
     clone->triggered_witness_ = triggered_witness_;
     clone->t0_ = t0_;
@@ -152,6 +153,8 @@ class WitnessTriggeredEventData : public EventData {
   const ContinuousState<T>* xc0_{nullptr};
   const ContinuousState<T>* xcf_{nullptr};
 };
+
+DRAKE_DEFINE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN_T(WitnessTriggeredEventData)
 
 /**
  * Predefined types of triggers for events. Used at run time to determine why
@@ -340,7 +343,7 @@ class Event {
    * Event-specific data is cloned using the Clone() method. Data specific
    * to the class derived from Event must be cloned by the implementation.
    */
-  virtual Event* DoClone() const = 0;
+  DRAKE_NODISCARD virtual Event* DoClone() const = 0;
 
  private:
   TriggerType trigger_type_;
@@ -421,7 +424,9 @@ class PublishEvent final : public Event<T> {
   }
 
   // Clones PublishEvent-specific data.
-  PublishEvent<T>* DoClone() const final { return new PublishEvent(*this); }
+  DRAKE_NODISCARD PublishEvent<T>* DoClone() const final {
+    return new PublishEvent(*this);
+  }
 
   // Optional callback function that handles this publish event.
   PublishCallback callback_{nullptr};
@@ -499,7 +504,7 @@ class DiscreteUpdateEvent final : public Event<T> {
   }
 
   // Clones DiscreteUpdateEvent-specific data.
-  DiscreteUpdateEvent<T>* DoClone() const final {
+  DRAKE_NODISCARD DiscreteUpdateEvent<T>* DoClone() const final {
     return new DiscreteUpdateEvent(this->get_trigger_type(), callback_);
   }
 
@@ -596,11 +601,8 @@ UnrestrictedUpdateEvent<T>::UnrestrictedUpdateEvent(
 }  // namespace systems
 }  // namespace drake
 
-// TODO(sammy-tri) I would like to use
-// DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS for
-// WitnessTriggeredEventData, but DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN
-// breaks due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57728 with
-// extern templates.
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::systems::WitnessTriggeredEventData)
 
 DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class ::drake::systems::Event)

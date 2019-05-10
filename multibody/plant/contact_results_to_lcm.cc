@@ -2,15 +2,12 @@
 
 #include <memory>
 
-#include "drake/common/default_scalars.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace multibody {
 
 using systems::Context;
-using systems::Value;
 
 template <typename T>
 ContactResultsToLcmSystem<T>::ContactResultsToLcmSystem(
@@ -50,9 +47,8 @@ template <typename T>
 void ContactResultsToLcmSystem<T>::CalcLcmContactOutput(
     const Context<T>& context, lcmt_contact_results_for_viz* output) const {
   // Get input / output.
-  const auto& contact_results =
-      this->EvalAbstractInput(context, contact_result_input_port_index_)
-          ->template GetValue<ContactResults<T>>();
+  const auto& contact_results = get_contact_result_input_port().
+      template Eval<ContactResults<T>>(context);
   auto& msg = *output;
 
   // Time in microseconds.
@@ -105,13 +101,12 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
 
   auto contact_results_publisher = builder->AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_contact_results_for_viz>(
-          "CONTACT_RESULTS", lcm));
+          "CONTACT_RESULTS", lcm, 1.0 / 60 /* publish period */));
   contact_results_publisher->set_name("contact_results_publisher");
 
   builder->Connect(contact_results_port, contact_to_lcm->get_input_port(0));
   builder->Connect(contact_to_lcm->get_output_port(0),
                    contact_results_publisher->get_input_port());
-  contact_results_publisher->set_publish_period(1 / 60.0);
 
   return contact_results_publisher;
 }
@@ -119,6 +114,5 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
 }  // namespace multibody
 }  // namespace drake
 
-// This should be kept in sync with the scalars that MultibodyPlant supports.
-DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class drake::multibody::ContactResultsToLcmSystem)

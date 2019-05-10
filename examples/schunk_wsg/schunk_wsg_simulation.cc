@@ -13,7 +13,6 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/examples/schunk_wsg/simulated_schunk_wsg_system.h"
-#include "drake/lcm/drake_lcm.h"
 #include "drake/lcmt_schunk_wsg_command.hpp"
 #include "drake/lcmt_schunk_wsg_status.hpp"
 #include "drake/manipulation/schunk_wsg/schunk_wsg_constants.h"
@@ -25,6 +24,7 @@
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/leaf_system.h"
+#include "drake/systems/lcm/lcm_interface_system.h"
 #include "drake/systems/lcm/lcm_publisher_system.h"
 #include "drake/systems/lcm/lcm_subscriber_system.h"
 
@@ -51,24 +51,23 @@ int DoMain() {
   auto plant = builder.AddSystem(CreateSimulatedSchunkWsgSystem<double>());
   const RigidBodyTree<double>& tree = plant->get_rigid_body_tree();
 
-  drake::lcm::DrakeLcm lcm;
+  auto lcm = builder.AddSystem<systems::lcm::LcmInterfaceSystem>();
   DrakeVisualizer* visualizer =
-      builder.AddSystem<DrakeVisualizer>(tree, &lcm);
+      builder.AddSystem<DrakeVisualizer>(tree, lcm);
   visualizer->set_name("visualizer");
-  manipulation::schunk_wsg::SchunkWsgCommandTranslator wsg_cmd_to_vec;
-  auto command_sub =
-      builder.AddSystem(std::make_unique<systems::lcm::LcmSubscriberSystem>(
-          "SCHUNK_WSG_COMMAND", wsg_cmd_to_vec, &lcm));
+  auto command_sub = builder.AddSystem(
+      systems::lcm::LcmSubscriberSystem::Make<lcmt_schunk_wsg_command>(
+          "SCHUNK_WSG_COMMAND", lcm));
   command_sub->set_name("command_subscriber");
 
   auto wsg_controller = builder.AddSystem<SchunkWsgController>();
 
   auto status_pub = builder.AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_schunk_wsg_status>(
-          "SCHUNK_WSG_STATUS", &lcm));
+          "SCHUNK_WSG_STATUS", lcm,
+          manipulation::schunk_wsg::kSchunkWsgLcmStatusPeriod
+              /* publish period */));
   status_pub->set_name("status_publisher");
-  status_pub->set_publish_period(
-      manipulation::schunk_wsg::kSchunkWsgLcmStatusPeriod);
 
   auto status_sender = builder.AddSystem<SchunkWsgStatusSender>();
   auto mbp_state_to_wsg_state = builder.AddSystem(
@@ -76,7 +75,7 @@ int DoMain() {
   status_sender->set_name("status_sender");
 
   builder.Connect(command_sub->get_output_port(),
-                  wsg_controller->GetInputPort("command_vector"));
+                  wsg_controller->GetInputPort("command_message"));
   builder.Connect(wsg_controller->GetOutputPort("force"),
                   plant->actuator_command_input_port());
   builder.Connect(plant->state_output_port(), visualizer->get_input_port(0));
@@ -91,10 +90,8 @@ int DoMain() {
 
   Simulator<double> simulator(*sys);
 
-  lcm.StartReceiveThread();
   simulator.Initialize();
-  simulator.StepTo(FLAGS_simulation_sec);
-  lcm.StopReceiveThread();
+  simulator.AdvanceTo(FLAGS_simulation_sec);
   return 0;
 }
 

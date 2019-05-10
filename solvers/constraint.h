@@ -110,6 +110,26 @@ class Constraint : public EvaluatorBase {
   /** Number of rows in the output constraint. */
   int num_constraints() const { return num_outputs(); }
 
+  /**
+   * Set the sparsity pattern of the gradient matrix. gradient_sparsity_pattern
+   * contains *all* the pairs of (row_index, col_index) for which the
+   * corresponding entries could have non-zero value in the gradient matrix.
+   */
+  void SetGradientSparsityPattern(
+      const std::vector<std::pair<int, int>>& gradient_sparsity_pattern);
+
+  /**
+   * Returns the vector of (row_index, col_index) that contains all the entries
+   * in the gradient of Eval function whose value could be non-zero.
+   * @retval gradient_sparsity_pattern If gradient_sparsity_pattern.has_value()
+   * == false, then we regard all entries of the gradient as potentially
+   * non-zero.
+   */
+  const optional<std::vector<std::pair<int, int>>>& gradient_sparsity_pattern()
+      const {
+    return gradient_sparsity_pattern_;
+  }
+
  protected:
   /** Updates the lower bound.
    * @note if the users want to expose this method in a sub-class, do
@@ -158,8 +178,10 @@ class Constraint : public EvaluatorBase {
                                 const double tol) const {
     AutoDiffVecXd y(num_constraints());
     DoEval(x, &y);
-    return (y.array() >= lower_bound_.cast<AutoDiffXd>().array() - tol).all() &&
-           (y.array() <= upper_bound_.cast<AutoDiffXd>().array() + tol).all();
+    auto get_value = [](const AutoDiffXd& v) { return v.value(); };
+    return
+        (y.array().unaryExpr(get_value) >= lower_bound_.array() - tol).all() &&
+        (y.array().unaryExpr(get_value) <= upper_bound_.array() + tol).all();
   }
 
   virtual symbolic::Formula DoCheckSatisfied(
@@ -176,6 +198,15 @@ class Constraint : public EvaluatorBase {
 
   Eigen::VectorXd lower_bound_;
   Eigen::VectorXd upper_bound_;
+
+  // gradient_sparsity_pattern_ records the pair (row_index, col_index) that
+  // contains the non-zero entries in the gradient of the constraint Eval
+  // function. Note that if the entry (row_index, col_index) *can* be non-zero
+  // for certain value of x, then it should be included in
+  // gradient_sparsity_patten_. When gradient_sparsity_pattern_.has_value() =
+  // false, the gradient matrix is regarded as non-sparse, i.e., every entry of
+  // the gradient matrix can be non-zero.
+  optional<std::vector<std::pair<int, int>>> gradient_sparsity_pattern_;
 };
 
 /**
@@ -294,7 +325,8 @@ class LorentzConeConstraint : public Constraint {
       : Constraint(
             2, A.cols(), Eigen::Vector2d::Constant(0.0),
             Eigen::Vector2d::Constant(std::numeric_limits<double>::infinity())),
-        A_(A),
+        A_(A.sparseView()),
+        A_dense_(A),
         b_(b) {
     DRAKE_DEMAND(A_.rows() >= 2);
     DRAKE_ASSERT(A_.rows() == b_.rows());
@@ -303,7 +335,7 @@ class LorentzConeConstraint : public Constraint {
   ~LorentzConeConstraint() override {}
 
   /** Getter for A. */
-  const Eigen::MatrixXd& A() const { return A_; }
+  const Eigen::SparseMatrix<double>& A() const { return A_; }
 
   /** Getter for b. */
   const Eigen::VectorXd& b() const { return b_; }
@@ -322,7 +354,10 @@ class LorentzConeConstraint : public Constraint {
   void DoEval(const Eigen::Ref<const VectorX<symbolic::Variable>>& x,
               VectorX<symbolic::Expression>* y) const override;
 
-  const Eigen::MatrixXd A_;
+  const Eigen::SparseMatrix<double> A_;
+  // We need to store a dense matrix of A_, so that we can compute the gradient
+  // using AutoDiffXd, and return the gradient as a dense matrix.
+  const Eigen::MatrixXd A_dense_;
   const Eigen::VectorXd b_;
 };
 
@@ -353,14 +388,15 @@ class RotatedLorentzConeConstraint : public Constraint {
       : Constraint(
             3, A.cols(), Eigen::Vector3d::Constant(0.0),
             Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity())),
-        A_(A),
+        A_(A.sparseView()),
+        A_dense_(A),
         b_(b) {
     DRAKE_DEMAND(A_.rows() >= 3);
     DRAKE_ASSERT(A_.rows() == b_.rows());
   }
 
   /** Getter for A. */
-  const Eigen::MatrixXd& A() const { return A_; }
+  const Eigen::SparseMatrix<double>& A() const { return A_; }
 
   /** Getter for b. */
   const Eigen::VectorXd& b() const { return b_; }
@@ -381,7 +417,10 @@ class RotatedLorentzConeConstraint : public Constraint {
   void DoEval(const Eigen::Ref<const VectorX<symbolic::Variable>>& x,
               VectorX<symbolic::Expression>* y) const override;
 
-  const Eigen::MatrixXd A_;
+  const Eigen::SparseMatrix<double> A_;
+  // We need to store a dense matrix of A_, so that we can compute the gradient
+  // using AutoDiffXd, and return the gradient as a dense matrix.
+  const Eigen::MatrixXd A_dense_;
   const Eigen::VectorXd b_;
 };
 
@@ -738,10 +777,10 @@ class PositiveSemidefiniteConstraint : public Constraint {
    * /////////////////////////////////////////////////////////////
    *
    * // Now solve the program.
-   * prog.Solve();
+   * auto result = Solve(prog);
    *
    * // Retrieve the solution of matrix S.
-   * auto S_value = GetSolution(S);
+   * auto S_value = GetSolution(S, result);
    *
    * // Compute the eigen values of the solution, to see if they are
    * // all non-negative.
@@ -901,6 +940,65 @@ class ExpressionConstraint : public Constraint {
 
   // Only for caching, does not carrying hidden state.
   mutable symbolic::Environment environment_;
+};
+
+/**
+ * An exponential cone constraint is a special type of convex cone constraint.
+ * We constrain A * x + b to be in the exponential cone, where A has 3 rows, and
+ * b is in ℝ³, x is the decision variable.
+ * A vector z in ℝ³ is in the exponential cone, if
+ * {z₀, z₁, z₂ | z₀ ≥ z₁ * exp(z₂ / z₁), z₁ > 0}.
+ * Equivalently, this constraint can be refomulated with logarithm function
+ * {z₀, z₁, z₂ | z₂ ≤ z₁ * log(z₀ / z₁), z₀ > 0, z₁ > 0}
+ *
+ * The Eval function implemented in this class is
+ * z₀ - z₁ * exp(z₂ / z₁) >= 0,
+ * z₁ > 0
+ * where z = A * x + b.
+ * It is not recommended to solve an exponential cone constraint through
+ * generic nonlinear optimization. It is possible that the nonlinear solver
+ * can accidentally set z₁ = 0, where the constraint is not well defined.
+ * Instead, the user should consider to solve the program through conic solvers
+ * that can exploit exponential cone, such as Mosek and SCS.
+ */
+class ExponentialConeConstraint : public Constraint {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ExponentialConeConstraint)
+
+  /**
+   * Constructor for exponential cone.
+   * Constrains A * x + b to be in the exponential cone.
+   * @pre A has 3 rows.
+   */
+  ExponentialConeConstraint(
+      const Eigen::Ref<const Eigen::SparseMatrix<double>>& A,
+      const Eigen::Ref<const Eigen::Vector3d>& b);
+
+  ~ExponentialConeConstraint() override{};
+
+  /** Getter for matrix A. */
+  const Eigen::SparseMatrix<double>& A() const { return A_; }
+
+  /** Getter for vector b. */
+  const Eigen::Vector3d& b() const { return b_; }
+
+ protected:
+  template <typename DerivedX, typename ScalarY>
+  void DoEvalGeneric(const Eigen::MatrixBase<DerivedX>& x,
+                     VectorX<ScalarY>* y) const;
+
+  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
+              Eigen::VectorXd* y) const override;
+
+  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
+              AutoDiffVecXd* y) const override;
+
+  void DoEval(const Eigen::Ref<const VectorX<symbolic::Variable>>& x,
+              VectorX<symbolic::Expression>* y) const override;
+
+ private:
+  Eigen::SparseMatrix<double> A_;
+  Eigen::Vector3d b_;
 };
 
 }  // namespace solvers

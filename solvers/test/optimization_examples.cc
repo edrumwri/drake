@@ -6,22 +6,25 @@
 #include "drake/solvers/solver_type_converter.h"
 #include "drake/solvers/test/mathematical_program_test_util.h"
 
-using Eigen::Vector4d;
+using Eigen::Matrix2d;
+using Eigen::Matrix3d;
+using Eigen::Matrix4d;
+using Eigen::MatrixXd;
+using Eigen::RowVector2d;
+using Eigen::RowVectorXd;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
-using Eigen::Matrix4d;
-using Eigen::Matrix3d;
-using Eigen::Matrix2d;
-using Eigen::RowVector2d;
-using Eigen::MatrixXd;
+using Eigen::Vector4d;
 using Eigen::VectorXd;
-using Eigen::RowVectorXd;
 
-using std::numeric_limits;
 using drake::symbolic::Expression;
+using std::numeric_limits;
 namespace drake {
 namespace solvers {
 namespace test {
+
+const double kInf = std::numeric_limits<double>::infinity();
+
 std::set<CostForm> linear_cost_form() {
   return std::set<CostForm>{CostForm::kNonSymbolic, CostForm::kSymbolic};
 }
@@ -63,14 +66,12 @@ OptimizationProgram::OptimizationProgram(CostForm cost_form,
       prog_(std::make_unique<MathematicalProgram>()),
       initial_guess_{} {}
 
-void OptimizationProgram::RunProblem(
-    MathematicalProgramSolverInterface* solver) {
+void OptimizationProgram::RunProblem(SolverInterface* solver) {
   if (solver->available()) {
-    EXPECT_FALSE(prog_->GetSolverId());
     const MathematicalProgramResult result =
         RunSolver(*prog_, *solver, initial_guess());
     const optional<SolverType> solver_type =
-        SolverTypeConverter::IdToType(solver->solver_id());
+        SolverTypeConverter::IdToType(result.get_solver_id());
     ASSERT_TRUE(solver_type != nullopt);
     CheckSolution(result);
   }
@@ -79,30 +80,28 @@ void OptimizationProgram::RunProblem(
 double OptimizationProgram::GetSolverSolutionDefaultCompareTolerance(
     SolverType solver_type) const {
   switch (solver_type) {
-    case SolverType::kMosek : {
+    case SolverType::kMosek: {
       return 1E-10;
     }
-    case SolverType::kGurobi : {
+    case SolverType::kGurobi: {
       return 1E-10;
     }
-    case SolverType::kSnopt : {
+    case SolverType::kSnopt: {
       return 1E-8;
     }
-    case SolverType::kIpopt : {
+    case SolverType::kIpopt: {
       return 1E-6;
     }
-    case SolverType::kNlopt : {
+    case SolverType::kNlopt: {
       return 1E-6;
     }
-    case SolverType::kOsqp : {
+    case SolverType::kOsqp: {
       return 1E-10;
     }
-    case SolverType::kScs : {
+    case SolverType::kScs: {
       return 3E-5;  // Scs is not very accurate.
     }
-    default : {
-      throw std::runtime_error("Unsupported solver type.");
-    }
+    default: { throw std::runtime_error("Unsupported solver type."); }
   }
 }
 
@@ -115,13 +114,13 @@ LinearSystemExample1::LinearSystemExample1()
   x_ = prog_->NewContinuousVariables<4>();
   b_ = Vector4d::Random();
   con_ = prog_->AddLinearEqualityConstraint(Matrix4d::Identity(), b_, x_)
-              .evaluator();
+             .evaluator();
   initial_guess_.setZero();
 }
 
 void LinearSystemExample1::CheckSolution(
     const MathematicalProgramResult& result) const {
-  auto x_sol = prog_->GetSolution(x_, result);
+  auto x_sol = result.GetSolution(x_);
   EXPECT_TRUE(CompareMatrices(x_sol, b_, tol(), MatrixCompareType::absolute));
   for (int i = 0; i < 4; ++i) {
     EXPECT_NEAR(b_(i), x_sol(i), tol());
@@ -140,9 +139,8 @@ LinearSystemExample2::LinearSystemExample2() : LinearSystemExample1(), y_{} {
 void LinearSystemExample2::CheckSolution(
     const MathematicalProgramResult& result) const {
   LinearSystemExample1::CheckSolution(result);
-  EXPECT_TRUE(CompareMatrices(prog()->GetSolution(y_, result),
-                              b().topRows<2>() / 2, tol(),
-                              MatrixCompareType::absolute));
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(y_), b().topRows<2>() / 2,
+                              tol(), MatrixCompareType::absolute));
   EXPECT_NEAR(0.0, result.get_optimal_cost(), tol());
 }
 
@@ -152,11 +150,10 @@ LinearSystemExample3::LinearSystemExample3() : LinearSystemExample2() {
 
 void LinearSystemExample3::CheckSolution(
     const MathematicalProgramResult& result) const {
-  EXPECT_TRUE(CompareMatrices(prog()->GetSolution(x(), result), b() / 3, tol(),
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(x()), b() / 3, tol(),
                               MatrixCompareType::absolute));
-  EXPECT_TRUE(CompareMatrices(prog()->GetSolution(y(), result),
-                              b().topRows<2>() / 2, tol(),
-                              MatrixCompareType::absolute));
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(y()), b().topRows<2>() / 2,
+                              tol(), MatrixCompareType::absolute));
   EXPECT_NEAR(0.0, result.get_optimal_cost(), tol());
 }
 
@@ -172,15 +169,16 @@ LinearMatrixEqualityExample::LinearMatrixEqualityExample()
                                      -Eigen::Matrix3d::Identity(), true);
 }
 
-void LinearMatrixEqualityExample::CheckSolution() const {
-  auto X_value = prog_->GetSolution(X_);
+void LinearMatrixEqualityExample::CheckSolution(
+    const MathematicalProgramResult& result) const {
+  auto X_value = result.GetSolution(X_);
   EXPECT_TRUE(CompareMatrices(A_.transpose() * X_value + X_value * A_,
                               -Eigen::Matrix3d::Identity(), 1E-8,
                               MatrixCompareType::absolute));
   Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es;
   es.compute(X_value);
   EXPECT_TRUE((es.eigenvalues().array() >= 0).all());
-  EXPECT_NEAR(0.0, prog_->GetOptimalCost(), 1E-8);
+  EXPECT_NEAR(0.0, result.get_optimal_cost(), 1E-8);
 }
 
 NonConvexQPproblem1::NonConvexQPproblem1(CostForm cost_form,
@@ -223,7 +221,7 @@ Eigen::Matrix<double, 5, 1> NonConvexQPproblem1::initial_guess() const {
 
 void NonConvexQPproblem1::CheckSolution(
     const MathematicalProgramResult& result) const {
-  const auto& x_value = prog_->GetSolution(x_, result);
+  const auto& x_value = result.GetSolution(x_);
   EXPECT_TRUE(
       CompareMatrices(x_value, x_expected_, 1E-9, MatrixCompareType::absolute));
   ExpectSolutionCostAccurate(*prog_, result, 1E-5);
@@ -232,14 +230,13 @@ void NonConvexQPproblem1::CheckSolution(
 void NonConvexQPproblem1::AddConstraint() {
   Eigen::Matrix<double, 1, 5> a;
   a << 20, 12, 11, 7, 4;
-  prog_->AddLinearConstraint(a, -numeric_limits<double>::infinity(), 40, x_);
+  prog_->AddLinearConstraint(a, -kInf, 40, x_);
 }
 
 void NonConvexQPproblem1::AddSymbolicConstraint() {
   const auto constraint =
       20 * x_(0) + 12 * x_(1) + 11 * x_(2) + 7 * x_(3) + 4 * x_(4);
-  prog_->AddLinearConstraint(constraint, -numeric_limits<double>::infinity(),
-                             40);
+  prog_->AddLinearConstraint(constraint, -kInf, 40);
 }
 
 void NonConvexQPproblem1::AddQuadraticCost() {
@@ -257,7 +254,7 @@ NonConvexQPproblem2::NonConvexQPproblem2(CostForm cost_form,
   x_ = prog_->NewContinuousVariables<6>("x");
 
   prog_->AddBoundingBoxConstraint(0, 1, x_.head<5>());
-  prog_->AddBoundingBoxConstraint(0, numeric_limits<double>::infinity(), x_(5));
+  prog_->AddBoundingBoxConstraint(0, kInf, x_(5));
 
   switch (cost_form) {
     case CostForm::kGeneric: {
@@ -296,9 +293,9 @@ Vector6<double> NonConvexQPproblem2::initial_guess() const {
 
 void NonConvexQPproblem2::CheckSolution(
     const MathematicalProgramResult& result) const {
-  const auto& x_value = prog_->GetSolution(x_, result);
-  EXPECT_TRUE(CompareMatrices(x_value, x_expected_, 1E-3,
-                              MatrixCompareType::absolute));
+  const auto& x_value = result.GetSolution(x_);
+  EXPECT_TRUE(
+      CompareMatrices(x_value, x_expected_, 1E-3, MatrixCompareType::absolute));
   ExpectSolutionCostAccurate(*prog_, result, 1E-4);
 }
 
@@ -317,18 +314,16 @@ void NonConvexQPproblem2::AddNonSymbolicConstraint() {
   Eigen::Matrix<double, 1, 6> a2{};
   a1 << 6, 3, 3, 2, 1, 0;
   a2 << 10, 0, 10, 0, 0, 1;
-  prog_->AddLinearConstraint(a1, -numeric_limits<double>::infinity(), 6.5, x_);
-  prog_->AddLinearConstraint(a2, -numeric_limits<double>::infinity(), 20, x_);
+  prog_->AddLinearConstraint(a1, -kInf, 6.5, x_);
+  prog_->AddLinearConstraint(a2, -kInf, 20, x_);
 }
 
 void NonConvexQPproblem2::AddSymbolicConstraint() {
   const symbolic::Expression constraint1{6 * x_(0) + 3 * x_(1) + 3 * x_(2) +
                                          2 * x_(3) + x_(4)};
   const symbolic::Expression constraint2{10 * x_(0) + 10 * x_(2) + x_(5)};
-  prog_->AddLinearConstraint(constraint1, -numeric_limits<double>::infinity(),
-                             6.5);
-  prog_->AddLinearConstraint(constraint2, -numeric_limits<double>::infinity(),
-                             20);
+  prog_->AddLinearConstraint(constraint1, -kInf, 6.5);
+  prog_->AddLinearConstraint(constraint2, -kInf, 20);
 }
 
 LowerBoundedProblem::LowerBoundedProblem(ConstraintForm constraint_form)
@@ -338,8 +333,7 @@ LowerBoundedProblem::LowerBoundedProblem(ConstraintForm constraint_form)
   Eigen::Matrix<double, 6, 1> lb{};
   Eigen::Matrix<double, 6, 1> ub{};
   lb << 0, 0, 1, 0, 1, 0;
-  ub << numeric_limits<double>::infinity(), numeric_limits<double>::infinity(),
-      5, 6, 5, 10;
+  ub << kInf, kInf, 5, 6, 5, 10;
   prog_->AddBoundingBoxConstraint(lb, ub, x_);
 
   prog_->AddCost(LowerBoundTestCost(), x_);
@@ -366,9 +360,9 @@ LowerBoundedProblem::LowerBoundedProblem(ConstraintForm constraint_form)
 
 void LowerBoundedProblem::CheckSolution(
     const MathematicalProgramResult& result) const {
-  const auto& x_value = prog_->GetSolution(x_, result);
-  EXPECT_TRUE(CompareMatrices(x_value, x_expected_, 1E-3,
-                              MatrixCompareType::absolute));
+  const auto& x_value = result.GetSolution(x_);
+  EXPECT_TRUE(
+      CompareMatrices(x_value, x_expected_, 1E-3, MatrixCompareType::absolute));
   ExpectSolutionCostAccurate(*prog_, result, 1E-2);
 }
 
@@ -387,21 +381,15 @@ Vector6<double> LowerBoundedProblem::initial_guess2() const {
 }
 
 void LowerBoundedProblem::AddSymbolicConstraint() {
-  prog_->AddLinearConstraint(x_(0) - 3 * x_(1),
-                             -numeric_limits<double>::infinity(), 2);
-  prog_->AddLinearConstraint(-x_(0) + x_(1),
-                             -numeric_limits<double>::infinity(), 2);
-  prog_->AddLinearConstraint(x_(0) + x_(1), -numeric_limits<double>::infinity(),
-                             6);
+  prog_->AddLinearConstraint(x_(0) - 3 * x_(1), -kInf, 2);
+  prog_->AddLinearConstraint(-x_(0) + x_(1), -kInf, 2);
+  prog_->AddLinearConstraint(x_(0) + x_(1), -kInf, 6);
 }
 
 void LowerBoundedProblem::AddNonSymbolicConstraint() {
-  prog_->AddLinearConstraint(
-      RowVector2d(1, -3), -numeric_limits<double>::infinity(), 2, x_.head<2>());
-  prog_->AddLinearConstraint(
-      RowVector2d(-1, 1), -numeric_limits<double>::infinity(), 2, x_.head<2>());
-  prog_->AddLinearConstraint(
-      RowVector2d(1, 1), -numeric_limits<double>::infinity(), 6, x_.head<2>());
+  prog_->AddLinearConstraint(RowVector2d(1, -3), -kInf, 2, x_.head<2>());
+  prog_->AddLinearConstraint(RowVector2d(-1, 1), -kInf, 2, x_.head<2>());
+  prog_->AddLinearConstraint(RowVector2d(1, 1), -kInf, 6, x_.head<2>());
 }
 
 GloptiPolyConstrainedMinimizationProblem::
@@ -466,12 +454,12 @@ Vector6<double> GloptiPolyConstrainedMinimizationProblem::initial_guess()
 
 void GloptiPolyConstrainedMinimizationProblem::CheckSolution(
     const MathematicalProgramResult& result) const {
-  const auto& x_value = prog_->GetSolution(x_, result);
-  const auto& y_value = prog_->GetSolution(y_, result);
-  EXPECT_TRUE(CompareMatrices(x_value, expected_, 1E-4,
-                              MatrixCompareType::absolute));
-  EXPECT_TRUE(CompareMatrices(y_value, expected_, 1E-4,
-                              MatrixCompareType::absolute));
+  const auto& x_value = result.GetSolution(x_);
+  const auto& y_value = result.GetSolution(y_);
+  EXPECT_TRUE(
+      CompareMatrices(x_value, expected_, 1E-4, MatrixCompareType::absolute));
+  EXPECT_TRUE(
+      CompareMatrices(y_value, expected_, 1E-4, MatrixCompareType::absolute));
   ExpectSolutionCostAccurate(*prog_, result, 1E-4);
 }
 
@@ -636,10 +624,8 @@ MinDistanceFromPlaneToOrigin::prog_rotated_lorentz_initial_guess() const {
 void MinDistanceFromPlaneToOrigin::CheckSolution(
     const MathematicalProgramResult& result, bool rotated_cone) const {
   if (rotated_cone) {
-    auto x_rotated_lorentz_value =
-        prog_rotated_lorentz_->GetSolution(x_rotated_lorentz_, result);
-    auto t_rotated_lorentz_value =
-        prog_rotated_lorentz_->GetSolution(t_rotated_lorentz_, result);
+    auto x_rotated_lorentz_value = result.GetSolution(x_rotated_lorentz_);
+    auto t_rotated_lorentz_value = result.GetSolution(t_rotated_lorentz_);
     EXPECT_TRUE(CompareMatrices(x_rotated_lorentz_value, x_expected_, 1E-3,
                                 MatrixCompareType::absolute));
     EXPECT_TRUE(CompareMatrices(t_rotated_lorentz_value,
@@ -647,13 +633,12 @@ void MinDistanceFromPlaneToOrigin::CheckSolution(
                                 MatrixCompareType::absolute));
     ExpectSolutionCostAccurate(*prog_rotated_lorentz_, result, 1E-3);
   } else {
-    auto x_lorentz_value = prog_lorentz_->GetSolution(x_lorentz_, result);
-    auto t_lorentz_value = prog_lorentz_->GetSolution(t_lorentz_, result);
+    auto x_lorentz_value = result.GetSolution(x_lorentz_);
+    auto t_lorentz_value = result.GetSolution(t_lorentz_);
     EXPECT_TRUE(CompareMatrices(x_lorentz_value, x_expected_, 1E-3,
                                 MatrixCompareType::absolute));
-    EXPECT_TRUE(CompareMatrices(t_lorentz_value,
-                                Vector1d(x_expected_.norm()), 1E-3,
-                                MatrixCompareType::absolute));
+    EXPECT_TRUE(CompareMatrices(t_lorentz_value, Vector1d(x_expected_.norm()),
+                                1E-3, MatrixCompareType::absolute));
     ExpectSolutionCostAccurate(*prog_lorentz_, result, 1E-3);
   }
 }
@@ -666,7 +651,7 @@ ConvexCubicProgramExample::ConvexCubicProgramExample() {
 
 void ConvexCubicProgramExample::CheckSolution(
     const MathematicalProgramResult& result) const {
-  const auto x_val = GetSolution(x_(0), result);
+  const auto x_val = result.GetSolution(x_(0));
   EXPECT_NEAR(x_val, 2, 1E-6);
 }
 
@@ -681,7 +666,7 @@ UnitLengthProgramExample::UnitLengthProgramExample()
 
 void UnitLengthProgramExample::CheckSolution(
     const MathematicalProgramResult& result, double tolerance) const {
-  const auto x_val = GetSolution(x_, result);
+  const auto x_val = result.GetSolution(x_);
   EXPECT_NEAR(x_val.squaredNorm(), 1, tolerance);
 }
 
@@ -715,6 +700,74 @@ DistanceToTetrahedronExample::DistanceToTetrahedronNonlinearConstraint::
   upper_bound << 1, 1, 0, 0, 0, 0, 0, inf, inf, inf, inf, b_tetrahedron;
   UpdateLowerBound(lower_bound);
   UpdateUpperBound(upper_bound);
+}
+
+EckhardtProblem::EckhardtProblem(bool set_sparsity_pattern)
+    : prog_{new MathematicalProgram()}, x_{prog_->NewContinuousVariables<3>()} {
+  prog_->AddLinearCost(-x_(0));
+  auto constraint = std::make_shared<EckhardtConstraint>(set_sparsity_pattern);
+  prog_->AddConstraint(constraint, x_);
+  prog_->AddBoundingBoxConstraint(Eigen::Vector3d::Zero(),
+                                  Eigen::Vector3d(100, 100, 10), x_);
+}
+
+void EckhardtProblem::CheckSolution(const MathematicalProgramResult& result,
+                                    double tol) const {
+  ASSERT_TRUE(result.is_success());
+  const auto x_val = result.GetSolution(x_);
+  Eigen::Vector3d x_expected(std::log(std::log(10)), std::log(10), 10.0);
+  EXPECT_TRUE(CompareMatrices(x_val, x_expected, tol));
+  EXPECT_NEAR(result.get_optimal_cost(), -x_expected(0), tol);
+}
+
+EckhardtProblem::EckhardtConstraint::EckhardtConstraint(
+    bool set_sparsity_pattern)
+    : Constraint(2, 3, Eigen::Vector2d::Zero(),
+                 Eigen::Vector2d::Constant(kInf)) {
+  if (set_sparsity_pattern) {
+    SetGradientSparsityPattern({{0, 0}, {0, 1}, {1, 1}, {1, 2}});
+  }
+}
+
+HeatExchangerDesignProblem::HeatExchangerDesignConstraint1::
+    HeatExchangerDesignConstraint1()
+    : Constraint(1, 6, Vector1d(0), Vector1d(kInf)) {
+  SetGradientSparsityPattern({{0, 0}, {0, 3}, {0, 5}});
+}
+
+HeatExchangerDesignProblem::HeatExchangerDesignConstraint2::
+    HeatExchangerDesignConstraint2()
+    : Constraint(2, 7, Eigen::Vector2d::Zero(),
+                 Eigen::Vector2d::Constant(kInf)) {
+  SetGradientSparsityPattern(
+      {{0, 0}, {0, 5}, {0, 3}, {0, 2}, {1, 1}, {1, 6}, {1, 3}});
+}
+
+HeatExchangerDesignProblem::HeatExchangerDesignProblem()
+    : prog_{new MathematicalProgram()}, x_{prog_->NewContinuousVariables<8>()} {
+  prog_->AddLinearConstraint(1 - 0.0025 * (x_(3) + x_(5)) >= 0);
+  prog_->AddLinearConstraint(1 - 0.0025 * (x_(4) + x_(6) - x_(3)) >= 0);
+  prog_->AddLinearConstraint(1 - 0.01 * (x_(7) - x_(4)) >= 0);
+  prog_->AddConstraint(std::make_shared<HeatExchangerDesignConstraint1>(),
+                       x_.head<6>());
+  prog_->AddConstraint(std::make_shared<HeatExchangerDesignConstraint2>(),
+                       x_.tail<7>());
+  Eigen::Matrix<double, 8, 1> x_lower, x_upper;
+  x_lower << 100, 1000, 1000, 10, 10, 10, 10, 10;
+  x_upper << 10000, 10000, 10000, 1000, 1000, 1000, 1000, 1000;
+  prog_->AddBoundingBoxConstraint(x_lower, x_upper, x_);
+  prog_->AddLinearCost(x_(0) + x_(1) + x_(2));
+}
+
+void HeatExchangerDesignProblem::CheckSolution(
+    const MathematicalProgramResult& result, double tol) const {
+  ASSERT_TRUE(result.is_success());
+  const auto x_val = result.GetSolution(x_);
+  Eigen::Matrix<double, 8, 1> x_expected;
+  x_expected << 579.3167, 1359.943, 5110.071, 182.0174, 295.5985, 217.9799,
+      286.4162, 395.5979;
+  EXPECT_TRUE(CompareMatrices(x_val, x_expected, tol));
+  EXPECT_NEAR(result.get_optimal_cost(), 7049.330923, tol);
 }
 }  // namespace test
 }  // namespace solvers

@@ -18,7 +18,7 @@ ValueType& get_mutable_value(systems::State<double>* state, int index) {
   DRAKE_DEMAND(state);
   return state->get_mutable_abstract_state()
       .get_mutable_value(index)
-      .GetMutableValue<ValueType>();
+      .get_mutable_value<ValueType>();
 }
 
 }  // namespace
@@ -43,9 +43,9 @@ QpInverseDynamicsSystem::QpInverseDynamicsSystem(
   DeclarePeriodicUnrestrictedUpdate(control_dt_, 0);
 
   abs_state_index_qp_output_ = DeclareAbstractState(
-      systems::AbstractValue::Make<QpOutput>(QpOutput(GetDofNames(robot_))));
+      AbstractValue::Make<QpOutput>(QpOutput(GetDofNames(robot_))));
   abs_state_index_debug_info_ = DeclareAbstractState(
-      systems::AbstractValue::Make<lcmt_inverse_dynamics_debug_info>(
+      AbstractValue::Make<lcmt_inverse_dynamics_debug_info>(
           lcmt_inverse_dynamics_debug_info()));
 }
 

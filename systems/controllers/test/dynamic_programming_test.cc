@@ -56,7 +56,7 @@ GTEST_TEST(FittedValueIterationTest, SingleIntegrator) {
   for (const double x : state_grid[0]) {
     context->FixInputPort(0, Vector1d{x});
     policy->get_output_port().Calc(*context, output.get());
-    double y = output->GetValue<BasicVector<double>>()[0];
+    double y = output->get_value<BasicVector<double>>()[0];
     EXPECT_EQ(y, (x < 0) - (x > 0));  // implements -sgn(x).
   }
 }
@@ -147,7 +147,7 @@ GTEST_TEST(FittedValueIteration, DoubleIntegrator) {
   // minimum time cost function (1 for all non-zero states).
   const auto cost_function = [&sys, &Q, &R](const Context<double>& context) {
     const Eigen::Vector2d x = context.get_continuous_state().CopyToVector();
-    const double u = sys.EvalVectorInput(context, 0)->GetAtIndex(0);
+    const double u = sys.get_input_port().Eval(context)[0];
     return x.dot(Q * x) + u * R * u;
   };
 

@@ -7,7 +7,6 @@
 
 #include "drake/common/drake_copyable.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/value.h"
 
 using std::make_unique;
 
@@ -20,7 +19,7 @@ class GoodVector : public BasicVector<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(GoodVector)
   GoodVector() : BasicVector<double>(2) {}
-  GoodVector* DoClone() const override {
+  DRAKE_NODISCARD GoodVector* DoClone() const override {
     return new GoodVector;
   }
 };
@@ -45,7 +44,7 @@ class NotQuiteGoodVector : public GoodVector {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(NotQuiteGoodVector)
   NotQuiteGoodVector() {}
-  GoodVector* DoClone() const override {
+  DRAKE_NODISCARD GoodVector* DoClone() const override {
     return new GoodVector;
   }
 };

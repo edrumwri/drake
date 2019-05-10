@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "drake/common/drake_assert.h"
@@ -18,6 +19,11 @@ using Eigen::Matrix3d;
 
 const double kEpsilon = std::numeric_limits<double>::epsilon();
 
+// This data structure is used in symbolic and automotive code. If a `Matrix3`
+// overload is added to the constructors, then it creates an ambiguous overload
+// for types like this one (and things like `Eigen::Ref<>`).
+using Vector3dUnaligned = Eigen::Matrix<double, 3, 1, Eigen::DontAlign>;
+
 // This tests the RollPitchYaw constructors and IsNearlyEqualTo().
 GTEST_TEST(RollPitchYaw, testConstructorsAndIsNearlyEqualTo) {
   const RollPitchYaw<double> a(0.1, 0.2, -0.3);
@@ -27,6 +33,15 @@ GTEST_TEST(RollPitchYaw, testConstructorsAndIsNearlyEqualTo) {
   EXPECT_TRUE(a.IsNearlyEqualTo(c, kEpsilon));
   EXPECT_FALSE(a.IsNearlyEqualTo(b, 0.1 - 10*kEpsilon));
   EXPECT_TRUE(a.IsNearlyEqualTo(b, 0.1 + 10*kEpsilon));
+
+  // Test additional constructors.
+  const RotationMatrix<double> R = a.ToRotationMatrix();
+  const RollPitchYaw<double> d(R);
+  EXPECT_TRUE(a.IsNearlyEqualTo(d, kEpsilon));
+  const RollPitchYaw<double> e(R.ToQuaternion());
+  EXPECT_TRUE(a.IsNearlyEqualTo(e, kEpsilon));
+  const RollPitchYaw<double> f(Vector3dUnaligned(0.1, 0.2, -0.3));
+  EXPECT_TRUE(a.IsNearlyEqualTo(f, kEpsilon));
 }
 
 // Test typedef (using) RollPitchYawd.
@@ -122,7 +137,6 @@ GTEST_TEST(RollPitchYaw, testToQuaternion) {
   rpy2.SetFromQuaternionAndRotationMatrix(quat, R1);
   EXPECT_TRUE(rpy2.IsNearlySameOrientation(rpy, kEpsilon));
 
-#ifdef DRAKE_ASSERT_IS_ARMED
   // Test SetFromQuaternionAndRotationMatrix throws exception in debug builds
   // if quaternion is not consistent with rotation matrix.
   const char* expected_message =
@@ -131,10 +145,9 @@ GTEST_TEST(RollPitchYaw, testToQuaternion) {
       ".*differs by more than"
       ".*element of the RotationMatrix formed by the Quaternion.*";
   const Eigen::Quaterniond quat_inconsistent(1, 0, 0, 0);
-  DRAKE_EXPECT_THROWS_MESSAGE(
+  DRAKE_EXPECT_THROWS_MESSAGE_IF_ARMED(
       rpy2.SetFromQuaternionAndRotationMatrix(quat_inconsistent, R1),
       std::logic_error, expected_message);
-#endif
 }
 
 // This tests the RollPitchYaw.IsValid() method.
@@ -402,6 +415,49 @@ GTEST_TEST(RollPitchYaw, CalcRpyDDtFromAngularAccel) {
       }
     }
   }
+}
+
+// Verify the constructor and a few key operations are compatible with
+// symbolic::Expression.  We focus only on methods that required tweaks in
+// order to compile against Expression.
+GTEST_TEST(RollPitchYaw, SymbolicTest) {
+  using symbolic::Expression;
+  using symbolic::Variable;
+
+  const Variable r1("r1");
+  const Variable r2("r2");
+  const Variable p1("p1");
+  const Variable p2("p2");
+  const Variable y1("y1");
+  const Variable y2("y2");
+  const RollPitchYaw<Expression> dut1(r1, p1, y1);
+  const RollPitchYaw<Expression> dut2(r2, p2, y2);
+
+  EXPECT_EQ(
+      dut1.IsNearlyEqualTo(dut2, 1e-3).to_string(),
+      fmt::format(
+          "(max({}, max({}, {})) <= 0.001)",
+          "abs((r1 - r2))",
+          "abs((p1 - p2))",
+          "abs((y1 - y2))"));
+
+  EXPECT_THAT(
+      dut1.IsNearlySameOrientation(dut2, 1e-3).to_string(),
+      testing::MatchesRegex("\\(max.* <= 0.001\\)"));
+
+  EXPECT_THAT(
+      dut1.IsRollPitchYawInCanonicalRange().to_string(),
+      testing::MatchesRegex(".*(and.*){5}"));
+
+  EXPECT_THAT(
+      RollPitchYaw<Expression>::DoesCosPitchAngleViolateGimbalLockTolerance(
+          cos(p1)).to_string(),
+      testing::StartsWith("(abs(cos(p1)) < 0.008"));
+
+  const Vector3<Expression> vec(r1, p1, y1);
+  EXPECT_THAT(
+      RollPitchYaw<Expression>::IsValid(vec).to_string(),
+      testing::MatchesRegex(".*inf.*(and.*inf.*){5}"));
 }
 
 }  // namespace

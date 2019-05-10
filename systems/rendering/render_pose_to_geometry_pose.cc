@@ -22,18 +22,13 @@ RenderPoseToGeometryPose<T>::RenderPoseToGeometryPose(
   using Output = geometry::FramePoseVector<T>;
   this->DeclareVectorInputPort(Input{});
   this->DeclareAbstractOutputPort(
-      [source_id, frame_id]() {
-        const std::vector<FrameId> frame_ids{frame_id};
-        const Output result(source_id, frame_ids);
-        return Value<Output>::Make(result);
+      []() {
+        return Value<Output>{}.Clone();
       },
       [this, frame_id](const Context<T>& context, AbstractValue* calculated) {
-        const Input* input =
-            this->template EvalVectorInput<PoseVector>(context, 0);
-        DRAKE_DEMAND(input != nullptr);
-        Output& output = calculated->GetMutableValueOrThrow<Output>();
-        output.clear();
-        output.set_value(frame_id, input->get_isometry());
+        const Input& input = get_input_port().template Eval<Input>(context);
+        calculated->get_mutable_value<Output>() =
+            {{frame_id, input.get_isometry()}};
       });
 }
 

@@ -5,7 +5,6 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/test_utilities/expect_throws_message.h"
-#include "drake/geometry/geometry_context.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
 #include "drake/geometry/scene_graph.h"
@@ -25,7 +24,7 @@ class QueryObjectTester {
 
   template <typename T>
   static std::unique_ptr<QueryObject<T>> MakeQueryObject(
-      const GeometryContext<T>* context, const SceneGraph<T>* scene_graph) {
+      const systems::Context<T>* context, const SceneGraph<T>* scene_graph) {
     auto q = std::unique_ptr<QueryObject<T>>(new QueryObject<T>());
     q->set(context, scene_graph);
     return q;
@@ -61,16 +60,13 @@ class QueryObjectTest : public ::testing::Test {
 
   void SetUp() override {
     context_ = scene_graph_.AllocateContext();
-    geom_context_ = dynamic_cast<GeometryContext<double>*>(context_.get());
-    ASSERT_NE(geom_context_, nullptr);
-    query_object_ = QOT::MakeQueryObject(geom_context_, &scene_graph_);
+    query_object_ = QOT::MakeQueryObject(context_.get(), &scene_graph_);
 
     QueryObjectTester::expect_live(*query_object_);
   }
 
   SceneGraph<double> scene_graph_;
   unique_ptr<Context<double>> context_;
-  GeometryContext<double>* geom_context_{nullptr};
   unique_ptr<QueryObject<double>> query_object_;
 };
 
@@ -110,7 +106,8 @@ TEST_F(QueryObjectTest, DefaultQueryThrows) {
       default_object->ComputeSignedDistancePairwiseClosestPoints());
   EXPECT_DEFAULT_ERROR(
       default_object->ComputeSignedDistanceToPoint(Vector3<double>::Zero()));
-
+  EXPECT_DEFAULT_ERROR(
+      default_object->ComputeContactSurfaces());
 #undef EXPECT_DEFAULT_ERROR
 }
 
@@ -121,14 +118,13 @@ GTEST_TEST(QueryObjectInspectTest, CreateValidInspector) {
   SourceId source_id = scene_graph.RegisterSource("source");
   auto identity = Isometry3<double>::Identity();
   FrameId frame_id =
-      scene_graph.RegisterFrame(source_id, GeometryFrame("frame", identity));
+      scene_graph.RegisterFrame(source_id, GeometryFrame("frame"));
   GeometryId geometry_id = scene_graph.RegisterGeometry(
       source_id, frame_id, make_unique<GeometryInstance>(
                                identity, make_unique<Sphere>(1.0), "sphere"));
   unique_ptr<Context<double>> context = scene_graph.AllocateContext();
-  auto geo_context = dynamic_cast<GeometryContext<double>*>(context.get());
   unique_ptr<QueryObject<double>> query_object =
-      QueryObjectTester::MakeQueryObject<double>(geo_context, &scene_graph);
+      QueryObjectTester::MakeQueryObject<double>(context.get(), &scene_graph);
 
   const SceneGraphInspector<double>& inspector = query_object->inspector();
 

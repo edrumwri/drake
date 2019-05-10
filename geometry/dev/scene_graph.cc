@@ -45,7 +45,6 @@ class SceneGraphTester {
 
 namespace dev {
 
-using systems::AbstractValue;
 using systems::Context;
 using systems::InputPort;
 using systems::LeafContext;
@@ -54,7 +53,6 @@ using systems::rendering::PoseBundle;
 using systems::SystemOutput;
 using systems::SystemSymbolicInspector;
 using systems::SystemTypeTag;
-using systems::Value;
 using std::make_unique;
 using std::vector;
 
@@ -82,12 +80,6 @@ class GeometryStateValue final : public Value<GeometryState<T>> {
     }
   }
 
-  void SetFromOrThrow(const AbstractValue& other) override {
-    if (!do_double_assign(other)) {
-      Value<GeometryState<T>>::SetFromOrThrow(other);
-    }
-  }
-
  private:
   bool do_double_assign(const AbstractValue& other) {
     const GeometryStateValue<double>* double_value =
@@ -108,7 +100,7 @@ template <typename T>
 SceneGraph<T>::SceneGraph()
     : LeafSystem<T>(SystemTypeTag<geometry::dev::SceneGraph>{}) {
   auto state_value = make_unique<GeometryStateValue<T>>();
-  initial_state_ = &state_value->template GetMutableValue<GeometryState<T>>();
+  initial_state_ = &state_value->get_mutable_value();
   model_inspector_.set(initial_state_);
   geometry_state_index_ = this->DeclareAbstractState(std::move(state_value));
 
@@ -120,10 +112,15 @@ SceneGraph<T>::SceneGraph()
       this->DeclareAbstractOutputPort("query",
                                       &SceneGraph::CalcQueryObject)
           .get_index();
+
+  auto& pose_update_cache_entry = this->DeclareCacheEntry(
+      "Cache guard for pose updates", &SceneGraph::CalcPoseUpdate,
+      {this->all_input_ports_ticket()});
+  pose_update_index_ = pose_update_cache_entry.cache_index();
 }
 
 template <typename T>
-SceneGraph<T>::SceneGraph(const geometry::SceneGraph<T>& other) : SceneGraph() {
+void SceneGraph<T>::CopyFrom(const geometry::SceneGraph<T>& other) {
   // NOTE: It is *absolutely* critical that the internal state get copied first.
   // Otherwise, port configuration will fail.
   DRAKE_DEMAND(initial_state_ != nullptr);
@@ -257,6 +254,27 @@ GeometryId SceneGraph<T>::RegisterAnchoredGeometry(
 }
 
 template <typename T>
+void SceneGraph<T>::AddRenderer(
+    std::string name, std::unique_ptr<render::RenderEngine> renderer) {
+  return initial_state_->AddRenderer(std::move(name), std::move(renderer));
+}
+
+template <typename T>
+bool SceneGraph<T>::HasRenderer(const std::string& name) const {
+  return initial_state_->HasRenderer(name);
+}
+
+template <typename T>
+int SceneGraph<T>::RendererCount() const {
+  return initial_state_->RendererCount();
+}
+
+template <typename T>
+std::vector<std::string> SceneGraph<T>::RegisteredRendererNames() const {
+  return initial_state_->RegisteredRendererNames();
+}
+
+template <typename T>
 void SceneGraph<T>::AssignRole(SourceId source_id,
                                GeometryId geometry_id,
                                ProximityProperties properties) {
@@ -385,8 +403,6 @@ void SceneGraph<T>::CalcPoseBundle(const Context<T>& context,
   int i = 0;
 
   const auto& g_context = static_cast<const GeometryContext<T>&>(context);
-  // TODO(SeanCurtis-TRI): Modify this when the cache is available to use the
-  // cache instead of this heavy-handed update.
   FullPoseUpdate(g_context);
   const auto& g_state = g_context.get_geometry_state();
 
@@ -409,7 +425,8 @@ void SceneGraph<T>::CalcPoseBundle(const Context<T>& context,
 }
 
 template <typename T>
-void SceneGraph<T>::FullPoseUpdate(const GeometryContext<T>& context) const {
+void SceneGraph<T>::CalcPoseUpdate(const GeometryContext<T>& context,
+                                   int*) const {
   // TODO(SeanCurtis-TRI): Update this when the cache is available.
   // This method is const and the context is const. Ultimately, this will pull
   // cached entities to do the query work. For now, we have to const cast the
@@ -433,16 +450,13 @@ void SceneGraph<T>::FullPoseUpdate(const GeometryContext<T>& context) const {
       const auto itr = input_source_ids_.find(source_id);
       // The source id *could* be the internal source and we skip it.
       if (itr != input_source_ids_.end()) {
-        const int pose_port = itr->second.pose_port;
-        const auto pose_port_value =
-            this->EvalAbstractInput(context, pose_port);
-        if (pose_port_value) {
-          const auto& poses =
-              pose_port_value->template GetValue<FramePoseVector<T>>();
-          mutable_state.SetFramePoses(poses);
-        } else {
+        const auto& pose_port = this->get_input_port(itr->second.pose_port);
+        if (!pose_port.HasValue(context)) {
           throw_error(source_id, "pose");
         }
+        const auto& poses =
+            pose_port.template Eval<FramePoseVector<T>>(context);
+        mutable_state.SetFramePoses(source_id, poses);
       }
     }
   }

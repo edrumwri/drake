@@ -17,7 +17,6 @@ drake_py_binary(
 drake_py_library(
     name = "sphinx_base",
     srcs = ["sphinx_base.py"],
-    imports = ["."],
     deps = [":sphinx_build"],
 )
 
@@ -30,7 +29,10 @@ drake_py_binary(
     ]) + [
         "conf.py",
         "images/favicon.ico",
+        "images/jenkins_bot_reviewable_comment.png",
         "images/logo_w_text.jpg",
+        "images/mathematical_program.svg",
+        "images/systems.svg",
         "images/doxygen_instructions/visual_studio_build_targets.png",
         "sample_vimrc",
     ],
@@ -52,4 +54,19 @@ drake_py_binary(
     deps = [":sphinx_base"],
 )
 
-add_lint_tests(python_lint_exclude = [":conf.py"])
+drake_py_binary(
+    name = "doxygen",
+    srcs = [
+        "doxygen_main.py",
+    ],
+    data = [
+        "//:.bazelproject",
+        "@bazel_tools//tools/python/runfiles",
+        "@doxygen",
+    ],
+)
+
+add_lint_tests(
+    python_lint_exclude = [":conf.py"],
+    python_lint_extra_srcs = [":doxygen.py"],
+)

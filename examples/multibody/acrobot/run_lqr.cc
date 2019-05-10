@@ -30,6 +30,7 @@ using multibody::JointActuator;
 using multibody::RevoluteJoint;
 using multibody::UniformGravityFieldElement;
 using systems::Context;
+using Eigen::Vector2d;
 
 namespace examples {
 namespace multibody {
@@ -72,7 +73,12 @@ std::unique_ptr<systems::AffineSystem<double>> MakeBalancingLQRController(
   std::unique_ptr<Context<double>> context = acrobot.CreateDefaultContext();
 
   // Set nominal actuation torque to zero.
-  context->FixInputPort(0, Vector1d::Constant(0.0));
+  const int actuation_port_index =
+      acrobot.get_actuation_input_port().get_index();
+  context->FixInputPort(actuation_port_index, Vector1d::Constant(0.0));
+  context->FixInputPort(
+      acrobot.get_applied_generalized_force_input_port().get_index(),
+      Vector2d::Constant(0.0));
 
   shoulder.set_angle(context.get(), M_PI);
   shoulder.set_angular_rate(context.get(), 0.0);
@@ -88,7 +94,9 @@ std::unique_ptr<systems::AffineSystem<double>> MakeBalancingLQRController(
   Vector1d R = Vector1d::Constant(1);
 
   return systems::controllers::LinearQuadraticRegulator(
-      acrobot, *context, Q, R);
+      acrobot, *context, Q, R,
+      Eigen::Matrix<double, 0, 0>::Zero() /* No cross state/control costs */,
+      actuation_port_index);
 }
 
 int do_main() {
@@ -134,7 +142,7 @@ int do_main() {
   auto controller = builder.AddSystem(
       MakeBalancingLQRController(relative_name));
   controller->set_name("controller");
-  builder.Connect(acrobot.get_continuous_state_output_port(),
+  builder.Connect(acrobot.get_state_output_port(),
                   controller->get_input_port());
   builder.Connect(controller->get_output_port(),
                   acrobot.get_actuation_input_port());
@@ -160,12 +168,12 @@ int do_main() {
   elbow.set_random_angle_distribution(0.05*gaussian(generator));
 
   for (int i = 0; i < 5; i++) {
-    simulator.get_mutable_context().set_time(0.0);
+    simulator.get_mutable_context().SetTime(0.0);
     simulator.get_system().SetRandomContext(&simulator.get_mutable_context(),
                                             &generator);
 
     simulator.Initialize();
-    simulator.StepTo(FLAGS_simulation_time);
+    simulator.AdvanceTo(FLAGS_simulation_time);
   }
 
   return 0;

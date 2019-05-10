@@ -20,7 +20,7 @@ CompassGait<T>::CompassGait()
   // Abstract state for indicating that the left foot is the stance foot.  This
   // is only used for the visualization output.
   bool left_stance = true;
-  this->DeclareAbstractState(systems::AbstractValue::Make(left_stance));
+  this->DeclareAbstractState(AbstractValue::Make(left_stance));
 
   // The minimal state of the system.
   this->DeclareVectorOutputPort(CompassGaitContinuousState<T>(),
@@ -33,7 +33,7 @@ CompassGait<T>::CompassGait()
   this->DeclareNumericParameter(CompassGaitParams<T>());
 
   // Create the witness function.
-  foot_collision_ = this->DeclareWitnessFunction(
+  foot_collision_ = this->MakeWitnessFunction(
       "foot collision",
       systems::WitnessFunctionDirection::kPositiveThenNonPositive,
       &CompassGait::FootCollision, &CompassGait::CollisionDynamics);

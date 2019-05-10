@@ -3,9 +3,9 @@
 #include <memory>
 #include <vector>
 
+#include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/math/spatial_acceleration.h"
 #include "drake/multibody/math/spatial_velocity.h"
@@ -16,7 +16,7 @@ namespace drake {
 namespace multibody {
 namespace internal {
 
-/// This class is one of the cache entries in MultibodyTreeContext. It holds the
+/// This class is one of the cache entries in the Context. It holds the
 /// kinematics results of computations that depend not only on the generalized
 /// positions and generalized velocities, but also on the time derivatives of
 /// the generalized coordinates.
@@ -31,12 +31,13 @@ namespace internal {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 template <typename T>
 class AccelerationKinematicsCache {
  public:
-  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(AccelerationKinematicsCache)
+  DRAKE_DECLARE_COPY_AND_MOVE_AND_ASSIGN(AccelerationKinematicsCache)
 
   /// Constructs an acceleration kinematics cache entry for the given
   /// MultibodyTreeTopology.
@@ -121,14 +122,11 @@ class AccelerationKinematicsCache {
   SpatialAcceleration_PoolType A_WB_pool_;   // Indexed by BodyNodeIndex.
 };
 
+DRAKE_DEFINE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN_T(AccelerationKinematicsCache);
+
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using AccelerationKinematicsCache
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::AccelerationKinematicsCache<T>;
-
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::multibody::internal::AccelerationKinematicsCache)

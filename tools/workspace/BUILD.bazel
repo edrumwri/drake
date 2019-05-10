@@ -16,6 +16,19 @@ py_library(
 )
 
 drake_py_binary(
+    name = "new_release",
+    srcs = [
+        "metadata.py",
+        "new_release.py",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":module_py",
+        "@github3_py",
+    ],
+)
+
+drake_py_binary(
     name = "cmake_configure_file",
     srcs = ["cmake_configure_file.py"],
     visibility = ["//visibility:public"],

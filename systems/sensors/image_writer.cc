@@ -111,20 +111,19 @@ const InputPort<double>& ImageWriter::DeclareImageInputPort(
       DirectoryFromFormat(file_name_format, port_name, kPixelType)};
   FolderState folder_state = ValidateDirectory(test_dir.getStr());
   if (folder_state != FolderState::kValid) {
-    std::string reason;
-    switch (folder_state) {
-      case FolderState::kMissing:
-        reason = "the directory does not exist";
-        break;
-      case FolderState::kIsFile:
-        reason = "the directory is actually a file";
-        break;
-      case FolderState::kUnwritable:
-        reason = "no permissions to write the directory";
-        break;
-      default:
-        DRAKE_ABORT_MSG("Directory is not valid; unhandled failure condition");
-    }
+    const char* const reason = [folder_state]() {
+      switch (folder_state) {
+        case FolderState::kValid:
+          DRAKE_UNREACHABLE();
+        case FolderState::kMissing:
+          return "the directory does not exist";
+        case FolderState::kIsFile:
+          return "the directory is actually a file";
+        case FolderState::kUnwritable:
+          return "no permissions to write the directory";
+      }
+      DRAKE_UNREACHABLE();
+    }();
     throw std::logic_error(
         fmt::format("ImageWriter: The format string `{}` implied the invalid "
                     "directory: '{}'; {}",
@@ -144,7 +143,7 @@ const InputPort<double>& ImageWriter::DeclareImageInputPort(
 
   // Now configure the system for the valid port declaration.
   const auto& port =
-      DeclareAbstractInputPort(port_name, systems::Value<Image<kPixelType>>());
+      DeclareAbstractInputPort(port_name, Value<Image<kPixelType>>());
 
   PublishEvent<double> event(
       TriggerType::kPeriodic,
@@ -160,19 +159,12 @@ const InputPort<double>& ImageWriter::DeclareImageInputPort(
 
 template <PixelType kPixelType>
 void ImageWriter::WriteImage(const Context<double>& context, int index) const {
+  const auto& port = get_input_port(index);
   const ImagePortInfo& data = port_info_[index];
-  const Image<kPixelType>* image =
-      this->EvalInputValue<Image<kPixelType>>(context, index);
-  if (image) {
-    const std::string& port_name = get_input_port(index).get_name();
-    SaveToFileHelper(
-        *image, MakeFileName(data.format, data.pixel_type, context.get_time(),
-                             port_name, data.count++));
-    return;
-  }
-  throw std::logic_error(
-      fmt::format("ImageWriter: {} image input port {} is not connected",
-                  labels_.at(data.pixel_type), index));
+  const Image<kPixelType>& image = port.Eval<Image<kPixelType>>(context);
+  SaveToFileHelper(
+      image, MakeFileName(data.format, data.pixel_type, context.get_time(),
+                          port.get_name(), data.count++));
 }
 
 std::string ImageWriter::MakeFileName(const std::string& format,
