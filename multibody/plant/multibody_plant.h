@@ -3153,22 +3153,45 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   // Friend class to facilitate testing.
   friend class MultibodyPlantTester;
 
+  // This struct stores in one single place all indexes related to
+  // MultibodyPlant specific cache entries. These are initialized at Finalize()
+  // when the plant declares its cache entries.
+  struct CacheIndexes {
+    systems::CacheIndex contact_jacobians;
+    systems::CacheIndex contact_results;
+    systems::CacheIndex implicit_stribeck_solver_results;
+    systems::CacheIndex point_pairs;
+    systems::CacheIndex contact_surface;
+  };
+
   // Functions for the hydrostatic contact model.
   static bool Near(const T& v1, const T& v2);
+  VectorX<T> CalcGeneralizedTractionAtPoint(
+    const systems::Context<T>& context,
+    geometry::GeometryId geometryM_id, geometry::GeometryId geometryN_id,
+    const geometry::ContactSurface<T>& surface,
+    geometry::SurfaceFaceIndex face_index,
+    const typename geometry::SurfaceMesh<T>::Barycentric& r_barycentric) const;
   void AllocateCacheEntriesForHydrostaticContactModel();
+/*
   Vector3<T> CalcTractionAtSurfaceVertexForHydrostaticModel(
       const AugmentedContactSurfaceVertex<T>& v,
       const Vector3<T>& normal_w, double mu_coulomb) const;
   VectorX<T> ComputeForcesOnCoresFromHydrostaticContactModel(
       const systems::Context<T>& context) const;
+*/
+  VectorX<T> CalcContactForcesFromHydroelasticModel(
+    const systems::Context<T>& context) const;
   Vector2<T> CalcSlipVelocityUsingJacobianForHydrostaticModel(
       const systems::Context<T>& multibody_plant_context,
       const MatrixX<T>& J_Wp,
       const Vector3<T>& normal_W) const;
+/*
   VectorX<T> ComputeGeneralizedForcesFromHydrostaticModel(
       const systems::Context<T>& context,
       const geometry::SceneGraphInspector<T>& inspector,
       const std::vector<AugmentedContactSurface<T>>& contact_surfaces) const;
+*/
   MatrixX<T> CalcContactPointJacobianForHydrostaticModel(
       const systems::Context<T>& multibody_plant_context,
       const Vector3<T>& point_W,
@@ -3177,10 +3200,11 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   void CalcHydrostaticContactSurface(
       const systems::Context<T>& context,
       std::vector<geometry::ContactSurface<T>>* output) const;
+/*
   void CalcAllHydrostaticContactOutputs(
       const systems::Context<T>& context,
       std::vector<AugmentedContactSurface<T>>* output) const;
-
+*/
   // Constructor to bridge testing from MultibodyTree to MultibodyPlant.
   // WARNING: This may *not* result in a plant with a valid state. Use
   // sparingly to test forwarding methods when the overhead is high to
@@ -3876,7 +3900,7 @@ MultibodyPlant<AutoDiffXd>::CalcPointPairPenetrations(
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
     class drake::multibody::MultibodyPlant)
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
     struct drake::multibody::AddMultibodyPlantSceneGraphResult)

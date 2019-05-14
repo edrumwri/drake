@@ -4,13 +4,12 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/lcmt_contact_surfaces_for_viz.hpp"
-#include "drake/systems/framework/value.h"
+#include "drake/common/value.h"
 
 namespace drake {
 namespace multibody {
 
 using systems::Context;
-using systems::Value;
 
 template <typename T>
 ContactSurfacesToLcmSystem<T>::ContactSurfacesToLcmSystem(
@@ -53,7 +52,7 @@ void ContactSurfacesToLcmSystem<T>::CalcLcmContactOutput(
   // Get input / output.
   const auto& contact_surfaces =
       this->EvalAbstractInput(context, contact_surfaces_input_port_index_)
-          ->template GetValue<std::vector<geometry::ContactSurface<T>>>();
+          ->template get_value<std::vector<geometry::ContactSurface<T>>>();
   auto& msg = *output;
 
   // Time in microseconds.
@@ -69,24 +68,24 @@ void ContactSurfacesToLcmSystem<T>::CalcLcmContactOutput(
     const geometry::ContactSurface<T>& contact_surface = contact_surfaces[i];
 
     // TODO: Fix this.
-    /*
-    surface_msg.body1_name = body_names_.at(contact_info.bodyA_index());
-    surface_msg.body2_name = body_names_.at(contact_info.bodyB_index());
-*/
+    //surface_msg.body1_name = body_names_.at(contact_info.bodyA_index());
+    //surface_msg.body2_name = body_names_.at(contact_info.bodyB_index());
 
-    const auto& triangles = contact_surface.triangles();
-    surface_msg.num_triangles = static_cast<int32_t>(triangles.size());
+    const auto& mesh = contact_surface.mesh();
+    const int num_triangles = mesh.num_faces();
+    surface_msg.num_triangles = num_triangles;
     surface_msg.triangles.resize(surface_msg.num_triangles);
 
     // Loop through each contact triangle on the contact surface.
-    for (int j = 0; j < surface_msg.num_triangles; ++j) {
+    for (geometry::SurfaceFaceIndex j(0); j < surface_msg.num_triangles; ++j) {
       lcmt_contact_surface_tri_for_viz& tri_msg = surface_msg.triangles[j];
       tri_msg.timestamp = msg.timestamp;
 
-      // Get the three vertices.  
-      const geometry::ContactSurfaceVertex<T>& vA = triangles[j].vertex_A();
-      const geometry::ContactSurfaceVertex<T>& vB = triangles[j].vertex_B();
-      const geometry::ContactSurfaceVertex<T>& vC = triangles[j].vertex_C();
+      // Get the three vertices.
+      const auto& face = mesh.element(j);
+      const geometry::SurfaceVertex<T>& vA = mesh.vertex(face.vertex(0));
+      const geometry::SurfaceVertex<T>& vB = mesh.vertex(face.vertex(1));
+      const geometry::SurfaceVertex<T>& vC = mesh.vertex(face.vertex(2));
 
       auto write_double3 = [](const Vector3<T>& src, double* dest) {
         dest[0] = ExtractDoubleOrThrow(src(0));
@@ -94,9 +93,9 @@ void ContactSurfacesToLcmSystem<T>::CalcLcmContactOutput(
         dest[2] = ExtractDoubleOrThrow(src(2));
       };
 
-      write_double3(vA.location_w, tri_msg.a);
-      write_double3(vB.location_w, tri_msg.b);
-      write_double3(vC.location_w, tri_msg.c);
+      write_double3(vA.r_MV(), tri_msg.a);
+      write_double3(vB.r_MV(), tri_msg.b);
+      write_double3(vC.r_MV(), tri_msg.c);
     }
   }
 }
@@ -122,15 +121,15 @@ systems::lcm::LcmPublisherSystem* ConnectContactSurfacesToDrakeVisualizer(
           multibody_plant);
   contact_to_lcm->set_name("contact_to_lcm");
 
+  const double publish_period = 1.0 / 60;
   auto contact_surfaces_publisher = builder->AddSystem(
       systems::lcm::LcmPublisherSystem::Make<lcmt_contact_surfaces_for_viz>(
-          "CONTACT_SURFACES", lcm));
+          "CONTACT_SURFACES", lcm, publish_period));
   contact_surfaces_publisher->set_name("contact_surfaces_publisher");
 
   builder->Connect(contact_surfaces_port, contact_to_lcm->get_input_port(0));
   builder->Connect(contact_to_lcm->get_output_port(0),
                    contact_surfaces_publisher->get_input_port());
-  contact_surfaces_publisher->set_publish_period(1 / 60.0);
 
   return contact_surfaces_publisher;
 }

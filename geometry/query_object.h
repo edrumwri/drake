@@ -113,11 +113,6 @@ class QueryObject {
    geometry is penetrating.     */
   //@{
 
-  /**
-   * @note Assumes that QueryObject has access to elastic moduli.
-   */
-   std::vector<ContactSurface<T>> ComputeContactSurfaces() const;
-
   /** Computes the penetrations across all pairs of geometries in the world.
    Only reports results for _penetrating_ geometries; if two geometries are
    separated, there will be no result for that pair. Pairs of _anchored_

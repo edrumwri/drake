@@ -123,14 +123,23 @@ namespace geometry {
 template <typename T>
 class ContactSurface {
  public:
-  /** @name Does not allow copy; implements MoveConstructible, MoveAssignable
-   */
-  //@{
-  ContactSurface(const ContactSurface&) = delete;
-  ContactSurface& operator=(const ContactSurface&) = delete;
+  ContactSurface(const ContactSurface& surface) {
+    operator=(surface);
+  }
+
+  ContactSurface& operator=(const ContactSurface& surface) {
+    id_M_ = surface.id_M_;
+    id_N_ = surface.id_N_;
+    mesh_ = std::make_unique<SurfaceMesh<T>>(*surface.mesh_.get());
+    e_MN_ = std::make_unique<SurfaceMeshFieldLinear<T, T>>(
+        *surface.e_MN_.get());
+    grad_h_MN_M_ = std::make_unique<SurfaceMeshFieldLinear<Vector3<T>, T>>(
+        *surface.grad_h_MN_M_.get());
+    return *this;
+  }
+
   ContactSurface(ContactSurface&&) = default;
   ContactSurface& operator=(ContactSurface&&) = default;
-  //@}
 
   /** Constructs a ContactSurface.
    @param id_M         The id of the first geometry M.
@@ -167,7 +176,7 @@ class ContactSurface {
     @param barycentric  The barycentric coordinates of Q on the triangle.
    */
   T EvaluateE_MN(SurfaceFaceIndex face,
-                 const typename SurfaceMesh<T>::Barycentric& barycentric) {
+      const typename SurfaceMesh<T>::Barycentric& barycentric) const {
     return e_MN_->Evaluate(face, barycentric);
   }
 
@@ -179,7 +188,7 @@ class ContactSurface {
    */
   Vector3<T> EvaluateGrad_h_MN_M(
       SurfaceFaceIndex face,
-      const typename SurfaceMesh<T>::Barycentric& barycentric) {
+      const typename SurfaceMesh<T>::Barycentric& barycentric) const {
     return grad_h_MN_M_->Evaluate(face, barycentric);
   }
 

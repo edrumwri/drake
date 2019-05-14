@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "drake/common/drake_throw.h"
+#include "drake/geometry/query_results/contact_surface.h"
+#include "drake/geometry/query_results/mesh_field.h"
 #include "drake/geometry/frame_kinematics_vector.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/geometry_instance.h"
@@ -15,6 +17,8 @@
 #include "drake/math/orthonormal_basis.h"
 #include "drake/math/random_rotation.h"
 #include "drake/math/rotation_matrix.h"
+#include "drake/multibody/hydroelastic_contact/gaussian_triangle_quadrature_rule.h"
+#include "drake/multibody/hydroelastic_contact/triangle_quadrature.h"
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/revolute_joint.h"
@@ -30,6 +34,7 @@ namespace multibody {
 // pre-finalize.
 #define DRAKE_MBP_THROW_IF_NOT_FINALIZED() ThrowIfNotFinalized(__func__)
 
+using geometry::ContactSurface;
 using geometry::FrameId;
 using geometry::FramePoseVector;
 using geometry::GeometryFrame;
@@ -273,14 +278,14 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
   auto& contact_surface_cache_entry = this->DeclareCacheEntry(
       std::string("contact_surface"),
       []() {
-        return systems::AbstractValue::Make(
+        return AbstractValue::Make(
             std::vector<geometry::ContactSurface<T>>());
       },
       [this](const systems::ContextBase& context_base,
-             systems::AbstractValue* cache_value) {
+             AbstractValue* cache_value) {
         auto& context = dynamic_cast<const Context<T>&>(context_base);
         auto& cached_contact_surfaces =
-            cache_value->GetMutableValue<
+            cache_value->get_mutable_value<
                 std::vector<geometry::ContactSurface<T>>>();
 
         if (num_collision_geometries() > 0) {
@@ -292,16 +297,17 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
           }
           const geometry::QueryObject<T>& query_object =
               this->EvalAbstractInput(context, geometry_query_port_)
-                  ->template GetValue<geometry::QueryObject<T>>();
+                  ->template get_value<geometry::QueryObject<T>>();
 
           // Compute the contact surfaces.
           cached_contact_surfaces = query_object.ComputeContactSurfaces();
         }
       },
       {this->configuration_ticket()});
-  contact_surface_cache_index_ =
+  cache_indexes_.contact_surface =
       contact_surface_cache_entry.cache_index();
 
+/*
   // Allocate the augmented contact surface cache.
   auto& augmented_contact_surface_cache_entry = this->DeclareCacheEntry(
       std::string("augmented_contact_surface"),
@@ -430,6 +436,7 @@ void MultibodyPlant<T>::AllocateCacheEntriesForHydrostaticContactModel() {
       {this->kinematics_ticket()});
   augmented_contact_surface_cache_index_ =
       augmented_contact_surface_cache_entry.cache_index();
+*/
 }
 
 template<typename T>
@@ -1446,84 +1453,149 @@ VectorX<T> MultibodyPlant<T>::AssembleActuationInput(
   return actuation_input;
 }
 
-template<typename T>
-void MultibodyPlant<T>::DoCalcTimeDerivatives(
+template <typename T>
+VectorX<T> MultibodyPlant<T>::CalcContactForcesFromHydroelasticModel(
+    const systems::Context<T>& context) const {
+
+  const geometry::QueryObject<T>& query_object =
+      this->EvalAbstractInput(context, geometry_query_port_)
+          ->template get_value<geometry::QueryObject<T>>();
+
+  hydroelastic_contact::GaussianTriangleQuadratureRule
+      gaussian_quadrature_rule(1 /* integration order */);
+  std::vector<ContactSurface<T>> contact_surfaces =
+      query_object.ComputeContactSurfaces();
+
+  VectorX<T> generalized_force = VectorX<T>::Zero(num_velocities());
+  for (const auto& contact_surface : contact_surfaces) {
+    // Get the two geometries.
+    GeometryId geom_M = contact_surface.id_M();
+    GeometryId geom_N = contact_surface.id_N();
+
+    // Iterate over each triangle in the contact surface.
+    const geometry::SurfaceMesh<T>& mesh = contact_surface.mesh();
+    for (geometry::SurfaceFaceIndex i(0); i < mesh.num_faces(); ++i) {
+      // TODO(DamrongGuoy) This should be converted to a constant reference in
+      // the API and here.
+      const T triangle_area = mesh.area(i);
+
+      // Form the traction evaluation function.
+      auto fn = [this, &context, geom_M, geom_N, &contact_surface, i](
+          const Vector2<T>& r_barycentric_M) -> VectorX<T> {
+          // Convert to a 3-dimensional barycentric coordinate representation.
+          const typename geometry::SurfaceMesh<T>::Barycentric b(
+              r_barycentric_M(0), r_barycentric_M(1),
+              1.0 - r_barycentric_M(0) - r_barycentric_M(1));
+
+        return this->CalcGeneralizedTractionAtPoint(
+            context, geom_M, geom_N, contact_surface, i, b);
+      };
+
+      generalized_force += hydroelastic_contact::
+          TriangleQuadrature<VectorX<T>, T>::Integrate(
+              fn, gaussian_quadrature_rule, triangle_area);
+    }
+  }
+
+  return generalized_force;
+}
+
+template <typename T>
+VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
     const systems::Context<T>& context,
-    systems::ContinuousState<T>* derivatives) const {
-  // No derivatives to compute if state is discrete.
-  if (is_discrete()) return;
+    GeometryId geometryM_id, GeometryId geometryN_id,
+    const ContactSurface<T>& surface, geometry::SurfaceFaceIndex face_index,
+    const typename geometry::SurfaceMesh<T>::Barycentric& r_barycentric_M)
+    const {
+  const Eigen::VectorBlock<const VectorX<T>> v = GetVelocities(context);
 
-  const auto x =
-      dynamic_cast<const systems::BasicVector<T>&>(
-          context.get_continuous_state_vector()).get_value();
-  const int nv = this->num_velocities();
+  // Get the two bodies corresponding to the two geometries.
+  BodyIndex bodyM_index = geometry_id_to_body_index_.at(geometryM_id);
+  const Body<T>& bodyM = internal_tree().get_body(bodyM_index);
+  BodyIndex bodyN_index = geometry_id_to_body_index_.at(geometryN_id);
+  const Body<T>& bodyN = internal_tree().get_body(bodyN_index);
 
-  // Allocate workspace. We might want to cache these to avoid allocations.
-  // Mass matrix.
-  MatrixX<T> M(nv, nv);
-  // Forces.
-  MultibodyForces<T> forces(internal_tree());
-  // Bodies' accelerations, ordered by BodyNodeIndex.
-  std::vector<SpatialAcceleration<T>> A_WB_array(internal_tree().num_bodies());
-  // Generalized accelerations.
-  VectorX<T> vdot = VectorX<T>::Zero(nv);
+  // Get the transform for the body M.
+  const RigidTransform<T>& X_WM = EvalBodyPoseInWorld(context, bodyM);
 
-  const internal::PositionKinematicsCache<T>& pc =
-      EvalPositionKinematics(context);
-  const internal::VelocityKinematicsCache<T>& vc =
-      EvalVelocityKinematics(context);
+  // Convert the barycentric coordinate to 3D.
+  const auto& mesh = surface.mesh();
+  const auto& va = mesh.vertex(mesh.element(face_index).vertex(0));
+  const auto& vb = mesh.vertex(mesh.element(face_index).vertex(1));
+  const auto& vc = mesh.vertex(mesh.element(face_index).vertex(2));
+  const Vector3<T> r_M = va.r_MV() * r_barycentric_M[0] +
+      vb.r_MV() * r_barycentric_M[1] + vc.r_MV() * r_barycentric_M[2];
+  const Vector3<T> r_W = X_WM.inverse() * r_M;
 
-  // Compute forces applied through force elements. This effectively resets
-  // the forces to zero and adds in contributions due to force elements.
-  internal_tree().CalcForceElementsContribution(context, pc, vc, &forces);
+  // Get the hydroelastic pressure at the point.
+  const T E_MN = surface.EvaluateE_MN(face_index, r_barycentric_M);
 
-  // If there is any input actuation, add it to the multibody forces.
-  AddJointActuationForces(context, &forces);
-  AddAppliedExternalSpatialForces(context, &forces);
+  // Get the normal, expressed in the global frame, to the contact surface at r.
+  const Vector3<T> h_MN_M = surface.EvaluateGrad_h_MN_M(
+      face_index, r_barycentric_M);
+  const Vector3<T> nhat_MN_M = h_MN_M.normalized();
+  const Vector3<T> nhat_MN_W = X_WM.inverse() * nhat_MN_M;
 
-  // If there are applied generalized forces, add them.
-  const InputPort<T>& applied_generalized_force_input =
-      this->get_input_port(applied_generalized_force_input_port_);
-  if (applied_generalized_force_input.HasValue(context)) {
-    forces.mutable_generalized_forces() +=
-        applied_generalized_force_input.Eval(context);
+  // Form an orthonormal basis from the normal to the surface.
+  const RotationMatrix<T> R_WC(math::ComputeBasisFromAxis(2, nhat_MN_W));
+
+  // Get the Jacobian matrix that transforms generalized velocities into
+  // velocities at point r and expressed in the contact frame.
+  const MatrixX<T> J_W = CalcContactPointJacobianForHydrostaticModel(
+      context, r_W, bodyM, bodyN);
+
+  // Get the Jacobian matrix that transforms generalized velocities to
+  // velocities expressed in the contact frame.
+  const MatrixX<T> J_C = R_WC.transpose() * J_W.bottomRows(3);
+
+  // Get the normal and tangential components of the Jacobian matrix.
+  const Eigen::Block<const MatrixX<T>> Jn = J_C.topRows(1);
+  const Eigen::Block<const MatrixX<T>> Jst = J_C.bottomRows(2);
+
+  // Get the relative velocity at the given point between the bodies that M and
+  // N are attached to.
+  const Vector3<T> rdot_MN_C = J_C * v;
+
+  // Get the velocity along the normal to the contact surface. Note that a
+  // positive value indicates that bodies are separating at r while a negative
+  // value indicates that bodies are approaching at r.
+  const T rdot_nhat_MN = rdot_MN_C(0);
+  const double c = 0.0;
+
+  // TODO(edrumwri): Use Hunt/Crossley model instead.
+  // Determine the contribution from dissipation.
+
+  // Determine the normal pressure at the point.
+  const T normal_pressure = E_MN - rdot_nhat_MN * c;
+
+  // Get the slip velocity at the point by subtracting the normal contribution
+  // to velocity.
+  const Vector2<T> rdot_MN_tan(rdot_MN_C(1), rdot_MN_C(2));
+
+  // Determine the traction.
+  const double squared_vslip_tol = 1e-8 * 1e-8;
+  const T squared_rdot_tan = rdot_MN_tan.squaredNorm();
+  if (squared_rdot_tan > squared_vslip_tol) {
+    using std::atan;
+    using std::sqrt;
+
+    // Get the slip speed.
+    const T norm_rdot_tan = sqrt(squared_rdot_tan);
+
+    // TODO(edrumwri) Obtain mu from material properties.
+    const double mu = 0.1;
+
+    // Get the direction of slip.
+    const Vector2<T> rdot_hat_tan_MN = rdot_MN_tan / norm_rdot_tan;
+
+    // Compute the frictional traction.
+    return Jn.transpose() * normal_pressure + Jst.transpose() * (
+        -rdot_hat_tan_MN * mu * normal_pressure * 2.0/M_PI *
+            atan(squared_vslip_tol / squared_vslip_tol));
+  } else {
+    // Only normal traction (no frictional traction).
+    return Jn.transpose() * normal_pressure;
   }
-
-  internal_tree().CalcMassMatrixViaInverseDynamics(context, &M);
-
-  // WARNING: to reduce memory foot-print, we use the input applied arrays also
-  // as output arrays. This means that both the array of applied body forces and
-  // the array of applied generalized forces get overwritten on output. This is
-  // not important in this case since we don't need their values anymore.
-  // Please see the documentation for CalcInverseDynamics() for details.
-
-  // With vdot = 0, this computes:
-  //   tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.
-  std::vector<SpatialForce<T>>& F_BBo_W_array = forces.mutable_body_forces();
-  VectorX<T>& tau_array = forces.mutable_generalized_forces();
-
-  // Compute contact forces on each body by penalty method.
-  VectorX<T> tau_cf = VectorX<T>::Zero(tau_array.size());
-  if (num_collision_geometries() > 0) {
-    tau_cf = ComputeForcesOnCoresFromHydrostaticContactModel(context);
-  }
-  tau_array += tau_cf;
-
-  internal_tree().CalcInverseDynamics(
-      context, vdot,
-      F_BBo_W_array, tau_array,
-      &A_WB_array,
-      &F_BBo_W_array, /* Notice these arrays gets overwritten on output. */
-      &tau_array);
-
-  vdot = M.ldlt().solve(-tau_array);
-
-  auto v = x.bottomRows(nv);
-  VectorX<T> xdot(this->num_multibody_states());
-  VectorX<T> qdot(this->num_positions());
-  internal_tree().MapVelocityToQDot(context, v, &qdot);
-  xdot << qdot, vdot;
-  derivatives->SetFromVector(xdot);
 }
 
 // This method is used to calculate the slip velocity for populating the
@@ -1547,6 +1619,8 @@ Vector2<T> MultibodyPlant<T>::CalcSlipVelocityUsingJacobianForHydrostaticModel(
   return P * J_Wp.bottomRows(3) * v;
 }
 
+// @returns a 6 x nv-dimensional Jacobian matrix.
+// @note Called from ComputeGeneralizedForcesFromHydrostaticModel()
 template <class T>
 MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
     const systems::Context<T>& context,
@@ -1577,6 +1651,8 @@ MatrixX<T> MultibodyPlant<T>::CalcContactPointJacobianForHydrostaticModel(
   return J_WAp - J_WBp;
 }
 
+/*
+// @note called by the cache evaluator for the augmented contact surface.
 template <class T>
 Vector3<T> MultibodyPlant<T>::CalcTractionAtSurfaceVertexForHydrostaticModel(
     const AugmentedContactSurfaceVertex<T>& v, const Vector3<T>& nhat_w,
@@ -1613,6 +1689,7 @@ Vector3<T> MultibodyPlant<T>::CalcTractionAtSurfaceVertexForHydrostaticModel(
   return tN_w + tF_w;
 }
 
+// @note Called from ComputeForcesOnCoresFromHydrostaticContactModel()
 // @pre pressure distribution, slip velocity has been computed
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
@@ -1677,6 +1754,21 @@ VectorX<T> MultibodyPlant<T>::ComputeGeneralizedForcesFromHydrostaticModel(
   return gf;
 }
 
+// Outputs the contact surface and all fields defined over it.
+template <class T>
+void MultibodyPlant<T>::CalcAllHydrostaticContactOutputs(
+    const Context<T>& context,
+    std::vector<AugmentedContactSurface<T>>* output) const {
+  // Get the contact surface.
+  const std::vector<AugmentedContactSurface<T>>& contact_surface = this->
+          get_cache_entry(augmented_contact_surface_cache_index_)
+      .template Eval<std::vector<AugmentedContactSurface<T>>>(context);
+
+  // Set the output.
+  *output = contact_surface;
+}
+
+// Note: Called by DoCalcTimeDerivatives().
 template <class T>
 VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
     const Context<T>& context) const {
@@ -1708,25 +1800,92 @@ void MultibodyPlant<T>::CalcHydrostaticContactSurface(
     std::vector<geometry::ContactSurface<T>>* output) const {
   // Get the contact surface.
   const std::vector<geometry::ContactSurface<T>>& contact_surface = this->
-          get_cache_entry(contact_surface_cache_index_)
+          get_cache_entry(cache_indexes_.contact_surface)
       .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 
   // Set the output.
   *output = contact_surface;
 }
+*/
 
-// Outputs the contact surface and all fields defined over it.
-template <class T>
-void MultibodyPlant<T>::CalcAllHydrostaticContactOutputs(
-    const Context<T>& context,
-    std::vector<AugmentedContactSurface<T>>* output) const {
-  // Get the contact surface.
-  const std::vector<AugmentedContactSurface<T>>& contact_surface = this->
-          get_cache_entry(augmented_contact_surface_cache_index_)
-      .template Eval<std::vector<AugmentedContactSurface<T>>>(context);
+template<typename T>
+void MultibodyPlant<T>::DoCalcTimeDerivatives(
+    const systems::Context<T>& context,
+    systems::ContinuousState<T>* derivatives) const {
+  // No derivatives to compute if state is discrete.
+  if (is_discrete()) return;
 
-  // Set the output.
-  *output = contact_surface;
+  const auto x =
+      dynamic_cast<const systems::BasicVector<T>&>(
+          context.get_continuous_state_vector()).get_value();
+  const int nv = this->num_velocities();
+
+  // Allocate workspace. We might want to cache these to avoid allocations.
+  // Mass matrix.
+  MatrixX<T> M(nv, nv);
+  // Forces.
+  MultibodyForces<T> forces(internal_tree());
+  // Bodies' accelerations, ordered by BodyNodeIndex.
+  std::vector<SpatialAcceleration<T>> A_WB_array(internal_tree().num_bodies());
+  // Generalized accelerations.
+  VectorX<T> vdot = VectorX<T>::Zero(nv);
+
+  const internal::PositionKinematicsCache<T>& pc =
+      EvalPositionKinematics(context);
+  const internal::VelocityKinematicsCache<T>& vc =
+      EvalVelocityKinematics(context);
+
+  // Compute forces applied through force elements. This effectively resets
+  // the forces to zero and adds in contributions due to force elements.
+  internal_tree().CalcForceElementsContribution(context, pc, vc, &forces);
+
+  // If there is any input actuation, add it to the multibody forces.
+  AddJointActuationForces(context, &forces);
+  AddAppliedExternalSpatialForces(context, &forces);
+
+  // If there are applied generalized forces, add them.
+  const InputPort<T>& applied_generalized_force_input =
+      this->get_input_port(applied_generalized_force_input_port_);
+  if (applied_generalized_force_input.HasValue(context)) {
+    forces.mutable_generalized_forces() +=
+        applied_generalized_force_input.Eval(context);
+  }
+
+  internal_tree().CalcMassMatrixViaInverseDynamics(context, &M);
+
+  // WARNING: to reduce memory foot-print, we use the input applied arrays also
+  // as output arrays. This means that both the array of applied body forces and
+  // the array of applied generalized forces get overwritten on output. This is
+  // not important in this case since we don't need their values anymore.
+  // Please see the documentation for CalcInverseDynamics() for details.
+
+  // With vdot = 0, this computes:
+  //   tau = C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W.
+  std::vector<SpatialForce<T>>& F_BBo_W_array = forces.mutable_body_forces();
+  VectorX<T>& tau_array = forces.mutable_generalized_forces();
+
+  // Compute contact forces on each body by penalty method.
+  VectorX<T> tau_cf = VectorX<T>::Zero(tau_array.size());
+  if (num_collision_geometries() > 0) {
+    tau_cf = CalcContactForcesFromHydroelasticModel(context);
+  }
+  tau_array += tau_cf;
+
+  internal_tree().CalcInverseDynamics(
+      context, vdot,
+      F_BBo_W_array, tau_array,
+      &A_WB_array,
+      &F_BBo_W_array, /* Notice these arrays gets overwritten on output. */
+      &tau_array);
+
+  vdot = M.ldlt().solve(-tau_array);
+
+  auto v = x.bottomRows(nv);
+  VectorX<T> xdot(this->num_multibody_states());
+  VectorX<T> qdot(this->num_positions());
+  internal_tree().MapVelocityToQDot(context, v, &qdot);
+  xdot << qdot, vdot;
+  derivatives->SetFromVector(xdot);
 }
 
 template<typename T>
@@ -2088,6 +2247,7 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
             .get_index();
   }
 
+/*
   // Contact results output port.
   const auto& contact_results_cache_entry =
       this->get_cache_entry(cache_indexes_.contact_results);
@@ -2100,15 +2260,18 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   contact_surfaces_port_ = this->DeclareAbstractOutputPort(
       "contact_surfaces", std::vector<geometry::ContactSurface<T>>(),
       &MultibodyPlant<T>::OutputContactSurfaces).get_index();
+*/
 }
 
+/*
 template <typename T>
 void MultibodyPlant<T>::OutputContactSurfaces(
     const Context<T>& context,
     std::vector<geometry::ContactSurface<T>>* contact_surfaces) const {
-  *contact_surfaces = this->get_cache_entry(contact_surface_cache_index_)
+  *contact_surfaces = this->get_cache_entry(cache_indexes_.contact_surface)
       .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 }
+*/
 
 template <typename T>
 void MultibodyPlant<T>::DeclareCacheEntries() {
@@ -2498,7 +2661,7 @@ AddMultibodyPlantSceneGraph(
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
     class drake::multibody::MultibodyPlant)
-DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
     struct drake::multibody::AddMultibodyPlantSceneGraphResult)
