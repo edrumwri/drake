@@ -592,11 +592,11 @@ class ProximityEngine<T>::Impl : public ShapeReifier {
 
   std::vector<SignedDistancePair<T>> ComputeSignedDistancePairwiseClosestPoints(
       const std::vector<GeometryId>& geometry_map,
-      const std::vector<Isometry3<T>>& X_WGs) const {
+      const std::vector<Isometry3<T>>& X_WGs, const double max_distance) const {
     std::vector<SignedDistancePair<T>> witness_pairs;
     // All these quantities are aliased in the callback data.
     shape_distance::CallbackData<T> data{&geometry_map, &collision_filter_,
-                                         &X_WGs, &witness_pairs};
+                                         &X_WGs, max_distance, &witness_pairs};
     data.request.enable_nearest_points = true;
     data.request.enable_signed_distance = true;
     data.request.gjk_solver_type = fcl::GJKSolverType::GST_LIBCCD;
@@ -801,8 +801,8 @@ void UpdateContactSurfaceFaces(
   // This is a "stub" implementation, which computes a single contact surface
   // corresponding to that between a 1m x 1m x 1m box and the halfspace z <= 0.
   std::vector<ContactSurface<T>> ComputeContactSurfaces(
-    GeometryId /*halfspace_geometry*/,
-    GeometryId /*box_geometry*/,
+    GeometryId halfspace_geometry,
+    GeometryId box_geometry,
     const Isometry3<T>& wXb) const {
     // The elastic moduli will determine how far into the halfspace the box
     // will interpenetrate, meaning how far "down" the contact surface goes.
@@ -902,12 +902,28 @@ void UpdateContactSurfaceFaces(
 
     // Create the sole contact surface, assuming that there are some faces.
     std::vector<ContactSurface<T>> contact_surface;
-/*
     if (!contact_surface_faces.empty()) {
+      // Create the normals.
+      std::vector<Vector3<T>> normals(contact_surface_vertices.size(),
+          Vector3<T>(0, 0, -1.0));
+      std::vector<T> depths;
+      for (const auto& v : contact_surface_vertices) {
+        DRAKE_ASSERT(v.r_MV()[2] <= 1e-8);
+        depths.push_back(-v.r_MV()[2]);
+      }
+
+      auto mesh = std::make_unique<SurfaceMesh<T>>(
+          std::move(contact_surface_faces),
+          std::move(contact_surface_vertices));
+
       contact_surface.emplace_back(
-        halfspace_geometry, box_geometry, contact_surface_faces);
+        halfspace_geometry, box_geometry, std::move(mesh),
+        std::make_unique<MeshFieldLinear<T, SurfaceMesh<T>>>(
+            "depths", std::move(depths), mesh.get()),
+        std::make_unique<MeshFieldLinear<Vector3<T>, SurfaceMesh<T>>>(
+            "normals", std::move(normals), mesh.get()));
     }
-*/
+
     return contact_surface;
   }
 
@@ -1295,8 +1311,10 @@ template <typename T>
 std::vector<SignedDistancePair<T>>
 ProximityEngine<T>::ComputeSignedDistancePairwiseClosestPoints(
     const std::vector<GeometryId>& geometry_map,
-    const std::vector<Isometry3<T>>& X_WGs) const {
-  return impl_->ComputeSignedDistancePairwiseClosestPoints(geometry_map, X_WGs);
+    const std::vector<Isometry3<T>>& X_WGs,
+    const double max_distance) const {
+  return impl_->ComputeSignedDistancePairwiseClosestPoints(geometry_map, X_WGs,
+                                                           max_distance);
 }
 
 template <typename T>

@@ -383,10 +383,15 @@ class TestCustom(unittest.TestCase):
         self.assertTrue(system.called_publish)
         context_update = context.Clone()
         system.CalcTimeDerivatives(
-            context, context_update.get_mutable_continuous_state())
+            context=context,
+            derivatives=context_update.get_mutable_continuous_state())
         self.assertTrue(system.called_continuous)
         witnesses = system.GetWitnessFunctions(context)
         self.assertEqual(len(witnesses), 2)
+        system.CalcDiscreteVariableUpdates(
+            context=context,
+            discrete_state=context_update.get_mutable_discrete_state())
+        self.assertTrue(system.called_discrete)
 
         # Test per-step, periodic, and witness call backs
         system = TrivialSystem()
@@ -627,6 +632,7 @@ class TestCustom(unittest.TestCase):
                 context = system.CreateDefaultContext()
                 self.assertEqual(
                     context.get_discrete_state(0).size(), 3)
+                self.assertEqual(system.AllocateDiscreteVariables().size(), 3)
 
     def test_abstract_io_port(self):
         test = self

@@ -394,10 +394,11 @@ class GeometryState {
     // Find the requisite geometries.
     GeometryId ground_geom, box_geom;
     for (GeometryId id : geometry_index_to_id_map_) {
-      if (GetGeometry(id)->name() == "box-collision") {
+      const std::string& name = GetGeometry(id)->name();
+      if (name == "box_with_pusher::box-collision") {
         box_geom = id;
       } else {
-        if (GetGeometry(id)->name() == "ground-collision") {
+        if (name == "box_with_pusher::ground-collision") {
           ground_geom = id;
         }
       }
@@ -446,30 +447,20 @@ class GeometryState {
   //---------------------------------------------------------------------------
   /** @name                Signed Distance Queries
 
-  Refer to @ref signed_distance_query "Signed Distance Queries" for more details.
-  */
+   Refer to @ref signed_distance_query "Signed Distance Queries" for more
+   details.  */
 
   //@{
 
-  /**
-   * Computes the signed distance together with the witness points across all
-   * pairs of geometries in the world. Reports both the separating geometries
-   * and penetrating geometries.
-   * @retval witness_pairs A vector of reporting the signed distance
-   * characterized as witness point pairs. Notice that this is an O(N²)
-   * operation, where N is the number of geometries in the world. We report the
-   * distance between dynamic objects, or between a dynamic object and an
-   * anchored object. We DO NOT report the distance between two anchored
-   * objects.
-   */
+  /** Supporting function for
+   QueryObject::ComputeSignedDistancePairwiseClosestPoints().  */
   std::vector<SignedDistancePair<T>>
-  ComputeSignedDistancePairwiseClosestPoints() const {
+  ComputeSignedDistancePairwiseClosestPoints(const double max_distance) const {
     return geometry_engine_->ComputeSignedDistancePairwiseClosestPoints(
-        geometry_index_to_id_map_, X_WG_);
+        geometry_index_to_id_map_, X_WG_, max_distance);
   }
 
-  /** Performs work in support of QueryObject::ComputeSignedDistanceToPoint().
-   */
+  /** Supporting function for QueryObject::ComputeSignedDistanceToPoint().  */
   std::vector<SignedDistanceToPoint<T>>
   ComputeSignedDistanceToPoint(
       const Vector3<T> &p_WQ,

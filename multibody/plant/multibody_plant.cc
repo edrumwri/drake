@@ -1462,7 +1462,7 @@ VectorX<T> MultibodyPlant<T>::CalcContactForcesFromHydroelasticModel(
           ->template get_value<geometry::QueryObject<T>>();
 
   hydroelastic_contact::GaussianTriangleQuadratureRule
-      gaussian_quadrature_rule(1 /* integration order */);
+      gaussian_quadrature_rule(2 /* integration order */);
   std::vector<ContactSurface<T>> contact_surfaces =
       query_object.ComputeContactSurfaces();
 
@@ -1528,7 +1528,7 @@ VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
   const Vector3<T> r_W = X_WM.inverse() * r_M;
 
   // Get the hydroelastic pressure at the point.
-  const T E_MN = surface.EvaluateE_MN(face_index, r_barycentric_M);
+  const T E_MN = surface.EvaluateE_MN(face_index, r_barycentric_M) * 100;
 
   // Get the normal, expressed in the global frame, to the contact surface at r.
   const Vector3<T> h_MN_M = surface.EvaluateGrad_h_MN_M(
@@ -1537,7 +1537,7 @@ VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
   const Vector3<T> nhat_MN_W = X_WM.inverse() * nhat_MN_M;
 
   // Form an orthonormal basis from the normal to the surface.
-  const RotationMatrix<T> R_WC(math::ComputeBasisFromAxis(2, nhat_MN_W));
+  const RotationMatrix<T> R_WC(math::ComputeBasisFromAxis(0, nhat_MN_W));
 
   // Get the Jacobian matrix that transforms generalized velocities into
   // velocities at point r and expressed in the contact frame.
@@ -1546,7 +1546,7 @@ VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
 
   // Get the Jacobian matrix that transforms generalized velocities to
   // velocities expressed in the contact frame.
-  const MatrixX<T> J_C = R_WC.transpose() * J_W.bottomRows(3);
+  const MatrixX<T> J_C = R_WC.transpose().matrix() * J_W.bottomRows(3);
 
   // Get the normal and tangential components of the Jacobian matrix.
   const Eigen::Block<const MatrixX<T>> Jn = J_C.topRows(1);
@@ -1560,13 +1560,14 @@ VectorX<T> MultibodyPlant<T>::CalcGeneralizedTractionAtPoint(
   // positive value indicates that bodies are separating at r while a negative
   // value indicates that bodies are approaching at r.
   const T rdot_nhat_MN = rdot_MN_C(0);
-  const double c = 0.0;
+  const double c = 10.0;
 
   // TODO(edrumwri): Use Hunt/Crossley model instead.
   // Determine the contribution from dissipation.
 
   // Determine the normal pressure at the point.
-  const T normal_pressure = E_MN - rdot_nhat_MN * c;
+  using std::max;
+  const T normal_pressure = max(E_MN - rdot_nhat_MN * c, T(0));
 
   // Get the slip velocity at the point by subtracting the normal contribution
   // to velocity.
@@ -1793,9 +1794,10 @@ VectorX<T> MultibodyPlant<T>::ComputeForcesOnCoresFromHydrostaticContactModel(
   return VectorX<T>::Zero(num_velocities());
 }
 
+*/
 /// Outputs the contact surface only.
 template <class T>
-void MultibodyPlant<T>::CalcHydrostaticContactSurface(
+void MultibodyPlant<T>::CalcHydroelasticContactSurface(
     const Context<T>& context,
     std::vector<geometry::ContactSurface<T>>* output) const {
   // Get the contact surface.
@@ -1806,7 +1808,6 @@ void MultibodyPlant<T>::CalcHydrostaticContactSurface(
   // Set the output.
   *output = contact_surface;
 }
-*/
 
 template<typename T>
 void MultibodyPlant<T>::DoCalcTimeDerivatives(
@@ -2247,7 +2248,6 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
             .get_index();
   }
 
-/*
   // Contact results output port.
   const auto& contact_results_cache_entry =
       this->get_cache_entry(cache_indexes_.contact_results);
@@ -2260,10 +2260,8 @@ void MultibodyPlant<T>::DeclareStateCacheAndPorts() {
   contact_surfaces_port_ = this->DeclareAbstractOutputPort(
       "contact_surfaces", std::vector<geometry::ContactSurface<T>>(),
       &MultibodyPlant<T>::OutputContactSurfaces).get_index();
-*/
 }
 
-/*
 template <typename T>
 void MultibodyPlant<T>::OutputContactSurfaces(
     const Context<T>& context,
@@ -2271,7 +2269,6 @@ void MultibodyPlant<T>::OutputContactSurfaces(
   *contact_surfaces = this->get_cache_entry(cache_indexes_.contact_surface)
       .template Eval<std::vector<geometry::ContactSurface<T>>>(context);
 }
-*/
 
 template <typename T>
 void MultibodyPlant<T>::DeclareCacheEntries() {

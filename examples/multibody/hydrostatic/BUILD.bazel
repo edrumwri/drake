@@ -23,6 +23,7 @@ drake_cc_binary(
         "//systems/lcm:lcm_pubsub_system",
         "@gflags",
     ],
+    data = [ "box.sdf" ],
 )
 
 add_lint_tests()

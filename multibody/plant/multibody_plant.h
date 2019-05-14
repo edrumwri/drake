@@ -3197,7 +3197,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
       const Vector3<T>& point_W,
       const Body<T>& body_A,
       const Body<T>& body_B) const;
-  void CalcHydrostaticContactSurface(
+  void CalcHydroelasticContactSurface(
       const systems::Context<T>& context,
       std::vector<geometry::ContactSurface<T>>* output) const;
 /*

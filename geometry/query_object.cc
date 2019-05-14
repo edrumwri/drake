@@ -18,6 +18,12 @@ QueryObject<T>& QueryObject<T>::operator=(const QueryObject<T>&) {
   return *this;
 }
 
+template <>
+std::vector<ContactSurface<symbolic::Expression>>
+QueryObject<symbolic::Expression>::ComputeContactSurfaces() const {
+  throw std::logic_error("Not implemented");
+}
+
 template <typename T>
 std::vector<ContactSurface<T>>
 QueryObject<T>::ComputeContactSurfaces() const {
@@ -42,13 +48,14 @@ QueryObject<T>::ComputePointPairPenetration() const {
 
 template <typename T>
 std::vector<SignedDistancePair<T>>
-QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints() const {
+QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints(
+    const double max_distance) const {
   ThrowIfDefault();
 
   // TODO(SeanCurtis-TRI): Modify this when the cache system is in place.
   scene_graph_->FullPoseUpdate(*context_);
   const GeometryState<T>& state = geometry_state();
-  return state.ComputeSignedDistancePairwiseClosestPoints();
+  return state.ComputeSignedDistancePairwiseClosestPoints(max_distance);
 }
 
 template <typename T>

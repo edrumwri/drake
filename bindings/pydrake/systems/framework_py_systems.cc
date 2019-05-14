@@ -435,6 +435,10 @@ struct Impl {
             overload_cast_explicit<unique_ptr<ContinuousState<T>>>(
                 &System<T>::AllocateTimeDerivatives),
             doc.System.AllocateTimeDerivatives.doc)
+        .def("AllocateDiscreteVariables",
+            overload_cast_explicit<unique_ptr<DiscreteValues<T>>>(
+                &System<T>::AllocateDiscreteVariables),
+            doc.System.AllocateDiscreteVariables.doc)
         .def("EvalVectorInput",
             [](const System<T>* self, const Context<T>& arg1, int arg2) {
               return self->EvalVectorInput(arg1, arg2);
@@ -450,9 +454,16 @@ struct Impl {
             // Keep alive, ownership: `return` keeps `Context` alive.
             py::keep_alive<0, 2>(), doc.SystemBase.EvalAbstractInput.doc)
         // Computation.
-        .def("CalcOutput", &System<T>::CalcOutput, doc.System.CalcOutput.doc)
+        .def("CalcOutput", &System<T>::CalcOutput, py::arg("context"),
+            py::arg("outputs"), doc.System.CalcOutput.doc)
         .def("CalcTimeDerivatives", &System<T>::CalcTimeDerivatives,
+            py::arg("context"), py::arg("derivatives"),
             doc.System.CalcTimeDerivatives.doc)
+        .def("CalcDiscreteVariableUpdates",
+            overload_cast_explicit<void, const Context<T>&, DiscreteValues<T>*>(
+                &System<T>::CalcDiscreteVariableUpdates),
+            py::arg("context"), py::arg("discrete_state"),
+            doc.System.CalcDiscreteVariableUpdates.doc_2args)
         // Sugar.
         .def("GetGraphvizString",
             [str_py](const System<T>* self, int max_depth) {

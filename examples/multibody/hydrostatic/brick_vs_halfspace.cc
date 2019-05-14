@@ -52,10 +52,8 @@ using geometry::SceneGraph;
 using lcm::DrakeLcm;
 
 // "multibody" namespace is ambiguous here without "drake::".
-using drake::multibody::multibody_plant::CoulombFriction;
 using drake::multibody::ConnectContactSurfacesToDrakeVisualizer;
 using drake::multibody::MultibodyPlant;
-using drake::multibody::MultibodyTree;
 using drake::multibody::SpatialVelocity;
 using drake::multibody::Parser;
 using drake::multibody::UniformGravityFieldElement;
@@ -111,7 +109,12 @@ int do_main() {
 
   // Set initial pose for the box.
   auto& state_vector = plant_context.get_mutable_continuous_state_vector();
-  state_vector[6] = 0.5;
+  using std::sqrt;
+  state_vector[6] = 1.0;
+  state_vector[0] = 2/sqrt(2.0);
+  state_vector[1] = 0;
+  state_vector[2] = 2/sqrt(2.0);
+  state_vector[3] = 0;
 
   systems::Simulator<double> simulator(*diagram, std::move(diagram_context));
 
