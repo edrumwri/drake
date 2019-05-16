@@ -20,12 +20,6 @@ To see example usages, please see `doc/python_bindings.rst`.
 """
 
 from __future__ import absolute_import
-import warnings
-
-# Deprecated symbols.
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", DeprecationWarning)
-    from .util.all import *
 
 # Legacy symbols.
 from .attic.all import *
@@ -34,7 +28,6 @@ from .attic.all import *
 from . import getDrakePath
 from .autodiffutils import *
 from .automotive import *
-from .drawing import *
 from .forwarddiff import *
 from .geometry import *
 from .lcm import *
@@ -52,3 +45,4 @@ from .multibody.all import *
 from .solvers.all import *
 from .systems.all import *
 # - `third_party` does not offer public Drake library symbols.
+from .visualization.all import *

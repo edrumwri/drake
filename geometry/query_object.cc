@@ -19,6 +19,17 @@ QueryObject<T>& QueryObject<T>::operator=(const QueryObject<T>&) {
 }
 
 template <typename T>
+std::vector<ContactSurface<T>>
+QueryObject<T>::ComputeContactSurfaces() const {
+  ThrowIfDefault();
+
+  // TODO(DamrongGuoy): Modify this when the cache system is in place.
+  scene_graph_->FullPoseUpdate(*context_);
+  const GeometryState<T>& state = geometry_state();
+  return state.ComputeContactSurfaces();
+}
+
+template <typename T>
 std::vector<PenetrationAsPointPair<double>>
 QueryObject<T>::ComputePointPairPenetration() const {
   ThrowIfDefault();
@@ -30,25 +41,26 @@ QueryObject<T>::ComputePointPairPenetration() const {
 }
 
 template <typename T>
-std::vector<SignedDistancePair<double>>
-QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints() const {
+std::vector<SignedDistancePair<T>>
+QueryObject<T>::ComputeSignedDistancePairwiseClosestPoints(
+    const double max_distance) const {
   ThrowIfDefault();
 
   // TODO(SeanCurtis-TRI): Modify this when the cache system is in place.
   scene_graph_->FullPoseUpdate(*context_);
-  const GeometryState<T>& state = context_->get_geometry_state();
-  return state.ComputeSignedDistancePairwiseClosestPoints();
+  const GeometryState<T>& state = geometry_state();
+  return state.ComputeSignedDistancePairwiseClosestPoints(max_distance);
 }
 
 template <typename T>
-std::vector<SignedDistanceToPoint<double>>
+std::vector<SignedDistanceToPoint<T>>
 QueryObject<T>::ComputeSignedDistanceToPoint(
-    const Vector3<double>& p_WQ,
+    const Vector3<T>& p_WQ,
     const double threshold) const {
   ThrowIfDefault();
 
   scene_graph_->FullPoseUpdate(*context_);
-  const GeometryState<T>& state = context_->get_geometry_state();
+  const GeometryState<T>& state = geometry_state();
   return state.ComputeSignedDistanceToPoint(p_WQ, threshold);
 }
 
@@ -57,7 +69,7 @@ const GeometryState<T>& QueryObject<T>::geometry_state() const {
   // TODO(SeanCurtis-TRI): Handle the "baked" query object case.
   DRAKE_DEMAND(scene_graph_ != nullptr);
   DRAKE_DEMAND(context_ != nullptr);
-  return context_->get_geometry_state();
+  return scene_graph_->geometry_state(*context_);
 }
 
 }  // namespace geometry

@@ -3,6 +3,7 @@
 #include <limits>
 
 #include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/math/rigid_transform.h"
 #include "drake/multibody/inverse_kinematics/test/inverse_kinematics_test_utilities.h"
 
 namespace drake {
@@ -69,12 +70,12 @@ AutoDiffVecXd EvalMinimumDistanceConstraintAutoDiff(
       plant.get_geometry_query_input_port()
           .Eval<geometry::QueryObject<AutoDiffXd>>(context);
 
-  const std::vector<geometry::SignedDistancePair<double>>
+  const std::vector<geometry::SignedDistancePair<AutoDiffXd>>
       signed_distance_pairs =
           query_object.ComputeSignedDistancePairwiseClosestPoints();
 
   for (const auto& signed_distance_pair : signed_distance_pairs) {
-    const double distance = signed_distance_pair.distance;
+    const double distance = signed_distance_pair.distance.value();
     if (distance < minimum_distance) {
       const double sign = distance > 0 ? 1 : -1;
 
@@ -132,12 +133,10 @@ void CheckMinimumDistanceConstraintEval(
 }
 
 template <typename T>
-Vector3<T> ComputeCollisionSphereCenterPosition(const Vector3<T>& p_WB,
-                                                const Quaternion<T>& quat_WB,
-                                                const Eigen::Isometry3d& X_BS) {
-  Isometry3<T> X_WB;
-  X_WB.linear() = quat_WB.toRotationMatrix();
-  X_WB.translation() = p_WB;
+Vector3<T> ComputeCollisionSphereCenterPosition(
+    const Vector3<T>& p_WB, const Quaternion<T>& quat_WB,
+    const math::RigidTransformd& X_BS) {
+  math::RigidTransform<T> X_WB{quat_WB, p_WB};
   return X_WB * (X_BS.translation().cast<T>());
 }
 
@@ -224,7 +223,7 @@ class TwoFreeSpheresMinimumDistanceTest : public TwoFreeSpheresTest {
     // The exponential penalty function -x * e^{1/x} can introduce relatively
     // large numerical error, when the distance is close to minimum_distance (
     // namely when x is close to 0).
-    const double gradient_tol = 3E-12;
+    const double gradient_tol = 6E-12;
     EXPECT_TRUE(CompareMatrices(y_autodiff(0).derivatives(),
                                 penalty_autodiff.derivatives(), gradient_tol));
     // Now evaluate the constraint using autodiff from start.

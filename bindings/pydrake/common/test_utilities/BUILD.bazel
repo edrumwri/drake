@@ -1,6 +1,5 @@
 # -*- python -*-
 
-load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
     "@drake//tools/skylark:pybind.bzl",
     "get_pybind_package_info",
@@ -9,6 +8,7 @@ load(
     "@drake//tools/skylark:drake_py.bzl",
     "drake_py_library",
 )
+load("//bindings/pydrake:pydrake.bzl", "add_lint_tests_pydrake")
 
 package(default_visibility = [
     "//bindings/pydrake:__subpackages__",
@@ -32,6 +32,16 @@ drake_py_library(
     deps = [":module_py"],
 )
 
+drake_py_library(
+    name = "numpy_compare_py",
+    srcs = ["numpy_compare.py"],
+    deps = [
+        ":module_py",
+        "//bindings/pydrake:autodiffutils_py",
+        "//bindings/pydrake:symbolic_py",
+    ],
+)
+
 # Package roll-up (for Bazel dependencies).
 drake_py_library(
     name = "test_utilities",
@@ -41,7 +51,4 @@ drake_py_library(
     ],
 )
 
-add_lint_tests(
-    cpplint_data = ["//bindings/pydrake:.clang-format"],
-    enable_clang_format_lint = True,
-)
+add_lint_tests_pydrake()

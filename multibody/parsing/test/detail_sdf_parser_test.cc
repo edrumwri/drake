@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 #include <sdf/sdf.hh>
+#include <spruce.hh>
 
 #include "drake/common/find_resource.h"
 #include "drake/common/temp_directory.h"
@@ -22,7 +23,6 @@ namespace multibody {
 namespace detail {
 namespace {
 
-using Eigen::Isometry3d;
 using Eigen::Vector3d;
 using geometry::GeometryId;
 using geometry::GeometryInstance;
@@ -43,12 +43,13 @@ GTEST_TEST(MultibodyPlantSdfParserTest, PackageMapSpecified) {
 
   const std::string full_sdf_filename = FindResourceOrThrow(
       "drake/multibody/parsing/test/box_package/sdfs/box.sdf");
-  const std::string package_path = FindResourceOrThrow(
-      "drake/multibody/parsing/test/box_package");
+  spruce::path package_path = full_sdf_filename;
+  package_path = package_path.root();
+  package_path = package_path.root();
 
   // Construct the PackageMap.
   PackageMap package_map;
-  package_map.PopulateFromFolder(package_path);
+  package_map.PopulateFromFolder(package_path.getStr());
 
   // Read in the SDF file.
   AddModelFromSdfFile(full_sdf_filename, "", package_map, &plant, &scene_graph);
@@ -179,25 +180,23 @@ GTEST_TEST(MultibodyPlantSdfParserTest, ModelInstanceTest) {
   const double eps = std::numeric_limits<double>::epsilon();
   auto check_frame = [&plant, instance1, &context, eps](
       std::string parent_name, std::string name,
-      const Isometry3d& X_PF_expected) {
+      const RigidTransformd& X_PF_expected) {
     const Frame<double>& frame = plant.GetFrameByName(name, instance1);
     const Frame<double>& parent_frame =
         plant.GetFrameByName(parent_name, instance1);
-    const Isometry3d X_PF = plant.CalcRelativeTransform(
+    const RigidTransformd X_PF = plant.CalcRelativeTransform(
         *context, parent_frame, frame);
     EXPECT_TRUE(CompareMatrices(X_PF_expected.matrix(), X_PF.matrix(), eps))
         << name;
   };
 
-  const Isometry3d X_L1F1 = RigidTransformd(
-      RollPitchYawd(0.4, 0.5, 0.6), Vector3d(0.1, 0.2, 0.3)).GetAsIsometry3();
+  const RigidTransformd X_L1F1(
+      RollPitchYawd(0.4, 0.5, 0.6), Vector3d(0.1, 0.2, 0.3));
   check_frame("link1", "model_scope_link1_frame", X_L1F1);
-  const Isometry3d X_F1F2 = RigidTransformd(
-      Vector3d(0.1, 0.0, 0.0)).GetAsIsometry3();
+  const RigidTransformd X_F1F2(Vector3d(0.1, 0.0, 0.0));
   check_frame(
       "model_scope_link1_frame", "model_scope_link1_frame_child", X_F1F2);
-  const Isometry3d X_MF3 = RigidTransformd(
-      Vector3d(0.7, 0.8, 0.9)).GetAsIsometry3();
+  const RigidTransformd X_MF3(Vector3d(0.7, 0.8, 0.9));
   check_frame(
       "_instance1_sdf_model_frame", "model_scope_model_frame_implicit", X_MF3);
 }
@@ -220,9 +219,10 @@ GTEST_TEST(SdfParserThrowsWhen, JointDampingIsNegative) {
 }
 
 GTEST_TEST(SdfParser, IncludeTags) {
-  const std::string sdf_file_path =
-      "drake/multibody/parsing/test/sdf_parser_test";
-  sdf::addURIPath("model://", FindResourceOrThrow(sdf_file_path));
+  const std::string full_name = FindResourceOrThrow(
+      "drake/multibody/parsing/test/sdf_parser_test/"
+      "include_models.sdf");
+  sdf::addURIPath("model://", spruce::path(full_name).root());
   MultibodyPlant<double> plant;
 
   // We start with the world and default model instances.
@@ -231,8 +231,6 @@ GTEST_TEST(SdfParser, IncludeTags) {
   ASSERT_EQ(plant.num_joints(), 0);
 
   PackageMap package_map;
-  const std::string full_name = FindResourceOrThrow(
-      sdf_file_path + "/include_models.sdf");
   package_map.PopulateUpstreamToDrake(full_name);
   AddModelsFromSdfFile(full_name, package_map, &plant);
   plant.Finalize();

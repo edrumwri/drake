@@ -71,7 +71,7 @@ endif()
 
 # The version passed to find_package(Bazel) should match the
 # minimum_bazel_version value in the call to versions.check() in WORKSPACE.
-set(MINIMUM_BAZEL_VERSION 0.19.2)
+set(MINIMUM_BAZEL_VERSION 0.25)
 find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE REQUIRED)
 
 get_filename_component(C_COMPILER_REALPATH "${CMAKE_C_COMPILER}" REALPATH)
@@ -309,7 +309,7 @@ set(BAZEL_CONFIGS)
 option(WITH_GUROBI "Build with support for Gurobi" OFF)
 
 if(WITH_GUROBI)
-  find_package(Gurobi 8.0.0 MODULE REQUIRED)
+  find_package(Gurobi 8.0.1 EXACT MODULE REQUIRED)
 
   list(APPEND BAZEL_CONFIGS --config=gurobi)
 
@@ -538,7 +538,7 @@ set(CPACK_GENERATOR TGZ)
 set(CPACK_INSTALLED_DIRECTORIES "${CMAKE_INSTALL_PREFIX}" .)
 set(CPACK_PACKAGE_CONTACT RobotLocomotion)
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-  "Planning, control, and analysis toolbox for nonlinear dynamical systems"
+  "Model-based design and verification for robotics"
 )
 set(CPACK_PACKAGE_VENDOR RobotLocomotion)
 set(CPACK_PACKAGE_VERSION_MAJOR 0)
