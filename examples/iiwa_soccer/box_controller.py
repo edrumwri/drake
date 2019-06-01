@@ -72,37 +72,39 @@ class BoxController(ControllerBase):
     def ComputeActuationForContactNotDesired(self, context):
         # Get the desired robot acceleration.
         q_robot_des = self.plan.GetRobotQVAndVdot(
-                context.get_time())[0:nv_robot()-1]
+                context.get_time())[0:self.nq_robot()]
         qdot_robot_des = self.plan.GetRobotQVAndVdot(
-                context.get_time())[nv_robot(), 2*nv_robot()-1]
+                context.get_time())[self.nq_robot():self.nq_robot()+self.nv_robot()]
         qddot_robot_des = self.plan.GetRobotQVAndVdot(
-                context.get_time())[-nv_robot():]
+                context.get_time())[-self.nv_robot():]
 
         # Get the robot current generalized position and velocity.
-        q_robot = get_q_robot(context)
-        qd_robot = get_v_robot(context)
+        q_robot = self.get_q_robot(context)
+        qd_robot = self.get_v_robot(context)
 
         # Set qddot_robot_des using error feedback.
-        qddot = qddot_robot_des + np.diag(self.robot_gv_kp).dot(q_robot_des - q_robot) + np.diag(self.robot_gv_ki).diag(get_integral_value(context)) + np.diag(self.robot_gv_kd).dot(qdot_robot_des - qd_robot)
+        robot_context = self.robot_context
+        qddot = qddot_robot_des + np.diag(self.robot_gv_kp).dot(self.robot_plant.MapQDotToVelocity(robot_context, q_robot_des - q_robot)) + \
+                np.diag(self.robot_gv_ki).dot(self.robot_plant.MapQDotToVelocity(robot_context, self.get_integral_value(context))) + \
+                np.diag(self.robot_gv_kd).dot(qdot_robot_des - qd_robot)
 
         # Set the state in the robot context to q_robot and qd_robot.
-        x = self.robot_plant.tree().get_mutable_multibody_state_vector(robot_context)
-        assert len(x) == len(q_robot) + len(qd_robot)
-        x[0:len(q_robot)-1] = q_robot
+        x = np.zeros([len(q_robot) + len(qd_robot)])
+        x[0:len(q_robot)] = q_robot
         x[-len(qd_robot):] = qd_robot
+        self.robot_plant.SetPositionsAndVelocities(robot_context, x)
 
         # Get the generalized inertia matrix.
-        M = self.robot_plant.tree().CalcMassMatrixViaInverseDynamics(robot_context)
+        M = self.robot_plant.CalcMassMatrixViaInverseDynamics(robot_context)
 
         # Compute the contribution from force elements.
-        robot_tree = self.robot_plant.tree()
-        link_wrenches = MultibodyForces(robot_tree)
+        link_wrenches = MultibodyForces(self.robot_plant)
 
         # Compute the external forces.
-        fext = -robot_tree.CalcInverseDynamics(robot_context, np.zeros([nv_robot(), 1]), link_wrenches)
+        fext = -self.robot_plant.CalcInverseDynamics(robot_context, np.zeros([self.nv_robot(), 1]), link_wrenches)
 
         # Compute inverse dynamics.
-        u = M * qddot - fext
+        u = M * qddot - (fext + self.robot_plant.CalcGravityGeneralizedForces(self.robot_context))
         return u
 
     def ComputeContributionsFromBallTrackingErrors(self, q0, v0, normal_and_signed_distance_data):
@@ -258,9 +260,10 @@ class BoxController(ControllerBase):
         # Compute the external forces.
         fext = np.reshape(-robot_plant.CalcInverseDynamics(
             self.robot_context, np.zeros([self.nv_robot()]), link_wrenches), (-1, 1))
+        tau_g = np.reshape(robot_plant.CalcGravityGeneralizedForces(self.robot_context), (-1, 1))
 
         # Compute inverse dynamics.
-        return M.dot(vdot) - fext
+        return M.dot(vdot) - (fext + tau_g)
 
     # Loads all plans into the controller.
     def LoadPlans(self, path):
