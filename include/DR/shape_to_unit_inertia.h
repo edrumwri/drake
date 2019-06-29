@@ -60,7 +60,7 @@ class ShapeToUnitInertia final : public drake::geometry::ShapeReifier {
 
   //@}
   const drake::multibody::UnitInertia<T>& unit_inertia() const {
-    DRAKE_DEMAND(unit_inertia_);
+    DRAKE_DEMAND(unit_inertia_.has_value());
     return unit_inertia_.value();
   }
 
