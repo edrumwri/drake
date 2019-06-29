@@ -6,7 +6,7 @@
 #include <drake/multibody/parsing/parser.h>
 #include <drake/multibody/plant/multibody_plant.h>
 
-#include <PCESystems/config.h>
+#include <DR/config.h>
 
 namespace DR {
 

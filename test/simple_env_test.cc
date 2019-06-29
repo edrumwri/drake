@@ -11,7 +11,7 @@
  * currently:
  *    -- Floor
  *    -- Trailer
- * see include/PCESystems/config.h for documentation of UnloadingTaskConfig and
+ * see include/DR/config.h for documentation of UnloadingTaskConfig and
  * sub-classes" BodyInstanceConfig, EnvironmentInstanceConfig
  */
 
@@ -19,7 +19,7 @@
 
 #include <drake/common/text_logging_gflags.h>
 
-#include <PCESystems/model_generator.h>
+#include <DR/model_generator.h>
 
 namespace DR {
 namespace {

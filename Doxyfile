@@ -4,7 +4,7 @@
 # Project related configuration options
 #---------------------------------------------------------------------------
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = PCESystems
+PROJECT_NAME           = DR
 PROJECT_NUMBER         =
 PROJECT_BRIEF          = Planning Control and Estimation Systems
 PROJECT_LOGO           =

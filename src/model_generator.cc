@@ -1,5 +1,5 @@
-#include <PCESystems/model_generator.h>
-#include <PCESystems/shape_to_unit_inertia.h>
+#include <DR/model_generator.h>
+#include <DR/shape_to_unit_inertia.h>
 
 namespace DR {
 
