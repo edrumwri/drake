@@ -2,8 +2,8 @@
 
 #include <string>
 
-#include "drake/geometry/shape_specification.h"
-#include "drake/multibody/tree/unit_inertia.h"
+#include <drake/geometry/shape_specification.h>
+#include <drake/multibody/tree/unit_inertia.h>
 
 namespace DR {
 
