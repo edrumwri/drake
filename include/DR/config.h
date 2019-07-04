@@ -14,28 +14,20 @@
 namespace DR {
 
 /**
- * Enum types for simulation integration schemes:
- *
- * 0) kUnknownIntegrationScheme: No integration scheme was set.
- *
- * 1) kSemiExplicitEulerIntegrationScheme: A first-order, semi-explicit Euler
- * integrator.
- *
- * 2) kRK2IntegrationScheme: A second-order, explicit Runge Kutta integrator.
- *
- * 3) kRK3IntegrationScheme: A third-order Runge Kutta integrator with a third
- * order error estimate.
- *
- * 4) kImplicitEulerIntegrationScheme: A first-order, fully implicit integrator
- * with second order error estimation.
+ * NOTE: Configuration files are not templatized because they do not store
+ * parameters that vary with respect to the scalar type of a
+ * drake::multibody::MultibodyPlant<T>.  Example:
+ * ```
+ * template <typename T>
+ * geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
+ *  const Body<T>& body, const math::RigidTransform<double>& X_BG,
+ *  const geometry::Shape& shape, const std::string& name,
+ *  const Vector4<double>& diffuse_color,
+ *  SceneGraph<T>* scene_graph)
+ * ```
+ * the Pose `math::RigidTransform<double>` remains a double despite the
+ * templated scalar type of MultibodyPlant.
  */
-enum IntegrationScheme {
-  kUnknownIntegrationScheme = 0,
-  kSemiExplicitEulerIntegrationScheme = 1,
-  kRK2IntegrationScheme = 2,
-  kRK3IntegrationScheme = 3,
-  kImplicitEulerIntegrationScheme = 4,
-};
 
 /**
  * The base interface for all configuration specifications.  It requires that
@@ -63,6 +55,30 @@ class ConfigBase {
  */
 class SimulatorInstanceConfig : public ConfigBase {
  public:
+  /**
+   * Enum types for simulation integration schemes:
+   *
+   * 0) kUnknownIntegrationScheme: No integration scheme was set.
+   *
+   * 1) kSemiExplicitEulerIntegrationScheme: A first-order, semi-explicit Euler
+   * integrator.
+   *
+   * 2) kRK2IntegrationScheme: A second-order, explicit Runge Kutta integrator.
+   *
+   * 3) kRK3IntegrationScheme: A third-order Runge Kutta integrator with a third
+   * order error estimate.
+   *
+   * 4) kImplicitEulerIntegrationScheme: A first-order, fully implicit
+   * integrator with second order error estimation.
+   */
+  enum IntegrationScheme {
+    kUnknownIntegrationScheme = 0,
+    kSemiExplicitEulerIntegrationScheme = 1,
+    kRK2IntegrationScheme = 2,
+    kRK3IntegrationScheme = 3,
+    kImplicitEulerIntegrationScheme = 4,
+  };
+
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SimulatorInstanceConfig)
 
   SimulatorInstanceConfig() {}
@@ -145,6 +161,7 @@ class SimulatorInstanceConfig : public ConfigBase {
  * NOTE: This group excludes the environment (floor, trailer of truck, and the
  * robot model) but includes static objects.
  */
+
 class BodyInstanceConfig : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(BodyInstanceConfig)
@@ -241,6 +258,7 @@ class BodyInstanceConfig : public ConfigBase {
  * There is only ever one environment because it is composed of open
  * geometries (e.g. HalfSpace).
  */
+
 class EnvironmentInstanceConfig : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(EnvironmentInstanceConfig)
@@ -355,6 +373,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
  *   1 Static Environment {Floor, Trailer}
  *   N Static or Dynamic Manipulands {Box, Sphere}
  */
+
 class UnloadingTaskConfig : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(UnloadingTaskConfig)

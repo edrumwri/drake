@@ -64,15 +64,15 @@ set(
 file(
   GLOB 
   SRC_FILES
-  "src/*.cc"
   "primitives/*.cc"
+  "simulation/*.cc"
 )
 
 file(
   GLOB 
   TEST_SRC_FILES
   "primitives/test/*.cc"
-  "test/*.cc"
+  "simulation/test/*.cc"
 )
 
 foreach(TEST_SRC ${TEST_SRC_FILES})
