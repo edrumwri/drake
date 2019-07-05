@@ -1,0 +1,4 @@
+language: bash
+
+script:
+  - bash scripts/check_tests.sh

@@ -1,0 +1,19 @@
+Test Results:
+44dd5a593149a5c9d78cdac58e4b2562  include/DR/config.h
+6df97240fed5b08233f08e2d18d9fea0  include/DR/model_generator.h
+8c85e8c01ea8a624d20c6856e6b970b3  include/DR/primitives/plan.h
+a8f93d1fde9dc79c1a0866cc0e63dbeb  include/DR/primitives/primitive_behavior.h
+28aad9a6ce57e0fc4aaabe61d3819082  include/DR/shape_to_unit_inertia.h
+c9503a6d9c349b331c0e71d71a971eef  primitives/primitive_behavior.cc
+8f17a2c9389407b61e5899711e6a0290  primitives/test/primitive_behavior_test.cc
+e354496b1617ad32f55f7bd8d9b32439  simulation/test/simple_env_test.cc
+Running tests...
+Test project /home/samzapo/Development/DR/build
+    Start 1: primitive_behavior_test
+1/2 Test #1: primitive_behavior_test ..........   Passed    3.05 sec
+    Start 2: simple_env_test
+2/2 Test #2: simple_env_test ..................   Passed    0.22 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   3.27 sec

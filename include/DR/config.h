@@ -271,7 +271,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
     DRAKE_DEMAND(trailer_size_.minCoeff() > 0.0);
     DRAKE_DEMAND(type_ != kUnknownEnvironmentType);
 
-    for (const auto& env_body : GetBodyInstanceConfigs()) {
+    for (const auto& env_body : body_instance_configs()) {
       env_body.ValidateConfig();
       DRAKE_DEMAND(!env_body.is_floating());
     }
@@ -310,13 +310,13 @@ class EnvironmentInstanceConfig : public ConfigBase {
     return coulomb_friction_;
   }
 
-  const std::vector<BodyInstanceConfig>& GetBodyInstanceConfigs() const {
-    return body_instance_config_;
+  const std::vector<BodyInstanceConfig>& body_instance_configs() const {
+    return body_instance_configs_;
   }
 
-  void SetBodyInstanceConfigs(
-      const std::vector<BodyInstanceConfig>& environment_body_instance_config) {
-    body_instance_config_ = body_instance_config_;
+  void set_body_instance_configs(
+      const std::vector<BodyInstanceConfig>& body_instance_configs) {
+    body_instance_configs_ = body_instance_configs;
   }
 
  private:
@@ -326,7 +326,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
    * orientation in the world.
    * e.g., add member variable: drake::math::RigidTransform<double> pose_
    * NOTE: Does this set the parent frame of all bodies in
-   * body_instance_config_?
+   * body_instance_configs_?
    */
 
   /**
@@ -335,7 +335,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
    * Bodies of this type must be fixed to the world and have geometric
    * properties, (inertial properties are not important).
    */
-  std::vector<BodyInstanceConfig> body_instance_config_;
+  std::vector<BodyInstanceConfig> body_instance_configs_;
 
   // This is the gravity vector of this environment (the default value is
   // usually best).
@@ -386,7 +386,7 @@ class UnloadingTaskConfig : public ConfigBase {
     std::set<std::string> unique_names;
     std::pair<std::set<std::string>::iterator, bool> ret;
 
-    for (const auto& manipuland : manipuland_instance_config()) {
+    for (const auto& manipuland : manipuland_instance_configs()) {
       manipuland.ValidateConfig();
       DRAKE_DEMAND(manipuland.is_floating());
 
@@ -402,7 +402,7 @@ class UnloadingTaskConfig : public ConfigBase {
     environment_instance_config().ValidateConfig();
 
     for (const auto& env_body :
-         environment_instance_config().GetBodyInstanceConfigs()) {
+         environment_instance_config().body_instance_configs()) {
       // guarantee that all bodies have a unique name.
       ret = unique_names.insert(env_body.name());
       if (ret.second == false) {
@@ -417,7 +417,7 @@ class UnloadingTaskConfig : public ConfigBase {
     return simulator_instance_config_;
   }
 
-  const std::vector<BodyInstanceConfig>& manipuland_instance_config() const {
+  const std::vector<BodyInstanceConfig>& manipuland_instance_configs() const {
     return manipuland_instance_configs_;
   }
 
@@ -430,9 +430,9 @@ class UnloadingTaskConfig : public ConfigBase {
     simulator_instance_config_ = simulator_instance_config;
   }
 
-  void set_manipuland_instance_config(
-      const std::vector<BodyInstanceConfig>& manipuland_instance_config) {
-    manipuland_instance_configs_ = manipuland_instance_config;
+  void set_manipuland_instance_configs(
+      const std::vector<BodyInstanceConfig>& manipuland_instance_configs) {
+    manipuland_instance_configs_ = manipuland_instance_configs;
   }
 
   void set_environment_instance_config(

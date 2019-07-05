@@ -59,15 +59,15 @@ Make a private fork of `DR` to your personal github account, your fork of `DR` s
 ### Building (cmake, requires Drake cmake build)
 
 ```
-mkdir ~/DR-build
-cd ~/DR-build
-cmake -DCMAKE_BUILD_TYPE="RelWithDebInfo" -DCMAKE_PREFIX_PATH=$(realpath ${WORKDIR})/drake-build/install ~/DR
+mkdir ~/DR/build
+cd ~/DR/build
+cmake -DCMAKE_BUILD_TYPE="RelWithDebInfo" -DCMAKE_PREFIX_PATH=$(realpath ${WORKDIR})/drake-build/install ../
 make -j
 ```
 
 ### Running Test Code
 
 ```
-export CTEST_OUTPUT_ON_FAILURE=1
-make -j && make test
+cd ~/DR/build
+../scripts/run_tests.sh ${PWD} && ../scripts/check_tests.sh
 ```

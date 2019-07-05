@@ -43,7 +43,7 @@ class ModelGenerator {
     drake::multibody::MultibodyPlant<T>* mbp = &(items.plant);
 
     // Add Manipulands to the scene.
-    for (const auto& instance : config.manipuland_instance_config()) {
+    for (const auto& instance : config.manipuland_instance_configs()) {
       AddBodyToMBP(instance, mbp);
     }
 
@@ -70,18 +70,15 @@ class ModelGenerator {
                    const drake::multibody::ModelInstanceIndex& model_instance,
                    const drake::math::RigidTransform<double>& X_WM,
                    drake::multibody::MultibodyPlant<T>* mbp) {
-    // Behavior same as:
-    //    MultibodyPlant::WeldFrames(
-    //      mbp->GetBodyByName(body_name,model_instance).body_frame(),
-    //      mbp->world_frame(),
-    //      X_WM
-    //    );
     // This adds an offset to the named body in the model instance and then
     // welds the body to world.
-    // const drake::multibody::Body<T>& world_body = mbp->world_body();
+    const drake::multibody::Body<T>& world_body = mbp->world_body();
     const drake::multibody::Body<T>& model_body =
         mbp->GetBodyByName(body_name, model_instance);
-    mbp->WeldFrames(model_body.body_frame(), mbp->world_frame(), X_WM);
+    mbp->template AddJoint<drake::multibody::WeldJoint>(
+        body_name + "_world_weld", world_body, X_WM, model_body,
+        drake::math::RigidTransform<double>::Identity() /* X_CJ */,
+        drake::math::RigidTransform<double>::Identity() /* X_JpJc */);
   }
 
   /**
@@ -150,7 +147,7 @@ class ModelGenerator {
     mbp->mutable_gravity_field().set_gravity_vector(config.gravity());
 
     // Add environment bodies (fixed to world frame) to the MultibodyPlant.
-    for (const auto& instance : config.GetBodyInstanceConfigs()) {
+    for (const auto& instance : config.body_instance_configs()) {
       AddBodyToMBP(instance, mbp);
     }
 

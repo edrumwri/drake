@@ -154,7 +154,7 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
     test_env.SetCoulombFriction(0.8, 0.6);
 
     for (const auto& env_bodies : test_env_bodies) {
-      test_env.SetBodyInstanceConfigs(env_bodies);
+      test_env.set_body_instance_configs(env_bodies);
       // Setup floor plane environment.
       test_env.SetFloorEnvironment();
       test_environments.push_back(test_env);
@@ -171,14 +171,21 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
     for (const auto& environment : test_environments) {
       config.set_environment_instance_config(environment);
       for (const auto& manipulands : test_manipulands) {
-        config.set_manipuland_instance_config(manipulands);
+        config.set_manipuland_instance_configs(manipulands);
 
         // Make sure config is good.
-        ASSERT_NO_THROW(config.ValidateConfig());
+        try {
+          config.ValidateConfig();
+        } catch (const std::exception& e) {
+          FAIL() << e.what();
+        }
 
         // Test that we can successfully build the world.
-        ASSERT_NO_THROW(this->model_generator()->CreateSceneAndRobot(
-            config, this->builder()));
+        try {
+          this->model_generator()->CreateSceneAndRobot(config, this->builder());
+        } catch (const std::exception& e) {
+          FAIL() << e.what();
+        }
       }
     }
   }
