@@ -215,14 +215,14 @@ PrimitiveBehavior<T>::PrimitiveBehavior(const drake::multibody::MultibodyPlant<T
 
 template <typename T>
 void PrimitiveBehavior<T>::SetDefaultState(
-    const drake::systems::Context<T>& context, drake::systems::State<T>* state) const {
+    const drake::systems::Context<T>&, drake::systems::State<T>* state) const {
   // Reset the pointer to the plan. 
   state->template get_mutable_abstract_state<drake::copyable_unique_ptr<Plan<T>>>(plan_index_).reset(); 
 }
 
 template <typename T>
 void PrimitiveBehavior<T>::UpdatePlanStateFromPlanQueue(
-    const drake::systems::Context<T>& context, drake::systems::State<T>* state) const {
+    const drake::systems::Context<T>&, drake::systems::State<T>* state) const {
   // TODO(edrumwri): Re-consider whether this is a good idea.
   // This loop exists because it is conceivable that multiple plans are placed into the queue, while normally a plan is
   // transferred into the state at a greater rate than plans are computed. In this case, we treat the older plans as
@@ -243,10 +243,10 @@ void PrimitiveBehavior<T>::StartPlanning(const drake::systems::Context<T>& conte
   BlockOnPlanningThreadTermination(); 
 
   // Start the planning thread.
-  auto f = [this](const drake::systems::Context<T>& context) -> void {
+  auto f = [this](const drake::systems::Context<T>& c) -> void {
     // Compute the plan. This is of course doing a heap allocation, which we would normally avoid in the context of a
     // control loop, but given that this is happening during a long-term planning process, it seems less problematic. 
-    drake::copyable_unique_ptr<Plan<T>> plan(ComputePlan(context));
+    drake::copyable_unique_ptr<Plan<T>> plan(ComputePlan(c));
 
     // Store the plan.
     plan_queue_mutex_.lock();

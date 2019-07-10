@@ -36,6 +36,8 @@ namespace DR {
  */
 class ConfigBase {
  public:
+  virtual ~ConfigBase() {}
+
   /**
    * This function much be implemented by all derived classes of ConfigBase
    * class. This function should throw an error if one or more of the member
@@ -82,7 +84,7 @@ class SimulatorInstanceConfig : public ConfigBase {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SimulatorInstanceConfig)
 
   SimulatorInstanceConfig() {}
-  ~SimulatorInstanceConfig() {}
+  virtual ~SimulatorInstanceConfig() {}
   void ValidateConfig() const final {
     DRAKE_DEMAND(target_accuracy_ > 0.0);
     DRAKE_DEMAND(target_realtime_rate_ > 0.0);
@@ -167,7 +169,7 @@ class BodyInstanceConfig : public ConfigBase {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(BodyInstanceConfig)
 
   BodyInstanceConfig() {}
-  ~BodyInstanceConfig() {}
+  virtual ~BodyInstanceConfig() {}
   void ValidateConfig() const final {
     DRAKE_DEMAND(geometry_.get());
     DRAKE_DEMAND(!name_.empty());
@@ -264,7 +266,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(EnvironmentInstanceConfig)
 
   EnvironmentInstanceConfig() {}
-  ~EnvironmentInstanceConfig() {}
+  virtual ~EnvironmentInstanceConfig() {}
   void ValidateConfig() const final {
     DRAKE_DEMAND(std::isfinite(gravity_.norm()));
     DRAKE_DEMAND(std::isfinite(trailer_size_.norm()));
@@ -379,7 +381,7 @@ class UnloadingTaskConfig : public ConfigBase {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(UnloadingTaskConfig)
 
   UnloadingTaskConfig() {}
-  ~UnloadingTaskConfig() {}
+  virtual ~UnloadingTaskConfig() {}
   void ValidateConfig() const final {
     simulator_instance_config().ValidateConfig();
     // Set up unique name check.

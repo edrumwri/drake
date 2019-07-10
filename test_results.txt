@@ -1,19 +1,22 @@
 Test Results:
-44dd5a593149a5c9d78cdac58e4b2562  include/DR/config.h
+8e6ca268b15f095ea2120dae2e8c3e59  include/DR/config.h
 6df97240fed5b08233f08e2d18d9fea0  include/DR/model_generator.h
-8c85e8c01ea8a624d20c6856e6b970b3  include/DR/primitives/plan.h
-a8f93d1fde9dc79c1a0866cc0e63dbeb  include/DR/primitives/primitive_behavior.h
-28aad9a6ce57e0fc4aaabe61d3819082  include/DR/shape_to_unit_inertia.h
+a91f5ad93943dda07a596b3d939a204e  include/DR/primitives/impedance_controller.h
+0581852f72699a75e4aadba44170ea79  include/DR/primitives/plan.h
+2d93ac7c621b0c0abcc78bffdd7a2f3f  include/DR/primitives/primitive_behavior.h
+cc63209291437d7e27b2c71520f29db6  include/DR/shape_to_unit_inertia.h
+349a6daefe24454dd0039a1ae21272b0  primitives/impedance_controller.cc
 c9503a6d9c349b331c0e71d71a971eef  primitives/primitive_behavior.cc
+19fde18e7225b32804d7a9dad3ad0e75  primitives/test/impedance_controller_test.cc
 8f17a2c9389407b61e5899711e6a0290  primitives/test/primitive_behavior_test.cc
 e354496b1617ad32f55f7bd8d9b32439  simulation/test/simple_env_test.cc
 Running tests...
-Test project /home/samzapo/Development/DR/build
+Test project /home/drum/DR/build
     Start 1: primitive_behavior_test
 1/2 Test #1: primitive_behavior_test ..........   Passed    3.05 sec
     Start 2: simple_env_test
-2/2 Test #2: simple_env_test ..................   Passed    0.22 sec
+2/2 Test #2: simple_env_test ..................   Passed    0.31 sec
 
 100% tests passed, 0 tests failed out of 2
 
-Total Test time (real) =   3.27 sec
+Total Test time (real) =   3.36 sec

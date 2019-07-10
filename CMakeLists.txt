@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Activate C++17. Also turn on all compiler warnings, and make warnings errors, in compilation.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wunused-but-set-parameter -Wno-free-nonheap-object -Werror=all -Werror=deprecated -Werror=deprecated-declarations -Werror=ignored-qualifiers -Werror=old-style-cast -Werror=overloaded-virtual -Werror=shadow -Werror=unused-result -Werror=extra -Werror=logical-op -Werror=non-virtual-dtor -Werror=return-local-addr -Werror=unused-but-set-parameter -Wno-missing-field-initializers -fno-canonical-system-headers -Wno-builtin-macro-redefined") 
+
 set(BIN_ROOT_DIR ${CMAKE_BINARY_DIR})
 set(SRC_ROOT_DIR ${CMAKE_SOURCE_DIR})
 

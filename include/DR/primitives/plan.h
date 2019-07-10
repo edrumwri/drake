@@ -9,6 +9,8 @@ namespace DR {
 template <typename T>
 class Plan {
  public:
+  virtual ~Plan() {}
+
   /// Evaluates the plan at the given time.
   virtual drake::VectorX<T> Evaluate(const T& time) const = 0;
 
