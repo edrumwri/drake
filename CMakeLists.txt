@@ -57,54 +57,63 @@ endif()
 
 find_package(drake CONFIG REQUIRED)
 
-set(
-  CORELIBS 
-  drake::drake 
-  gflags
-  gtest
-)
-
+# Collect source files for core lib.
 file(
   GLOB 
   SRC_FILES
+  "common/*.cc"
   "primitives/*.cc"
   "simulation/*.cc"
 )
 
+# Create project core library.
+add_library(
+  ${PROJECT_NAME}_core
+  ${SRC_FILES}
+)
+
+target_link_libraries(
+  ${PROJECT_NAME}_core
+  drake::drake 
+)
+
+# Create and add test binaries to CTest.
 file(
   GLOB 
   TEST_SRC_FILES
+  "common/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
 )
 
 foreach(TEST_SRC ${TEST_SRC_FILES})
-  # generate test name from test file name
+  # Generate test name from test file name.
   get_filename_component(
     TEST_EXE_NAME 
     ${TEST_SRC} 
     NAME_WE
   )
 
-  # create binary for test
+  # Create binary for test.
   add_executable(
-    ${TEST_EXE_NAME} 
+    ${PROJECT_NAME}_${TEST_EXE_NAME} 
     ${TEST_SRC}
-    ${SRC_FILES}
-    )
+  )
+
   target_link_libraries(
-    ${TEST_EXE_NAME} 
-    ${CORELIBS}
+    ${PROJECT_NAME}_${TEST_EXE_NAME} 
+    ${PROJECT_NAME}_core
+    gtest
     gtest_main
   )
 
-  # add CTest (run with 'make test')
+  # Add CTest (run with 'make test').
   add_test(
     NAME 
-    ${TEST_EXE_NAME} 
+    ${PROJECT_NAME}_${TEST_EXE_NAME} 
     WORKING_DIRECTORY 
     ${BIN_ROOT_DIR}
     COMMAND 
-    ${TEST_EXE_NAME}
+    ${PROJECT_NAME}_${TEST_EXE_NAME}
   )
 endforeach(TEST_SRC)

@@ -1,0 +1,12 @@
+# For help with this file, see: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+# We'll use defaults from the Google style
+BasedOnStyle: Google
+# 2 columns indentation 
+IndentWidth: 2
+# 120 character limit per line
+ColumnLimit: 120
+---
+Language: Cpp
+# Force left pointer alignment.
+DerivePointerAlignment: false
+PointerAlignment: Left

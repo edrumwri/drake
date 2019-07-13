@@ -1,6 +1,6 @@
 #!/bin/bash
-set -o pipefail
-set -e
+set -Eeo pipefail
+trap ERR
 
 # see testing.bash for documentation
 

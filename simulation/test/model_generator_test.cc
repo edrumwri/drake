@@ -1,38 +1,24 @@
-#include <DR/model_generator.h>
-
 #include <gtest/gtest.h>
 
 #include <drake/common/autodiff.h>
 
-#include <DR/config.h>
+#include <DR/simulation/config.h>
+#include <DR/simulation/model_generator.h>
 
 namespace DR {
 namespace {
 
-/**
- * Model Generator Test
- * Generates permutations of UnloadingTaskConfig (excluding the robot model) for
- * testing. This includes:
- *
- * An instance of BodyInstanceConfig for all supported
- * derived classes of drake:geometry:Shape, currently:
- *    -- Box {floating (manipuland body), fixed (environment body)}
- *    -- Sphere {floating, fixed}
- *    -- Cylinder {floating, fixed}
- *
- * An instance of EnvironmentInstanceConfig for all supported EnvironmentType,
- * currently:
- *    -- Floor
- *    -- Trailer
- *
- * The permutations of UnloadingTaskConfig are tested against ModelGenerator<T>
- * for supported drake default scalar types:
- *    -- T = double
- *    -- T = drake::AutoDiffXd
- *
- * see include/DR/config.h for documentation on UnloadingTaskConfig
- */
+/*
+ The ModelGeneratorTest creates a drake::systems::DiagramBuilder and
+ ModelGenerator tests implementing this class then use
+ the stored classes to generate a MultibodyPlant world model.
 
+ @tparam T The underlying scalar type. Must be a valid Eigen scalar.
+         Options for T are the following: (☑ = supported)
+         ☑ double
+         ☑ drake::AutoDiffXd
+         ☐ drake::symbolic::Expression
+*/
 template <typename T>
 class ModelGeneratorTest : public ::testing::Test {
  public:
@@ -58,8 +44,21 @@ typedef Types<double, drake::AutoDiffXd> Implementations;
 
 TYPED_TEST_SUITE(ModelGeneratorTest, Implementations);
 
-// Verifies that model generator works for important permutations of
-// UnloadingTaskConfig settings.
+/*
+ Model Generator Test
+ Generates permutations of UnloadingTaskConfig (excluding the robot model) for
+ testing. This includes:
+ An instance of BodyInstanceConfig for all supported
+ derived classes of drake:geometry:Shape, currently:
+    -- Box {floating (manipuland body), fixed (environment body)}
+    -- Sphere {floating, fixed}
+    -- Cylinder {floating, fixed}
+ An instance of EnvironmentInstanceConfig for all supported EnvironmentType,
+ currently:
+    -- Floor
+    -- Trailer
+ see include/DR/simulation/config.h for documentation on UnloadingTaskConfig
+ */
 TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
   // Test simulation options (Integration Scheme).
   std::vector<SimulatorInstanceConfig> test_simulators;
@@ -68,20 +67,16 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
     // Setup config shared by all sims.
     test_sim.set_simulation_time(0.1);
 
-    test_sim.set_integration_scheme(
-        SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
+    test_sim.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
     test_simulators.push_back(test_sim);
 
-    test_sim.set_integration_scheme(
-        SimulatorInstanceConfig::kRK2IntegrationScheme);
+    test_sim.set_integration_scheme(SimulatorInstanceConfig::kRK2IntegrationScheme);
     test_simulators.push_back(test_sim);
 
-    test_sim.set_integration_scheme(
-        SimulatorInstanceConfig::kRK3IntegrationScheme);
+    test_sim.set_integration_scheme(SimulatorInstanceConfig::kRK3IntegrationScheme);
     test_simulators.push_back(test_sim);
 
-    test_sim.set_integration_scheme(
-        SimulatorInstanceConfig::kSemiExplicitEulerIntegrationScheme);
+    test_sim.set_integration_scheme(SimulatorInstanceConfig::kSemiExplicitEulerIntegrationScheme);
     test_simulators.push_back(test_sim);
   }
 
@@ -94,8 +89,7 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
     test_obj.set_is_floating(true);
     // Set pose of model in world.
     test_obj.set_pose(drake::math::RigidTransform<double>(
-        drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
-        drake::Vector3<double>(1.0, 0.0, 1.0)));
+        drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 1.0)));
     test_obj.SetCoulombFriction(0.8, 0.6);
 
     // Setup Sphere manipuland attributes.
@@ -126,8 +120,7 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
       // Setup config shared by both environments.
       // Set location of model in world.
       test_obj.set_pose(drake::math::RigidTransform<double>(
-          drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
-          drake::Vector3<double>(1.0, 0.0, 0.5)));
+          drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 0.5)));
       test_obj.SetCoulombFriction(0.8, 0.6);
 
       // Setup Sphere manipuland attributes.
@@ -156,10 +149,10 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
     for (const auto& env_bodies : test_env_bodies) {
       test_env.set_body_instance_configs(env_bodies);
       // Setup floor plane environment.
-      test_env.SetFloorEnvironment();
+      test_env.set_floor_environment();
       test_environments.push_back(test_env);
       // Setup trailer environment.
-      test_env.SetTrailerEnvironment();
+      test_env.set_trailer_environment();
       test_environments.push_back(test_env);
     }
   }

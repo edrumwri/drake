@@ -70,19 +70,19 @@ function run_tests()
 #       OR 0 if hashes match and tests pass.
 function check_tests(){
   GIT_ROOT=$(git rev-parse --show-toplevel)
+  TEST_RESULT_FILE="${GIT_ROOT}/test_results.txt"
+  echo "$(cat ${TEST_RESULT_FILE})"
+
   # Check MD5 hash of source code against MD5 of test results file.
   for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
   do
     echo "Checking MD5 of file $i"
-    (cd ${GIT_ROOT} && grep "$i" ./test_results.txt | md5sum --strict -c)
+    (cd ${GIT_ROOT} && grep "$i" ${TEST_RESULT_FILE} | md5sum --strict -c)
     status=$?
     [ $status -eq 0 ] && echo "" || exit $status
   done
 
   echo "MD5 hash of test results file matches source code MD5 hash."
-
-  TEST_RESULT_FILE="${GIT_ROOT}/test_results.txt"
-  echo "$(cat ${TEST_RESULT_FILE})"
 
   # Check that test results file has passed to all tests.
   TEST_RESULT_PASS_STRING="100% tests passed, 0 tests failed"

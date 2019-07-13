@@ -5,22 +5,30 @@
 #include <drake/geometry/shape_specification.h>
 #include <drake/multibody/tree/unit_inertia.h>
 
+#include <DR/common/exception.h>
+
 namespace DR {
 
-/** Class that turns a Shape into a multibody::UnitInertia<T> representation.
+/**
+ Class that turns a Shape into a multibody::UnitInertia<T> representation.
  This reifier has a unit_inertia() member that gets updated for each shape
  reified. The expected workflow would be:
 
  ```c++
-  ShapeToUnitInertia<double> reifier;
-  Sphere s(1.25);
-  const Shape& ref = static_cast<const Shape&>(s); // accepts any input shape
-  ref.Reify(&reifier);
-  const drake::multibody::UnitInertia<double>& G_Bcm = reifier.unit_inertia();
+ ShapeToUnitInertia<double> reifier;
+ Sphere s(1.25);
+ const Shape& ref = static_cast<const Shape&>(s); // accepts any input shape
+ ref.Reify(&reifier);
+ const drake::multibody::UnitInertia<double>& G_Bcm =
+ reifier.unit_inertia();
  ```
 
- This will write out a string representation of every geometry registered to
- SceneGraph.  */
+ @tparam T The underlying scalar type. Must be a valid drake default scalar.
+         Options for T are the following:
+         ☑ double
+         ☑ drake::AutoDiffXd
+         ☐ drake::symbolic::Expression
+ */
 template <typename T>
 class ShapeToUnitInertia final : public drake::geometry::ShapeReifier {
  public:
@@ -60,7 +68,7 @@ class ShapeToUnitInertia final : public drake::geometry::ShapeReifier {
 
   //@}
   const drake::multibody::UnitInertia<T>& unit_inertia() const {
-    DRAKE_DEMAND(unit_inertia_.has_value());
+    DR_DEMAND(unit_inertia_.has_value());
     return unit_inertia_.value();
   }
 

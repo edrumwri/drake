@@ -11,67 +11,69 @@
 #include <drake/multibody/plant/coulomb_friction.h>
 #include <drake/multibody/shapes/geometry.h>
 
+#include <DR/common/exception.h>
+
 namespace DR {
 
 /**
- * NOTE: Configuration files are not templatized because they do not store
- * parameters that vary with respect to the scalar type of a
- * drake::multibody::MultibodyPlant<T>.  Example:
- * ```
- * template <typename T>
- * geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
- *  const Body<T>& body, const math::RigidTransform<double>& X_BG,
- *  const geometry::Shape& shape, const std::string& name,
- *  const Vector4<double>& diffuse_color,
- *  SceneGraph<T>* scene_graph)
- * ```
- * the Pose `math::RigidTransform<double>` remains a double despite the
- * templated scalar type of MultibodyPlant.
+ NOTE: Configuration files are not templatized because they do not store
+ parameters that vary with respect to the scalar type of a
+ drake::multibody::MultibodyPlant<T>.  Example:
+ ```
+ template <typename T>
+ geometry::GeometryId MultibodyPlant<T>::RegisterVisualGeometry(
+  const Body<T>& body, const math::RigidTransform<double>& X_BG,
+  const geometry::Shape& shape, const std::string& name,
+  const Vector4<double>& diffuse_color,
+  SceneGraph<T>* scene_graph)
+ ```
+ the Pose `math::RigidTransform<double>` remains a double despite the
+ templated scalar type of MultibodyPlant.
  */
 
 /**
- * The base interface for all configuration specifications.  It requires that
- * all derived classes to implement a ValidateConfig function that will check
- * the member variables of the config file for validity.
+ The base interface for all configuration specifications.  It requires that
+ all derived classes to implement a ValidateConfig function that will check
+ the member variables of the config file for validity.
  */
 class ConfigBase {
  public:
   virtual ~ConfigBase() {}
 
   /**
-   * This function much be implemented by all derived classes of ConfigBase
-   * class. This function should throw an error if one or more of the member
-   * variables is not set correctly (e.g., out of valid range, not set, NaN).
+   This function much be implemented by all derived classes of ConfigBase
+   class. This function should throw an error if one or more of the member
+   variables is not set correctly (e.g., out of valid range, not set, NaN).
    */
   virtual void ValidateConfig() const = 0;
 };
 
 /**
- * This class stores simulation-specific parameters.
- * The member variables of SimulatorInstanceConfig affect the performance of
- * physical simulation of the world model.
+ This class stores simulation-specific parameters.
+ The member variables of SimulatorInstanceConfig affect the performance of
+ physical simulation of the world model.
  *
- * NOTE: Some of these simulation parameters are used even if a MultibodyPlant
- * will not be simulated (e.g., step_size is used to configure a
- * MultibodyPlant).
+ NOTE: Some of these simulation parameters are used even if a MultibodyPlant
+ will not be simulated (e.g., step_size is used to configure a
+ MultibodyPlant).
  */
 class SimulatorInstanceConfig : public ConfigBase {
  public:
   /**
-   * Enum types for simulation integration schemes:
+   Enum types for simulation integration schemes:
    *
-   * 0) kUnknownIntegrationScheme: No integration scheme was set.
+   0) kUnknownIntegrationScheme: No integration scheme was set.
    *
-   * 1) kSemiExplicitEulerIntegrationScheme: A first-order, semi-explicit Euler
-   * integrator.
+   1) kSemiExplicitEulerIntegrationScheme: A first-order, semi-explicit Euler
+   integrator.
    *
-   * 2) kRK2IntegrationScheme: A second-order, explicit Runge Kutta integrator.
+   2) kRK2IntegrationScheme: A second-order, explicit Runge Kutta integrator.
    *
-   * 3) kRK3IntegrationScheme: A third-order Runge Kutta integrator with a third
-   * order error estimate.
+   3) kRK3IntegrationScheme: A third-order Runge Kutta integrator with a third
+   order error estimate.
    *
-   * 4) kImplicitEulerIntegrationScheme: A first-order, fully implicit
-   * integrator with second order error estimation.
+   4) kImplicitEulerIntegrationScheme: A first-order, fully implicit
+   integrator with second order error estimation.
    */
   enum IntegrationScheme {
     kUnknownIntegrationScheme = 0,
@@ -86,10 +88,10 @@ class SimulatorInstanceConfig : public ConfigBase {
   SimulatorInstanceConfig() {}
   virtual ~SimulatorInstanceConfig() {}
   void ValidateConfig() const final {
-    DRAKE_DEMAND(target_accuracy_ > 0.0);
-    DRAKE_DEMAND(target_realtime_rate_ > 0.0);
-    DRAKE_DEMAND(simulation_time_ > 0.0);
-    DRAKE_DEMAND(integration_scheme_ != kUnknownIntegrationScheme);
+    DR_DEMAND(target_accuracy_ > 0.0);
+    DR_DEMAND(target_realtime_rate_ > 0.0);
+    DR_DEMAND(simulation_time_ > 0.0);
+    DR_DEMAND(integration_scheme_ != kUnknownIntegrationScheme);
   }
 
   void set_target_accuracy(double target_accuracy) {
@@ -158,10 +160,10 @@ class SimulatorInstanceConfig : public ConfigBase {
 };
 
 /**
- * Bodies include all dynamic and static (fixed to the world) bodies that the
- * robot can touch.
- * NOTE: This group excludes the environment (floor, trailer of truck, and the
- * robot model) but includes static objects.
+ Bodies include all dynamic and static (fixed to the world) bodies that the
+ robot can touch.
+ NOTE: This group excludes the environment (floor, trailer of truck, and the
+ robot model) but includes static objects.
  */
 
 class BodyInstanceConfig : public ConfigBase {
@@ -171,13 +173,13 @@ class BodyInstanceConfig : public ConfigBase {
   BodyInstanceConfig() {}
   virtual ~BodyInstanceConfig() {}
   void ValidateConfig() const final {
-    DRAKE_DEMAND(geometry_.get());
-    DRAKE_DEMAND(!name_.empty());
+    DR_DEMAND(geometry_.get());
+    DR_DEMAND(!name_.empty());
     if (is_floating()) {
-      DRAKE_DEMAND(mass_ > 0);
+      DR_DEMAND(mass_ > 0);
     }
 
-    DRAKE_DEMAND(std::isfinite(pose_.GetMaximumAbsoluteDifference(
+    DR_DEMAND(std::isfinite(pose_.GetMaximumAbsoluteDifference(
         drake::math::RigidTransform<double>::Identity())));
   }
 
@@ -256,26 +258,38 @@ class BodyInstanceConfig : public ConfigBase {
 };
 
 /**
- * The static floor or trailer is referred to as the "environment".
- * There is only ever one environment because it is composed of open
- * geometries (e.g. HalfSpace).
+ The static floor or trailer is referred to as the "environment".
+ There is only ever one environment because it is composed of open
+ geometries (e.g. HalfSpace).
  */
 
 class EnvironmentInstanceConfig : public ConfigBase {
  public:
+  // 'Trailer' is the shape of an open back of a trailer truck represented
+  //           by 5 HalfSpaces the origin is at the center of the trailer
+  //           floor with +X pointing into the truck,
+  //           +Y pointing to the left, and +Z as up.
+  // 'Floor' is an infinite horizontal plane represented by a HalfSpace at the
+  //         origin with a +Z normal (up).
+  enum EnvironmentType {
+    kUnknownEnvironmentType = 0,
+    kTrailerEnvironmentType = 1,
+    kFloorEnvironmentType = 2,
+  };
+
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(EnvironmentInstanceConfig)
 
   EnvironmentInstanceConfig() {}
   virtual ~EnvironmentInstanceConfig() {}
   void ValidateConfig() const final {
-    DRAKE_DEMAND(std::isfinite(gravity_.norm()));
-    DRAKE_DEMAND(std::isfinite(trailer_size_.norm()));
-    DRAKE_DEMAND(trailer_size_.minCoeff() > 0.0);
-    DRAKE_DEMAND(type_ != kUnknownEnvironmentType);
+    DR_DEMAND(std::isfinite(gravity_.norm()));
+    DR_DEMAND(std::isfinite(trailer_size_.norm()));
+    DR_DEMAND(trailer_size_.minCoeff() > 0.0);
+    DR_DEMAND(type_ != kUnknownEnvironmentType);
 
     for (const auto& env_body : body_instance_configs()) {
       env_body.ValidateConfig();
-      DRAKE_DEMAND(!env_body.is_floating());
+      DR_DEMAND(!env_body.is_floating());
     }
   }
 
@@ -283,16 +297,19 @@ class EnvironmentInstanceConfig : public ConfigBase {
     gravity_ = drake::Vector3<double>(x, y, z);
   }
 
-  void SetFloorEnvironment() { type_ = kFloorEnvironmentType; }
+  void set_floor_environment() { type_ = kFloorEnvironmentType; }
 
-  void SetTrailerEnvironment() { type_ = kTrailerEnvironmentType; }
+  void set_trailer_environment() { type_ = kTrailerEnvironmentType; }
 
-  bool IsFloorEnvironment() const { return type_ == kFloorEnvironmentType; }
+  bool is_floor_environment() const { return type_ == kFloorEnvironmentType; }
 
-  bool IsTrailerEnvironment() const { return type_ == kTrailerEnvironmentType; }
+  bool is_trailer_environment() const {
+    return type_ == kTrailerEnvironmentType;
+  }
+  EnvironmentType type() const { return type_; }
 
   void SetTrailerSize(double length, double width, double height) {
-    SetTrailerEnvironment();
+    set_trailer_environment();
     trailer_size_ = drake::Vector3<double>(length, width, height);
   }
 
@@ -304,7 +321,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
   const drake::Vector3<double>& gravity() const { return gravity_; }
 
   const drake::Vector3<double>& trailer_size() const {
-    DRAKE_DEMAND(type_ == kTrailerEnvironmentType);
+    DR_DEMAND(type_ == kTrailerEnvironmentType);
     return trailer_size_;
   }
 
@@ -323,19 +340,17 @@ class EnvironmentInstanceConfig : public ConfigBase {
 
  private:
   /** TODO(samzapo): the environment should be defined in some frame, Y, which
-   * would normally be identity. But when it were not identity, the
-   * transformation would allow the trailer to assume a different location or
-   * orientation in the world.
-   * e.g., add member variable: drake::math::RigidTransform<double> pose_
-   * NOTE: Does this set the parent frame of all bodies in
-   * body_instance_configs_?
+   would normally be identity. But when it were not identity, the
+   transformation would allow the trailer to assume a different location or
+   orientation in the world.
+   e.g., add member variable: drake::math::RigidTransform<double> pose_
    */
 
   /**
-   * EnvironmentBodies include all static bodies (fixed to the world) that the
-   * robot can touch and can be reprersented with the BodyInstanceConfig class.
-   * Bodies of this type must be fixed to the world and have geometric
-   * properties, (inertial properties are not important).
+   EnvironmentBodies include all static bodies (fixed to the world) that the
+   robot can touch and can be reprersented with the BodyInstanceConfig class.
+   Bodies of this type must be fixed to the world and have geometric
+   properties (inertial properties are not important).
    */
   std::vector<BodyInstanceConfig> body_instance_configs_;
 
@@ -344,17 +359,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
   drake::Vector3<double> gravity_{0.0, 0.0, -9.8};
 
   // Environment type (must be set):
-  // 'Trailer' is the shape of an open back of a trailer truck represented
-  //           by 5 HalfSpaces the origin is at the center of the trailer
-  //           floor with +X pointing into the truck,
-  //           +Y pointing to the left, and +Z as up.
-  // 'Floor' is an infinite horizontal plane represented by a HalfSpace at the
-  //         origin with a +Z normal (up).
-  enum EnvironmentType {
-    kUnknownEnvironmentType = 0,
-    kTrailerEnvironmentType = 1,
-    kFloorEnvironmentType = 2,
-  } type_{kUnknownEnvironmentType};
+  EnvironmentType type_{kUnknownEnvironmentType};
 
   // The frictional properties of the environment.
   // these are the friction properties for this specific object,
@@ -369,11 +374,11 @@ class EnvironmentInstanceConfig : public ConfigBase {
 };
 
 /**
- * Configuration class describing the parameters for generating a
- * trailer unloading task scenario.
- * includes:
- *   1 Static Environment {Floor, Trailer}
- *   N Static or Dynamic Manipulands {Box, Sphere}
+ Configuration class describing the parameters for generating a
+ trailer unloading task scenario.
+ includes:
+   1 Static Environment {Floor, Trailer}
+   N Static or Dynamic Manipulands {Box, Sphere}
  */
 
 class UnloadingTaskConfig : public ConfigBase {
@@ -390,15 +395,12 @@ class UnloadingTaskConfig : public ConfigBase {
 
     for (const auto& manipuland : manipuland_instance_configs()) {
       manipuland.ValidateConfig();
-      DRAKE_DEMAND(manipuland.is_floating());
+      DR_DEMAND(manipuland.is_floating());
 
       // Guarantee that all bodies have a unique name.
       ret = unique_names.insert(manipuland.name());
-      if (ret.second == false) {
-        std::cout << "A manipuland with name " << manipuland.name()
-                  << " already exists" << std::endl;
-      }
-      DRAKE_DEMAND(ret.second);
+      DR_DEMAND(ret.second, "A manipuland with name " + manipuland.name() +
+                                " already exists!");
     }
 
     environment_instance_config().ValidateConfig();
@@ -407,11 +409,8 @@ class UnloadingTaskConfig : public ConfigBase {
          environment_instance_config().body_instance_configs()) {
       // guarantee that all bodies have a unique name.
       ret = unique_names.insert(env_body.name());
-      if (ret.second == false) {
-        std::cout << "A body with name " << env_body.name() << " already exists"
-                  << std::endl;
-      }
-      DRAKE_DEMAND(ret.second);
+      DR_DEMAND(ret.second,
+                "A body with name " + env_body.name() + " already exists!");
     }
   }
 
@@ -446,10 +445,10 @@ class UnloadingTaskConfig : public ConfigBase {
   SimulatorInstanceConfig simulator_instance_config_;
 
   /**
-   * Manipulands include all dynamic bodies that the robot can touch and move.
-   * Bodies of this type must NOT be fixed to the world and have inertial and
-   * geometric properties.
-   * NOTE: The set of manipulands does not include any part of the robot.
+   Manipulands include all dynamic bodies that the robot can touch and move.
+   Bodies of this type must NOT be fixed to the world and have inertial and
+   geometric properties.
+   NOTE: The set of manipulands does not include any part of the robot.
    */
   std::vector<BodyInstanceConfig> manipuland_instance_configs_;
 
