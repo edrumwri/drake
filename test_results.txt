@@ -5,7 +5,7 @@ c560bca8ba95ebe706bee2849ebf31cd  common/test/release_test.cc
 a91f5ad93943dda07a596b3d939a204e  include/DR/primitives/impedance_controller.h
 0581852f72699a75e4aadba44170ea79  include/DR/primitives/plan.h
 2d93ac7c621b0c0abcc78bffdd7a2f3f  include/DR/primitives/primitive_behavior.h
-a7420b42d6449381538fdbfb1d912726  include/DR/simulation/config.h
+e47ecfa7459913b4fd1d06e4153613e3  include/DR/simulation/config.h
 b2877e6266d342597b667c83e4d8fb48  include/DR/simulation/controller_generator.h
 b805062fe2a3439f8ea37e1faccf8821  include/DR/simulation/model_generator.h
 8c893d8c44ef75bb3bf1280490885d82  include/DR/simulation/shape_to_unit_inertia.h
@@ -23,20 +23,20 @@ fe64b9208fe1d5988f3b94d813c8a174  simulation/simulation_generator.cc
 ba3797b0c8688f6c0c64280d3c33433d  simulation/test/full_simulation_test.cc
 ece1d16f571823bc993cee8b25c2aa63  simulation/test/model_generator_test.cc
 Running tests...
-Test project /home/samzapo/Development/DR/build
+Test project /home/drum/DR/build
     Start 1: DR_debug_test
-1/6 Test #1: DR_debug_test ....................   Passed    0.07 sec
+1/6 Test #1: DR_debug_test ....................   Passed    0.84 sec
     Start 2: DR_release_test
-2/6 Test #2: DR_release_test ..................   Passed    0.07 sec
+2/6 Test #2: DR_release_test ..................   Passed    0.39 sec
     Start 3: DR_impedance_controller_test
-3/6 Test #3: DR_impedance_controller_test .....   Passed    0.05 sec
+3/6 Test #3: DR_impedance_controller_test .....   Passed    0.07 sec
     Start 4: DR_primitive_behavior_test
 4/6 Test #4: DR_primitive_behavior_test .......   Passed    3.05 sec
     Start 5: DR_full_simulation_test
-5/6 Test #5: DR_full_simulation_test ..........   Passed    2.48 sec
+5/6 Test #5: DR_full_simulation_test ..........   Passed   17.24 sec
     Start 6: DR_model_generator_test
-6/6 Test #6: DR_model_generator_test ..........   Passed    0.24 sec
+6/6 Test #6: DR_model_generator_test ..........   Passed    0.33 sec
 
 100% tests passed, 0 tests failed out of 6
 
-Total Test time (real) =   5.96 sec
+Total Test time (real) =  21.92 sec

@@ -57,7 +57,7 @@ class ConfigBase {
  will not be simulated (e.g., step_size is used to configure a
  MultibodyPlant).
  */
-class SimulatorInstanceConfig : public ConfigBase {
+class SimulatorInstanceConfig final : public ConfigBase {
  public:
   /**
    Enum types for simulation integration schemes:
@@ -166,7 +166,7 @@ class SimulatorInstanceConfig : public ConfigBase {
  robot model) but includes static objects.
  */
 
-class BodyInstanceConfig : public ConfigBase {
+class BodyInstanceConfig final : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(BodyInstanceConfig)
 
@@ -263,7 +263,7 @@ class BodyInstanceConfig : public ConfigBase {
  geometries (e.g. HalfSpace).
  */
 
-class EnvironmentInstanceConfig : public ConfigBase {
+class EnvironmentInstanceConfig final : public ConfigBase {
  public:
   // 'Trailer' is the shape of an open back of a trailer truck represented
   //           by 5 HalfSpaces the origin is at the center of the trailer
@@ -381,7 +381,7 @@ class EnvironmentInstanceConfig : public ConfigBase {
    N Static or Dynamic Manipulands {Box, Sphere}
  */
 
-class UnloadingTaskConfig : public ConfigBase {
+class UnloadingTaskConfig final : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(UnloadingTaskConfig)
 
