@@ -24,8 +24,8 @@ class SimplePlan : public Plan<double> {
   VectorX<double> Evaluate(const double& t) const final {
     VectorX<double> val(1);
     val[0] = std::cos(t - start_time_);
-    return val; 
-  } 
+    return val;
+  }
 
  private:
   std::unique_ptr<Plan<double>> DoClone() const final {
@@ -68,7 +68,6 @@ class DerivedBehavior : public PrimitiveBehavior<double> {
 };
 
 class PrimitiveBehaviorTest : public ::testing::Test {
-
  public:
   const MultibodyPlant<double>& plant() const { return *plant_; }
 
@@ -107,10 +106,10 @@ TEST_F(PrimitiveBehaviorTest, Ports) {
   context->FixInputPort(behavior.operation_signal_input_port().get_index(),
       drake::AbstractValue::Make(PrimitiveBehavior<double>::kActive));
   drake::Value<BasicVector<double>> output(plant().num_actuators());
-  ASSERT_NO_THROW(behavior.generalized_effort_output_port().Calc(*context, &output)); 
+  ASSERT_NO_THROW(behavior.generalized_effort_output_port().Calc(*context, &output));
   behavior.generalized_effort_output_port().Eval(*context);
 
-  // TODO(edrumwri): Determine why this is necessary and eliminate it. 
+  // TODO(edrumwri): Determine why this is necessary and eliminate it.
   // Wait until planning is complete.
   behavior.BlockOnPlanningThreadTermination();
 }
@@ -121,7 +120,7 @@ TEST_F(PrimitiveBehaviorTest, QueryPlant) {
   const double execution_time = 0.0;  // Time in seconds.
   DerivedBehavior behavior(&plant(), 1000 /* Hz */, planning_time, execution_time);
 
-  // There are no exceptions thrown by this method currently- this statement 
+  // There are no exceptions thrown by this method currently- this statement
   // is just communicating that we want to check that this method is callable
   // without problems.
   EXPECT_NO_THROW(behavior.robot_plant());
@@ -139,7 +138,7 @@ TEST_F(PrimitiveBehaviorTest, ControlOutputZeroOnInactiveBehavior) {
       drake::AbstractValue::Make(PrimitiveBehavior<double>::kInactive));
   const Eigen::VectorBlock<const VectorX<double>> output = behavior.generalized_effort_output_port().Eval(*context);
   ASSERT_EQ(output.size(), 1);
-  EXPECT_EQ(output[0], 0.0); 
+  EXPECT_EQ(output[0], 0.0);
 
   // Verify that the behavior never started planning.
   EXPECT_FALSE(behavior.is_planning(*context));
@@ -147,7 +146,7 @@ TEST_F(PrimitiveBehaviorTest, ControlOutputZeroOnInactiveBehavior) {
 
 // Verifies that no plan is active before planning has started.
 TEST_F(PrimitiveBehaviorTest, InitialPlanningStatus) {
-  // Construct the behavior without any planning or execution time. 
+  // Construct the behavior without any planning or execution time.
   const double planning_time = 0.0;   // Time in seconds.
   const double execution_time = 0.0;  // Time in seconds.
   DerivedBehavior behavior(&plant(), 1000 /* Hz */, planning_time,
@@ -155,7 +154,7 @@ TEST_F(PrimitiveBehaviorTest, InitialPlanningStatus) {
   auto context = behavior.CreateDefaultContext();
 
   EXPECT_EQ(behavior.active_plan(*context), nullptr);
-}	
+}
 
 // Verifies that planning is active when planning is expected.
 TEST_F(PrimitiveBehaviorTest, PlanningInProgressStatus) {
@@ -170,7 +169,7 @@ TEST_F(PrimitiveBehaviorTest, PlanningInProgressStatus) {
   std::unique_ptr<Context<double>> context = behavior.CreateDefaultContext();
   context->FixInputPort(behavior.operation_signal_input_port().get_index(),
       drake::AbstractValue::Make(PrimitiveBehavior<double>::kActive));
-  behavior.generalized_effort_output_port().Eval(*context); 
+  behavior.generalized_effort_output_port().Eval(*context);
 
   // Verify the status.
   EXPECT_TRUE(behavior.is_planning(*context));
@@ -190,13 +189,13 @@ TEST_F(PrimitiveBehaviorTest, PlanningComplete) {
   const double planning_time = 0;
   const double execution_time = std::numeric_limits<double>::max();
   DerivedBehavior behavior(
-      &plant(), copy_rate, planning_time, execution_time); 
+      &plant(), copy_rate, planning_time, execution_time);
 
   // Trigger the planning process by evaluating the control output.
   std::unique_ptr<Context<double>> context = behavior.CreateDefaultContext();
   context->FixInputPort(behavior.operation_signal_input_port().get_index(),
       drake::AbstractValue::Make(PrimitiveBehavior<double>::kActive));
-  behavior.generalized_effort_output_port().Eval(*context); 
+  behavior.generalized_effort_output_port().Eval(*context);
 
   // Wait until planning is complete.
   behavior.BlockOnPlanningThreadTermination();
@@ -223,18 +222,18 @@ TEST_F(PrimitiveBehaviorTest, ControlExpected) {
   const double planning_time = 1.0;
   const double execution_time = std::numeric_limits<double>::max();
   DerivedBehavior behavior(
-      &plant(), copy_rate, planning_time, execution_time); 
+      &plant(), copy_rate, planning_time, execution_time);
 
   // Trigger the planning process by evaluating the control output.
   std::unique_ptr<Context<double>> context = behavior.CreateDefaultContext();
   context->FixInputPort(behavior.operation_signal_input_port().get_index(),
       drake::AbstractValue::Make(PrimitiveBehavior<double>::kActive));
-  behavior.generalized_effort_output_port().Eval(*context); 
+  behavior.generalized_effort_output_port().Eval(*context);
 
   // Wait until planning is complete.
   behavior.BlockOnPlanningThreadTermination();
 
-  // Simulate forward to one second in time. 
+  // Simulate forward to one second in time.
   const Context<double>* raw_context = context.get();
   drake::systems::Simulator<double> simulator(behavior, std::move(context));
   simulator.AdvanceTo(1.0);
@@ -244,7 +243,7 @@ TEST_F(PrimitiveBehaviorTest, ControlExpected) {
   EXPECT_NE(plan, nullptr);
 
   // Verify that the output is what we expect when a plan is active.
-  Eigen::VectorBlock<const VectorX<double>> new_output = behavior.generalized_effort_output_port().Eval(*raw_context); 
+  Eigen::VectorBlock<const VectorX<double>> new_output = behavior.generalized_effort_output_port().Eval(*raw_context);
   EXPECT_EQ(new_output[0], std::cos(raw_context->get_time() - plan->start_time()));
 
   // Verify that the behavior is planning again.

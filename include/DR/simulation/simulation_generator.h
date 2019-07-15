@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <utility>
 
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/analysis/implicit_euler_integrator.h>

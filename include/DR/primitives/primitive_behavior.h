@@ -1,7 +1,10 @@
 #pragma once
 
+#include <memory>
 #include <mutex>
+#include <queue>
 #include <thread>
+#include <utility>
 
 #include <drake/common/copyable_unique_ptr.h>
 #include <drake/multibody/plant/multibody_plant.h>
@@ -80,14 +83,14 @@ class PrimitiveBehavior : public drake::systems::LeafSystem<T> {
   /// Gets the frequency (in Context time) with which any completed plans are copied to this behavior's State.
   double copy_freq() const { return copy_freq_; }
 
-  /// Input type used for enabling/disabling the control output. 
+  /// Input type used for enabling/disabling the control output.
   enum OperationSignalType {
     /// The primitive will generate commands: calling the output function
     /// *might* not zero the generalized effort commands.
     kActive,
 
     /// The primitive will not generate commands: calling the output function
-    /// will zero the generalized effort commands. 
+    /// will zero the generalized effort commands.
     kInactive,
   };
 
@@ -161,10 +164,10 @@ class PrimitiveBehavior : public drake::systems::LeafSystem<T> {
   // The pointer to the robot being controlled.
   const drake::multibody::MultibodyPlant<T>* robot_plant_{nullptr};
 
-  // The frequency (in Hz) with which the plan is copied from the plan queue to the PrimitiveBehavior's abstract state. 
+  // The frequency (in Hz) with which the plan is copied from the plan queue to the PrimitiveBehavior's abstract state.
   double copy_freq_{0.0};
 
-  // Mutable variables for supporting multi-threaded operation. 
+  // Mutable variables for supporting multi-threaded operation.
   mutable std::thread thread_{};
   mutable std::queue<drake::copyable_unique_ptr<Plan<T>>> plan_queue_{};
   mutable std::mutex plan_queue_mutex_{};
@@ -216,8 +219,8 @@ PrimitiveBehavior<T>::PrimitiveBehavior(const drake::multibody::MultibodyPlant<T
 template <typename T>
 void PrimitiveBehavior<T>::SetDefaultState(
     const drake::systems::Context<T>&, drake::systems::State<T>* state) const {
-  // Reset the pointer to the plan. 
-  state->template get_mutable_abstract_state<drake::copyable_unique_ptr<Plan<T>>>(plan_index_).reset(); 
+  // Reset the pointer to the plan.
+  state->template get_mutable_abstract_state<drake::copyable_unique_ptr<Plan<T>>>(plan_index_).reset();
 }
 
 template <typename T>
@@ -240,12 +243,12 @@ void PrimitiveBehavior<T>::UpdatePlanStateFromPlanQueue(
 template <typename T>
 void PrimitiveBehavior<T>::StartPlanning(const drake::systems::Context<T>& context) const {
   // Wait for the thread to finish executing.
-  BlockOnPlanningThreadTermination(); 
+  BlockOnPlanningThreadTermination();
 
   // Start the planning thread.
   auto f = [this](const drake::systems::Context<T>& c) -> void {
     // Compute the plan. This is of course doing a heap allocation, which we would normally avoid in the context of a
-    // control loop, but given that this is happening during a long-term planning process, it seems less problematic. 
+    // control loop, but given that this is happening during a long-term planning process, it seems less problematic.
     drake::copyable_unique_ptr<Plan<T>> plan(ComputePlan(c));
 
     // Store the plan.
@@ -253,8 +256,8 @@ void PrimitiveBehavior<T>::StartPlanning(const drake::systems::Context<T>& conte
     plan_queue_.push(std::move(plan));
     plan_queue_mutex_.unlock();
   };
- thread_ = std::thread(f, std::ref(context));
-}	
+  thread_ = std::thread(f, std::ref(context));
+}
 
 template <typename T>
 void PrimitiveBehavior<T>::CalcControlOutput(

@@ -42,14 +42,18 @@ function run_tests()
 
   GIT_ROOT=$(git rev-parse --show-toplevel)
   # Make a new test results file.
-  (cd ${GIT_ROOT} && echo "Test Results:" > ./test_results.txt)
+  (cd ${GIT_ROOT} && echo "Test Results:" > ${GIT_ROOT}/test_results.txt)
 
   # Generate MD5 sum from all source code.
   # Check MD5 hash of source code against MD5 of test results file.
   for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
   do
-    (cd ${GIT_ROOT} && md5sum "$i" >> ./test_results.txt)
+    (cd ${GIT_ROOT} && md5sum "$i" >> ${GIT_ROOT}/test_results.txt)
   done
+
+  # Copy the test results hashes to the linting results
+  # file.
+  (cat ${GIT_ROOT}/test_results.txt > ${GIT_ROOT}/lint_results.txt)
 
   # Add test results to test results file.
   export CTEST_OUTPUT_ON_FAILURE=1
@@ -57,7 +61,15 @@ function run_tests()
   # Record return status for command line exit status.
   status=$?
 
+  # Add lint results to lint results file.
+  for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
+  do
+    (cd ${GIT_ROOT} && cpplint --quiet --filter=-legal/copyright,-build/include_order,-build/c++11 --linelength=120 "$i" >> ${GIT_ROOT}/lint_results.txt)
+  done
+
+  # Output the results to the console.
   echo "$(cat ${GIT_ROOT}/test_results.txt)"
+  echo "$(cat ${GIT_ROOT}/lint_results.txt)"
 
   exit $status
 }
@@ -71,6 +83,7 @@ function run_tests()
 function check_tests(){
   GIT_ROOT=$(git rev-parse --show-toplevel)
   TEST_RESULT_FILE="${GIT_ROOT}/test_results.txt"
+  LINT_RESULT_FILE="${GIT_ROOT}/lint_results.txt"
   echo "$(cat ${TEST_RESULT_FILE})"
 
   # Check MD5 hash of source code against MD5 of test results file.
@@ -84,9 +97,28 @@ function check_tests(){
 
   echo "MD5 hash of test results file matches source code MD5 hash."
 
+  echo "$(cat ${LINT_RESULT_FILE})"
+  # Check MD5 hash of source code against MD5 of lint results file.
+  for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
+  do
+    echo "Checking MD5 of file $i"
+    (cd ${GIT_ROOT} && grep "  $i" ${LINT_RESULT_FILE} | md5sum --strict -c)
+    status=$?
+    [ $status -eq 0 ] && echo "" || exit $status
+  done
+
+  echo "MD5 hash of lint results file matches source code MD5 hash."
+
+
   # Check that test results file has passed to all tests.
   TEST_RESULT_PASS_STRING="100% tests passed, 0 tests failed"
+  LINT_RESULT_FAIL_STRING="Total errors found:"
   if grep -q "${TEST_RESULT_PASS_STRING}" "${TEST_RESULT_FILE}"; then
+    if grep -q "${LINT_RESULT_FAIL_STRING}" "${LINT_RESULT_FILE}"; then
+      echo "[FAIL] Unit tests passed but linting failed"
+      exit 1
+    fi
+
     echo "[PASS] All tests passed"
     exit 0;
   fi

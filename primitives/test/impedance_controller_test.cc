@@ -35,7 +35,7 @@ const double C = 10;
 /// This class implements an impedance controller for treating a pendulum as if...
 class PendulumImpedanceController : public ImpedanceController<double> {
  public:
-  PendulumImpedanceController(MultibodyPlant<double> const* all_plant) :
+  explicit PendulumImpedanceController(MultibodyPlant<double> const* all_plant) :
       ImpedanceController<double>(all_plant) { }
 
   double lower_limit() const { return lower_limit_; }
@@ -43,14 +43,14 @@ class PendulumImpedanceController : public ImpedanceController<double> {
 
   // Determines whether the limit is active (meaning that phi.size() > 0).
   bool IsLimitActive(const Context<double>& context) const {
-    // Evaluate the robot's position. 
+    // Evaluate the robot's position.
     const VectorBlock<const VectorX<double>> q = this->all_q_estimated_input_port().Eval(context);
     return (q[0] <= lower_limit_);
   }
 
   // Phi can be interpreted as the signed distance from the limit. We only allow this distance to be non-positive; if
-  // it does become positive, the constraint disappears.  
-  virtual VectorX<double> DoCalcPhi(const Context<double>& context) const final {
+  // it does become positive, the constraint disappears.
+  VectorX<double> DoCalcPhi(const Context<double>& context) const final {
     if (!IsLimitActive(context)) { return VectorX<double>(); }
 
     const VectorBlock<const VectorX<double>> q = this->all_q_estimated_input_port().Eval(context);
@@ -59,7 +59,7 @@ class PendulumImpedanceController : public ImpedanceController<double> {
     return result + q;
   }
 
-  virtual VectorX<double> DoCalcPhiDot(const Context<double>& context) const final {
+  VectorX<double> DoCalcPhiDot(const Context<double>& context) const final {
     if (!IsLimitActive(context)) { return VectorX<double>(); }
 
     // Just return the velocity.
@@ -67,16 +67,16 @@ class PendulumImpedanceController : public ImpedanceController<double> {
     return v;
   }
 
-// G must always be returned. Note that G will either be an identity matrix (when the limit is violated) or an empty
+  // G must always be returned. Note that G will either be an identity matrix (when the limit is violated) or an empty
   // matrix (otherwise); this virtual limit scenario, which uses the rotational axis of the pendulum as the (rotational)
   // impedance direction simplifies our test fixture and the calculation of G considerably.
-  virtual MatrixX<double> DoCalcG(const Context<double>& context) const final {
+  MatrixX<double> DoCalcG(const Context<double>& context) const final {
     int phi_dim = (IsLimitActive(context)) ? 1 : 0;
     return MatrixX<double>::Identity(phi_dim, 1);
   }
 
   // For consistency, K should only return a value when Phi does.
-  virtual MatrixX<double> DoCalcK(const Context<double>& context) const final {
+  MatrixX<double> DoCalcK(const Context<double>& context) const final {
     if (!IsLimitActive(context)) { return MatrixX<double>(); }
     MatrixX<double> K_matrix(1, 1);
     K_matrix << K;
@@ -84,7 +84,7 @@ class PendulumImpedanceController : public ImpedanceController<double> {
   }
 
   // For consistency, C should only return a value when Phi does.
-  virtual MatrixX<double> DoCalcC(const Context<double>& context) const final {
+  MatrixX<double> DoCalcC(const Context<double>& context) const final {
     if (!IsLimitActive(context)) { return MatrixX<double>(); }
     MatrixX<double> C_matrix(1, 1);
     C_matrix << C;
@@ -113,7 +113,7 @@ class OneDofSystemVirtualLimit : public LeafSystem<double> {
 
  private:
   void CalcOutput(const Context<double>& context, BasicVector<double>* output) const {
-    ASSERT_EQ(output->size(), 1); 
+    ASSERT_EQ(output->size(), 1);
 
     // Evaluate the input port to get the current state; if it's not connected, return now.
     const InputPort<double>& input_port = this->get_input_port(0);
@@ -130,7 +130,7 @@ class OneDofSystemVirtualLimit : public LeafSystem<double> {
       output->SetZero();
       return;
     }
-           
+
     // Get the time derivative of the position violation. A positive value means that the violation is increasing,
     // while a negative value means that it is decreasing.
     const double edot = -velocity;
@@ -160,8 +160,8 @@ class ImpedanceControllerTest : public ::testing::Test {
   double CalcPendulumAcceleration() const {
     std::unique_ptr<ContinuousState<double>> xc = context_->get_continuous_state().Clone();
     diagram_->CalcTimeDerivatives(*context_, xc.get());
-    return (*xc)[1]; /* Acceleration will be the second component of the vector */ 
-  } 
+    return (*xc)[1]; /* Acceleration will be the second component of the vector */
+  }
 
   void SetDesiredPendulumAcceleration(double qdd) {
     impedance_controller_context_->FixInputPort(
@@ -182,7 +182,7 @@ class ImpedanceControllerTest : public ::testing::Test {
     pendulum_ = builder.AddSystem(MakePendulumPlant(pendulum_parameters));
 
     // Construct the impedance controller.
-    impedance_controller_ = builder.AddSystem<PendulumImpedanceController>(pendulum_);    
+    impedance_controller_ = builder.AddSystem<PendulumImpedanceController>(pendulum_);
 
     // Construct the virtual limiter for the 1-DoF system.
     limiter_ = builder.AddSystem<OneDofSystemVirtualLimit>();
@@ -190,8 +190,8 @@ class ImpedanceControllerTest : public ::testing::Test {
 
     // Connect the virtual limiter and the impedance controller to the plant actuation input.
     const Adder<double>& adder = *builder.AddSystem<Adder<double>>(
-        2 /* number of input ports */, 1 /* dimension of all ports */); 
-    builder.Connect(limiter_->get_output_port(0), adder.get_input_port(0)); 
+        2 /* number of input ports */, 1 /* dimension of all ports */);
+    builder.Connect(limiter_->get_output_port(0), adder.get_input_port(0));
     builder.Connect(impedance_controller_->generalized_effort_output_port(), adder.get_input_port(1));
 
     // Connect the "all" state output to the impedance controller inputs.
@@ -200,7 +200,7 @@ class ImpedanceControllerTest : public ::testing::Test {
     builder.Connect(pendulum_->get_state_output_port(), demuxer.get_input_port(0));
     builder.Connect(demuxer.get_output_port(0), impedance_controller_->all_q_estimated_input_port());
     builder.Connect(demuxer.get_output_port(1), impedance_controller_->all_v_estimated_input_port());
-    
+
     // Connect the adder output to the plant input.
     builder.Connect(adder.get_output_port(), pendulum_->get_actuation_input_port());
 
@@ -219,9 +219,9 @@ class ImpedanceControllerTest : public ::testing::Test {
   PendulumImpedanceController* impedance_controller_{nullptr};
   MultibodyPlant<double>* pendulum_{nullptr};
   OneDofSystemVirtualLimit* limiter_{nullptr};
-  Context<double>* pendulum_context_{nullptr}; 
-  Context<double>* impedance_controller_context_{nullptr}; 
-  Context<double>* limiter_context_{nullptr}; 
+  Context<double>* pendulum_context_{nullptr};
+  Context<double>* impedance_controller_context_{nullptr};
+  Context<double>* limiter_context_{nullptr};
   std::unique_ptr<Diagram<double>> diagram_;
   std::unique_ptr<Context<double>> context_;
 };
@@ -239,8 +239,8 @@ TEST_F(ImpedanceControllerTest, FreeSpace) {
   // Set the velocity of the pendulum to non-zero.
   SetPendulumVelocity(0.1234 /* a unique value */);
 
-  // Set the pendulum position such that it is not violating the joint limit. 
-  const double y = 0.1; // meters
+  // Set the pendulum position such that it is not violating the joint limit.
+  const double y = 0.1;  // meters
   SetPendulumPosition(limiter().lower_limit() + y);
 
   // Set the desired acceleration for the pendulum to zero.
@@ -249,7 +249,6 @@ TEST_F(ImpedanceControllerTest, FreeSpace) {
   // Calculate the time derivatives of the pendulum state and verify that the acceleration is zero.
   const double tol = 10 * std::numeric_limits<double>::epsilon();
   EXPECT_NEAR(CalcPendulumAcceleration(), 0.0, tol);
-
 }
 
 // Checks that the acceleration is what was requested when the limit is active.
@@ -258,7 +257,7 @@ TEST_F(ImpedanceControllerTest, PendulumJointLimit) {
   SetPendulumVelocity(0);
 
   // Set the pendulum position such that it is violating our virtual joint limit by y units.
-  const double y = 0.1; // meters
+  const double y = 0.1;  // meters
   impedance_controller().set_lower_limit(limiter().lower_limit());
   SetPendulumPosition(limiter().lower_limit() - y);
 

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <tuple>
+#include <utility>
 
 #include <drake/geometry/geometry_visualization.h>
 #include <drake/geometry/scene_graph.h>

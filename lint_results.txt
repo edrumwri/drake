@@ -22,21 +22,3 @@ fe64b9208fe1d5988f3b94d813c8a174  simulation/simulation_generator.cc
 36be4e63fecf7e4c23a130d8abe06d23  simulation/state_setter.cc
 ba3797b0c8688f6c0c64280d3c33433d  simulation/test/full_simulation_test.cc
 ece1d16f571823bc993cee8b25c2aa63  simulation/test/model_generator_test.cc
-Running tests...
-Test project /home/drum/DR/build
-    Start 1: DR_debug_test
-1/6 Test #1: DR_debug_test ....................   Passed    0.74 sec
-    Start 2: DR_release_test
-2/6 Test #2: DR_release_test ..................   Passed    0.39 sec
-    Start 3: DR_impedance_controller_test
-3/6 Test #3: DR_impedance_controller_test .....   Passed    0.04 sec
-    Start 4: DR_primitive_behavior_test
-4/6 Test #4: DR_primitive_behavior_test .......   Passed    3.05 sec
-    Start 5: DR_full_simulation_test
-5/6 Test #5: DR_full_simulation_test ..........   Passed   17.38 sec
-    Start 6: DR_model_generator_test
-6/6 Test #6: DR_model_generator_test ..........   Passed    0.34 sec
-
-100% tests passed, 0 tests failed out of 6
-
-Total Test time (real) =  21.94 sec

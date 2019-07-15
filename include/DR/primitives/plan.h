@@ -1,11 +1,13 @@
 #pragma once
 
+#include <memory>
+
 #include <drake/common/eigen_types.h>
 
 namespace DR {
 
 /// A virtual class that is the output of a PrimitiveBehavior. A Plan can leverage any representation (kinematics,
-/// torques, even symbolic information) used to compute a control output. Plans are valid only over certain times. 
+/// torques, even symbolic information) used to compute a control output. Plans are valid only over certain times.
 template <typename T>
 class Plan {
  public:

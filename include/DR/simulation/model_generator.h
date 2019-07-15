@@ -1,5 +1,10 @@
 #pragma once
 
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
+
 #include <drake/common/drake_optional.h>
 #include <drake/geometry/scene_graph.h>
 #include <drake/multibody/parsing/parser.h>

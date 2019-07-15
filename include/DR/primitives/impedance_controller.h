@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/leaf_system.h>
 
@@ -139,7 +141,7 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
   const drake::multibody::MultibodyPlant<T>& all_plant() const { return all_plant_; }
 
   /// Gets the input port for the estimated generalized positions of every multibody in the environment.
-  /// The vector is ordered according to the generalized positions of all_plant(). 
+  /// The vector is ordered according to the generalized positions of all_plant().
   const drake::systems::InputPort<T>& all_q_estimated_input_port() const {
     return drake::systems::System<T>::get_input_port(all_q_estimated_input_port_index_);
   }
@@ -152,7 +154,7 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
 
   /// Gets the input port for desired accelerations of every multibody in the environment. The
   /// vector is ordered according to the generalized velocities of `all_plant()`. Desired accelerations for
-  /// fixed bodies in the all_plant() are ignored. 
+  /// fixed bodies in the all_plant() are ignored.
   const drake::systems::InputPort<T>& all_vdot_desired_input_port() const {
     return drake::systems::System<T>::get_input_port(all_vdot_desired_input_port_index_);
   }
@@ -160,7 +162,7 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
   /// Gets the port that provides commands to the actuators.
   const drake::systems::OutputPort<T>& generalized_effort_output_port() const {
     return drake::systems::System<T>::get_output_port(generalized_effort_output_port_index_);
-  } 
+  }
 
   /// Returns the m x n-dimensional Jacobian matrix of partial derivatives of the m-dimensional vector φ taken with
   /// with respect to the n-dimensional vector of generalized coordinates q of the plant. This calculation is cached on
@@ -177,7 +179,7 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
   const drake::VectorX<T>& EvalPhi(const drake::systems::Context<T>& context) const {
     return this->get_cache_entry(phi_cache_index_).template Eval<drake::VectorX<T>>(context);
   }
- 
+
   /// Returns the deformation rates as a function of the Context. The length of this vector as well as
   /// the significance of the individual elements in the vector are Context-dependent. If this vector is zero, (4)
   /// degenerates to pure inverse dynamics control. This calculation is cached on the estimated states input port.
@@ -209,11 +211,11 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
 
   /// Derived classes must implement this function for computing the deformations (virtual or physical) as a function of
   /// the Context.
-  /// @see EvalPhi 
+  /// @see EvalPhi
   virtual drake::VectorX<T> DoCalcPhi(const drake::systems::Context<T>& context) const = 0;
 
   /// Derived classes must implement this function for computing the deformation rates as a function of the Context.
-  /// @see EvalPhiDot 
+  /// @see EvalPhiDot
   virtual drake::VectorX<T> DoCalcPhiDot(const drake::systems::Context<T>& context) const = 0;
 
   /// Derived classes must implement this function for computing the Jacobian matrix G as a function of the Context.
@@ -233,7 +235,7 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
     const drake::MatrixX<T> G = DoCalcG(context);
     DRAKE_DEMAND(G.cols() == all_plant_.num_velocities());
     DRAKE_ASSERT(G.rows() == EvalPhi(context).size());
-    *output = G; 
+    *output = G;
   }
 
   drake::VectorX<T> CalcPhi(const drake::systems::Context<T>& context) const { return DoCalcPhi(context); }
@@ -265,11 +267,11 @@ class ImpedanceController : public drake::systems::LeafSystem<T> {
   drake::MatrixX<T> B_;
 
   // Cache indices.
-  drake::systems::CacheIndex G_cache_index_{}; 
-  drake::systems::CacheIndex K_cache_index_{}; 
-  drake::systems::CacheIndex C_cache_index_{}; 
-  drake::systems::CacheIndex phi_cache_index_{}; 
-  drake::systems::CacheIndex phi_dot_cache_index_{}; 
+  drake::systems::CacheIndex G_cache_index_{};
+  drake::systems::CacheIndex K_cache_index_{};
+  drake::systems::CacheIndex C_cache_index_{};
+  drake::systems::CacheIndex phi_cache_index_{};
+  drake::systems::CacheIndex phi_dot_cache_index_{};
 
   // Port indices.
   drake::systems::InputPortIndex all_q_estimated_input_port_index_{};
@@ -297,9 +299,12 @@ ImpedanceController<T>::ImpedanceController(
   }
 
   // Declare ports.
-  all_q_estimated_input_port_index_ = this->DeclareVectorInputPort("all_q_estimated", drake::systems::BasicVector<T>(all_plant->num_positions())).get_index(); 
-  all_v_estimated_input_port_index_ = this->DeclareVectorInputPort("all_v_estimated", drake::systems::BasicVector<T>(all_plant->num_velocities())).get_index(); 
-  all_vdot_desired_input_port_index_ = this->DeclareVectorInputPort("all_vdot", drake::systems::BasicVector<T>(all_plant->num_velocities())).get_index(); 
+  all_q_estimated_input_port_index_ = this->DeclareVectorInputPort("all_q_estimated",
+      drake::systems::BasicVector<T>(all_plant->num_positions())).get_index();
+  all_v_estimated_input_port_index_ = this->DeclareVectorInputPort("all_v_estimated",
+      drake::systems::BasicVector<T>(all_plant->num_velocities())).get_index();
+  all_vdot_desired_input_port_index_ = this->DeclareVectorInputPort("all_vdot",
+      drake::systems::BasicVector<T>(all_plant->num_velocities())).get_index();
 
   // Declare the output port.
   generalized_effort_output_port_index_ = this->DeclareVectorOutputPort("generalized_effort",
@@ -310,7 +315,7 @@ ImpedanceController<T>::ImpedanceController(
   // Declare cache entries.
   G_cache_index_ = this->DeclareCacheEntry("G", drake::MatrixX<T>(), &ImpedanceController::CalcG).cache_index();
   K_cache_index_ = this->DeclareCacheEntry("K", drake::MatrixX<T>(), &ImpedanceController::CalcK).cache_index();
-  C_cache_index_ = this->DeclareCacheEntry("C", drake::MatrixX<T>(), &ImpedanceController::CalcC).cache_index(); 
+  C_cache_index_ = this->DeclareCacheEntry("C", drake::MatrixX<T>(), &ImpedanceController::CalcC).cache_index();
   phi_cache_index_ = this->DeclareCacheEntry("phi", drake::VectorX<T>(), &ImpedanceController::CalcPhi).cache_index();
   phi_dot_cache_index_ = this->DeclareCacheEntry(
       "phi_dot", drake::VectorX<T>(), &ImpedanceController::CalcPhiDot).cache_index();
@@ -341,9 +346,9 @@ void ImpedanceController<T>::CalcControlOutput(
   const drake::VectorX<T> M_vdot_des = all_plant_.CalcInverseDynamics(*all_plant_context_, vdot_des, external_forces);
 
   // TODO(edrumwri): Incorporate M̂Ġv term, which is only considerable when control rates are slow and velocities
-  //                 are significant. 
-  // Compute (4). Note that we are able to use the transpose operation since B is a binary matrix. 
-  u->SetFromVector(B_.transpose() * (G.transpose() * (K * phi + C * phi_dot) + M_vdot_des)); 
+  //                 are significant.
+  // Compute (4). Note that we are able to use the transpose operation since B is a binary matrix.
+  u->SetFromVector(B_.transpose() * (G.transpose() * (K * phi + C * phi_dot) + M_vdot_des));
 }
 
 }  // namespace DR
