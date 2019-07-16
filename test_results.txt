@@ -11,6 +11,8 @@ ade73f32ba2aa2e75b5f0a2726dcd7be  include/DR/simulation/model_generator.h
 8c893d8c44ef75bb3bf1280490885d82  include/DR/simulation/shape_to_unit_inertia.h
 37d2b69a8733c4c25d48cef9710d3211  include/DR/simulation/simulation_generator.h
 9124194c4be8fbff4ae9e99a9ec94eb1  include/DR/simulation/state_setter.h
+ca632a118c8ae83c0c42d3a52e1546c1  include/DR/tools/differential_inverse_kinematics.h
+b77221f74a729b8cf1d85849fa478482  include/DR/tools/inverse_kinematics.h
 349a6daefe24454dd0039a1ae21272b0  primitives/impedance_controller.cc
 c9503a6d9c349b331c0e71d71a971eef  primitives/primitive_behavior.cc
 33f9fae6acd5d0b920fefc017e45ee13  primitives/test/impedance_controller_test.cc
@@ -22,21 +24,25 @@ fe64b9208fe1d5988f3b94d813c8a174  simulation/simulation_generator.cc
 36be4e63fecf7e4c23a130d8abe06d23  simulation/state_setter.cc
 ba3797b0c8688f6c0c64280d3c33433d  simulation/test/full_simulation_test.cc
 ece1d16f571823bc993cee8b25c2aa63  simulation/test/model_generator_test.cc
+4f7e576566616db3def784b63acbba13  tools/differential_inverse_kinematics.cc
+ee1b98ac17820fb8c4a7b12922c6dff3  tools/test/differential_inverse_kinematics_test.cc
 Running tests...
 Test project /home/drum/DR/build
     Start 1: DR_debug_test
-1/6 Test #1: DR_debug_test ....................   Passed    0.74 sec
+1/7 Test #1: DR_debug_test .............................   Passed    0.77 sec
     Start 2: DR_release_test
-2/6 Test #2: DR_release_test ..................   Passed    0.39 sec
+2/7 Test #2: DR_release_test ...........................   Passed    0.41 sec
     Start 3: DR_impedance_controller_test
-3/6 Test #3: DR_impedance_controller_test .....   Passed    0.04 sec
+3/7 Test #3: DR_impedance_controller_test ..............   Passed    0.04 sec
     Start 4: DR_primitive_behavior_test
-4/6 Test #4: DR_primitive_behavior_test .......   Passed    3.05 sec
+4/7 Test #4: DR_primitive_behavior_test ................   Passed    3.05 sec
     Start 5: DR_full_simulation_test
-5/6 Test #5: DR_full_simulation_test ..........   Passed   17.38 sec
+5/7 Test #5: DR_full_simulation_test ...................   Passed   17.45 sec
     Start 6: DR_model_generator_test
-6/6 Test #6: DR_model_generator_test ..........   Passed    0.34 sec
+6/7 Test #6: DR_model_generator_test ...................   Passed    0.34 sec
+    Start 7: DR_differential_inverse_kinematics_test
+7/7 Test #7: DR_differential_inverse_kinematics_test ...   Passed    0.05 sec
 
-100% tests passed, 0 tests failed out of 6
+100% tests passed, 0 tests failed out of 7
 
-Total Test time (real) =  21.94 sec
+Total Test time (real) =  22.11 sec

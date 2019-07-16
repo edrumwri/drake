@@ -64,6 +64,7 @@ file(
   "common/*.cc"
   "primitives/*.cc"
   "simulation/*.cc"
+  "tools/*.cc"
 )
 
 # Create project core library.
@@ -84,6 +85,7 @@ file(
   "common/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
+  "tools/test/*.cc"
 )
 
 foreach(TEST_SRC ${TEST_SRC_FILES})
