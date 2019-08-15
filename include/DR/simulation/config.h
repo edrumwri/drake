@@ -1,4 +1,5 @@
 #pragma once
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -10,6 +11,7 @@
 
 #include <drake/geometry/shape_specification.h>
 #include <drake/math/rigid_transform.h>
+#include <drake/multibody/math/spatial_velocity.h>
 #include <drake/multibody/plant/coulomb_friction.h>
 #include <drake/multibody/shapes/geometry.h>
 
@@ -17,7 +19,7 @@
 
 namespace DR {
 
-/**
+/*
  NOTE: Configuration files are not templatized because they do not store
  parameters that vary with respect to the scalar type of a
  drake::multibody::MultibodyPlant<T>.  Example:
@@ -33,7 +35,7 @@ namespace DR {
  templated scalar type of MultibodyPlant.
  */
 
-/**
+/*
  The base interface for all configuration specifications.  It requires that
  all derived classes to implement a ValidateConfig function that will check
  the member variables of the config file for validity.
@@ -53,35 +55,29 @@ class ConfigBase {
 /**
  This class stores simulation-specific parameters.
  The member variables of SimulatorInstanceConfig affect the performance of
- physical simulation of the world model.
- *
+ physical simulation of the universal plant.
+
  NOTE: Some of these simulation parameters are used even if a MultibodyPlant
  will not be simulated (e.g., step_size is used to configure a
  MultibodyPlant).
+
+ NOTE: This class should only be used for serialization.
+
+  TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
  */
 class SimulatorInstanceConfig final : public ConfigBase {
  public:
-  /**
-   Enum types for simulation integration schemes:
-   *
-   0) kUnknownIntegrationScheme: No integration scheme was set.
-   *
-   1) kSemiExplicitEulerIntegrationScheme: A first-order, semi-explicit Euler
-   integrator.
-   *
-   2) kRK2IntegrationScheme: A second-order, explicit Runge Kutta integrator.
-   *
-   3) kRK3IntegrationScheme: A third-order Runge Kutta integrator with a third
-   order error estimate.
-   *
-   4) kImplicitEulerIntegrationScheme: A first-order, fully implicit
-   integrator with second order error estimation.
-   */
+  /// Enum types for selecting the simulation integration scheme.
   enum IntegrationScheme {
+    // The integration scheme was not set.
     kUnknownIntegrationScheme = 0,
+    // A first-order, semi-explicit Euler integrator.
     kSemiExplicitEulerIntegrationScheme = 1,
+    // A second-order, explicit Runge Kutta integrator.
     kRK2IntegrationScheme = 2,
+    // A third-order Runge Kutta integrator with a third order error estimate.
     kRK3IntegrationScheme = 3,
+    // A first-order, fully implicit integrator with second order error estimation.
     kImplicitEulerIntegrationScheme = 4,
   };
 
@@ -96,17 +92,11 @@ class SimulatorInstanceConfig final : public ConfigBase {
     DR_DEMAND(integration_scheme_ != kUnknownIntegrationScheme);
   }
 
-  void set_target_accuracy(double target_accuracy) {
-    target_accuracy_ = target_accuracy;
-  }
+  void set_target_accuracy(double target_accuracy) { target_accuracy_ = target_accuracy; }
 
-  void set_target_realtime_rate(double target_realtime_rate) {
-    target_realtime_rate_ = target_realtime_rate;
-  }
+  void set_target_realtime_rate(double target_realtime_rate) { target_realtime_rate_ = target_realtime_rate; }
 
-  void set_simulation_time(double simulation_time) {
-    simulation_time_ = simulation_time;
-  }
+  void set_simulation_time(double simulation_time) { simulation_time_ = simulation_time; }
 
   void set_step_size(double step_size) { step_size_ = step_size; }
 
@@ -128,9 +118,7 @@ class SimulatorInstanceConfig final : public ConfigBase {
     }
   }
 
-  void set_integration_scheme(IntegrationScheme integration_scheme) {
-    integration_scheme_ = integration_scheme;
-  }
+  void set_integration_scheme(IntegrationScheme integration_scheme) { integration_scheme_ = integration_scheme; }
 
   double target_accuracy() const { return target_accuracy_; }
 
@@ -166,8 +154,11 @@ class SimulatorInstanceConfig final : public ConfigBase {
  robot can touch.
  NOTE: This group excludes the environment (floor, trailer of truck, and the
  robot model) but includes static objects.
- */
 
+ NOTE: This class should only be used for serialization.
+
+  TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
+ */
 class BodyInstanceConfig final : public ConfigBase {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(BodyInstanceConfig)
@@ -181,25 +172,20 @@ class BodyInstanceConfig final : public ConfigBase {
       DR_DEMAND(mass_ > 0);
     }
 
-    DR_DEMAND(std::isfinite(pose_.GetMaximumAbsoluteDifference(
-        drake::math::RigidTransform<double>::Identity())));
+    DR_DEMAND(std::isfinite(pose_.GetMaximumAbsoluteDifference(drake::math::RigidTransform<double>::Identity())));
   }
 
   void set_name(const std::string& name) { name_ = name; }
 
   void set_is_floating(bool is_floating) { is_floating_ = is_floating; }
 
-  void set_pose(const drake::math::RigidTransform<double>& pose) {
-    pose_ = pose;
-  }
+  void set_pose(const drake::math::RigidTransform<double>& pose) { pose_ = pose; }
 
   void SetBoxGeometry(double length, double width, double height) {
     geometry_ = std::make_shared<drake::geometry::Box>(length, width, height);
   }
 
-  void SetSphereGeometry(double radius) {
-    geometry_ = std::make_shared<drake::geometry::Sphere>(radius);
-  }
+  void SetSphereGeometry(double radius) { geometry_ = std::make_shared<drake::geometry::Sphere>(radius); }
 
   void SetCylinderGeometry(double radius, double length) {
     geometry_ = std::make_shared<drake::geometry::Cylinder>(radius, length);
@@ -208,8 +194,11 @@ class BodyInstanceConfig final : public ConfigBase {
   void set_mass(double mass) { mass_ = mass; }
 
   void SetCoulombFriction(double static_friction, double dynamic_friction) {
-    coulomb_friction_ = drake::multibody::CoulombFriction<double>(
-        static_friction, dynamic_friction);
+    coulomb_friction_ = drake::multibody::CoulombFriction<double>(static_friction, dynamic_friction);
+  }
+
+  void set_spatial_velocity(const drake::multibody::SpatialVelocity<double>& spatial_velocity) {
+    spatial_velocity_ = spatial_velocity;
   }
 
   const std::string& name() const { return name_; }
@@ -222,9 +211,9 @@ class BodyInstanceConfig final : public ConfigBase {
 
   double mass() const { return mass_; }
 
-  const drake::multibody::CoulombFriction<double>& coulomb_friction() const {
-    return coulomb_friction_;
-  }
+  const drake::multibody::CoulombFriction<double>& coulomb_friction() const { return coulomb_friction_; }
+
+  const drake::multibody::SpatialVelocity<double>& spatial_velocity() const { return spatial_velocity_; }
 
  protected:
   // A unique name for this manipuland.
@@ -245,7 +234,9 @@ class BodyInstanceConfig final : public ConfigBase {
   //               |  / +x "Forward" (from floor center toward front of trailer)
   //               | /
   //         ------  +y "Left" (from center toward the left wall of the trailer)
-  drake::math::RigidTransform<double> pose_;
+  drake::math::RigidTransform<double> pose_ = drake::math::RigidTransform<double>::Identity();
+
+  drake::multibody::SpatialVelocity<double> spatial_velocity_ = drake::multibody::SpatialVelocity<double>::Zero();
 
   // The mass of the manipuland (only for "floating" objects).
   // Typically represents the weight of the manipuland in kilograms
@@ -263,19 +254,21 @@ class BodyInstanceConfig final : public ConfigBase {
  The static floor or trailer is referred to as the "environment".
  There is only ever one environment because it is composed of open
  geometries (e.g. HalfSpace).
- */
+
+ NOTE: This class should only be used for serialization.
+
+  TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
+*/
 
 class EnvironmentInstanceConfig final : public ConfigBase {
  public:
-  // 'Trailer' is the shape of an open back of a trailer truck represented
-  //           by 5 HalfSpaces the origin is at the center of the trailer
-  //           floor with +X pointing into the truck,
-  //           +Y pointing to the left, and +Z as up.
-  // 'Floor' is an infinite horizontal plane represented by a HalfSpace at the
-  //         origin with a +Z normal (up).
   enum EnvironmentType {
+    // The environment type was not set.
     kUnknownEnvironmentType = 0,
+    // 'Trailer' is the shape of an open back of a trailer truck represented by 5 HalfSpaces.  The origin is at the
+    // center of the trailer floor with +X pointing into the truck,  +Y pointing to the left, and +Z as up.
     kTrailerEnvironmentType = 1,
+    // 'Floor' is an infinite horizontal plane represented by a HalfSpace at the origin with a +Z normal (up).
     kFloorEnvironmentType = 2,
   };
 
@@ -295,9 +288,7 @@ class EnvironmentInstanceConfig final : public ConfigBase {
     }
   }
 
-  void set_gravity(double x, double y, double z) {
-    gravity_ = drake::Vector3<double>(x, y, z);
-  }
+  void set_gravity(double x, double y, double z) { gravity_ = drake::Vector3<double>(x, y, z); }
 
   void set_floor_environment() { type_ = kFloorEnvironmentType; }
 
@@ -305,9 +296,7 @@ class EnvironmentInstanceConfig final : public ConfigBase {
 
   bool is_floor_environment() const { return type_ == kFloorEnvironmentType; }
 
-  bool is_trailer_environment() const {
-    return type_ == kTrailerEnvironmentType;
-  }
+  bool is_trailer_environment() const { return type_ == kTrailerEnvironmentType; }
   EnvironmentType type() const { return type_; }
 
   void SetTrailerSize(double length, double width, double height) {
@@ -316,8 +305,7 @@ class EnvironmentInstanceConfig final : public ConfigBase {
   }
 
   void SetCoulombFriction(double static_friction, double dynamic_friction) {
-    coulomb_friction_ = drake::multibody::CoulombFriction<double>(
-        static_friction, dynamic_friction);
+    coulomb_friction_ = drake::multibody::CoulombFriction<double>(static_friction, dynamic_friction);
   }
 
   const drake::Vector3<double>& gravity() const { return gravity_; }
@@ -327,16 +315,11 @@ class EnvironmentInstanceConfig final : public ConfigBase {
     return trailer_size_;
   }
 
-  const drake::multibody::CoulombFriction<double>& coulomb_friction() const {
-    return coulomb_friction_;
-  }
+  const drake::multibody::CoulombFriction<double>& coulomb_friction() const { return coulomb_friction_; }
 
-  const std::vector<BodyInstanceConfig>& body_instance_configs() const {
-    return body_instance_configs_;
-  }
+  const std::vector<BodyInstanceConfig>& body_instance_configs() const { return body_instance_configs_; }
 
-  void set_body_instance_configs(
-      const std::vector<BodyInstanceConfig>& body_instance_configs) {
+  void set_body_instance_configs(const std::vector<BodyInstanceConfig>& body_instance_configs) {
     body_instance_configs_ = body_instance_configs;
   }
 
@@ -376,11 +359,179 @@ class EnvironmentInstanceConfig final : public ConfigBase {
 };
 
 /**
+ Configuration class for a robot's actuated joints each configuration is meant to describe a unique joint on a
+ robot, but not required to be unique in the simulated world.
+ JointInstanceConfig stores information describing a robot's joints. This
+ configuraton will be used by the ModelGenerator and StateSetter to build and initialize the robot model and used by
+ ControllerGenerator to configure the robot control system.  During simulation, this config can be used by controllers
+ and planners as a reference for joint names, types, and other relevant parameters.
+
+  NOTE: This class should only be used for serialization.
+
+  TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
+ */
+class JointInstanceConfig final : public ConfigBase {
+ public:
+  enum class JointType {
+    kUnknownJointType = 0,
+    kRevoluteJointType = 1,
+    kPrismaticJointType = 2,
+  };
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(JointInstanceConfig)
+
+  JointInstanceConfig() {}
+  JointInstanceConfig(const std::string& joint_name, JointType joint_type, drake::optional<double> position,
+                      drake::optional<double> velocity, drake::optional<double> kp) {
+    this->set_name(joint_name);
+    this->set_type(joint_type);
+
+    if (position.has_value()) this->set_position(position.value());
+    if (velocity.has_value()) this->set_velocity(velocity.value());
+    if (kp.has_value()) this->set_kp(kp.value());
+  }
+  ~JointInstanceConfig() {}
+  void ValidateConfig() const final {
+    DR_DEMAND(!name_.empty());
+    DR_DEMAND(type_ != JointType::kUnknownJointType);
+    DR_DEMAND(kp_ >= 0.0);
+    DR_DEMAND(std::isfinite(position_));
+    DR_DEMAND(std::isfinite(velocity_));
+  }
+
+  const std::string& name() const { return name_; }
+  void set_name(const std::string& name) { name_ = name; }
+
+  JointType type() const { return type_; }
+  void set_type(JointType type) { type_ = type; }
+
+  double kp() const { return kp_; }
+  void set_kp(double kp) { kp_ = kp; }
+
+  double position() const { return position_; }
+  void set_position(double position) { position_ = position; }
+
+  double velocity() const { return velocity_; }
+  void set_velocity(double velocity) { velocity_ = velocity; }
+
+ private:
+  std::string name_{""};
+  JointType type_{JointType::kUnknownJointType};
+  double kp_{0.0};
+  double position_{std::numeric_limits<double>::quiet_NaN()};
+  double velocity_{0.0};
+};
+
+/**
+ Configuration class for an instance of a robot, each configuration is meant to describe a unique robot in the
+ simulated world.
+
+ RobotInstanceConfig stores information describing a controlled multiobody or "robot". This configuraton will be used by
+ the ModelGenerator and StateSetter to build and initialize the robot model and used by ControllerGenerator to configure
+ the robot control system.  During simulation, this config can be used by controllers and planners as a reference for
+ the robot's name, joint configurations, and the path to its model file to generate additional, controller-owned robot
+ models.
+
+  NOTE: This class should only be used for serialization.
+
+  TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
+ */
+class RobotInstanceConfig final : public ConfigBase {
+ public:
+  /**
+   ControlScheme describes what type of controllers to configure for this robot instance.
+    NOTE: When a target control-system architecture is better known this Enum will be replaced with a ControllerConfig
+    class.
+   */
+  enum ControlScheme {
+    // The robot is not controlled, all joints are set to zero torque.
+    kPassiveControlScheme = 1,
+    // The robot is controlled and configured to hold its initial position.
+    kStationaryControlScheme = 2,
+    // The robot is controlled and configured to perform the TruckUnload task.
+    kPrimitiveControlScheme = 3,
+  };
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(RobotInstanceConfig)
+
+  RobotInstanceConfig() {}
+  RobotInstanceConfig(const std::string& robot_name, const std::string& model_directory, const std::string& model_file,
+                      const std::vector<JointInstanceConfig>& joint_configs) {
+    this->set_name(robot_name);
+    this->set_model_directory(model_directory);
+    this->set_model_file(model_file);
+    this->set_joint_instance_configs(joint_configs);
+  }
+  ~RobotInstanceConfig() {}
+  void ValidateConfig() const final {
+    DR_DEMAND(!name_.empty());
+    DR_DEMAND(!model_file_.empty());
+    DR_DEMAND(!model_directory_.empty());
+  }
+
+  int num_joints() const { return joint_instance_configs_.size(); }
+
+  const std::string& name() const { return name_; }
+  void set_name(const std::string& name) { name_ = name; }
+
+  const std::string& model_file() const { return model_file_; }
+  void set_model_file(const std::string& model_file) { model_file_ = model_file; }
+
+  const std::string& model_directory() const { return model_directory_; }
+  void set_model_directory(const std::string& model_directory) { model_directory_ = model_directory; }
+
+  bool is_floating() const { return is_floating_; }
+  void set_is_floating(bool is_floating) { is_floating_ = is_floating; }
+
+  const std::vector<JointInstanceConfig>& joint_instance_configs() const { return joint_instance_configs_; }
+  void set_joint_instance_configs(const std::vector<JointInstanceConfig>& joint_instance_configs) {
+    joint_instance_configs_ = joint_instance_configs;
+  }
+
+  ControlScheme control_scheme() const { return control_scheme_; }
+  void set_control_scheme(ControlScheme control_scheme) { control_scheme_ = control_scheme; }
+
+  const drake::math::RigidTransform<double>& pose() const { return pose_; }
+  void set_pose(const drake::math::RigidTransform<double>& pose) { pose_ = pose; }
+
+  const drake::multibody::SpatialVelocity<double>& spatial_velocity() const { return spatial_velocity_; }
+  void set_spatial_velocity(const drake::multibody::SpatialVelocity<double>& spatial_velocity) {
+    spatial_velocity_ = spatial_velocity;
+  }
+
+  void set_gravity(double x, double y, double z) { gravity_ = drake::Vector3<double>(x, y, z); }
+  const drake::Vector3<double>& gravity() const { return gravity_; }
+
+ private:
+  // This is the gravity vector of this robot;s controllers (the default value is
+  // usually best).
+  // NOTE: This value will be checked against EnvironmentInstanceConfig::gravity_
+  drake::Vector3<double> gravity_{0.0, 0.0, -9.8};
+
+  std::string name_{""};
+
+  std::vector<JointInstanceConfig> joint_instance_configs_;
+
+  std::string model_file_{""};
+  std::string model_directory_{""};
+
+  bool is_floating_{false};
+
+  drake::math::RigidTransform<double> pose_ = drake::math::RigidTransform<double>::Identity();
+
+  drake::multibody::SpatialVelocity<double> spatial_velocity_ = drake::multibody::SpatialVelocity<double>::Zero();
+
+  ControlScheme control_scheme_{kPassiveControlScheme};
+};
+
+/**
  Configuration class describing the parameters for generating a
  trailer unloading task scenario.
  includes:
    1 Static Environment {Floor, Trailer}
    N Static or Dynamic Manipulands {Box, Sphere}
+
+ NOTE: This class should only be used for serialization.
+
+ TODO(samzapo): Write a parser and exporter to YAML/JSON for this class.
  */
 
 class UnloadingTaskConfig final : public ConfigBase {
@@ -401,46 +552,48 @@ class UnloadingTaskConfig final : public ConfigBase {
 
       // Guarantee that all bodies have a unique name.
       ret = unique_names.insert(manipuland.name());
-      DR_DEMAND(ret.second, "A manipuland with name " + manipuland.name() +
-                                " already exists!");
+      DR_DEMAND(ret.second, "A manipuland with name " + manipuland.name() + " already exists!");
     }
 
     environment_instance_config().ValidateConfig();
 
-    for (const auto& env_body :
-         environment_instance_config().body_instance_configs()) {
+    for (const auto& env_body : environment_instance_config().body_instance_configs()) {
       // guarantee that all bodies have a unique name.
       ret = unique_names.insert(env_body.name());
-      DR_DEMAND(ret.second,
-                "A body with name " + env_body.name() + " already exists!");
+      DR_DEMAND(ret.second, "A body with name " + env_body.name() + " already exists!");
+    }
+
+    for (const auto& robot : robot_instance_configs()) {
+      // guarantee that all bodies have a unique name.
+      ret = unique_names.insert(robot.name());
+      DR_DEMAND(ret.second, "A robot with name " + robot.name() + " already exists!");
+
+      // Make sure that gravity of world and robot match.
+      DR_DEMAND(environment_instance_config().gravity() == robot.gravity());
     }
   }
 
-  const SimulatorInstanceConfig& simulator_instance_config() const {
-    return simulator_instance_config_;
-  }
+  const SimulatorInstanceConfig& simulator_instance_config() const { return simulator_instance_config_; }
 
-  const std::vector<BodyInstanceConfig>& manipuland_instance_configs() const {
-    return manipuland_instance_configs_;
-  }
+  const std::vector<BodyInstanceConfig>& manipuland_instance_configs() const { return manipuland_instance_configs_; }
 
-  const EnvironmentInstanceConfig& environment_instance_config() const {
-    return environment_instance_config_;
-  }
+  const EnvironmentInstanceConfig& environment_instance_config() const { return environment_instance_config_; }
 
-  void set_simulator_instance_config(
-      const SimulatorInstanceConfig& simulator_instance_config) {
+  void set_simulator_instance_config(const SimulatorInstanceConfig& simulator_instance_config) {
     simulator_instance_config_ = simulator_instance_config;
   }
 
-  void set_manipuland_instance_configs(
-      const std::vector<BodyInstanceConfig>& manipuland_instance_configs) {
+  void set_manipuland_instance_configs(const std::vector<BodyInstanceConfig>& manipuland_instance_configs) {
     manipuland_instance_configs_ = manipuland_instance_configs;
   }
 
-  void set_environment_instance_config(
-      const EnvironmentInstanceConfig& environment_instance_config) {
+  void set_environment_instance_config(const EnvironmentInstanceConfig& environment_instance_config) {
     environment_instance_config_ = environment_instance_config;
+  }
+
+  const std::vector<RobotInstanceConfig>& robot_instance_configs() const { return robot_instance_configs_; }
+  void set_robot_instance_configs(const std::vector<RobotInstanceConfig>& robot_instance_configs) {
+    robot_instance_configs_ = robot_instance_configs;
   }
 
  private:
@@ -453,6 +606,8 @@ class UnloadingTaskConfig final : public ConfigBase {
    NOTE: The set of manipulands does not include any part of the robot.
    */
   std::vector<BodyInstanceConfig> manipuland_instance_configs_;
+
+  std::vector<RobotInstanceConfig> robot_instance_configs_;
 
   EnvironmentInstanceConfig environment_instance_config_;
 };

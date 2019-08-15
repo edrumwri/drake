@@ -2,6 +2,7 @@
 
 #include <drake/common/autodiff.h>
 
+#include <DR/models/chopstick_config.h>
 #include <DR/simulation/config.h>
 #include <DR/simulation/model_generator.h>
 
@@ -9,19 +10,22 @@ namespace DR {
 namespace {
 
 /*
- The ModelGeneratorTest creates a drake::systems::DiagramBuilder and
- ModelGenerator tests implementing this class then use
- the stored classes to generate a MultibodyPlant world model.
+ The ModelGeneratorTest creates a drake::systems::DiagramBuilder and ModelGenerator and generates a universal plant
+ several permutation of world models.
+
+ TODO(samzapo): Replace the tests implemented in this file with a test of the clutter generation code.
 
  @tparam T The underlying scalar type. Must be a valid Eigen scalar.
          Options for T are the following: (☑ = supported)
          ☑ double
-         ☑ drake::AutoDiffXd
+         ☐ drake::AutoDiffXd
          ☐ drake::symbolic::Expression
 */
 template <typename T>
 class ModelGeneratorTest : public ::testing::Test {
  public:
+  using MyParamType = T;
+
   ModelGenerator<T>* model_generator() { return model_generator_.get(); }
   drake::systems::DiagramBuilder<T>* builder() { return builder_.get(); }
 
@@ -40,7 +44,7 @@ class ModelGeneratorTest : public ::testing::Test {
 
 using testing::Types;
 
-typedef Types<double, drake::AutoDiffXd> Implementations;
+typedef Types<double> Implementations;
 
 TYPED_TEST_SUITE(ModelGeneratorTest, Implementations);
 
@@ -59,6 +63,7 @@ TYPED_TEST_SUITE(ModelGeneratorTest, Implementations);
     -- Trailer
  see include/DR/simulation/config.h for documentation on UnloadingTaskConfig
  */
+// TODO(samzapo): Replace this test with a test of the clutter generation code.
 TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
   // Test simulation options (Integration Scheme).
   std::vector<SimulatorInstanceConfig> test_simulators;
@@ -182,6 +187,99 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
       }
     }
   }
+}
+
+// This test checks for the correct number of degrees of freedom after creating two floating base chopstick
+// robots ( 5 actuated degrees of freedom + base degrees of freedom each) with `ModelGenerator`.
+TYPED_TEST(ModelGeneratorTest, FloatingBaseRobotTest) {
+  // Pair of chopstick robots.
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  // Set floating bases.
+  for (auto& robot : robots) {
+    robot.set_is_floating(true);
+  }
+
+  // Create Robot plant.
+  const auto mbp = std::make_unique<typename drake::multibody::MultibodyPlant<typename TestFixture::MyParamType>>();
+
+  // Add robots to plant.
+  for (const auto& robot : robots) {
+    this->model_generator()->AddRobotToMBP(robot, mbp.get());
+  }
+  mbp->Finalize();
+
+  int plant_num_joint_dofs = 0;
+  int plant_num_position_dofs = 0;
+  int plant_num_velocity_dofs = 0;
+  for (const auto& robot : robots) {
+    drake::multibody::ModelInstanceIndex model_index = mbp->GetModelInstanceByName(robot.name());
+    // TODO(samzapo): Correctness of this test is bead on single-dof joints.
+    // Expected num joint dofs in robot.
+    int robot_num_joint_dofs = robot.joint_instance_configs().size();
+    // 3 linear + 4 quaternion + joint DOFs.
+    int robot_num_position_dofs = 7 + robot_num_joint_dofs;
+    // 3 linear + 3 angular + joint DOFs.
+    int robot_num_velocity_dofs = 6 + robot_num_joint_dofs;
+
+    // Total dofs expected in plant.
+    plant_num_joint_dofs += robot_num_joint_dofs;
+    plant_num_position_dofs += robot_num_position_dofs;
+    plant_num_velocity_dofs += robot_num_velocity_dofs;
+
+    // Dofs from model instance in plant.
+    int num_actuated_dofs = mbp->num_actuated_dofs(model_index);
+    int num_position_dofs = mbp->num_positions(model_index);
+    int num_velocity_dofs = mbp->num_velocities(model_index);
+
+    // Check for correct joint DOFs.
+    EXPECT_EQ(num_actuated_dofs, robot_num_joint_dofs);
+    EXPECT_EQ(num_position_dofs, robot_num_position_dofs);
+    EXPECT_EQ(num_velocity_dofs, robot_num_velocity_dofs);
+  }
+
+  EXPECT_EQ(mbp->num_actuated_dofs(), plant_num_joint_dofs);
+  EXPECT_EQ(mbp->num_positions(), plant_num_position_dofs);
+  EXPECT_EQ(mbp->num_velocities(), plant_num_velocity_dofs);
+}
+
+// This test checks for the correct number of degrees of freedom after creating two fixed base chopstick
+// robots ( 5 actuated degrees of freedom + base degrees of freedom each) with `ModelGenerator`.
+TYPED_TEST(ModelGeneratorTest, FixedBaseRobotTest) {
+  // Pair of chopstick robots.
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  // Set fixed bases.
+  for (auto& robot : robots) {
+    robot.set_is_floating(false);
+  }
+
+  // Create Robot plant.
+  const auto mbp = std::make_unique<typename drake::multibody::MultibodyPlant<typename TestFixture::MyParamType>>();
+
+  // Add robots to plant.
+  for (const auto& robot : robots) {
+    this->model_generator()->AddRobotToMBP(robot, mbp.get());
+  }
+  mbp->Finalize();
+
+  int plant_num_joint_dofs = 0;
+  for (const auto& robot : robots) {
+    drake::multibody::ModelInstanceIndex model_index = mbp->GetModelInstanceByName(robot.name());
+    // TODO(samzapo): Correctness of this test is bead on single-dof joints.
+    // Expected num joint dofs in robot.
+    int robot_num_joint_dofs = robot.joint_instance_configs().size();
+
+    // Total dofs expected in plant.
+    plant_num_joint_dofs += robot_num_joint_dofs;
+
+    // Check for correct joint DOFs from model instance in plant.
+    EXPECT_EQ(mbp->num_actuated_dofs(model_index), robot_num_joint_dofs);
+    EXPECT_EQ(mbp->num_positions(model_index), robot_num_joint_dofs);
+    EXPECT_EQ(mbp->num_velocities(model_index), robot_num_joint_dofs);
+  }
+
+  EXPECT_EQ(mbp->num_actuated_dofs(), plant_num_joint_dofs);
+  EXPECT_EQ(mbp->num_positions(), plant_num_joint_dofs);
+  EXPECT_EQ(mbp->num_velocities(), plant_num_joint_dofs);
 }
 
 #endif  // GTEST_HAS_TYPED_TEST

@@ -4,5 +4,4 @@
 
 namespace DR {
 template class ModelGenerator<double>;
-template class ModelGenerator<drake::AutoDiffXd>;
 }  // namespace DR

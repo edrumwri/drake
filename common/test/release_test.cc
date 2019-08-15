@@ -5,6 +5,10 @@
 #define NDEBUG_DEF 1
 #endif
 
+#ifndef NDEBUG
+#error "This file must be compiled in release mode"
+#endif
+
 #include <DR/common/exception.h>
 
 #include <exception> /* runtime_error, logic_error */
@@ -13,14 +17,14 @@
 
 namespace DR {
 TEST(ReleaseDebugToolsTest, AssertFalse) {
-  // Assert should not result in death when in release mode.
+  // Assert should NOT result in death when in release mode.
   EXPECT_NO_THROW({ assert(false); });
   EXPECT_NO_THROW({ DRAKE_ASSERT(false); });
   EXPECT_NO_THROW({ DR_ASSERT(false); });
   EXPECT_NO_THROW({ DR_ASSERT(false, "Message"); });
 }
 TEST(ReleaseDebugToolsTest, DemandFalse) {
-  // Demand should not result in death when in release mode.
+  // Demand should result in death when in release mode.
   EXPECT_DEATH({ DRAKE_DEMAND(false); }, ".*");
   EXPECT_DEATH({ DR_DEMAND(false); }, ".*");
   EXPECT_DEATH({ DR_DEMAND(false, "Message"); }, ".*");

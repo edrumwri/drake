@@ -1,25 +1,3 @@
-# @returns the absolute path to the directory of the script.
-function get_script_path()
-{
-    # writes the path to this script to attribute at $1
-    local  __RESULTVAR=$1
-    # otherwise echos result
-
-    local SOURCE="${BASH_SOURCE[0]}"
-    while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
-        DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
-        SOURCE="$(readlink "$SOURCE")"
-        [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
-    done
-    local DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
-
-    if [[ "$__RESULTVAR" ]]; then
-        eval $__RESULTVAR="'$DIR'"
-    else
-        echo "$DIR"
-    fi
-}
-
 # This script generates an MD5 hash of each source file (*.h, *.cc), 
 # makes the project and then runs unit tests.
 # $1: should be the path to the build directory.

@@ -28,28 +28,28 @@ namespace DR {
 template <typename T>
 class ModelGenerator {
  public:
-  typedef std::tuple<drake::multibody::MultibodyPlant<T>*, drake::geometry::SceneGraph<T>*> ModelWithSceneGraph;
   /**
-   Creates and finalizes the MultiBodyPlant representing the world.
+   Creates and finalizes the universal plant.
    Work done in this function includes:
-   1) adding robot model, manipuland, environment bodies to the world.
-   2) setting all body poses that will remain fixed
-      (e.g., fixed frames, welds).
-   @param config the UnloadingTaskConfig describing parameters of the
-          world model.
-   @param builder a raw pointer to the DiagramBuilder that is responsible for
-          the world and robot simulation and control Diagram.
-   @return a raw pointer to the MultibodyPlant (world model) that was built
-           and finalized in this scope.
+   1) adding robot model, manipuland, environment bodies to the universal plant.
+   2) setting all body poses that will remain fixed (e.g., fixed frames, welds).
+   @param config the UnloadingTaskConfig stores parameters used to generate the scene and robot in the universal plant.
+   @param builder a raw pointer to the DiagramBuilder that is responsible for connecting systems to the universal plant.
+   @return a raw pointer to the universal plant that was built and finalized in this scope.
    */
-  ModelWithSceneGraph CreateSceneAndRobot(const UnloadingTaskConfig& config,
-                                          drake::systems::DiagramBuilder<T>* builder) {
+  std::tuple<drake::multibody::MultibodyPlant<T>*, drake::geometry::SceneGraph<T>*> CreateSceneAndRobot(
+      const UnloadingTaskConfig& config, drake::systems::DiagramBuilder<T>* builder) {
     config.ValidateConfig();
 
     drake::multibody::AddMultibodyPlantSceneGraphResult<T> result = drake::multibody::AddMultibodyPlantSceneGraph(
         builder, std::make_unique<drake::multibody::MultibodyPlant<T>>(config.simulator_instance_config().step_size()));
     drake::multibody::MultibodyPlant<T>* mbp = &(result.plant);
     drake::geometry::SceneGraph<T>* scene_graph = &(result.scene_graph);
+
+    // Add Robots to world.
+    for (const auto& robot : config.robot_instance_configs()) {
+      AddRobotToMBP(robot, mbp);
+    }
 
     // Add Manipulands to the world.
     for (const auto& manipuland : config.manipuland_instance_configs()) {
@@ -63,6 +63,52 @@ class ModelGenerator {
     mbp->Finalize();
 
     return std::tie(mbp, scene_graph);
+  }
+
+  /**
+   Generates a new MultibodyPlant to represent the robot described by the RobotInstanceConfig. The returned
+   MultibodyPlant can be used for, e.g., getting generalized inertia of just the robot, not every body in a simulation.
+   @param config a description of the robot model.
+   @return a unique pointer to the new robot plant.
+   */
+  std::unique_ptr<typename drake::multibody::MultibodyPlant<T>> CreateStandaloneRobotPlant(
+      const RobotInstanceConfig& config) {
+    auto mbp = std::make_unique<typename drake::multibody::MultibodyPlant<T>>();
+
+    // Add robot model to the new multibody plant instance.
+    AddRobotToMBP(config, mbp.get());
+
+    // Add gravity to the MultibodyPlant.
+    mbp->mutable_gravity_field().set_gravity_vector(config.gravity());
+
+    mbp->Finalize();
+    return mbp;
+  }
+
+  /**
+   Generates a robot model described by RobotInstanceConfig and adds it to the MultibodyPlant
+   @param RobotInstanceConfig configuration class with file path to the robot description file and other paramerers for
+          the robot instance.
+   @param MultibodyPlant raw pointer to the universal plant, the robot model will be added to this system.
+   */
+  void AddRobotToMBP(const RobotInstanceConfig& config, drake::multibody::MultibodyPlant<T>* mbp) {
+    // TODO(samzapo): Implement for T = AutoDiff
+    // The class `drake::multibody::Parser(mbp)` is only defined
+    // for `drake::multibody::MultibodyPlant<T>*` for `T = double` not `T = AutoDiff`
+    static_assert(std::is_same<T, double>::value,
+                  "ModelGenerator<T>::AddRobotToMBP is only implemented for T = double");
+
+    std::string abs_model_path = config.model_directory() + "/" + config.model_file();
+
+    DR_DEMAND(mbp);
+    drake::multibody::ModelInstanceIndex model_instance =
+        drake::multibody::Parser(mbp).AddModelFromFile(abs_model_path, config.name());
+
+    DR_DEMAND(mbp->HasBodyNamed("base", model_instance), "Robot model must have link named 'base'");
+
+    if (!config.is_floating()) {
+      PlaceAtPose("base", model_instance, config.pose(), mbp);
+    }
   }
 
   /**

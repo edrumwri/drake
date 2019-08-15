@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- This file instantiates the 'Chopstick' robot defined in chopstick.xacro.  The robot instance specified in this file is the right side of the 2-robot (left & right) chopstick pair designed for the bulk truck unloading task. generate an SDF of this model by running: `DR/models/chopstick/generate_models.sh` -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="chopstick.xacro" />
+  <sdf version='1.6'>
+    <model name='chopsticks'>
+      <link name='base'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+      </link >
+      <xacro:chopstick parent="base" x_scale="2.0" y_scale="2.0" z_scale="2.0" x_orientation="1" y_orientation="1" z_orientation="1" chopstick_length="1.0" chopstick_radius="0.02" body_collision="false"/>
+    </model>
+  </sdf>
+</robot>

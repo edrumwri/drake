@@ -78,6 +78,28 @@ target_link_libraries(
   drake::drake 
 )
 
+# Create main entrypoint for running code (not a test).
+add_executable(
+  ${PROJECT_NAME}_main
+  "demo/main.cc"
+)
+
+target_link_libraries(
+  ${PROJECT_NAME}_main
+  ${PROJECT_NAME}_core
+  gflags
+)
+
+# Add smoke test for demo code.
+add_test(
+  ${PROJECT_NAME}_main_test
+  ${PROJECT_NAME}_main
+  WORKING_DIRECTORY 
+  ${BIN_ROOT_DIR}
+  COMMAND 
+  ${PROJECT_NAME}_main --model_directory=${SRC_ROOT_DIR}/models/ --max_simulation_time=1.0
+)
+
 # Create and add test binaries to CTest.
 file(
   GLOB 
@@ -105,6 +127,7 @@ foreach(TEST_SRC ${TEST_SRC_FILES})
   target_link_libraries(
     ${PROJECT_NAME}_${TEST_EXE_NAME} 
     ${PROJECT_NAME}_core
+    gflags
     gtest
     gtest_main
   )
@@ -116,6 +139,6 @@ foreach(TEST_SRC ${TEST_SRC_FILES})
     WORKING_DIRECTORY 
     ${BIN_ROOT_DIR}
     COMMAND 
-    ${PROJECT_NAME}_${TEST_EXE_NAME}
+    ${PROJECT_NAME}_${TEST_EXE_NAME} --model_directory=${SRC_ROOT_DIR}/models/
   )
 endforeach(TEST_SRC)

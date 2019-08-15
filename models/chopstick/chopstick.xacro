@@ -1,0 +1,418 @@
+<?xml version="1.0"?>
+<!-- This file defines the 'Chopstick' robot.
+Chopstick has 5 degrees of freedom, x,y,z,pitch,yaw and its end effector is a long baton that is symmetric about its roll axis.
+Instances of this robot are specified in files: "DR/models/chopstick/*.sdf.xacro"
+generate SDFs of this model by running `DR/models/chopstick/generate_models.sh`
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+<!-- collision_sphere_line_x is a recursive macro, it creates a series of sphere collision geometries in a line where each subsequent sphere is incrementally smaller than the next.  This macro is used to generate a version of the conical end effector using only spherical geometries.
+ -->
+  <xacro:macro name="collision_sphere_line_x" params="num_spheres sphere_radius sphere_radius_increment x_pose x_pose_increment">
+      <collision name='link_chopstick_collision_${num_spheres}'>
+        <pose>${x_pose} -0 0 0 -0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>${sphere_radius}</radius>
+          </sphere>
+        </geometry>
+      </collision>
+
+      <xacro:if value="${num_spheres}">
+          <xacro:collision_sphere_line_x num_spheres="${num_spheres - 1}" sphere_radius="${sphere_radius+sphere_radius_increment}" sphere_radius_increment="${sphere_radius_increment}" x_pose="${x_pose + x_pose_increment}" x_pose_increment="${x_pose_increment}"/>
+      </xacro:if>
+  </xacro:macro>
+<!-- visual_sphere_line_x is a recursive macro, it creates a series of sphere visual geometries in a line where each subsequent sphere is incrementally smaller than the next.  This macro is used to generate a version of the conical end effector using only spherical geometries.
+ -->
+  <xacro:macro name="visual_sphere_line_x" params="num_spheres sphere_radius sphere_radius_increment x_pose x_pose_increment">
+    <visual name='link_chopstick_visual_${num_spheres}'>
+      <pose>${x_pose} -0 0 0 -0 0</pose>
+      <geometry>
+        <sphere>
+          <radius>${sphere_radius}</radius>
+        </sphere>
+      </geometry>
+      <material>
+        <diffuse>0.4 0.4 0.4 1.0</diffuse>
+      </material>
+    </visual>
+
+    <xacro:if value="${num_spheres}">
+        <xacro:visual_sphere_line_x num_spheres="${num_spheres - 1}" sphere_radius="${sphere_radius+sphere_radius_increment}" sphere_radius_increment="${sphere_radius_increment}" x_pose="${x_pose + x_pose_increment}" x_pose_increment="${x_pose_increment}"/>
+    </xacro:if>
+  </xacro:macro>
+
+  <!-- chopstick is a macro defining one chopstick robot.
+      A single instance of chopstick includes a conical end effector actuated by a 5-dof gantry.
+      The model is connected to a parent link and can be scaled along each of its linear axis to implement robots of various sizes.
+  -->
+  <xacro:macro name="chopstick" params="parent x_scale y_scale z_scale x_orientation y_orientation z_orientation chopstick_length chopstick_radius body_collision">
+    <xacro:property name="x_location" value="${x_scale * x_orientation}" />
+    <xacro:property name="y_location" value="${y_scale * y_orientation}" />
+    <xacro:property name="z_location" value="${z_scale * z_orientation}" />
+    <xacro:property name="num_chopstick_spheres" value="${chopstick_length / chopstick_radius}" />
+
+    <xacro:property name="initial_link_scale" value="0.05" />
+  <!-- =============== Gantry ============== -->
+  <!-- Gantry Link 0 (X-axis "forward" rail) -->
+    <joint name='base_weld' type='fixed'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <child>link_0</child>
+      <parent>${parent}</parent>
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="0" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    <link name='link_0'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>${x_location * 0.5} 0 0 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+        <visual name='link_0_visual'>
+        <pose frame=''>${x_location * 0.5} 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>${x_scale} ${y_scale*link_scale} ${z_scale*link_scale}</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>1 0 0</diffuse>
+        </material>
+      </visual>
+      <xacro:if value="${body_collision}">
+        <collision name='link_0_visual_collision'>
+          <pose>${x_location * 0.5} 0 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>${x_scale} ${y_scale*link_scale} ${z_scale*link_scale}</size>
+            </box>
+          </geometry>
+        </collision>    
+      </xacro:if>
+    </link>
+    <joint name='joint_1' type='prismatic'>
+      <parent>link_0</parent>
+      <child>link_1</child>
+      <axis>
+        <xyz>${x_orientation} 0 0</xyz>
+        <!-- <limit>
+          <lower>${x_scale * -0.5}</lower>
+          <upper>${x_scale * 0.5}</upper>
+          <effort>300</effort>
+          <velocity>10</velocity>
+        </limit> -->
+        <dynamics>
+          <damping>0.0</damping>
+          <friction>0</friction>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="1" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    <!-- Gantry Link 1 (Z-axis "up" rail) -->
+    <link name='link_1'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>0 0 ${z_location * 0.5} 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+        <visual name='link_1_visual'>
+        <pose frame=''>0 0 ${z_location * 0.5} 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>${x_scale*link_scale} ${y_scale*link_scale} ${z_scale}</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>0 0 1</diffuse>
+        </material>
+      </visual>
+      <xacro:if value="${body_collision}">
+        <collision name='link_1_visual_collision'>
+          <pose>0 0 ${z_location * 0.5} 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>${x_scale*link_scale} ${y_scale*link_scale} ${z_scale}</size>
+            </box>
+          </geometry>
+        </collision>      
+      </xacro:if>
+    </link>
+    <joint name='joint_2' type='prismatic'>
+      <parent>link_1</parent>
+      <child>link_2</child>
+      <axis>
+        <xyz>0 0 ${z_orientation}</xyz>
+        <!-- <limit>
+          <lower>${z_scale * -0.5}</lower>
+          <upper>${z_scale * 0.5}</upper>
+          <effort>300</effort>
+          <velocity>10</velocity>
+        </limit> -->
+        <dynamics>
+          <damping>0.0</damping>
+          <friction>0</friction>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="2" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    <!-- Gantry Link 2 (Y-axis "pitch" rotation) -->
+    <link name='link_2'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+        <visual name='link_2_visual'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>${x_scale*link_scale} ${y_scale*link_scale} ${z_scale*link_scale}</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>0 1 0</diffuse>
+        </material>
+      </visual>    
+    </link>
+    <joint name='joint_3' type='revolute'>
+      <parent>link_2</parent>
+      <child>link_3</child>
+      <axis>
+        <xyz>0 ${y_orientation} 0</xyz>
+        <!-- <limit>
+          <lower>${-pi}</lower>
+          <upper>${pi}</upper>
+          <effort>300</effort>
+          <velocity>10</velocity>
+        </limit> -->
+        <dynamics>
+          <damping>0.0</damping>
+          <friction>0</friction>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="3" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    <!-- Gantry Link 3 (Y-axis "left" rail) -->
+    <link name='link_3'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>0 ${y_location * 0.5} 0 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+        <visual name='link_3_visual'>
+        <pose frame=''>0 ${y_location * 0.5} 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>${x_scale*link_scale} ${y_scale} ${z_scale*link_scale}</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>0 1 0</diffuse>
+        </material>
+      </visual>
+      <xacro:if value="${body_collision}">
+        <collision name='link_3_visual_collision'>
+          <pose>0 ${y_location * 0.5} 0 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>${x_scale*link_scale} ${y_scale} ${z_scale*link_scale}</size>
+            </box>
+          </geometry>
+        </collision>      
+      </xacro:if>
+    </link>
+    <joint name='joint_4' type='prismatic'>
+      <parent>link_3</parent>
+      <child>link_4</child>
+      <axis>
+        <xyz>0 ${y_orientation} 0</xyz>
+        <!-- <limit>
+          <lower>${y_scale * -0.5}</lower>
+          <upper>${y_scale * 0.5}</upper>
+          <effort>300</effort>
+          <velocity>10</velocity>
+        </limit> -->
+        <dynamics>
+          <damping>0.0</damping>
+          <friction>0</friction>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="4" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    <!-- Gantry Link 4 (z-axis "yaw" rotation) -->
+    <link name='link_4'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <gravity>1</gravity>
+      <velocity_decay/>
+      <self_collide>0</self_collide>
+      <visual name='link_4_visual'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>${x_scale*link_scale} ${y_scale*link_scale} ${z_scale*link_scale}</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>0 0 1</diffuse>
+        </material>
+      </visual>    
+    </link>
+    <joint name='joint_5' type='revolute'>
+      <parent>link_4</parent>
+      <child>link_chopstick</child>
+      <axis>
+        <xyz>0 0 ${z_orientation}</xyz>
+        <!-- <limit>
+          <lower>${-pi}</lower>
+          <upper>${pi}</upper>
+          <effort>300</effort>
+          <velocity>10</velocity>
+        </limit> -->
+        <dynamics>
+          <damping>0.0</damping>
+          <friction>0</friction>
+          <spring_reference>0</spring_reference>
+          <spring_stiffness>0</spring_stiffness>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis> 
+    </joint>
+    <!-- Make scale of link smaller to prevent dither from intersection -->
+    <xacro:property name="link_number" value="5" />
+    <xacro:property name="link_scale" value="${initial_link_scale*(1.0 - (0.1 * link_number))}" />
+    
+    <link name='link_chopstick'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose frame=''>${chopstick_length*0.5} 0 0 0 0 0</pose>
+        <mass>2.7025</mass>
+        <inertia>
+          <ixx>0.0171</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0163</iyy>
+          <iyz>0</iyz>
+          <izz>0.006</izz>
+        </inertia>
+      </inertial>
+      <visual name='link_5_visual'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>${y_scale*0.05}</radius>
+            <length>${z_scale*link_scale}</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0 0 1</diffuse>
+        </material>
+      </visual>   
+      <visual name='link_chopstick_visual'>
+        <pose frame=''>${chopstick_length*0.5} 0 0 0 0 ${pi*0.5}</pose>
+        <geometry>
+          <mesh>	
+            <scale>${chopstick_length} ${chopstick_length} ${chopstick_length}</scale>	
+            <uri>meshes/cone.obj</uri>	
+          </mesh>	
+        </geometry>
+        <material>
+          <diffuse>0.4 0.4 0.4 0.5</diffuse>
+        </material>
+      </visual>
+      <xacro:if value="${body_collision}">
+        <collision name='link_chopstick_visual_collision'>
+        <pose frame=''>${chopstick_length*0.5} 0 0 0 0 ${pi*0.5}</pose>
+        <geometry>
+          <mesh>	
+            <scale>${chopstick_length} ${chopstick_length} ${chopstick_length}</scale>	
+            <uri>meshes/cone.obj</uri>	
+          </mesh>	
+        </geometry>
+        </collision>
+      </xacro:if>
+      <!-- Make several spheres along length of chopstick -->
+      <xacro:unless value="${body_collision}">
+        <xacro:collision_sphere_line_x num_spheres="${num_chopstick_spheres}" sphere_radius="${chopstick_radius*2.0}" sphere_radius_increment="${-chopstick_radius/num_chopstick_spheres}"  x_pose="0.0" x_pose_increment="${chopstick_length/num_chopstick_spheres}"/>
+        <xacro:visual_sphere_line_x num_spheres="${num_chopstick_spheres}" sphere_radius="${chopstick_radius*2.0}" sphere_radius_increment="${-chopstick_radius/num_chopstick_spheres}"  x_pose="0.0" x_pose_increment="${chopstick_length/num_chopstick_spheres}"/>
+      </xacro:unless>
+      <gravity>1</gravity>
+      <velocity_decay/>
+    </link>
+  </xacro:macro>
+</robot>

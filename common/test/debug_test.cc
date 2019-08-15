@@ -5,18 +5,24 @@
 #define NDEBUG_UNDEF 1
 #endif
 
+#ifdef NDEBUG
+#error "This file must be compiled in debug mode"
+#endif
+
 #include <DR/common/exception.h>
 
 #include <gtest/gtest.h>
 
 namespace DR {
 TEST(DebugToolsTest, AssertFalse) {
+  // Assert should result in death when in debug mode.
   EXPECT_DEATH({ assert(false); }, ".*");
   EXPECT_DEATH({ DRAKE_ASSERT(false); }, ".*");
   EXPECT_DEATH({ DR_ASSERT(false); }, ".*");
   EXPECT_DEATH({ DR_ASSERT(false, "Message"); }, ".*");
 }
 TEST(DebugToolsTest, DemandFalse) {
+  // Demand should result in death when in debug mode.
   EXPECT_DEATH({ DRAKE_DEMAND(false); }, ".*");
   EXPECT_DEATH({ DR_DEMAND(false); }, ".*");
   EXPECT_DEATH({ DR_DEMAND(false, "Message"); }, ".*");

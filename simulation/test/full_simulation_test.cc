@@ -2,6 +2,7 @@
 
 #include <drake/common/autodiff.h>
 
+#include <DR/models/chopstick_config.h>
 #include <DR/simulation/config.h>
 #include <DR/simulation/controller_generator.h>
 #include <DR/simulation/model_generator.h>
@@ -29,81 +30,144 @@ namespace {
  */
 template <typename T>
 class FullSimulationTest : public ::testing::Test {
+  ModelGenerator<T> model_gen;
+  ControllerGenerator<T> controller_gen;
+  StateSetter<T> state_gen;
+  SimulationGenerator<T> sim_gen;
+
+  drake::systems::DiagramBuilder<T> builder_;
+
+  drake::multibody::MultibodyPlant<T>* model_;
+  drake::geometry::SceneGraph<T>* scenegraph_;
+  std::unique_ptr<drake::systems::Diagram<T>> diagram_;
+  std::unique_ptr<drake::systems::Simulator<double>> simulator_;
+
+  std::unique_ptr<drake::systems::Context<T>> context_;
+  drake::optional<drake::systems::Context<T>*> sim_context_ = {};
+
  public:
-  ModelGenerator<T>* model_generator() { return model_generator_.get(); }
-  ControllerGenerator<T>* controller_generator() { return controller_generator_.get(); }
-  StateSetter<T>* state_setter() { return state_setter_.get(); }
-  SimulationGenerator<T>* simulation_generator() { return simulation_generator_.get(); }
+  using MyParamType = T;
 
-  drake::systems::DiagramBuilder<T>* builder() { return builder_.get(); }
-
-  void ResetPointers() {
-    model_generator_ = std::make_unique<ModelGenerator<T>>();
-    controller_generator_ = std::make_unique<ControllerGenerator<T>>();
-    state_setter_ = std::make_unique<StateSetter<T>>();
-    simulation_generator_ = std::make_unique<SimulationGenerator<T>>();
-
-    builder_ = std::make_unique<drake::systems::DiagramBuilder<T>>();
+  const drake::systems::Context<T>& context() {
+    if (sim_context_.has_value()) {
+      return *sim_context_.value();
+    }
+    return *context_.get();
   }
 
-  void BuildAndSim(const UnloadingTaskConfig& config) {
-    this->ResetPointers();
-    // Make sure config is good.
-    ASSERT_NO_THROW(config.ValidateConfig());
+  const drake::multibody::MultibodyPlant<T>& model() { return *model_; }
 
-    // Test that we can successfully build the world.
-    typename ModelGenerator<T>::ModelWithSceneGraph model_scenegraph;
-    ASSERT_NO_THROW(model_scenegraph = this->model_generator()->CreateSceneAndRobot(  //
-                        config,                                                       //
-                        this->builder()));
+  void BuildSystem(const UnloadingTaskConfig& config) {
+    try {
+      // Make sure config is good.
+      config.ValidateConfig();
 
-    ASSERT_NE(std::get<0>(model_scenegraph), nullptr);
-    ASSERT_NE(std::get<1>(model_scenegraph), nullptr);
+      // Test that we can successfully build the world.
+      std::tie(model_, scenegraph_) = model_gen.CreateSceneAndRobot(config, &builder_);
 
-    // Test that we can successfully connect all parts of the control diagram.
-    typename ControllerGenerator<T>::DiagramWithContext diagram_context;
-    ASSERT_NO_THROW(diagram_context = this->controller_generator()->CreateDiagramWithContext(  //
-                        config,                                                                //
-                        *std::get<0>(model_scenegraph),                                        //
-                        *std::get<1>(model_scenegraph),                                        //
-                        this->builder()));
+      ASSERT_NE(model_, nullptr);
+      ASSERT_NE(scenegraph_, nullptr);
 
-    ASSERT_NE(std::get<0>(diagram_context).get(), nullptr);
-    ASSERT_NE(std::get<1>(diagram_context).get(), nullptr);
+      // Test that we can successfully connect all parts of the control diagram.
+      std::tie(diagram_, context_) = controller_gen.CreateDiagramWithContext(config, *model_, *scenegraph_, &builder_);
 
-    // Test that we can successfully set all free floating body poses and
-    // robot joint angles.
-    ASSERT_NO_THROW(this->state_setter()->SetState(config,                               //
-                                                   *std::get<0>(model_scenegraph),       //
-                                                   *std::get<0>(diagram_context).get(),  //
-                                                   std::get<1>(diagram_context).get()));
+      ASSERT_NE(diagram_.get(), nullptr);
+      ASSERT_NE(context_.get(), nullptr);
 
-    // Test that we can successfully simulate the full test duration.
-    std::unique_ptr<drake::systems::Simulator<double>> simulator;
-    ASSERT_NO_THROW(simulator = this->simulation_generator()->BuildSimulator(  //
-                        config.simulator_instance_config(),                    //
-                        *std::get<0>(diagram_context).get(),                   //
-                        std::move(std::get<1>(diagram_context)),               //
-                        std::get<0>(model_scenegraph)));
+      // Test that we can successfully set all free floating body poses and
+      // robot joint angles.
+      state_gen.SetState(config, *model_, *diagram_.get(), context_.get());
 
-    ASSERT_NE(simulator.get(), nullptr);
+      // Create the simulation.
+      simulator_ =
+          sim_gen.BuildSimulator(config.simulator_instance_config(), *diagram_.get(), std::move(context_), model_);
+      ASSERT_NE(simulator_.get(), nullptr);
 
-    ASSERT_NO_THROW(simulator->AdvanceTo(config.simulator_instance_config().simulation_time()));
+      sim_context_ = &simulator_->get_mutable_context();
+      ASSERT_EQ(sim_context_.has_value(), true);
+      ASSERT_NE(sim_context_.value(), nullptr);
+    } catch (const std::exception& e) {
+      drake::log()->critical("BuildSystem threw an error: {}", e.what());
+      throw std::runtime_error(e.what());
+    }
+  }
+  void SimulateSystem(const SimulatorInstanceConfig& config) {
+    try {
+      // Make sure config is good.
+      config.ValidateConfig();
 
-    ASSERT_NEAR(simulator->get_context().get_time(), config.simulator_instance_config().simulation_time(),
-                config.simulator_instance_config().step_size());
+      do {
+        // Advance one simulation step.
+        simulator_->AdvanceTo(this->context().get_time() + config.step_size());
+      } while (this->context().get_time() < config.simulation_time());
+    } catch (const std::exception& e) {
+      drake::log()->critical("SimulateSystem threw an error: {}", e.what());
+      throw std::runtime_error(e.what());
+    }
+  }
+  drake::VectorX<T> GetControlledChopsticksAcceleration() {
+    // Pair of chopstick robots.
+    std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+    // Set floating bases.
+    for (auto& robot : robots) {
+      robot.set_is_floating(false);
+    }
+
+    // Create Robot plant.
+    auto mbp = std::make_unique<drake::multibody::MultibodyPlant<double>>();
+
+    // Add robots to plant and set gravity.
+    for (const auto& robot : robots) {
+      DR::ModelGenerator<double>().AddRobotToMBP(robot, mbp.get());
+      mbp->mutable_gravity_field().set_gravity_vector(robot.gravity());
+    }
+    mbp->Finalize();
+
+    auto robot_context = mbp->CreateDefaultContext();
+
+    drake::log()->debug("Time = {}", this->context().get_time());
+
+    // Get positions and velocities from discrete state plant.
+    auto robot_q = model_->GetPositions(this->context());
+    auto robot_v = model_->GetVelocities(this->context());
+
+    drake::log()->debug("robot_q = {}", robot_q.transpose());
+    drake::log()->debug("robot_v = {}", robot_v.transpose());
+
+    // Set positions and velocities in continuous state plant.
+    mbp->SetPositions(robot_context.get(), robot_q);
+    mbp->SetVelocities(robot_context.get(), robot_v);
+
+    // Set commanded torques in continuous state plant from diagram with universal, discrete state plant.
+    for (auto& robot : robots) {
+      drake::multibody::ModelInstanceIndex model_instance = model_->GetModelInstanceByName(robot.name());
+      drake::multibody::ModelInstanceIndex mbp_instance = mbp->GetModelInstanceByName(robot.name());
+      const auto& model_context = diagram_->GetSubsystemContext(*model_, *sim_context_.value());
+      drake::VectorX<double> control_input_vector =
+          model_->get_actuation_input_port(model_instance).Eval(model_context);
+      drake::log()->debug("control_input_vector ({}) = {}", robot.name(), control_input_vector.transpose());
+
+      auto control_input = std::make_unique<drake::systems::BasicVector<double>>(mbp->num_actuated_dofs(mbp_instance));
+      control_input->get_mutable_value() << control_input_vector;
+      robot_context->FixInputPort(mbp->get_actuation_input_port(mbp_instance).get_index(), std::move(control_input));
+    }
+
+    // Calculate accelerations of continuous state plant resulting from control input.
+    std::unique_ptr<drake::systems::ContinuousState<T>> derivatives = mbp->AllocateTimeDerivatives();
+    mbp->CalcTimeDerivatives(*robot_context.get(), derivatives.get());
+
+    // Get and return accelerations.
+    auto robot_v_dot = derivatives->get_generalized_velocity().CopyToVector();
+    auto robot_q_dot = derivatives->get_generalized_position().CopyToVector();
+    drake::log()->debug("robot_q_dot (norm = {}) = {}", robot_q_dot.norm(), robot_q_dot.transpose());
+    drake::log()->debug("robot_v_dot (norm = {}) = {}", robot_v_dot.norm(), robot_v_dot.transpose());
+    return robot_v_dot;
   }
 
- protected:
-  void SetUp() override { ResetPointers(); }
-
- private:
-  std::unique_ptr<ModelGenerator<T>> model_generator_;
-  std::unique_ptr<ControllerGenerator<T>> controller_generator_;
-  std::unique_ptr<StateSetter<T>> state_setter_;
-  std::unique_ptr<SimulationGenerator<T>> simulation_generator_;
-
-  std::unique_ptr<drake::systems::DiagramBuilder<T>> builder_;
+  void BuildAndSimulate(const UnloadingTaskConfig& config) {
+    this->BuildSystem(config);
+    this->SimulateSystem(config.simulator_instance_config());
+  }
 };
 
 #ifndef GTEST_HAS_TYPED_TEST_P
@@ -112,136 +176,264 @@ class FullSimulationTest : public ::testing::Test {
 
 TYPED_TEST_SUITE_P(FullSimulationTest);
 
-/*
- Passive Bodies Simulation Test
- Generates a simulation with robot controller, dynamic and static bodies and
- contact.  The robot is meant to hold position over the duration of this test.
- An instance of BodyInstanceConfig for all supported
- derived classes of drake:geometry:Shape, currently:
-    -- Box {floating (manipuland body), fixed (environment body)}
-    -- Sphere {floating, fixed}
-    -- Cylinder {floating, fixed}
- An instance of EnvironmentInstanceConfig for all supported EnvironmentType,
- currently:
-    -- Floor
-    -- Trailer
- see include/DR/simulation/config.h for documentation on UnloadingTaskConfig
+/**
+ * Stationary Full Robot Simulation Test
+ * Generates a simulation with robot controller, dynamic and static bodies and
+ * contact.  The robot is meant to hold position over the duration of this test.
+ *
+ * A static and dynamic box instance of BodyInstanceConfig:
+ *    -- Box {floating (manipuland body), fixed (environment body)}
+ *
+ * An instance of EnvironmentInstanceConfig for all supported EnvironmentType,
+ * currently:
+ *    -- Trailer
+ *
+ * Two robot instances ("chopstick_{left,right}") in each simulation with the
+ * ControlScheme:
+ *    -- Stationary (holds at initial position)
+ *
+ * see include/DR/simulation/config.h for documentation on UnloadingTaskConfig
  */
-TYPED_TEST_P(FullSimulationTest, PassiveBodies) {
-  // Test simulation options (Integration Scheme).
-  std::vector<SimulatorInstanceConfig> test_simulators;
+TYPED_TEST_P(FullSimulationTest, StationaryRobot) {
+  SimulatorInstanceConfig simulator;
+  // The simulation will run for 1 second of virtual time.
+  simulator.set_simulation_time(1.0);
+  simulator.set_target_realtime_rate(100.0);
+  simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
+
+  std::vector<BodyInstanceConfig> manipulands;
+  // Floating manipuland Bodies.
   {
-    SimulatorInstanceConfig test_sim;
-    // Setup config shared by all sims.
-    test_sim.set_simulation_time(1.0);
-    test_sim.set_target_realtime_rate(100.0);
-
-    test_sim.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
-    test_simulators.push_back(test_sim);
-
-    test_sim.set_integration_scheme(SimulatorInstanceConfig::kRK2IntegrationScheme);
-    test_simulators.push_back(test_sim);
-
-    test_sim.set_integration_scheme(SimulatorInstanceConfig::kRK3IntegrationScheme);
-    test_simulators.push_back(test_sim);
-
-    test_sim.set_integration_scheme(SimulatorInstanceConfig::kSemiExplicitEulerIntegrationScheme);
-    test_simulators.push_back(test_sim);
-  }
-
-  // Test floating manipuland bodies of supported types.
-  std::vector<std::vector<BodyInstanceConfig>> test_manipulands;
-  {
-    BodyInstanceConfig test_obj;
-    // Setup config shared by all environments.
-    test_obj.set_mass(10.0);
-    test_obj.set_is_floating(true);
-    // Set pose of model in world.
-    test_obj.set_pose(drake::math::RigidTransform<double>(
-        drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 1.0)));
-    test_obj.SetCoulombFriction(0.8, 0.6);
-
-    // Setup Sphere manipuland attributes.
-    test_obj.set_name(std::move("manip_sphere_1"));
-    test_obj.SetSphereGeometry(0.1);
-    test_manipulands.emplace_back();
-    test_manipulands.back().push_back(test_obj);
+    BodyInstanceConfig manipuland;
+    manipuland.set_mass(10.0);
+    manipuland.set_is_floating(true);
+    manipuland.SetCoulombFriction(0.8, 0.6);
     // Setup Box manipuland attributes.
-    test_obj.set_name(std::move("manip_box_1"));
-    test_obj.SetBoxGeometry(0.2, 0.3, 0.1);
-    test_manipulands.emplace_back();
-    test_manipulands.back().push_back(test_obj);
-    // Setup Cylinder manipuland attributes.
-    test_obj.set_name(std::move("manip_cylinder_1"));
-    test_obj.SetCylinderGeometry(0.05, 0.3);
-    test_manipulands.emplace_back();
-    test_manipulands.back().push_back(test_obj);
+    manipuland.SetBoxGeometry(0.2, 0.3, 0.1);
+
+    // Set pose of manipuland in world.
+    manipuland.set_name(std::move("manip_box_1"));
+    manipuland.set_pose(drake::math::RigidTransform<double>(
+        drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 0.7)));
+    manipulands.push_back(manipuland);
+
+    // Set pose of manipuland in world.
+    manipuland.set_name(std::move("manip_box_2"));
+    manipuland.set_pose(drake::math::RigidTransform<double>(
+        drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 0.8)));
+    manipulands.push_back(manipuland);
   }
 
-  // Test environment options of supported type and environment bodies.
-  std::vector<EnvironmentInstanceConfig> test_environments;
+  // Pair of chopstick robots.
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  for (auto& robot : robots) {
+    robot.set_control_scheme(RobotInstanceConfig::kStationaryControlScheme);
+  }
+
+  // Setup Environment options.
+  EnvironmentInstanceConfig environment;
   {
-    // Test static Environment Bodies.
-    std::vector<std::vector<BodyInstanceConfig>> test_env_bodies;
+    // Static Environment Bodies.
+    std::vector<BodyInstanceConfig> env_bodies;
     {
-      BodyInstanceConfig test_obj;
-      test_obj.set_is_floating(false);
-      // Setup config shared by both environments.
-      // Set pose of model in world.
-      test_obj.set_pose(drake::math::RigidTransform<double>(
-          drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(), drake::Vector3<double>(1.0, 0.0, 0.5)));
-      test_obj.SetCoulombFriction(0.8, 0.6);
+      BodyInstanceConfig env_body;
+      env_body.set_is_floating(false);
+      // Set pose of static body in world.
+      env_body.set_pose(
+          drake::math::RigidTransform<double>(drake::math::RollPitchYaw<double>(0.0, M_PI_2, 0.0).ToRotationMatrix(),
+                                              drake::Vector3<double>(1.0, 0.0, 0.4)));
+      env_body.SetCoulombFriction(0.8, 0.6);
 
-      // Setup Sphere manipuland attributes.
-      test_obj.set_name(std::move("env_sphere_1"));
-      test_obj.SetSphereGeometry(0.1);
-      test_env_bodies.emplace_back();
-      test_env_bodies.back().push_back(test_obj);
-
-      // Setup Box manipuland attributes.
-      test_obj.set_name(std::move("env_box_1"));
-      test_obj.SetBoxGeometry(0.2, 0.3, 0.1);
-      test_env_bodies.emplace_back();
-      test_env_bodies.back().push_back(test_obj);
-
-      // Setup Cylinder manipuland attributes.
-      test_obj.set_name(std::move("env_cylinder_1"));
-      test_obj.SetCylinderGeometry(0.05, 0.3);
-      test_env_bodies.emplace_back();
-      test_env_bodies.back().push_back(test_obj);
+      // Setup Cylinder attributes.
+      env_body.set_name(std::move("env_cylinder_1"));
+      env_body.SetCylinderGeometry(0.05, 0.3);
+      env_bodies.push_back(env_body);
     }
+    environment.set_body_instance_configs(env_bodies);
 
-    EnvironmentInstanceConfig test_env;
-    // Setup config shared by both environments.
-    test_env.SetCoulombFriction(0.8, 0.6);
-
-    for (const auto& env_bodies : test_env_bodies) {
-      test_env.set_body_instance_configs(env_bodies);
-      // Setup floor plane environment.
-      test_env.set_floor_environment();
-      test_environments.push_back(test_env);
-      // Setup trailer environment.
-      test_env.set_trailer_environment();
-      test_environments.push_back(test_env);
-    }
+    // Use trailer environment.
+    environment.set_trailer_environment();
+    environment.SetCoulombFriction(0.8, 0.6);
   }
 
-  // Run test for all permutations.
   UnloadingTaskConfig config;
-  for (const auto& simulator : test_simulators) {
-    config.set_simulator_instance_config(simulator);
-    for (const auto& environment : test_environments) {
-      config.set_environment_instance_config(environment);
-      for (const auto& manipulands : test_manipulands) {
-        config.set_manipuland_instance_configs(manipulands);
+  config.set_simulator_instance_config(simulator);
+  config.set_manipuland_instance_configs(manipulands);
+  config.set_robot_instance_configs(robots);
+  config.set_environment_instance_config(environment);
 
-        ASSERT_NO_FATAL_FAILURE(this->BuildAndSim(config));
-      }
-    }
-  }
+  ASSERT_NO_THROW(this->BuildAndSimulate(config));
+  ASSERT_NEAR(this->context().get_time(), config.simulator_instance_config().simulation_time(),
+              config.simulator_instance_config().step_size());
 }
 
-REGISTER_TYPED_TEST_SUITE_P(FullSimulationTest, PassiveBodies);
+/**
+ * Stationary Robot Simulation Test (Empty Scene)
+ * Tests whether the simulator can simulate a pair of chopstick robots holding a fixed position for one simulation step
+ * under the influence of gravity in an empty scene with a floor plane.
+ */
+TYPED_TEST_P(FullSimulationTest, StationaryRobotNoBodies) {
+  SimulatorInstanceConfig simulator;
+  // The simulation will run for 1 second of virtual time.
+  simulator.set_simulation_time(1.0);
+  simulator.set_target_realtime_rate(100.0);
+  simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
+
+  // Pair of chopstick robots.
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  for (auto& robot : robots) {
+    robot.set_control_scheme(RobotInstanceConfig::kStationaryControlScheme);
+  }
+
+  // Setup Environment options.
+  EnvironmentInstanceConfig environment;
+  // Use trailer environment.
+  environment.set_floor_environment();
+  environment.SetCoulombFriction(0.8, 0.6);
+
+  UnloadingTaskConfig config;
+  config.set_simulator_instance_config(simulator);
+  config.set_robot_instance_configs(robots);
+  config.set_environment_instance_config(environment);
+
+  // Setup robot model in simulation.
+  this->BuildSystem(config);
+
+  // Get system initial state.
+  drake::VectorX<typename TestFixture::MyParamType> world_q = this->model().GetPositions(this->context());
+
+  const double test_tolerance = 1e-10;
+
+  // Check that the robot is not being commanded to accelerate.
+  drake::VectorX<typename TestFixture::MyParamType> world_v_dot = this->GetControlledChopsticksAcceleration();
+  EXPECT_NEAR(world_v_dot.norm(), 0.0, test_tolerance);
+
+  // Simulate for one simulation step
+  this->SimulateSystem(config.simulator_instance_config());
+
+  // Check that the robot has held position for the test duration.
+
+  // Check that the robot's joint velocities are zero.
+  drake::VectorX<typename TestFixture::MyParamType> new_world_v = this->model().GetVelocities(this->context());
+  EXPECT_NEAR(new_world_v.norm(), 0.0, test_tolerance);
+
+  // Check that the robot's current joint positions are near initial joint positions.
+  drake::VectorX<typename TestFixture::MyParamType> new_world_q = this->model().GetPositions(this->context());
+  EXPECT_NEAR((new_world_q - world_q).norm(), 0.0, test_tolerance);
+}
+
+/**
+ * Passive Robot Simulation Test (Empty Scene)
+ * Tests whether the simulator can simulate a pair of chopstick robots with no active controller (actuators maintain
+ * zero effort) falling under the influence of gravity in an empty scene with a floor plane.
+ */
+TYPED_TEST_P(FullSimulationTest, PassiveRobotNoBodies) {
+  SimulatorInstanceConfig simulator;
+  // The simulation will run for 1 second of virtual time.
+  simulator.set_simulation_time(1.0);
+  simulator.set_target_realtime_rate(100.0);
+  simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
+
+  // Pair of chopstick robots.
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+
+  // Setup Environment options.
+  EnvironmentInstanceConfig environment;
+  {
+    // Use trailer environment.
+    environment.set_trailer_environment();
+    environment.SetCoulombFriction(0.8, 0.6);
+  }
+
+  UnloadingTaskConfig config;
+  config.set_simulator_instance_config(simulator);
+  config.set_robot_instance_configs(robots);
+  config.set_environment_instance_config(environment);
+
+  ASSERT_NO_THROW(this->BuildAndSimulate(config));
+  ASSERT_NEAR(this->context().get_time(), config.simulator_instance_config().simulation_time(),
+              config.simulator_instance_config().step_size());
+}
+
+/**
+ Passive Bodies Simulation Test
+ Generates a stack of floating and fixed base Boxes.
+ The boxes are situated in a "Trailer" instance of EnvironmentInstanceConfig.
+ See include/DR/simulation/config.h for documentation on UnloadingTaskConfig.
+ */
+// TODO(samzapo): Replace this test with a test of the clutter generation code.
+TYPED_TEST_P(FullSimulationTest, PassiveBodies) {
+  SimulatorInstanceConfig simulator;
+  // The simulation will run for 1 second of virtual time.
+  simulator.set_simulation_time(1.0);
+  simulator.set_target_realtime_rate(100.0);
+  simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
+
+  double box_height = 0.1;
+
+  std::vector<BodyInstanceConfig> manipulands;
+  // Floating manipuland Bodies.
+  {
+    BodyInstanceConfig manipuland;
+    manipuland.set_mass(10.0);
+    manipuland.set_is_floating(true);
+    manipuland.SetCoulombFriction(0.8, 0.6);
+    // Setup Box manipuland attributes.
+    manipuland.SetBoxGeometry(0.2, 0.3, box_height);
+    int max_manipulands = 3;
+    for (int i = 0; i < max_manipulands; ++i) {
+      // Set pose of manipuland in world.
+      manipuland.set_name("manip_box_" + std::to_string(i));
+      double box_z_offset = box_height * 0.5 + box_height * i;
+      manipuland.set_pose(
+          drake::math::RigidTransform<double>(drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
+                                              drake::Vector3<double>(1.0, 0.0, 1.0 + box_z_offset)));
+      manipulands.push_back(manipuland);
+    }
+  }
+
+  // Setup Environment options.
+  EnvironmentInstanceConfig environment;
+  {
+    // Static Environment Bodies.
+    std::vector<BodyInstanceConfig> env_bodies;
+    // Floating manipuland Bodies.
+    {
+      BodyInstanceConfig env_body;
+      env_body.set_is_floating(false);
+      env_body.SetCoulombFriction(0.8, 0.6);
+      // Setup Box env_body attributes.
+      env_body.SetBoxGeometry(0.2, 0.3, box_height);
+      int max_env_body = 10;
+      for (int i = 0; i < max_env_body; ++i) {
+        // Set pose of env_body in world.
+        env_body.set_name("env_body_box_" + std::to_string(i));
+        double box_z_offset = box_height * 0.5 + box_height * i;
+        env_body.set_pose(
+            drake::math::RigidTransform<double>(drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
+                                                drake::Vector3<double>(1.0, 0.0, 0.0 + box_z_offset)));
+        env_bodies.push_back(env_body);
+      }
+    }
+    environment.set_body_instance_configs(env_bodies);
+
+    // Use trailer environment.
+    environment.set_trailer_environment();
+    environment.SetCoulombFriction(0.8, 0.6);
+  }
+
+  UnloadingTaskConfig config;
+  config.set_simulator_instance_config(simulator);
+  config.set_manipuland_instance_configs(manipulands);
+  config.set_environment_instance_config(environment);
+
+  ASSERT_NO_THROW(this->BuildAndSimulate(config));
+  ASSERT_NEAR(this->context().get_time(), config.simulator_instance_config().simulation_time(),
+              config.simulator_instance_config().step_size());
+}
+
+REGISTER_TYPED_TEST_SUITE_P(FullSimulationTest, StationaryRobot, StationaryRobotNoBodies, PassiveRobotNoBodies,
+                            PassiveBodies);
 
 typedef ::testing::Types<double> DrakeScalarTypes;
 INSTANTIATE_TYPED_TEST_SUITE_P(SimulationSupportedScalars, FullSimulationTest, DrakeScalarTypes);
