@@ -82,7 +82,7 @@ RobotInstanceConfig CreateChopstickRobotInstanceConfig(
  A helper function for configuring a pair of chopstick robots for the Unloading Task.
  @return std::vector<RobotInstanceConfig> a vector of two chopstick robot configurations.
  */
-std::vector<RobotInstanceConfig> CreateChopstickRobots() {
+std::vector<RobotInstanceConfig> CreateChopstickRobotsConfig() {
   std::vector<RobotInstanceConfig> robots;
   // Gets the absolute path to this source file so it can locate the relative
   // pose of the models directory.

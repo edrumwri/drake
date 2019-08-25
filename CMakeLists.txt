@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Activate C++17. Also turn on all compiler warnings, and make warnings errors, in compilation.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wunused-but-set-parameter -Wno-free-nonheap-object -Werror=all -Werror=deprecated -Werror=deprecated-declarations -Werror=ignored-qualifiers -Werror=old-style-cast -Werror=overloaded-virtual -Werror=shadow -Werror=unused-result -Werror=extra -Werror=logical-op -Werror=non-virtual-dtor -Werror=return-local-addr -Werror=unused-but-set-parameter -Wno-missing-field-initializers -fno-canonical-system-headers -Wno-builtin-macro-redefined") 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wunused-but-set-parameter -Wno-free-nonheap-object -Werror=all -Werror=deprecated -Werror=deprecated-declarations -Werror=ignored-qualifiers -Werror=old-style-cast -Werror=overloaded-virtual -Werror=shadow -Werror=unused-result -Werror=extra -Werror=logical-op -Werror=non-virtual-dtor -Werror=return-local-addr -Werror=unused-but-set-parameter -Wno-missing-field-initializers -fno-canonical-system-headers -Wno-builtin-macro-redefined")
 
 set(BIN_ROOT_DIR ${CMAKE_BINARY_DIR})
 set(SRC_ROOT_DIR ${CMAKE_SOURCE_DIR})
@@ -59,9 +59,10 @@ find_package(drake CONFIG REQUIRED)
 
 # Collect source files for core lib.
 file(
-  GLOB 
+  GLOB
   SRC_FILES
   "common/*.cc"
+  "drivers/*.cc"
   "primitives/*.cc"
   "simulation/*.cc"
   "tools/*.cc"
@@ -75,7 +76,7 @@ add_library(
 
 target_link_libraries(
   ${PROJECT_NAME}_core
-  drake::drake 
+  drake::drake
 )
 
 # Create main entrypoint for running code (not a test).
@@ -102,9 +103,10 @@ add_test(
 
 # Create and add test binaries to CTest.
 file(
-  GLOB 
+  GLOB
   TEST_SRC_FILES
   "common/test/*.cc"
+  "drivers/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
   "tools/test/*.cc"
@@ -113,19 +115,19 @@ file(
 foreach(TEST_SRC ${TEST_SRC_FILES})
   # Generate test name from test file name.
   get_filename_component(
-    TEST_EXE_NAME 
-    ${TEST_SRC} 
+    TEST_EXE_NAME
+    ${TEST_SRC}
     NAME_WE
   )
 
   # Create binary for test.
   add_executable(
-    ${PROJECT_NAME}_${TEST_EXE_NAME} 
+    ${PROJECT_NAME}_${TEST_EXE_NAME}
     ${TEST_SRC}
   )
 
   target_link_libraries(
-    ${PROJECT_NAME}_${TEST_EXE_NAME} 
+    ${PROJECT_NAME}_${TEST_EXE_NAME}
     ${PROJECT_NAME}_core
     gflags
     gtest
@@ -134,9 +136,9 @@ foreach(TEST_SRC ${TEST_SRC_FILES})
 
   # Add CTest (run with 'make test').
   add_test(
-    NAME 
-    ${PROJECT_NAME}_${TEST_EXE_NAME} 
-    WORKING_DIRECTORY 
+    NAME
+    ${PROJECT_NAME}_${TEST_EXE_NAME}
+    WORKING_DIRECTORY
     ${BIN_ROOT_DIR}
     COMMAND 
     ${PROJECT_NAME}_${TEST_EXE_NAME} --model_directory=${SRC_ROOT_DIR}/models/

@@ -2,7 +2,7 @@
 
 #include <drake/common/autodiff.h>
 
-#include <DR/models/chopstick_config.h>
+#include <DR/drivers/chopstick_config.h>
 #include <DR/simulation/config.h>
 #include <DR/simulation/controller_generator.h>
 #include <DR/simulation/model_generator.h>
@@ -107,7 +107,7 @@ class FullSimulationTest : public ::testing::Test {
   }
   drake::VectorX<T> GetControlledChopsticksAcceleration() {
     // Pair of chopstick robots.
-    std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+    std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
     // Set floating bases.
     for (auto& robot : robots) {
       robot.set_is_floating(false);
@@ -225,7 +225,7 @@ TYPED_TEST_P(FullSimulationTest, StationaryRobot) {
   }
 
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
   for (auto& robot : robots) {
     robot.set_control_scheme(RobotInstanceConfig::kStationaryControlScheme);
   }
@@ -280,7 +280,7 @@ TYPED_TEST_P(FullSimulationTest, StationaryRobotNoBodies) {
   simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
 
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
   for (auto& robot : robots) {
     robot.set_control_scheme(RobotInstanceConfig::kStationaryControlScheme);
   }
@@ -335,7 +335,7 @@ TYPED_TEST_P(FullSimulationTest, PassiveRobotNoBodies) {
   simulator.set_integration_scheme(SimulatorInstanceConfig::kImplicitEulerIntegrationScheme);
 
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
 
   // Setup Environment options.
   EnvironmentInstanceConfig environment;

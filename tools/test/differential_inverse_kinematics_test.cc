@@ -186,6 +186,7 @@ TEST_F(InverseKinematicsTester, Solve) {
 
   // Wraps the real operational space function.
   auto opspace_differential = [](
+      const VectorX<double>&, /* not dependent upon generalized configuration */
       const RigidTransform<double>& P1,
       const RigidTransform<double>& P2) -> VectorX<double> {
     return DifferentialInverseKinematics<double>::CalcOperationalSpaceDifferential(
@@ -206,7 +207,8 @@ TEST_F(InverseKinematicsTester, Solve) {
   DifferentialInverseKinematics<double> ik;
   const int max_iterations = 100;
   VectorX<double> q_found;
-  ASSERT_NO_THROW(q_found = ik.Solve(X_WT, fkin, opspace_differential, dq, q_seed, max_iterations, tol));
+  ASSERT_NO_THROW(q_found = ik.SolveInverseKinematics(
+      X_WT, fkin, opspace_differential, dq, q_seed, max_iterations, tol));
 
   // Verify the solution.
   EXPECT_LT((q_found - q_des).norm(), tol);

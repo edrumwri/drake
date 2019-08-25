@@ -2,7 +2,7 @@
 
 #include <drake/common/autodiff.h>
 
-#include <DR/models/chopstick_config.h>
+#include <DR/drivers/chopstick_config.h>
 #include <DR/simulation/config.h>
 #include <DR/simulation/model_generator.h>
 
@@ -193,7 +193,7 @@ TYPED_TEST(ModelGeneratorTest, UnloadingTaskConfig) {
 // robots ( 5 actuated degrees of freedom + base degrees of freedom each) with `ModelGenerator`.
 TYPED_TEST(ModelGeneratorTest, FloatingBaseRobotTest) {
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
   // Set floating bases.
   for (auto& robot : robots) {
     robot.set_is_floating(true);
@@ -246,7 +246,7 @@ TYPED_TEST(ModelGeneratorTest, FloatingBaseRobotTest) {
 // robots ( 5 actuated degrees of freedom + base degrees of freedom each) with `ModelGenerator`.
 TYPED_TEST(ModelGeneratorTest, FixedBaseRobotTest) {
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
   // Set fixed bases.
   for (auto& robot : robots) {
     robot.set_is_floating(false);

@@ -26,7 +26,7 @@
 
 #include <drake/common/text_logging_gflags.h>
 
-#include <DR/models/chopstick_config.h>
+#include <DR/drivers/chopstick_config.h>
 #include <DR/simulation/controller_generator.h>
 #include <DR/simulation/model_generator.h>
 #include <DR/simulation/simulation_generator.h>
@@ -112,7 +112,7 @@ int do_main() {
   config.set_manipuland_instance_configs(manipulands);
 
   // Pair of chopstick robots.
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobots();
+  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
   for (auto& robot : robots) {
     robot.set_control_scheme(RobotInstanceConfig::kStationaryControlScheme);
   }

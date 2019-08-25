@@ -90,8 +90,10 @@ class ModelGenerator {
    @param RobotInstanceConfig configuration class with file path to the robot description file and other paramerers for
           the robot instance.
    @param MultibodyPlant raw pointer to the universal plant, the robot model will be added to this system.
+   @return the index of the newly created model instance.
    */
-  void AddRobotToMBP(const RobotInstanceConfig& config, drake::multibody::MultibodyPlant<T>* mbp) {
+  drake::multibody::ModelInstanceIndex AddRobotToMBP(
+      const RobotInstanceConfig& config, drake::multibody::MultibodyPlant<T>* mbp) {
     // TODO(samzapo): Implement for T = AutoDiff
     // The class `drake::multibody::Parser(mbp)` is only defined
     // for `drake::multibody::MultibodyPlant<T>*` for `T = double` not `T = AutoDiff`
@@ -109,6 +111,8 @@ class ModelGenerator {
     if (!config.is_floating()) {
       PlaceAtPose("base", model_instance, config.pose(), mbp);
     }
+
+    return model_instance;
   }
 
   /**
