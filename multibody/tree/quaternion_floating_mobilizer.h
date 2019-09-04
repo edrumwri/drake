@@ -8,7 +8,6 @@
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/mobilizer_impl.h"
-#include "drake/multibody/tree/multibody_tree_context.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
 
@@ -33,6 +32,7 @@ namespace internal {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -54,10 +54,12 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
                 const Frame<T>& outboard_frame_M) :
       MobilizerBase(inboard_frame_F, outboard_frame_M) {}
 
+  bool is_floating() const override { return true; }
+
+  bool has_quaternion_dofs() const override { return true; }
+
   /// @name Methods to get and set the state for a QuaternionFloatingMobilizer
   /// @{
-  /// These methods throw an exception if the provided systems::Context does not
-  /// correspond to a valid MultibodyTreeContext.
 
   /// Gets the quaternion `q_FM` that represents the orientation of outboard
   /// frame M in the inboard frame F. Refer to the documentation for this class
@@ -96,9 +98,10 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
       const systems::Context<T>& context,
       const Quaternion<T>& q_FM, systems::State<T>* state) const;
 
-  /// Specifies that random samples for the rotation elements of the state
-  /// should be drawn as uniformly random quaternions.
-  void set_random_quaternion_distribution_to_uniform();
+  /// Sets the distribution governing the random samples of the rotation
+  /// component of the mobilizer state.
+  void set_random_quaternion_distribution(
+      const Eigen::Quaternion<symbolic::Expression>& q_FM);
 
   /// Sets `context` to store the position `p_FM` of frame M's origin `Mo`
   /// measured and expressed in frame F.
@@ -186,29 +189,29 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
   /// @name Mobilizer overrides
   /// Refer to the Mobilizer class documentation for details.
   /// @{
-  Isometry3<T> CalcAcrossMobilizerTransform(
-      const MultibodyTreeContext<T>& context) const override;
+  math::RigidTransform<T> CalcAcrossMobilizerTransform(
+      const systems::Context<T>& context) const override;
 
   SpatialVelocity<T> CalcAcrossMobilizerSpatialVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v) const override;
 
   SpatialAcceleration<T> CalcAcrossMobilizerSpatialAcceleration(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& vdot) const override;
 
   void ProjectSpatialForce(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const SpatialForce<T>& F_Mo_F,
       Eigen::Ref<VectorX<T>> tau) const override;
 
   void MapVelocityToQDot(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v,
       EigenPtr<VectorX<T>> qdot) const override;
 
   void MapQDotToVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& qdot,
       EigenPtr<VectorX<T>> v) const override;
   /// @}
@@ -218,10 +221,10 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
   /// q_FM is the identity quaternion).
   Vector<double, 7> get_zero_position() const override;
 
-  void DoCalcNMatrix(const MultibodyTreeContext<T>& context,
+  void DoCalcNMatrix(const systems::Context<T>& context,
                      EigenPtr<MatrixX<T>> N) const final;
 
-  void DoCalcNplusMatrix(const MultibodyTreeContext<T>& context,
+  void DoCalcNplusMatrix(const systems::Context<T>& context,
                          EigenPtr<MatrixX<T>> Nplus) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
@@ -229,6 +232,9 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 
   std::unique_ptr<Mobilizer<AutoDiffXd>> DoCloneToScalar(
       const MultibodyTree<AutoDiffXd>& tree_clone) const override;
+
+  std::unique_ptr<Mobilizer<symbolic::Expression>> DoCloneToScalar(
+      const MultibodyTree<symbolic::Expression>& tree_clone) const override;
 
  private:
   typedef MobilizerImpl<T, 7, 6> MobilizerBase;
@@ -252,6 +258,8 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 
   // Helper to compute the kinematic map N⁺(q) from quaternion time derivative
   // to angular velocity for which w_WB = N⁺(q)⋅q̇_WB.
+  // This method can take a non unity quaternion q_tilde such that
+  // w_WB = N⁺(q_tilde)⋅q̇_tilde_WB also holds true.
   // With L given by CalcLMatrix we have:
   // N⁺(q) = L(2 q_FM)ᵀ
   static Eigen::Matrix<T, 3, 4> QuaternionRateToAngularVelocityMatrix(
@@ -264,16 +272,8 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 };
 
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using QuaternionFloatingMobilizer
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::QuaternionFloatingMobilizer<T>;
-
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class ::drake::multibody::internal::QuaternionFloatingMobilizer)

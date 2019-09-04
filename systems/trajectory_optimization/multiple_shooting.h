@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -11,8 +12,8 @@
 #include "drake/common/symbolic.h"
 #include "drake/common/trajectories/piecewise_polynomial.h"
 #include "drake/solvers/mathematical_program.h"
-#include "drake/systems/framework/context.h"
-#include "drake/systems/framework/system.h"
+#include "drake/solvers/mathematical_program_result.h"
+#include "drake/systems/trajectory_optimization/sequential_expression_manager.h"
 
 namespace drake {
 namespace systems {
@@ -38,7 +39,7 @@ class MultipleShooting : public solvers::MathematicalProgram {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(MultipleShooting)
 
-  ~MultipleShooting() override {}
+  virtual ~MultipleShooting() {}
 
   /// Returns the decision variable associated with the timestep, h, at time
   /// index @p index.
@@ -111,11 +112,28 @@ class MultipleShooting : public solvers::MathematicalProgram {
     return u_vars_.segment(index * num_inputs_, num_inputs_);
   }
 
+  /// Adds a sequential variable (a variable that has associated decision
+  /// variables for each time index) to the optimization problem and returns a
+  /// placeholder variable (not actually declared as a decision variable in the
+  /// MathematicalProgram).  This variable will be substituted for real decision
+  /// variables at particular times in methods like AddRunningCost().  Passing
+  /// this variable directly into objectives/constraints for the parent classes
+  /// will result in an error.
+  solvers::VectorXDecisionVariable NewSequentialVariable(
+      int rows, const std::string& name);
+
+  /// Returns the decision variables associated with the sequential variable
+  /// `name` at time index `index`.
+  /// @see NewSequentialVariable().
+  solvers::VectorXDecisionVariable GetSequentialVariableAtIndex(
+      const std::string& name, int index) const;
+
   /// Adds an integrated cost to all time steps, of the form
   ///    @f[ cost = \int_0^T g(t,x,u) dt, @f]
   /// where any instances of time(), state(), and/or input() placeholder
-  /// variables are substituted with the relevant variables for each current
-  /// time index.  The particular integration scheme is determined by the
+  /// variables, as well as placeholder variables returned by calls to
+  /// NewSequentialVariable(), are substituted with the relevant variables for
+  /// each time index.  The particular integration scheme is determined by the
   /// derived class implementation.
   void AddRunningCost(const symbolic::Expression& g) { DoAddRunningCost(g); }
 
@@ -128,8 +146,9 @@ class MultipleShooting : public solvers::MathematicalProgram {
   }
 
   /// Adds a constraint to all knot points, where any instances of time(),
-  /// state(), and/or input() placeholder variables are substituted with the
-  /// relevant variables for each current time index.
+  /// state(), and/or input() placeholder variables, as well as placeholder
+  /// variables returned by calls to NewSequentialVariable(), are substituted
+  /// with the relevant variables for each time index.
   void AddConstraintToAllKnotPoints(const symbolic::Formula& f) {
     for (int i = 0; i < N_; i++) {
       // TODO(russt): update this to AddConstraint once MathematicalProgram
@@ -167,15 +186,16 @@ class MultipleShooting : public solvers::MathematicalProgram {
   /// Adds a cost to the final time, of the form
   ///    @f[ cost = e(t,x,u), @f]
   /// where any instances of time(), state(), and/or input() placeholder
-  /// variables are substituted with the relevant variables for each current
-  /// time index.
+  /// variables, as well as placeholder variables returned by calls to
+  /// NewSequentialVariable(), are substituted with the relevant variables for
+  /// the final time index.
   void AddFinalCost(const symbolic::Expression& e) {
     AddCost(SubstitutePlaceholderVariables(e, N_ - 1));
   }
 
   /// Adds support for passing in a (scalar) matrix Expression, which is a
   /// common output of most symbolic linear algebra operations.
-  /// Note: Derived classes will need to type
+  /// @note Derived classes will need to type
   ///    using MultipleShooting::AddFinalCost;
   /// to "unhide" this method.
   void AddFinalCost(
@@ -187,16 +207,22 @@ class MultipleShooting : public solvers::MathematicalProgram {
   typedef std::function<
       void(const Eigen::Ref<const Eigen::VectorXd>& sample_times,
            const Eigen::Ref<const Eigen::MatrixXd>& values)> TrajectoryCallback;
+  typedef std::function<void(
+      const Eigen::Ref<const Eigen::VectorXd>& sample_times,
+      const Eigen::Ref<const Eigen::MatrixXd>& states,
+      const Eigen::Ref<const Eigen::MatrixXd>& inputs,
+      const std::vector<Eigen::Ref<const Eigen::MatrixXd>>& values)>
+      CompleteTrajectoryCallback;
 
   /**
-   * Adds a callback method to visualize intermediate results of the
-   * trajectory optimization.  The callback should be of the form
+   * Adds a callback method to visualize intermediate results of input variables
+   * used in the trajectory optimization.  The callback should be of the form
    *   MyVisualization(sample_times, values),
    * where breaks is a N-by-1 VectorXd of sample times, and values is a
    * num_inputs-by-N MatrixXd representing the current (intermediate) value of
    * the input trajectory at the break points in each column.
    *
-   * Note: Just like other costs/constraints, not all solvers support callbacks.
+   * @note Just like other costs/constraints, not all solvers support callbacks.
    * Adding a callback here will force MathematicalProgram::Solve to select a
    * solver that support callbacks.  For instance, adding a visualization
    * callback to a quadratic programming problem may result in using a nonlinear
@@ -206,14 +232,14 @@ class MultipleShooting : public solvers::MathematicalProgram {
   AddInputTrajectoryCallback(const TrajectoryCallback& callback);
 
   /**
-   * Adds a callback method to visualize intermediate results of the
-   * trajectory optimization.  The callback should be of the form
+   * Adds a callback method to visualize intermediate results of state variables
+   * used in the trajectory optimization.  The callback should be of the form
    *   MyVisualization(sample_times, values),
    * where sample_times is a N-by-1 VectorXd of sample times, and values is a
    * num_states-by-N MatrixXd representing the current (intermediate) value of
    * the state trajectory at the break points in each column.
    *
-   * Note: Just like other costs/constraints, not all solvers support callbacks.
+   * @note Just like other costs/constraints, not all solvers support callbacks.
    * Adding a callback here will force MathematicalProgram::Solve to select a
    * solver that support callbacks.  For instance, adding a visualization
    * callback to a quadratic programming problem may result in using a nonlinear
@@ -221,6 +247,27 @@ class MultipleShooting : public solvers::MathematicalProgram {
    */
   solvers::Binding<solvers::VisualizationCallback>
   AddStateTrajectoryCallback(const TrajectoryCallback& callback);
+
+  /**
+   * Adds a callback method to visualize intermediate results of all variables
+   * used in the trajectory optimization.  The callback should be of the form
+   *   MyVisualization(sample_times, states, inputs, values),
+   * where sample_times is an N-by-1 VectorXd of sample times, states is a
+   * num_states-by-N MatrixXd of the current (intermediate) state trajectory at
+   * the break points, inputs is a num_inputs-by-N MatrixXd of the current
+   * (intermediate) input trajectory at the break points and values is a
+   * vector of num_rows-by-N MatrixXds of the current (intermediate) extra
+   * sequential variables specified by @p names at the break points.
+   *
+   * @note Just like other costs/constraints, not all solvers support callbacks.
+   * Adding a callback here will force MathematicalProgram::Solve to select a
+   * solver that support callbacks.  For instance, adding a visualization
+   * callback to a quadratic programming problem may result in using a nonlinear
+   * programming solver as the default solver.
+   */
+  solvers::Binding<solvers::VisualizationCallback>
+  AddCompleteTrajectoryCallback(const CompleteTrajectoryCallback& callback,
+                                const std::vector<std::string>& names);
 
   /// Set the initial guess for the trajectory decision variables.
   ///
@@ -252,30 +299,42 @@ class MultipleShooting : public solvers::MathematicalProgram {
 
   /// Returns a vector containing the elapsed time at each knot point at the
   /// solution.
-  Eigen::VectorXd GetSampleTimes() const {
-    return GetSampleTimes(this->GetSolution(h_vars_));
+  Eigen::VectorXd GetSampleTimes(
+      const solvers::MathematicalProgramResult& result) const {
+    return GetSampleTimes(result.GetSolution(h_vars_));
   }
 
   /// Returns a matrix containing the input values (arranged in columns) at
   /// each knot point at the solution.
-  Eigen::MatrixXd GetInputSamples() const;
+  Eigen::MatrixXd GetInputSamples(
+      const solvers::MathematicalProgramResult& result) const;
 
   /// Returns a matrix containing the state values (arranged in columns) at
   /// each knot point at the solution.
-  Eigen::MatrixXd GetStateSamples() const;
+  Eigen::MatrixXd GetStateSamples(
+      const solvers::MathematicalProgramResult& result) const;
+
+  /// Returns a matrix containing the sequential variable values (arranged in
+  /// columns) at each knot point at the solution.
+  ///
+  /// @param name The name of sequential variable to get the results for.  Must
+  /// correspond to an already added sequential variable.
+  Eigen::MatrixXd GetSequentialVariableSamples(
+      const solvers::MathematicalProgramResult& result,
+      const std::string& name) const;
 
   /// Get the input trajectory at the solution as a PiecewisePolynomial.  The
   /// order of the trajectory will be determined by the integrator used in
   /// the dynamic constraints.  Requires that the system has at least one input
   /// port.
-  virtual trajectories::PiecewisePolynomial<double>
-  ReconstructInputTrajectory() const = 0;
+  virtual trajectories::PiecewisePolynomial<double> ReconstructInputTrajectory(
+      const solvers::MathematicalProgramResult&) const = 0;
 
   /// Get the state trajectory at the solution as a PiecewisePolynomial.  The
   /// order of the trajectory will be determined by the integrator used in
   /// the dynamic constraints.
-  virtual trajectories::PiecewisePolynomial<double>
-  ReconstructStateTrajectory() const = 0;
+  virtual trajectories::PiecewisePolynomial<double> ReconstructStateTrajectory(
+      const solvers::MathematicalProgramResult&) const = 0;
 
   double fixed_timestep() const {
     DRAKE_THROW_UNLESS(!timesteps_are_decision_variables_);
@@ -329,7 +388,16 @@ class MultipleShooting : public solvers::MathematicalProgram {
 
   const solvers::VectorXDecisionVariable& x_vars() const { return x_vars_; }
 
+  /// Returns the decision variables associated with the sequential variable
+  /// `name`.
+  const solvers::VectorXDecisionVariable GetSequentialVariable(
+      const std::string& name) const;
+
  private:
+  MultipleShooting(int num_inputs, int num_states, int num_time_samples,
+                   bool timesteps_are_decision_variables,
+                   double minimum_timestep, double maximum_timestep);
+
   virtual void DoAddRunningCost(const symbolic::Expression& g) = 0;
 
   // Helper method that performs the work for SubstitutePlaceHolderVariables
@@ -345,14 +413,16 @@ class MultipleShooting : public solvers::MathematicalProgram {
   solvers::VectorXDecisionVariable h_vars_;  // Time deltas between each
                                              // input/state sample or the empty
                                              // vector (if timesteps are fixed).
-  const solvers::VectorXDecisionVariable x_vars_;
-  const solvers::VectorXDecisionVariable u_vars_;
+  solvers::VectorXDecisionVariable x_vars_;
+  solvers::VectorXDecisionVariable u_vars_;
 
   // See description of the public time(), state(), and input() accessor methods
   // for details about the placeholder variables.
-  const solvers::VectorDecisionVariable<1> placeholder_t_var_;
-  const solvers::VectorXDecisionVariable placeholder_x_vars_;
-  const solvers::VectorXDecisionVariable placeholder_u_vars_;
+  solvers::VectorDecisionVariable<1> placeholder_t_var_;
+  solvers::VectorXDecisionVariable placeholder_x_vars_;
+  solvers::VectorXDecisionVariable placeholder_u_vars_;
+
+  internal::SequentialExpressionManager sequential_expression_manager_;
 };
 
 }  // namespace trajectory_optimization

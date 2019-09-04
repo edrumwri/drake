@@ -1,6 +1,7 @@
 #include "drake/systems/primitives/affine_system.h"
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/systems/framework/test_utilities/scalar_conversion.h"
 #include "drake/systems/primitives/test/affine_linear_test.h"
 
@@ -22,7 +23,6 @@ class AffineSystemTest : public AffineLinearSystemTest {
     dut_->set_name("test_affine_system");
     context_ = dut_->CreateDefaultContext();
     input_vector_ = make_unique<BasicVector<double>>(2 /* size */);
-    system_output_ = dut_->AllocateOutput();
     state_ = &context_->get_mutable_continuous_state();
     derivatives_ = dut_->AllocateTimeDerivatives();
     updates_ = dut_->AllocateDiscreteVariables();
@@ -35,7 +35,7 @@ class AffineSystemTest : public AffineLinearSystemTest {
 
 // Tests that the affine system is correctly setup.
 TEST_F(AffineSystemTest, Construction) {
-  EXPECT_EQ(1, context_->get_num_input_ports());
+  EXPECT_EQ(1, context_->num_input_ports());
   EXPECT_EQ("test_affine_system", dut_->get_name());
   EXPECT_EQ(dut_->A(), A_);
   EXPECT_EQ(dut_->B(), B_);
@@ -43,8 +43,8 @@ TEST_F(AffineSystemTest, Construction) {
   EXPECT_EQ(dut_->D(), D_);
   EXPECT_EQ(dut_->f0(), f0_);
   EXPECT_EQ(dut_->y0(), y0_);
-  EXPECT_EQ(dut_->get_num_output_ports(), 1);
-  EXPECT_EQ(dut_->get_num_input_ports(), 1);
+  EXPECT_EQ(dut_->num_output_ports(), 1);
+  EXPECT_EQ(dut_->num_input_ports(), 1);
 
   // Test TimeVaryingAffineSystem accessor methods.
   const double t = 3.5;
@@ -91,14 +91,11 @@ TEST_F(AffineSystemTest, Output) {
   Eigen::Vector2d x(0.8, -22.1);
   state_->SetFromVector(x);
 
-  dut_->CalcOutput(*context_, system_output_.get());
-
   Eigen::VectorXd expected_output(2);
-
   expected_output = C_ * x + D_ * u + y0_;
 
   EXPECT_TRUE(CompareMatrices(
-      expected_output, system_output_->get_vector_data(0)->get_value(), 1e-10));
+      expected_output, dut_->get_output_port().Eval(*context_), 1e-10));
 }
 
 // Tests converting to different scalar types.
@@ -206,9 +203,7 @@ GTEST_TEST(DiscreteAffineSystemTest, DiscreteTime) {
   EXPECT_TRUE(CompareMatrices(system.y0(t), y0));
 
   // Compare the calculated output against the expected output.
-  auto system_output = system.AllocateOutput();
-  system.CalcOutput(*context, system_output.get());
-  EXPECT_TRUE(CompareMatrices(system_output->get_vector_data(0)->get_value(),
+  EXPECT_TRUE(CompareMatrices(system.get_output_port().Eval(*context),
                               C * x0 + D * u0 + y0));
 }
 
@@ -254,7 +249,7 @@ GTEST_TEST(SimpleTimeVaryingAffineSystemTest, EvalTest) {
   Eigen::Vector2d x(1, 2);
 
   auto context = sys.CreateDefaultContext();
-  context->set_time(t);
+  context->SetTime(t);
   context->get_mutable_continuous_state_vector().SetFromVector(x);
   context->FixInputPort(0, BasicVector<double>::Make(42.0));
 
@@ -263,10 +258,8 @@ GTEST_TEST(SimpleTimeVaryingAffineSystemTest, EvalTest) {
   EXPECT_TRUE(CompareMatrices(sys.A(t) * x + 42.0 * sys.B(t),
                               derivs->CopyToVector()));
 
-  auto output = sys.AllocateOutput();
-  sys.CalcOutput(*context, output.get());
   EXPECT_TRUE(CompareMatrices(x + sys.y0(t) + 42.0 * sys.D(t),
-                              output->get_vector_data(0)->CopyToVector()));
+                              sys.get_output_port().Eval(*context)));
 }
 
 GTEST_TEST(SimpleTimeVaryingAffineSystemTest, DiscreteEvalTest) {
@@ -275,7 +268,7 @@ GTEST_TEST(SimpleTimeVaryingAffineSystemTest, DiscreteEvalTest) {
   Eigen::Vector2d x(1, 2);
 
   auto context = sys.CreateDefaultContext();
-  context->set_time(t);
+  context->SetTime(t);
   context->get_mutable_discrete_state().get_mutable_vector().SetFromVector(x);
   context->FixInputPort(0, BasicVector<double>::Make(42.0));
 
@@ -284,10 +277,8 @@ GTEST_TEST(SimpleTimeVaryingAffineSystemTest, DiscreteEvalTest) {
   EXPECT_TRUE(CompareMatrices(sys.A(t) * x + 42.0 * sys.B(t),
                               updates->get_vector().CopyToVector()));
 
-  auto output = sys.AllocateOutput();
-  sys.CalcOutput(*context, output.get());
   EXPECT_TRUE(CompareMatrices(x + sys.y0(t) + 42.0 * sys.D(t),
-                              output->get_vector_data(0)->CopyToVector()));
+                              sys.get_output_port().Eval(*context)));
 }
 
 // Checks that a time-varying affine system will fail if the matrices do not
@@ -304,16 +295,17 @@ class IllegalTimeVaryingAffineSystem : public SimpleTimeVaryingAffineSystem {
   }
 };
 
-GTEST_TEST(IllegalTimeVaryingAffineSystemTest, EvalDeathTest) {
+GTEST_TEST(IllegalTimeVaryingAffineSystemTest, BadSizeTest) {
   IllegalTimeVaryingAffineSystem sys;
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   const double t = 2.5;
 
   auto context = sys.CreateDefaultContext();
-  context->set_time(t);
+  context->SetTime(t);
 
   auto derivatives = sys.AllocateTimeDerivatives();
-  ASSERT_DEATH(sys.CalcTimeDerivatives(*context, derivatives.get()), "rows");
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      sys.CalcTimeDerivatives(*context, derivatives.get()),
+      std::exception, ".*rows.*");
 }
 
 class AffineSystemSymbolicTest : public ::testing::Test {

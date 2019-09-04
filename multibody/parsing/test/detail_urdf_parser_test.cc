@@ -1,14 +1,18 @@
 #include "drake/multibody/parsing/detail_urdf_parser.h"
 
-#include <gtest/gtest.h>
+#include <limits>
 
+#include <gtest/gtest.h>
+#include <spruce.hh>
+
+#include "drake/common/eigen_types.h"
 #include "drake/common/find_resource.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/multibody/parsing/detail_path_utils.h"
 
 namespace drake {
 namespace multibody {
-namespace detail {
+namespace internal {
 namespace {
 
 using Eigen::Vector3d;
@@ -25,12 +29,13 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, PackageMapSpecified) {
 
   const std::string full_urdf_filename = FindResourceOrThrow(
       "drake/multibody/parsing/test/box_package/urdfs/box.urdf");
-  const std::string package_path = FindResourceOrThrow(
-      "drake/multibody/parsing/test/box_package");
+  spruce::path package_path = full_urdf_filename;
+  package_path = package_path.root();
+  package_path = package_path.root();
 
   // Construct the PackageMap.
   PackageMap package_map;
-  package_map.PopulateFromFolder(package_path);
+  package_map.PopulateFromFolder(package_path.getStr());
 
   // Read in the URDF file.
   AddModelFromUrdfFile(full_urdf_filename, "", package_map, &plant,
@@ -106,7 +111,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, TestAddWithQuaternionFloatingDof) {
   MultibodyPlant<double> plant;
   SceneGraph<double> scene_graph;
   AddModelFromUrdfFile(model_file, "", package_map, &plant, &scene_graph);
-  plant.Finalize(&scene_graph);
+  plant.Finalize();
 
   EXPECT_EQ(plant.num_positions(), 7);
   EXPECT_EQ(plant.num_velocities(), 6);
@@ -138,7 +143,51 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, TestOptionalSceneGraph) {
   }
 }
 
+GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
+  const std::string full_name = FindResourceOrThrow(
+      "drake/multibody/parsing/test/urdf_parser_test/"
+      "joint_parsing_test.urdf");
+  PackageMap package_map;
+  package_map.PopulateUpstreamToDrake(full_name);
+
+  MultibodyPlant<double> plant;
+  SceneGraph<double> scene_graph;
+  AddModelFromUrdfFile(full_name, "", package_map, &plant, &scene_graph);
+  plant.Finalize();
+
+  const Joint<double>& revolute_joint = plant.GetJointByName("revolute_joint");
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.position_lower_limits(), Vector1d(-1)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.position_upper_limits(), Vector1d(2)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.velocity_lower_limits(), Vector1d(-100)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.velocity_upper_limits(), Vector1d(100)));
+
+  const Joint<double>& prismatic_joint =
+      plant.GetJointByName("prismatic_joint");
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.position_lower_limits(), Vector1d(-2)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.position_upper_limits(), Vector1d(1)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.velocity_lower_limits(), Vector1d(-5)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.velocity_upper_limits(), Vector1d(5)));
+
+  const Joint<double>& no_limit_joint =
+      plant.GetJointByName("revolute_joint_no_limits");
+  const Vector1d inf(std::numeric_limits<double>::infinity());
+  const Vector1d neg_inf(-std::numeric_limits<double>::infinity());
+
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.position_lower_limits(), neg_inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.position_upper_limits(), inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.velocity_lower_limits(), neg_inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.velocity_upper_limits(), inf));
+}
+
 }  // namespace
-}  // namespace detail
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake

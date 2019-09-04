@@ -25,6 +25,7 @@ namespace test {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -74,6 +75,8 @@ class FreeRotatingBodyPlant final : public internal::MultibodyTreeSystem<T> {
   /// SetDefaultState(). Currently a non-zero value.
   Vector3<double> get_default_initial_angular_velocity() const;
 
+  const RigidBody<T>& body() const { return *body_; }
+
  private:
   const internal::MultibodyTree<T>& tree() const {
     return internal::GetInternalTree(*this);
@@ -106,3 +109,6 @@ class FreeRotatingBodyPlant final : public internal::MultibodyTreeSystem<T> {
 }  // namespace test
 }  // namespace multibody
 }  // namespace drake
+
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
+    class ::drake::multibody::test::FreeRotatingBodyPlant)

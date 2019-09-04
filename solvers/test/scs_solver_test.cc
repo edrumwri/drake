@@ -4,6 +4,7 @@
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/solvers/mathematical_program.h"
+#include "drake/solvers/test/exponential_cone_program_examples.h"
 #include "drake/solvers/test/linear_program_examples.h"
 #include "drake/solvers/test/mathematical_program_test_util.h"
 #include "drake/solvers/test/quadratic_program_examples.h"
@@ -24,8 +25,8 @@ GTEST_TEST(LinearProgramTest, Test0) {
   prog.AddLinearConstraint(x(0) + x(1) == 2);
   ScsSolver solver;
   if (solver.available()) {
-    SolutionResult sol_result = solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kUnbounded);
+    auto result = solver.Solve(prog, {}, {});
+    EXPECT_EQ(result.get_solution_result(), SolutionResult::kUnbounded);
   }
 
   // Now add the constraint x(1) <= 1. The problem is
@@ -36,8 +37,8 @@ GTEST_TEST(LinearProgramTest, Test0) {
   prog.AddBoundingBoxConstraint(-std::numeric_limits<double>::infinity(), 1,
                                 x(1));
   if (solver.available()) {
-    SolutionResult sol_result = solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kUnbounded);
+    auto result = solver.Solve(prog, {}, {});
+    EXPECT_EQ(result.get_solution_result(), SolutionResult::kUnbounded);
   }
 
   const double tol{1E-5};
@@ -50,11 +51,11 @@ GTEST_TEST(LinearProgramTest, Test0) {
   prog.AddBoundingBoxConstraint(-std::numeric_limits<double>::infinity(), 5,
                                 x(0));
   if (solver.available()) {
-    SolutionResult sol_result = solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kSolutionFound);
-    EXPECT_NEAR(prog.GetOptimalCost(), -1, tol);
+    auto result = solver.Solve(prog, {}, {});
+    EXPECT_TRUE(result.is_success());
+    EXPECT_NEAR(result.get_optimal_cost(), -1, tol);
     const Eigen::Vector2d x_expected(5, -3);
-    EXPECT_TRUE(CompareMatrices(prog.GetSolution(x), x_expected, tol,
+    EXPECT_TRUE(CompareMatrices(result.GetSolution(x), x_expected, tol,
                                 MatrixCompareType::absolute));
   }
 
@@ -68,11 +69,11 @@ GTEST_TEST(LinearProgramTest, Test0) {
   prog.AddLinearCost(2 * x(0) - 3 * x(1) + 5);
   prog.AddBoundingBoxConstraint(2, 6, x(0));
   if (solver.available()) {
-    SolutionResult sol_result = solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kSolutionFound);
-    EXPECT_NEAR(prog.GetOptimalCost(), 11, tol);
+    auto result = solver.Solve(prog, {}, {});
+    EXPECT_TRUE(result.is_success());
+    EXPECT_NEAR(result.get_optimal_cost(), 11, tol);
     const Eigen::Vector2d x_expected(2, 0);
-    EXPECT_TRUE(CompareMatrices(prog.GetSolution(x), x_expected, tol,
+    EXPECT_TRUE(CompareMatrices(result.GetSolution(x), x_expected, tol,
                                 MatrixCompareType::absolute));
   }
 }
@@ -91,8 +92,9 @@ GTEST_TEST(LinearProgramTest, Test1) {
   prog.AddLinearEqualityConstraint(x(0) - 2 * x(1) == 3);
   ScsSolver scs_solver;
   if (scs_solver.available()) {
-    SolutionResult sol_result = scs_solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kInfeasibleConstraints);
+    auto result = scs_solver.Solve(prog, {}, {});
+    EXPECT_EQ(result.get_solution_result(),
+              SolutionResult::kInfeasibleConstraints);
   }
 }
 
@@ -130,10 +132,10 @@ GTEST_TEST(LinearProgramTest, Test2) {
   ScsSolver scs_solver;
   if (scs_solver.available()) {
     const double tol{2E-5};
-    const SolutionResult sol_result = scs_solver.Solve(prog);
-    EXPECT_EQ(sol_result, SolutionResult::kSolutionFound);
-    EXPECT_NEAR(prog.GetOptimalCost(), 8, tol);
-    EXPECT_TRUE(CompareMatrices(prog.GetSolution(x), Eigen::Vector3d(1, 1, 1),
+    auto result = scs_solver.Solve(prog, {}, {});
+    EXPECT_TRUE(result.is_success());
+    EXPECT_NEAR(result.get_optimal_cost(), 8, tol);
+    EXPECT_TRUE(CompareMatrices(result.GetSolution(x), Eigen::Vector3d(1, 1, 1),
                                 tol, MatrixCompareType::absolute));
   }
 }
@@ -152,9 +154,10 @@ INSTANTIATE_TEST_CASE_P(
 TEST_F(InfeasibleLinearProgramTest0, TestInfeasible) {
   ScsSolver solver;
   if (solver.available()) {
-    SolutionResult result = solver.Solve(*prog_);
-    EXPECT_EQ(result, SolutionResult::kInfeasibleConstraints);
-    EXPECT_EQ(prog_->GetOptimalCost(),
+    auto result = solver.Solve(*prog_, {}, {});
+    EXPECT_EQ(result.get_solution_result(),
+              SolutionResult::kInfeasibleConstraints);
+    EXPECT_EQ(result.get_optimal_cost(),
               MathematicalProgram::kGlobalInfeasibleCost);
   }
 }
@@ -162,9 +165,9 @@ TEST_F(InfeasibleLinearProgramTest0, TestInfeasible) {
 TEST_F(UnboundedLinearProgramTest0, TestUnbounded) {
   ScsSolver solver;
   if (solver.available()) {
-    SolutionResult result = solver.Solve(*prog_);
-    EXPECT_EQ(result, SolutionResult::kUnbounded);
-    EXPECT_EQ(prog_->GetOptimalCost(), MathematicalProgram::kUnboundedCost);
+    auto result = solver.Solve(*prog_, {}, {});
+    EXPECT_EQ(result.get_solution_result(), SolutionResult::kUnbounded);
+    EXPECT_EQ(result.get_optimal_cost(), MathematicalProgram::kUnboundedCost);
   }
 }
 
@@ -198,6 +201,30 @@ TEST_P(TestFindSpringEquilibrium, TestSOCP) {
 INSTANTIATE_TEST_CASE_P(
     SCSTest, TestFindSpringEquilibrium,
     ::testing::ValuesIn(GetFindSpringEquilibriumProblems()));
+
+GTEST_TEST(TestSOCP, MaximizeGeometricMeanTrivialProblem1) {
+  MaximizeGeometricMeanTrivialProblem1 prob;
+  ScsSolver solver;
+  if (solver.available()) {
+    const auto result = solver.Solve(prob.prog(), {}, {});
+    prob.CheckSolution(result, 4E-6);
+  }
+}
+
+GTEST_TEST(TestSOCP, MaximizeGeometricMeanTrivialProblem2) {
+  MaximizeGeometricMeanTrivialProblem2 prob;
+  ScsSolver solver;
+  if (solver.available()) {
+    const auto result = solver.Solve(prob.prog(), {}, {});
+    // On Mac the accuracy is about 2.1E-6. On Linux it is about 2E-6.
+    prob.CheckSolution(result, 2.1E-6);
+  }
+}
+
+GTEST_TEST(TestSOCP, SmallestEllipsoidCoveringProblem) {
+  ScsSolver solver;
+  SolveAndCheckSmallestEllipsoidCoveringProblems(solver, 4E-6);
+}
 
 TEST_P(QuadraticProgramTest, TestQP) {
   ScsSolver solver;
@@ -248,27 +275,69 @@ GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   }
 }
 
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample1) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithSecondOrderConeExample1(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample2) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithSecondOrderConeExample2(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    SolveSDPwithOverlappingVariables(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, ExponentialConeTrivialExample) {
+  ScsSolver solver;
+  if (solver.available()) {
+    ExponentialConeTrivialExample(solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, MinimizeKLDivengence) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    MinimizeKLDivergence(scs_solver, 1E-5);
+  }
+}
+
+GTEST_TEST(TestExponentialConeProgram, MinimalEllipsoidConveringPoints) {
+  ScsSolver scs_solver;
+  if (scs_solver.available()) {
+    MinimalEllipsoidCoveringPoints(scs_solver, 1E-5);
+  }
+}
+
 GTEST_TEST(TestScs, SetOptions) {
   MathematicalProgram prog;
   auto x = prog.NewContinuousVariables<2>();
   prog.AddLinearConstraint(x(0) + x(1) >= 1);
   prog.AddQuadraticCost(x(0) * x(0) + x(1) * x(1));
 
-  MathematicalProgramResult result;
   ScsSolver solver;
-  solver.Solve(prog, {}, {}, &result);
-  const int iter_solve =
-      result.get_solver_details().GetValue<ScsSolverDetails>().iter;
-  const int solved_status =
-      result.get_solver_details().GetValue<ScsSolverDetails>().scs_status;
-  DRAKE_DEMAND(iter_solve >= 2);
-  SolverOptions solver_options;
-  // Now we require that SCS can only take half of the iterations before
-  // termination. We expect now SCS cannot solve the problem.
-  solver_options.SetOption(solver.solver_id(), "max_iters", iter_solve / 2);
-  solver.Solve(prog, {}, solver_options, &result);
-  EXPECT_NE(result.get_solver_details().GetValue<ScsSolverDetails>().scs_status,
-            solved_status);
+  if (solver.available()) {
+    auto result = solver.Solve(prog, {}, {});
+    const int iter_solve = result.get_solver_details<ScsSolver>().iter;
+    const int solved_status =
+        result.get_solver_details<ScsSolver>().scs_status;
+    DRAKE_DEMAND(iter_solve >= 2);
+    SolverOptions solver_options;
+    // Now we require that SCS can only take half of the iterations before
+    // termination. We expect now SCS cannot solve the problem.
+    solver_options.SetOption(solver.solver_id(), "max_iters", iter_solve / 2);
+    solver.Solve(prog, {}, solver_options, &result);
+    EXPECT_NE(result.get_solver_details<ScsSolver>().scs_status,
+              solved_status);
+  }
 }
 }  // namespace test
 }  // namespace solvers

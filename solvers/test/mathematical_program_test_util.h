@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/solvers/mathematical_program.h"
+#include "drake/solvers/solver_interface.h"
 
 namespace drake {
 namespace solvers {
@@ -16,7 +17,7 @@ namespace test {
 /// fail with confusing messages, so best to avoid them entirely.)
 MathematicalProgramResult RunSolver(
     const MathematicalProgram& prog,
-    const MathematicalProgramSolverInterface& solver,
+    const SolverInterface& solver,
     const optional<Eigen::VectorXd>& initial_guess = {});
 
 /// Determine if two bindings are the same. Two bindings are the same if

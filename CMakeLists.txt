@@ -71,7 +71,7 @@ endif()
 
 # The version passed to find_package(Bazel) should match the
 # minimum_bazel_version value in the call to versions.check() in WORKSPACE.
-set(MINIMUM_BAZEL_VERSION 0.19.2)
+set(MINIMUM_BAZEL_VERSION 0.28)
 find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE REQUIRED)
 
 get_filename_component(C_COMPILER_REALPATH "${CMAKE_C_COMPILER}" REALPATH)
@@ -171,6 +171,32 @@ else()
   endif()
 endif()
 
+set(MINIMUM_SUPPORTED_CXX_VERSION 14)
+set(MAXIMUM_SUPPORTED_CXX_VERSION 17)
+set(DEFAULT_CXX_VERSION 14)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD ${DEFAULT_CXX_VERSION})
+endif()
+if(CMAKE_CXX_STANDARD LESS MINIMUM_SUPPORTED_CXX_VERSION)
+  message(FATAL_ERROR
+    "Compilation with C++ standard ${CMAKE_CXX_STANDARD} is NOT supported"
+  )
+endif()
+if(CMAKE_CXX_STANDARD GREATER MAXIMUM_SUPPORTED_CXX_VERSION)
+  message(WARNING
+    "Compilation with C++ standard ${CMAKE_CXX_STANDARD} is NOT supported. Compilation of project drake_cxx_python may fail."
+  )
+endif()
+if(CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION)
+  set(MAYBE_BAZEL_CXXOPT_STD
+    "build --cxxopt=${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION} --host_cxxopt=${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION}"
+  )
+else()
+  set(MAYBE_BAZEL_CXXOPT_STD)
+endif()
+
 # The supported Python major/minor versions should match those listed in both
 # doc/developers.rst and tools/workspace/python/repository.bzl.
 set(SUPPORTED_PYTHON_VERSIONS 2 2.7 3 3.6 3.7)
@@ -178,10 +204,16 @@ set(SUPPORTED_PYTHON_VERSIONS 2 2.7 3 3.6 3.7)
 if(PYTHON_EXECUTABLE)
   find_package(PythonInterp MODULE REQUIRED)
 else()
+  if(UNIX_DISTRIBUTION_CODENAME STREQUAL xenial)
+    set(DEFAULT_PYTHON_VERSION 2)
+  else()
+    set(DEFAULT_PYTHON_VERSION 3)
+  endif()
+
   string(REPLACE ";" " " SUPPORTED_PYTHON_VERSIONS_STRING
     "${SUPPORTED_PYTHON_VERSIONS}"
   )
-  set(WITH_PYTHON_VERSION 2 CACHE STRING
+  set(WITH_PYTHON_VERSION ${DEFAULT_PYTHON_VERSION} CACHE STRING
     "Choose the version of Python to use, options are ${SUPPORTED_PYTHON_VERSIONS_STRING}"
   )
   set_property(CACHE WITH_PYTHON_VERSION PROPERTY
@@ -309,7 +341,7 @@ set(BAZEL_CONFIGS)
 option(WITH_GUROBI "Build with support for Gurobi" OFF)
 
 if(WITH_GUROBI)
-  find_package(Gurobi 8.0.0 MODULE REQUIRED)
+  find_package(Gurobi 8.0.1 EXACT MODULE REQUIRED)
 
   list(APPEND BAZEL_CONFIGS --config=gurobi)
 
@@ -319,51 +351,68 @@ if(WITH_GUROBI)
   endif()
 endif()
 
-set(BAZEL_DEFINES)
-
-option(WITH_MATLAB "Build with support for MATLAB" OFF)
-
-if(WITH_MATLAB)
-  list(APPEND BAZEL_DEFINES
-    --define=NO_IPOPT=ON
-    --define=NO_OSQP=ON
-  )
-endif()
-
 option(WITH_MOSEK "Build with support for MOSEK" OFF)
 
 if(WITH_MOSEK)
   list(APPEND BAZEL_CONFIGS --config=mosek)
 endif()
 
-option(WITH_ROBOTLOCOMOTION_SNOPT
-  "Build with support for SNOPT using the RobotLocomotion/snopt private GitHub repository"
-  OFF
+set(WITH_SNOPT_STRINGS F2C Fortran OFF ON)
+string(REPLACE ";" " " WITH_SNOPT_STRINGS_STRING "${WITH_SNOPT_STRINGS}")
+
+set(WITH_ROBOTLOCOMOTION_SNOPT OFF CACHE STRING
+  "Build with support for SNOPT using the RobotLocomotion/snopt private GitHub repository, options are ${WITH_SNOPT_STRINGS_STRING}"
 )
-option(WITH_SNOPT
-  "Build with support for SNOPT using a SNOPT source archive at SNOPT_PATH"
-  OFF
+set_property(CACHE WITH_ROBOTLOCOMOTION_SNOPT PROPERTY
+  STRINGS "${WITH_SNOPT_STRINGS}"
 )
+
+if(NOT WITH_ROBOTLOCOMOTION_SNOPT IN_LIST WITH_SNOPT_STRINGS)
+  message(FATAL_ERROR
+    "Value ${WITH_ROBOTLOCOMOTION_SNOPT} for the WITH_ROBOTLOCOMOTION_SNOPT option is NOT supported"
+  )
+endif()
+
+set(WITH_SNOPT OFF CACHE STRING
+  "Build with support for SNOPT using a SNOPT source archive at SNOPT_PATH, options are ${WITH_SNOPT_STRINGS_STRING}"
+)
+set_property(CACHE WITH_SNOPT PROPERTY STRINGS "${WITH_SNOPT_STRINGS}")
+
+if(NOT WITH_SNOPT IN_LIST WITH_SNOPT_STRINGS)
+  message(FATAL_ERROR
+    "Value ${WITH_SNOPT} for the WITH_SNOPT option is NOT supported"
+  )
+endif()
 
 if(WITH_ROBOTLOCOMOTION_SNOPT AND WITH_SNOPT)
   message(FATAL_ERROR
     "WITH_ROBOTLOCOMOTION_SNOPT and WITH_SNOPT options are mutually exclusive"
   )
-elseif(WITH_ROBOTLOCOMOTION_SNOPT)
-  list(APPEND BAZEL_CONFIGS --config=snopt)
-  list(APPEND BAZEL_ENV "SNOPT_PATH=git")
-elseif(WITH_SNOPT)
-  list(APPEND BAZEL_CONFIGS --config=snopt)
-  set(SNOPT_PATH SNOPT_PATH-NOTFOUND CACHE FILEPATH
-    "Path to SNOPT source archive"
-  )
-  if(NOT EXISTS "${SNOPT_PATH}")
-    message(FATAL_ERROR
-      "SNOPT source archive was NOT found at '${SNOPT_PATH}'"
-    )
+endif()
+
+if(WITH_ROBOTLOCOMOTION_SNOPT OR WITH_SNOPT)
+  if(WITH_ROBOTLOCOMOTION_SNOPT STREQUAL F2C OR WITH_SNOPT STREQUAL F2C)
+    list(APPEND BAZEL_CONFIGS --config=snopt_f2c)
+  elseif(WITH_ROBOTLOCOMOTION_SNOPT STREQUAL Fortran OR WITH_SNOPT STREQUAL Fortran)
+    list(APPEND BAZEL_CONFIGS --config=snopt_fortran)
+  else()
+    list(APPEND BAZEL_CONFIGS --config=snopt)
   endif()
-  mark_as_advanced(SNOPT_PATH)
-  list(APPEND BAZEL_ENV "SNOPT_PATH=${SNOPT_PATH}")
+
+  if(WITH_ROBOTLOCOMOTION_SNOPT)
+    list(APPEND BAZEL_ENV "SNOPT_PATH=git")
+  else()
+    set(SNOPT_PATH SNOPT_PATH-NOTFOUND CACHE FILEPATH
+      "Path to SNOPT source archive"
+    )
+    if(NOT EXISTS "${SNOPT_PATH}")
+      message(FATAL_ERROR
+        "SNOPT source archive was NOT found at '${SNOPT_PATH}'"
+      )
+    endif()
+    mark_as_advanced(SNOPT_PATH)
+    list(APPEND BAZEL_ENV "SNOPT_PATH=${SNOPT_PATH}")
+  endif()
 endif()
 
 if(BAZEL_CONFIGS)
@@ -371,13 +420,6 @@ if(BAZEL_CONFIGS)
   set(MAYBE_BAZEL_CONFIG "build ${MAYBE_BAZEL_CONFIG}")
 else()
   set(MAYBE_BAZEL_CONFIG)
-endif()
-
-if(BAZEL_DEFINES)
-  string(REPLACE ";" " " MAYBE_BAZEL_DEFINE "${BAZEL_DEFINES}")
-  set(MAYBE_BAZEL_DEFINE "build ${MAYBE_BAZEL_DEFINE}")
-else()
-  set(MAYBE_BAZEL_DEFINE)
 endif()
 
 configure_file(cmake/bazel.rc.in bazel.rc @ONLY)
@@ -485,32 +527,11 @@ configure_file(tools/install/libdrake/VERSION.TXT.in VERSION.TXT @ONLY)
 
 install(FILES "${PROJECT_BINARY_DIR}/VERSION.TXT" DESTINATION share/doc/drake)
 
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_INSTALL_PREFIX}")
-
-if(WITH_MATLAB)
-  ExternalProject_Add(drake_matlab
-    DEPENDS drake_cxx_python
-    SOURCE_DIR "${PROJECT_SOURCE_DIR}/matlab"
-    CMAKE_ARGS
-      -DBUILD_TESTING:BOOL=${BUILD_TESTING}
-      -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-      -DCMAKE_COLOR_MAKEFILE:BOOL=${CMAKE_COLOR_MAKEFILE}
-      "-DCMAKE_CXX_COMPILER:FILEPATH=${CMAKE_CXX_COMPILER}"
-      "-DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}"
-      "-DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}"
-      "-DCMAKE_PREFIX_PATH:PATH=${CMAKE_PREFIX_PATH}"
-      "-DCMAKE_SHARED_LINKER_FLAGS:STRING=${CMAKE_SHARED_LINKER_FLAGS}"
-      -DCMAKE_VERBOSE_MAKEFILE:BOOL=${CMAKE_VERBOSE_MAKEFILE}
-    BINARY_DIR "${PROJECT_BINARY_DIR}/drake_matlab-build"
-    BUILD_ALWAYS ON
-  )
-endif()
-
 set(CPACK_GENERATOR TGZ)
 set(CPACK_INSTALLED_DIRECTORIES "${CMAKE_INSTALL_PREFIX}" .)
 set(CPACK_PACKAGE_CONTACT RobotLocomotion)
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-  "Planning, control, and analysis toolbox for nonlinear dynamical systems"
+  "Model-based design and verification for robotics"
 )
 set(CPACK_PACKAGE_VENDOR RobotLocomotion)
 set(CPACK_PACKAGE_VERSION_MAJOR 0)

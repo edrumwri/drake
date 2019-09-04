@@ -3,11 +3,12 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
+#include "drake/geometry/geometry_ids.h"
 #include "drake/lcmt_contact_results_for_viz.hpp"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/multibody_plant.h"
@@ -22,15 +23,7 @@ namespace multibody {
  message. It has a single input port with type ContactResults<T> and a single
  output port with lcmt_contact_results_for_viz.
 
- @tparam T The scalar type. Must be a valid Eigen scalar.
-
- Instantiated templates for the following kinds of T's are provided:
-
- - double
- - AutoDiffXd
-
- They are already available to link against in the containing library. No other
- values for T are currently supported.
+ @tparam T Must be one of drake's default scalar types.
  */
 template <typename T>
 class ContactResultsToLcmSystem final : public systems::LeafSystem<T> {
@@ -62,13 +55,16 @@ class ContactResultsToLcmSystem final : public systems::LeafSystem<T> {
                             lcmt_contact_results_for_viz* output) const;
 
   // Named indices for the i/o ports.
-  static constexpr int contact_result_input_port_index_{0};
-  static constexpr int message_output_port_index_{0};
+  systems::InputPortIndex contact_result_input_port_index_;
+  systems::OutputPortIndex message_output_port_index_;
+
+  // A mapping from geometry IDs to body indices.
+  std::unordered_map<geometry::GeometryId, std::string>
+      geometry_id_to_body_name_map_;
 
   // A mapping from body index values to body names.
   std::vector<std::string> body_names_;
 };
-
 
 /** Extends a Diagram with the required components to publish contact results
  to drake_visualizer. This must be called _during_ Diagram building and
@@ -104,11 +100,10 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
     const MultibodyPlant<double>& multibody_plant,
     lcm::DrakeLcmInterface* lcm = nullptr);
 
-/** Implements ConnectContactResultsToDrakeVisualizer, but using @p
- contact_results_port to explicitly specify the output port used to get
- contact results for @p multibody_plant.  This is required, for instance,
- when the MultibodyPlant is inside a Diagram, and the Diagram exports the
- pose bundle port.
+/** Implements ConnectContactResultsToDrakeVisualizer, but using
+ explicitly specified `contact_results_port` and `geometry_input_port`
+ arguments.  This call is required, for instance, when the MultibodyPlant is
+ inside a Diagram, and the Diagram exports the pose bundle port.
 
  @pre contact_results_port must be connected to the contact_results_port of
  @p multibody_plant.
@@ -123,30 +118,8 @@ systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
     const systems::OutputPort<double>& contact_results_port,
     lcm::DrakeLcmInterface* lcm = nullptr);
 
-#ifndef DRAKE_DOXYGEN_CXX
-// TODO(#9314) Remove this transitional namespace on or about 2019-03-01.
-namespace multibody_plant {
-
-template <typename T>
-using ContactResultsToLcmSystem
-    DRAKE_DEPRECATED("Spell as drake::multibody::Contact...System instead.")
-    = ::drake::multibody::ContactResultsToLcmSystem<T>;
-
-DRAKE_DEPRECATED("Spell as drake::multibody::Connect...Visualizer instead.")
-inline systems::lcm::LcmPublisherSystem* ConnectContactResultsToDrakeVisualizer(
-    systems::DiagramBuilder<double>* builder,
-    const multibody::MultibodyPlant<double>& multibody_plant,
-    const systems::OutputPort<double>& contact_results_port,
-    lcm::DrakeLcmInterface* lcm = nullptr) {
-  return multibody::ConnectContactResultsToDrakeVisualizer(
-      builder, multibody_plant, contact_results_port, lcm);
-}
-
-}  // namespace multibody_plant
-#endif  // DRAKE_DOXYGEN_CXX
-
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class drake::multibody::ContactResultsToLcmSystem)

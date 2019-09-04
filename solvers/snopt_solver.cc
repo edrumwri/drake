@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <map>
 #include <memory>
@@ -30,6 +31,52 @@
 
 namespace {
 
+// Fortran has a pool of integers, which it uses as file handles for debug
+// output.  When "Print file" output is enabled, we will need to tell SNOPT
+// which integer to use for a given thread's debug output, so therefore we
+// maintain a singleton pool of those integers here.
+// See also http://fortranwiki.org/fortran/show/newunit.
+class FortranUnitFactory {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(FortranUnitFactory)
+
+  static FortranUnitFactory& singleton() {
+    static drake::never_destroyed<FortranUnitFactory> result;
+    return result.access();
+  }
+
+  // Default constructor; don't call this -- only use the singleton().
+  // (We can't mark this private, due to never_destroyed's use of it.)
+  FortranUnitFactory() {
+    // Populate the pool; we'll work from the back (i.e., starting with 10).
+    // The range 10..1000 is borrowed from SNOPT 7.6's snopt-interface code,
+    // also found at http://fortranwiki.org/fortran/show/newunit.
+    for (int i = 10; i < 1000; ++i) {
+      available_units_.push_front(i);
+    }
+  }
+
+  // Returns an available new unit.
+  int Allocate() {
+    std::lock_guard<std::mutex> guard(mutex_);
+    DRAKE_DEMAND(!available_units_.empty());
+    int result = available_units_.back();
+    available_units_.pop_back();
+    return result;
+  }
+
+  // Reclaims a unit, returning it to the pool.
+  void Release(int unit) {
+    DRAKE_DEMAND(unit != 0);
+    std::lock_guard<std::mutex> guard(mutex_);
+    available_units_.push_back(unit);
+  }
+
+ private:
+  std::mutex mutex_;
+  std::deque<int> available_units_;
+};
+
 // This struct is a helper to bridge the gap between SNOPT's 7.4 and 7.6 APIs.
 // Its specializations provide static methods that express the SNOPT 7.6 APIs.
 // When compiled using SNOPT 7.6, these static methods are mere aliases to the
@@ -41,12 +88,16 @@ struct SnoptImpl {};
 // This is the SNOPT 7.6 implementation.  It just aliases the function pointers.
 template<>
 struct SnoptImpl<true> {
+#pragma GCC diagnostic push  // Silence spurious warnings from macOS llvm.
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
   static constexpr auto snend = ::f_snend;
   static constexpr auto sninit = ::f_sninit;
   static constexpr auto snkera = ::f_snkera;
   static constexpr auto snmema = ::f_snmema;
   static constexpr auto snseti = ::f_snseti;
   static constexpr auto snsetr = ::f_snsetr;
+#pragma GCC diagnostic pop
 };
 
 // This is the SNOPT 7.4 implementation.
@@ -59,18 +110,33 @@ struct SnoptImpl<true> {
 // that SFINAE ignores the function bodies when the user has SNOPT 7.6.
 template<>
 struct SnoptImpl<false> {
-  static const int kLegacyPrintDefault = 9;
+  // The unit number for our "Print file" log for the current thread.  When the
+  // "Print file" option is not enabled, this is zero.
+  thread_local static int g_iprint;
+
   template <typename Int>
   static void snend(
       Int* iw, int leniw, double* rw, int lenrw) {
-    Int iprint = kLegacyPrintDefault;
+    // Close the print file and then release its unit (if necessary).
+    Int iprint = g_iprint;
     ::f_snend(&iprint);
+    if (g_iprint) {
+      FortranUnitFactory::singleton().Release(g_iprint);
+      g_iprint = 0;
+    }
   }
   template <typename Int>
   static void sninit(
       const char* name, int len, int summOn,
       Int* iw, int leniw, double* rw, int lenrw) {
-    Int iprint = kLegacyPrintDefault;
+    // Allocate a unit number for the "Print file" (if necessary); the code
+    // within f_sninit will open the file.
+    if (len == 0) {
+      g_iprint = 0;
+    } else {
+      g_iprint = FortranUnitFactory::singleton().Allocate();
+    }
+    Int iprint = g_iprint;
     ::f_sninit(name, &len, &iprint, &summOn, iw, &leniw, rw, &lenrw);
   }
   template <typename Int>
@@ -126,8 +192,15 @@ struct SnoptImpl<false> {
   }
 };
 
+// The next line is C++ boilerplate to declare linker storage for this global.
+thread_local int SnoptImpl<false>::g_iprint;
+
 // Choose the correct SnoptImpl specialization.
+#pragma GCC diagnostic push  // Silence spurious warnings from macOS llvm.
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunneeded-internal-declaration"
 void f_sninit_76_prototype(const char*, int, int, int[], int, double[], int) {}
+#pragma GCC diagnostic pop
 const bool kIsSnopt76 =
     std::is_same<decltype(&f_sninit), decltype(&f_sninit_76_prototype)>::value;
 using Snopt = SnoptImpl<kIsSnopt76>;
@@ -326,9 +399,27 @@ void EvaluateNonlinearConstraints(
       F[(*constraint_index)++] = ty(i).value();
     }
 
-    for (int i = 0; i < num_constraints; i++) {
-      for (int j = 0; j < num_variables; ++j) {
-        G[(*grad_index)++] = ty(i).derivatives()(j);
+    const optional<std::vector<std::pair<int, int>>>&
+        gradient_sparsity_pattern =
+            binding.evaluator()->gradient_sparsity_pattern();
+    if (gradient_sparsity_pattern.has_value()) {
+      for (const auto& nonzero_entry : gradient_sparsity_pattern.value()) {
+        G[(*grad_index)++] =
+            ty(nonzero_entry.first).derivatives().size() > 0
+                ? ty(nonzero_entry.first).derivatives()(nonzero_entry.second)
+                : 0.0;
+      }
+    } else {
+      for (int i = 0; i < num_constraints; i++) {
+        if (ty(i).derivatives().size() > 0) {
+          for (int j = 0; j < num_variables; ++j) {
+            G[(*grad_index)++] = ty(i).derivatives()(j);
+          }
+        } else {
+          for (int j = 0; j < num_variables; ++j) {
+            G[(*grad_index)++] = 0.0;
+          }
+        }
       }
     }
   }
@@ -391,9 +482,11 @@ void EvaluateAndAddNonlinearCosts(
     obj->Eval(math::initializeAutoDiff(this_x), &ty);
 
     *total_cost += ty(0).value();
-    for (int i = 0; i < num_variables; ++i) {
-      (*nonlinear_cost_gradients)[binding_var_indices[i]] +=
-          ty(0).derivatives()(i);
+    if (ty(0).derivatives().size() > 0) {
+      for (int i = 0; i < num_variables; ++i) {
+        (*nonlinear_cost_gradients)[binding_var_indices[i]] +=
+            ty(0).derivatives()(i);
+      }
     }
   }
 }
@@ -475,7 +568,12 @@ void UpdateNumNonlinearConstraintsAndGradients(
   for (auto const& binding : constraint_list) {
     auto const& c = binding.evaluator();
     int n = c->num_constraints();
-    *max_num_gradients += n * binding.GetNumElements();
+    if (binding.evaluator()->gradient_sparsity_pattern().has_value()) {
+      *max_num_gradients += static_cast<int>(
+          binding.evaluator()->gradient_sparsity_pattern().value().size());
+    } else {
+      *max_num_gradients += n * binding.GetNumElements();
+    }
     *num_nonlinear_constraints += n;
   }
 }
@@ -513,13 +611,28 @@ void UpdateConstraintBoundsAndGradients(
       (*Fupp)[constraint_index_i] = ub(i);
     }
 
-    for (int i = 0; i < n; i++) {
-      for (int j = 0; j < static_cast<int>(binding.GetNumElements()); ++j) {
+    const std::vector<int> bound_var_indices_in_prog =
+        prog.FindDecisionVariableIndices(binding.variables());
+
+    const optional<std::vector<std::pair<int, int>>>&
+        gradient_sparsity_pattern =
+            binding.evaluator()->gradient_sparsity_pattern();
+    if (gradient_sparsity_pattern.has_value()) {
+      for (const auto& nonzero_entry : gradient_sparsity_pattern.value()) {
         // Fortran is 1-indexed.
-        (*iGfun)[*grad_index] = 1 + *constraint_index + i;  // row order
+        (*iGfun)[*grad_index] = 1 + *constraint_index + nonzero_entry.first;
         (*jGvar)[*grad_index] =
-            1 + prog.FindDecisionVariableIndex(binding.variables()(j));
+            1 + bound_var_indices_in_prog[nonzero_entry.second];
         (*grad_index)++;
+      }
+    } else {
+      for (int i = 0; i < n; i++) {
+        for (int j = 0; j < static_cast<int>(binding.GetNumElements()); ++j) {
+          // Fortran is 1-indexed.
+          (*iGfun)[*grad_index] = 1 + *constraint_index + i;  // row order
+          (*jGvar)[*grad_index] = 1 + bound_var_indices_in_prog[j];
+          (*grad_index)++;
+        }
       }
     }
 
@@ -654,7 +767,8 @@ void SolveWithGivenOptions(
     const std::unordered_map<std::string, std::string>& snopt_options_string,
     const std::unordered_map<std::string, int>& snopt_options_int,
     const std::unordered_map<std::string, double>& snopt_options_double,
-    int* snopt_status, double* objective, EigenPtr<Eigen::VectorXd> x_val) {
+    int* snopt_status, double* objective, EigenPtr<Eigen::VectorXd> x_val,
+    SnoptSolverDetails* solver_details) {
   DRAKE_ASSERT(x_val->rows() == prog.num_vars());
 
   SnoptUserFunInfo user_info(&prog);
@@ -679,7 +793,8 @@ void SolveWithGivenOptions(
   std::vector<double> x(nx, 0.0);
   std::vector<double> xlow(nx, -std::numeric_limits<double>::infinity());
   std::vector<double> xupp(nx, std::numeric_limits<double>::infinity());
-  std::vector<double> xmul(nx, 0.0);
+  solver_details->xmul.resize(nx);
+  solver_details->xmul.setZero();
   std::vector<int> xstate(nx, 0);
 
   // Initialize the guess for x.
@@ -751,10 +866,12 @@ void SolveWithGivenOptions(
 
   // Update the bound of the constraint.
   int nF = 1 + num_nonlinear_constraints + num_linear_constraints;
-  std::vector<double> F(nF, 0.0);
+  solver_details->F.resize(nF);
+  solver_details->F.setZero();
   std::vector<double> Flow(nF, -std::numeric_limits<double>::infinity());
   std::vector<double> Fupp(nF, std::numeric_limits<double>::infinity());
-  std::vector<double> Fmul(nF, 0.0);
+  solver_details->Fmul.resize(nF);
+  solver_details->Fmul.setZero();
   std::vector<int> Fstate(nF, 0);
 
   // Set up the gradient sparsity pattern.
@@ -881,25 +998,27 @@ void SolveWithGivenOptions(
   }
   // Actual solve.
   const char problem_name[] = "drake_problem";
-  Snopt::snkera(
-      Cold, problem_name, nF, nx, ObjAdd, ObjRow, snopt_userfun,
-      nullptr /* isnLog snLog */, nullptr /* isnLog2 snLog2 */,
-      nullptr /* isqLog sqLog */, nullptr /* isnSTOP snSTOP */,
-      iAfun.data(), jAvar.data(), lenA, A.data(),
-      iGfun.data(), jGvar.data(), lenG,
-      xlow.data(), xupp.data(),
-      Flow.data(), Fupp.data(),
-      x.data(), xstate.data(), xmul.data(),
-      F.data(), Fstate.data(), Fmul.data(),
-      snopt_status, &nS, &nInf, &sInf,
-      &miniw, &minrw,
-      storage.iu(), storage.leniu(),
-      storage.ru(), storage.lenru(),
-      storage.iw(), storage.leniw(),
-      storage.rw(), storage.lenrw());
+  // clang-format off
+  Snopt::snkera(Cold, problem_name, nF, nx, ObjAdd, ObjRow, snopt_userfun,
+                nullptr /* isnLog snLog */, nullptr /* isnLog2 snLog2 */,
+                nullptr /* isqLog sqLog */, nullptr /* isnSTOP snSTOP */,
+                iAfun.data(), jAvar.data(), lenA, A.data(),
+                iGfun.data(), jGvar.data(), lenG,
+                xlow.data(), xupp.data(),
+                Flow.data(), Fupp.data(),
+                x.data(), xstate.data(), solver_details->xmul.data(),
+                solver_details->F.data(), Fstate.data(),
+                solver_details->Fmul.data(),
+                snopt_status, &nS, &nInf, &sInf, &miniw, &minrw,
+                storage.iu(), storage.leniu(),
+                storage.ru(), storage.lenru(),
+                storage.iw(), storage.leniw(),
+                storage.rw(), storage.lenrw());
+  // clang-format on
 
   *x_val = Eigen::Map<Eigen::VectorXd>(x.data(), nx);
-  *objective = F[0];
+  *objective = solver_details->F(0);
+  solver_details->info = *snopt_status;
 }
 
 SolutionResult MapSnoptInfoToSolutionResult(int snopt_info) {
@@ -925,33 +1044,42 @@ SolutionResult MapSnoptInfoToSolutionResult(int snopt_info) {
 
 bool SnoptSolver::is_available() { return true; }
 
-void SnoptSolver::Solve(const MathematicalProgram& prog,
-                        const optional<Eigen::VectorXd>& initial_guess,
-                        const optional<SolverOptions>& solver_options,
-                        MathematicalProgramResult* result) const {
-  *result = {};
-
-  // Our function's arguments for initial_guess and solver_options take
-  // precedence over prog's values.
-  const Eigen::VectorXd& x_init =
-      initial_guess ? *initial_guess : prog.initial_guess();
-  SolverOptions merged_options =
-      solver_options ? *solver_options : SolverOptions();
-  merged_options.Merge(prog.solver_options());
-
+void SnoptSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
   // Call SNOPT.
   int snopt_status{0};
   double objective{0};
   Eigen::VectorXd x_val(prog.num_vars());
-  SolveWithGivenOptions(
-      prog, x_init,
-      merged_options.GetOptionsStr(id()),
-      merged_options.GetOptionsInt(id()),
-      merged_options.GetOptionsDouble(id()),
-      &snopt_status, &objective, &x_val);
+  SnoptSolverDetails& solver_details =
+      result->SetSolverDetailsType<SnoptSolverDetails>();
+  std::unordered_map<std::string, int> int_options =
+      merged_options.GetOptionsInt(id());
+
+  // If "Timing level" is not zero, then snopt periodically calls etime to
+  // determine it's usage of cpu time (which on Linux calls getrusage in the
+  // libgfortran implementation).  Unfortunately getrusage is called using
+  // RUSAGE_SELF, which has unfortunate consenquences when using threads,
+  // namely (1) It returns the total count of CPU usage for all threads, so
+  // the result is garbage, and (2) on Linux the kernel holds a process wide
+  // lock inside getrusage when RUSAGE_SELF is specified, so other threads
+  // using snopt end up blocking on their getrusage calls.  Under the theory
+  // that a user who actually wants this behavior will turn it on
+  // deliberately, set "Timing level" to zero if the user hasn't requested
+  // another value.
+  const std::string kTimingLevel = "Timing level";
+  if (int_options.count(kTimingLevel) == 0) {
+    int_options[kTimingLevel] = 0;
+  }
+
+  SolveWithGivenOptions(prog, initial_guess, merged_options.GetOptionsStr(id()),
+                        int_options,
+                        merged_options.GetOptionsDouble(id()), &snopt_status,
+                        &objective, &x_val, &solver_details);
 
   // Populate our results structure.
-  result->set_solver_id(id());
   const SolutionResult solution_result =
       MapSnoptInfoToSolutionResult(snopt_status);
   result->set_solution_result(solution_result);
@@ -961,9 +1089,6 @@ void SnoptSolver::Solve(const MathematicalProgram& prog,
   } else {
     result->set_optimal_cost(objective);
   }
-  // TODO(hongkai.dai) add other useful quantities to a struct specific to
-  // SNOPT, to include information on constraint values, xstate, Fstate, xmul,
-  // Fmul, etc.
 }
 
 bool SnoptSolver::is_thread_safe() { return true; }

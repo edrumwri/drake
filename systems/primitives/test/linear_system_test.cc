@@ -4,17 +4,61 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/eigen_types.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/examples/pendulum/pendulum_plant.h"
 #include "drake/systems/framework/test_utilities/scalar_conversion.h"
 #include "drake/systems/primitives/test/affine_linear_test.h"
 
 using std::make_unique;
 using std::unique_ptr;
+using MatrixXd = drake::MatrixX<double>;
 
 namespace drake {
 namespace systems {
 namespace {
+
+class LinearSystemPlusEmptyVectorPort : public LinearSystem<double> {
+ public:
+  LinearSystemPlusEmptyVectorPort(
+        const Eigen::Ref<const Eigen::MatrixXd>& A,
+        const Eigen::Ref<const Eigen::MatrixXd>& B,
+        const Eigen::Ref<const Eigen::MatrixXd>& C,
+        const Eigen::Ref<const Eigen::MatrixXd>& D) : LinearSystem(A, B, C, D) {
+    this->DeclareInputPort(kVectorValued, 0);
+  }
+};
+
+GTEST_TEST(LinearSystemTestWithEmptyPort, EmptyPort) {
+  // Set linear system matrices as simply as possible while using a non-empty
+  // vector input.
+  const int num_states = 1;
+  const int num_inputs = 1;
+  MatrixXd B(num_states, num_inputs);
+  B << 0;
+  const MatrixXd A = B;
+  const MatrixXd C = B;
+  const MatrixXd D = B;
+  LinearSystemPlusEmptyVectorPort dut(A, B, C, D);
+
+  // Get the system as a System<double>. This is necessary because the
+  // grandparent (TimeVaryingAffineSystem) shadows System::get_input_port(int)
+  // with TimeVaryingAffineSystem::get_input_port(), which makes the former
+  // inaccessible.
+  System<double>& system = dut;
+
+  // Verify that the first two vector input ports have expected sizes.
+  ASSERT_EQ(system.get_input_port(0).size(), num_inputs);
+  ASSERT_EQ(system.get_input_port(1).size(), 0);
+
+  // Verify that computing derivatives does not cause an exception to be thrown
+  // when the empty vector port is unconnected.
+  auto context = dut.CreateDefaultContext();
+  auto derivatives = dut.AllocateTimeDerivatives();
+  context->FixInputPort(0, Vector1d(0));
+  EXPECT_NO_THROW(dut.CalcTimeDerivatives(*context, derivatives.get()));
+}
 
 class LinearSystemTest : public AffineLinearSystemTest {
  public:
@@ -27,7 +71,6 @@ class LinearSystemTest : public AffineLinearSystemTest {
     dut_->set_name("test_linear_system");
     context_ = dut_->CreateDefaultContext();
     input_vector_ = make_unique<BasicVector<double>>(2 /* size */);
-    system_output_ = dut_->AllocateOutput();
     state_ = &context_->get_mutable_continuous_state();
     derivatives_ = dut_->AllocateTimeDerivatives();
   }
@@ -39,7 +82,7 @@ class LinearSystemTest : public AffineLinearSystemTest {
 
 // Tests that the linear system is correctly setup.
 TEST_F(LinearSystemTest, Construction) {
-  EXPECT_EQ(1, context_->get_num_input_ports());
+  EXPECT_EQ(1, context_->num_input_ports());
   EXPECT_EQ("test_linear_system", dut_->get_name());
   EXPECT_EQ(dut_->A(), A_);
   EXPECT_EQ(dut_->B(), B_);
@@ -47,8 +90,8 @@ TEST_F(LinearSystemTest, Construction) {
   EXPECT_EQ(dut_->C(), C_);
   EXPECT_EQ(dut_->D(), D_);
   EXPECT_EQ(dut_->y0(), y0_);
-  EXPECT_EQ(1, dut_->get_num_output_ports());
-  EXPECT_EQ(1, dut_->get_num_input_ports());
+  EXPECT_EQ(1, dut_->num_output_ports());
+  EXPECT_EQ(1, dut_->num_input_ports());
 }
 
 // Tests that the derivatives are correctly computed.
@@ -77,11 +120,8 @@ TEST_F(LinearSystemTest, Output) {
   Eigen::Vector2d x(0.8, -22.1);
   state_->SetFromVector(x);
 
-  dut_->CalcOutput(*context_, system_output_.get());
-
   Eigen::VectorXd expected_output = C_ * x + D_ * u;
-
-  EXPECT_EQ(expected_output, system_output_->get_vector_data(0)->get_value());
+  EXPECT_EQ(expected_output, dut_->get_output_port().Eval(*context_));
 }
 
 // Tests converting to different scalar types.
@@ -137,8 +177,8 @@ class SimpleTimeVaryingLinearSystem final
 GTEST_TEST(SimpleTimeVaryingLinearSystemTest, ConstructorTest) {
   SimpleTimeVaryingLinearSystem sys;
 
-  EXPECT_EQ(sys.get_num_output_ports(), 1);
-  EXPECT_EQ(sys.get_num_input_ports(), 1);
+  EXPECT_EQ(sys.num_output_ports(), 1);
+  EXPECT_EQ(sys.num_input_ports(), 1);
   EXPECT_TRUE(CompareMatrices(sys.A(0.), Eigen::Matrix2d::Identity()));
   EXPECT_TRUE(CompareMatrices(sys.B(0.), Eigen::Matrix<double, 2, 1>::Ones()));
   EXPECT_TRUE(CompareMatrices(sys.C(0.), Eigen::Matrix2d::Identity()));
@@ -323,6 +363,72 @@ class TestNonPeriodicSystem : public LeafSystem<double> {
     (*discrete_state)[0] = context.get_discrete_state(0).GetAtIndex(0) + 1;
   }
 };
+
+// A system with no state and an abstract input port.
+template <typename T>
+class EmptyStateSystemWithAbstractInput final : public LeafSystem<T> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(EmptyStateSystemWithAbstractInput);
+  EmptyStateSystemWithAbstractInput()
+      : LeafSystem<T>(SystemTypeTag<EmptyStateSystemWithAbstractInput>{}) {
+    this->DeclareAbstractInputPort(
+        "dummy", Value<std::vector<double>>() /* Arbitrary data type */);
+  }
+
+  // Scalar-converting copy constructor. See @ref system_scalar_conversion.
+  template <typename U>
+  explicit EmptyStateSystemWithAbstractInput(
+      const EmptyStateSystemWithAbstractInput<U>&)
+      : EmptyStateSystemWithAbstractInput<T>() {}
+};
+
+// A system with no state, a vector input port, and an abstract input port.
+template <typename T>
+class EmptyStateSystemWithMixedInputs final : public LeafSystem<T> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(EmptyStateSystemWithMixedInputs);
+  EmptyStateSystemWithMixedInputs()
+      : LeafSystem<T>(SystemTypeTag<EmptyStateSystemWithMixedInputs>{}) {
+    this->DeclareVectorInputPort(BasicVector<T>(1) /* scalar input */);
+    this->DeclareAbstractInputPort(
+        "dummy", Value<std::vector<double>>() /* Arbitrary data type */);
+  }
+
+  /// Scalar-converting copy constructor.  See @ref system_scalar_conversion.
+  template <typename U>
+  explicit EmptyStateSystemWithMixedInputs(
+      const EmptyStateSystemWithMixedInputs<U>&)
+      : EmptyStateSystemWithMixedInputs<T>() {}
+};
+
+// Test that linearizing a system with abstract input port throws an
+// exception when trying to linearize that port.
+GTEST_TEST(TestLinearize, LinearizingOnAbstractPortThrows) {
+  EmptyStateSystemWithAbstractInput<double> system;
+  auto context = system.CreateDefaultContext();
+  DRAKE_EXPECT_THROWS_MESSAGE(Linearize(system, *context), std::logic_error,
+      "Port requested for differentiation is abstract, and differentiation of "
+      "abstract ports is not supported.");
+}
+
+// Test linearizing a system with mixed (vector and abstract) inputs.
+GTEST_TEST(TestLinearize, LinearizingWithMixedInputs) {
+  EmptyStateSystemWithMixedInputs<double> system;
+  auto context = system.CreateDefaultContext();
+
+  // First check without the vector-valued input port connected.
+  DRAKE_EXPECT_THROWS_MESSAGE(Linearize(system, *context), std::logic_error,
+      "InputPort.*is not connected");
+
+  // Now check with the vector-valued input port connected but the abstract
+  // input port not yet connected.
+  context->FixInputPort(0, Vector1<double>(0.0));
+  EXPECT_NO_THROW(Linearize(system, *context));
+
+  // Now check with the abstract input port connected.
+  context->FixInputPort(1, Value<std::vector<double>>());
+  EXPECT_NO_THROW(Linearize(system, *context));
+}
 
 // Test that Linearize throws when called on a discrete but non-periodic system.
 GTEST_TEST(TestLinearize, ThrowsWithNonPeriodicDiscreteSystem) {
@@ -606,8 +712,8 @@ class MimoSystem final : public LeafSystem<T> {
 
   void DoCalcTimeDerivatives(const Context<T>& context,
                              ContinuousState<T>* derivatives) const final {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     derivatives->SetFromVector(A_ * x + B0_ * u0 + B1_ * u1);
@@ -617,8 +723,8 @@ class MimoSystem final : public LeafSystem<T> {
       const Context<T>& context,
       const std::vector<const DiscreteUpdateEvent<T>*>&,
       DiscreteValues<T>* discrete_state) const final {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     discrete_state->get_mutable_vector(0).SetFromVector(A_ * x + B0_ * u0 +
@@ -626,16 +732,16 @@ class MimoSystem final : public LeafSystem<T> {
   }
 
   void CalcOutput0(const Context<T>& context, BasicVector<T>* output) const {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     output->SetFromVector(C0_ * x + D00_ * u0 + D01_ * u1);
   }
 
   void CalcOutput1(const Context<T>& context, BasicVector<T>* output) const {
-    Vector1<T> u0 = this->EvalVectorInput(context, 0)->CopyToVector();
-    Vector3<T> u1 = this->EvalVectorInput(context, 1)->CopyToVector();
+    Vector1<T> u0 = this->get_input_port(0).Eval(context);
+    Vector3<T> u1 = this->get_input_port(1).Eval(context);
     Vector2<T> x = get_state_vector(context);
 
     output->SetFromVector(C1_ * x + D10_ * u0 + D11_ * u1);
@@ -663,25 +769,25 @@ void TestMimo(bool is_discrete) {
   const double tol = 1e-8;
 
   // First-input, first output.
-  auto sys00 = Linearize(sys, *context, 0, 0);
+  auto sys00 = Linearize(sys, *context, InputPortIndex{0}, OutputPortIndex{0});
   EXPECT_TRUE(CompareMatrices(sys00->A(), sys.A_, tol));
   EXPECT_TRUE(CompareMatrices(sys00->B(), sys.B0_, tol));
   EXPECT_TRUE(CompareMatrices(sys00->C(), sys.C0_, tol));
   EXPECT_TRUE(CompareMatrices(sys00->D(), sys.D00_, tol));
 
-  auto sys01 = Linearize(sys, *context, 0, 1);
+  auto sys01 = Linearize(sys, *context, InputPortIndex{0}, OutputPortIndex{1});
   EXPECT_TRUE(CompareMatrices(sys01->A(), sys.A_, tol));
   EXPECT_TRUE(CompareMatrices(sys01->B(), sys.B0_, tol));
   EXPECT_TRUE(CompareMatrices(sys01->C(), sys.C1_, tol));
   EXPECT_TRUE(CompareMatrices(sys01->D(), sys.D10_, tol));
 
-  auto sys10 = Linearize(sys, *context, 1, 0);
+  auto sys10 = Linearize(sys, *context, InputPortIndex{1}, OutputPortIndex{0});
   EXPECT_TRUE(CompareMatrices(sys10->A(), sys.A_, tol));
   EXPECT_TRUE(CompareMatrices(sys10->B(), sys.B1_, tol));
   EXPECT_TRUE(CompareMatrices(sys10->C(), sys.C0_, tol));
   EXPECT_TRUE(CompareMatrices(sys10->D(), sys.D01_, tol));
 
-  auto sys11 = Linearize(sys, *context, 1, 1);
+  auto sys11 = Linearize(sys, *context, InputPortIndex{1}, OutputPortIndex{1});
   EXPECT_TRUE(CompareMatrices(sys11->A(), sys.A_, tol));
   EXPECT_TRUE(CompareMatrices(sys11->B(), sys.B1_, tol));
   EXPECT_TRUE(CompareMatrices(sys11->C(), sys.C1_, tol));

@@ -15,6 +15,8 @@ namespace drake {
 namespace pydrake {
 
 PYBIND11_MODULE(sensors, m) {
+  PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(m);
+
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake::systems;
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
@@ -55,7 +57,7 @@ PYBIND11_MODULE(sensors, m) {
           py::arg("show_window") = bool{RenderingConfig::kDefaultShowWindow},
           py::arg("width") = int{RenderingConfig::kDefaultWidth},
           py::arg("height") = int{RenderingConfig::kDefaultHeight},
-          // Keep alive, reference: `this` keeps  `RigidBodyTree` alive.
+          // Keep alive, reference: `self` keeps `tree` alive.
           py::keep_alive<1, 3>(), doc.RgbdCamera.ctor.doc_10args)
       .def("color_camera_info", &RgbdCamera::color_camera_info,
           py_reference_internal, doc.RgbdCamera.color_camera_info.doc)
@@ -78,7 +80,7 @@ PYBIND11_MODULE(sensors, m) {
       .def(py::init<unique_ptr<RgbdCamera>, double, bool>(), py::arg("camera"),
           py::arg("period") = double{RgbdCameraDiscrete::kDefaultPeriod},
           py::arg("render_label_image") = true,
-          // Keep alive, ownership: `RgbdCamera` keeps `this` alive.
+          // Keep alive, ownership: `camera` keeps `self` alive.
           py::keep_alive<2, 1>(), doc.RgbdCameraDiscrete.ctor.doc)
       // N.B. Since `camera` is already connected, we do not need additional
       // `keep_alive`s.

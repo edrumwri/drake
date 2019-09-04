@@ -2,15 +2,14 @@
 
 #include <memory>
 
+#include "drake/common/value.h"
 #include "drake/lcmt_spatial_forces_for_viz.hpp"
 #include "drake/multibody/plant/spatial_force_output.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace multibody {
 
 using systems::Context;
-using systems::Value;
 
 template <typename T>
 SpatialForcesToLcmSystem<T>::SpatialForcesToLcmSystem(
@@ -52,7 +51,7 @@ void SpatialForcesToLcmSystem<T>::CalcLcmSpatialForcesOutput(
   // Get input / output.
   const auto& spatial_forces =
       this->EvalAbstractInput(context, spatial_forces_input_port_index_)
-          ->template GetValue<std::vector<SpatialForceOutput<T>>>();
+          ->template get_value<std::vector<SpatialForceOutput<T>>>();
   auto& msg = *output;
 
   // Time in microseconds.

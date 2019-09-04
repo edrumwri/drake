@@ -3,8 +3,9 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/copyable_unique_ptr.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/test_utilities/is_dynamic_castable.h"
-#include "drake/systems/framework/value.h"
+#include "drake/common/value.h"
 
 namespace drake {
 namespace systems {
@@ -32,15 +33,15 @@ GTEST_TEST(MyVectorTest, Construction) {
 }
 
 // Misuse of the test utility is an abort-able infraction.
-GTEST_TEST(MyVectorDeathTest, DeathOnBadSize) {
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+GTEST_TEST(MyVectorTest, BadSize) {
   Vector4d fixed_size4(1., 2., 3., 4.);
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      MyVector3d(VectorX<double>(fixed_size4)),
+      std::exception, ".*size.*fail.*");
 
   // This won't compile since there is no constructor with mismatched sizes.
   // MyVector3d from_4(fixed_size4);
-
-  // This should blow a DRAKE_DEMAND at runtime.
-  EXPECT_DEATH(MyVector3d(VectorX<double>(fixed_size4)), ".*");
 }
 
 // Test the Make() method (takes a variable length arg list).
@@ -59,14 +60,14 @@ GTEST_TEST(MyVectorTest, Clone) {
   auto clone = vector3.Clone();
 
   // Changing the original should not affect the clone.
-  vector3.SetAtIndex(1, 20.);
+  vector3[1] = 20.;
   EXPECT_EQ(vector3.get_value(), Vector3d(1., 20., 3.));
 
   EXPECT_EQ(clone->get_value(), Vector3d(1., 2., 3.));
 
   // Value<T> requires that T be copyable or cloneable.
   auto abstract3 = AbstractValue::Make(vector3);
-  auto& casted3 = abstract3->GetValueOrThrow<MyVector3d>();
+  auto& casted3 = abstract3->get_value<MyVector3d>();
   EXPECT_EQ(casted3.get_value(), vector3.get_value());
 
   // copyable_unique_ptr<T> requires that T be copyable or cloneable.

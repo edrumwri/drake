@@ -48,6 +48,14 @@ TEST_F(SubvectorTest, Copy) {
   Eigen::Vector2d expected;
   expected << 2, 3;
   EXPECT_EQ(expected, subvec.CopyToVector());
+
+  Eigen::Vector2d pre_sized_good;
+  subvec.CopyToPreSizedVector(&pre_sized_good);
+  EXPECT_EQ(expected, pre_sized_good);
+
+  Eigen::Vector3d pre_sized_bad;
+  EXPECT_THROW(subvec.CopyToPreSizedVector(&pre_sized_bad),
+      std::exception);
 }
 
 // Tests that writes to the subvector pass through to the sliced vector.
@@ -102,7 +110,7 @@ TEST_F(SubvectorTest, ScaleAndAddToVector) {
   target << 100, 1000;
 
   Subvector<double> subvec(vector_.get(), 1, kSubVectorLength);
-  subvec.ScaleAndAddToVector(1, target);
+  subvec.ScaleAndAddToVector(1, &target);
 
   Eigen::Vector2d expected;
   expected << 102, 1003;
@@ -122,48 +130,16 @@ TEST_F(SubvectorTest, PlusEqInvalidSize) {
 TEST_F(SubvectorTest, AddToVectorInvalidSize) {
   VectorX<double> target(3);
   Subvector<double> subvec(vector_.get(), 1, kSubVectorLength);
-  EXPECT_THROW(subvec.ScaleAndAddToVector(1, target), std::out_of_range);
+  EXPECT_THROW(subvec.ScaleAndAddToVector(1, &target), std::out_of_range);
 }
 
 // Tests SetZero functionality in VectorBase.
 TEST_F(SubvectorTest, SetZero) {
   Subvector<double> subvec(vector_.get(), 0, kSubVectorLength);
   subvec.SetZero();
-  for (int i = 0; i < subvec.size(); i++) EXPECT_EQ(subvec.GetAtIndex(i), 0);
-}
-
-// Tests the infinity norm.
-TEST_F(SubvectorTest, InfNorm) {
-  Subvector<double> subvec(vector_.get(), 0, kSubVectorLength);
-  EXPECT_EQ(subvec.NormInf(), 2);
-}
-
-// Tests the infinity norm for an autodiff type.
-TEST_F(SubvectorTest, InfNormAutodiff) {
-  AutoDiffXd element0;
-  element0.value() = -11.5;
-  element0.derivatives() = Eigen::Vector2d(1.5, -2.5);
-  AutoDiffXd element1;
-  element1.value() = 22.5;
-  element1.derivatives() = Eigen::Vector2d(-3.5, 4.5);
-  auto basic_vector = BasicVector<AutoDiffXd>::Make({element0, element1});
-  Subvector<AutoDiffXd> subvec(basic_vector.get(), 0, 2);
-
-  // The element1 has the max absolute value of the AutoDiffScalar's scalar.
-  // It is positive, so the sign of its derivatives remains unchanged.
-  AutoDiffXd expected_norminf;
-  expected_norminf.value() = 22.5;
-  expected_norminf.derivatives() = Eigen::Vector2d(-3.5, 4.5);
-  EXPECT_EQ(subvec.NormInf().value(), expected_norminf.value());
-  EXPECT_EQ(subvec.NormInf().derivatives(), expected_norminf.derivatives());
-
-  // The element0 has the max absolute value of the AutoDiffScalar's scalar.
-  // It is negative, so the sign of its derivatives gets flipped.
-  basic_vector->GetAtIndex(0).value() = -33.5;
-  expected_norminf.value() = 33.5;
-  expected_norminf.derivatives() = Eigen::Vector2d(-1.5, 2.5);
-  EXPECT_EQ(subvec.NormInf().value(), expected_norminf.value());
-  EXPECT_EQ(subvec.NormInf().derivatives(), expected_norminf.derivatives());
+  for (int i = 0; i < subvec.size(); i++) {
+    EXPECT_EQ(subvec.GetAtIndex(i), 0);
+  }
 }
 
 // Tests all += * operations for VectorBase.

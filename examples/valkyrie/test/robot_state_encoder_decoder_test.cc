@@ -8,6 +8,7 @@
 #include "drake/common/find_resource.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/math/quaternion.h"
+#include "drake/math/rigid_transform.h"
 #include "drake/multibody/parsers/urdf_parser.h"
 #include "drake/multibody/rigid_body_plant/contact_results.h"
 #include "drake/multibody/rigid_body_plant/kinematics_results.h"
@@ -35,13 +36,13 @@ using multibody::joints::FloatingBaseType;
 static ContactForce<double> TransformContactWrench(
     const RigidBodyFrame<double>& sensor_info,
     const Isometry3<double>& body_pose,
-    const SpatialForce<double>& spatial_force_in_sensor_frame) {
+    const Vector6<double>& spatial_force_in_sensor_frame) {
   Isometry3<double> sensor_pose =
       body_pose * sensor_info.get_transform_to_body();
   Isometry3<double> sensor_to_world_aligned_sensor = sensor_pose;
   sensor_to_world_aligned_sensor.translation().setZero();
 
-  SpatialForce<double> spatial_force_in_world_aligned_sensor =
+  Vector6<double> spatial_force_in_world_aligned_sensor =
       transformSpatialForce(sensor_to_world_aligned_sensor,
                             spatial_force_in_sensor_frame);
 
@@ -77,23 +78,21 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
   hand_names[Side::LEFT] = "leftPalm";
   hand_names[Side::RIGHT] = "rightPalm";
 
-  Isometry3<double> foot_ft_sensor_offset;
-  foot_ft_sensor_offset.linear() =
-      Matrix3<double>(AngleAxis<double>(M_PI, Vector3<double>::UnitX()));
-  foot_ft_sensor_offset.translation() = Vector3<double>(0.02, 0., -0.09);
+  const math::RigidTransform<double> foot_ft_sensor_offset(
+      AngleAxis<double>(M_PI, Vector3<double>::UnitX()),
+      Vector3<double>(0.02, 0., -0.09));
 
-  Isometry3<double> hand_ft_sensor_offset;
-  hand_ft_sensor_offset.linear() =
-      Matrix3<double>(AngleAxis<double>(M_PI, Vector3<double>::UnitZ()));
-  hand_ft_sensor_offset.translation() = Vector3<double>(0., 0., 0.05);
+  const math::RigidTransform<double> hand_ft_sensor_offset(
+      AngleAxis<double>(M_PI, Vector3<double>::UnitZ()),
+      Vector3<double>(0., 0., 0.05));
 
   for (Side side : Side::values) {
     foot_ft_sensor_info[side] = RigidBodyFrame<double>(
         foot_names[side] + "FTSensor", tree.FindBody(foot_names[side]),
-        foot_ft_sensor_offset);
+        foot_ft_sensor_offset.GetAsIsometry3());
     hand_ft_sensor_info[side] = RigidBodyFrame<double>(
         hand_names[side] + "FTSensor", tree.FindBody(hand_names[side]),
-        hand_ft_sensor_offset);
+        hand_ft_sensor_offset.GetAsIsometry3());
     force_torque_sensor_info.push_back(foot_ft_sensor_info[side]);
     force_torque_sensor_info.push_back(hand_ft_sensor_info[side]);
   }
@@ -104,7 +103,7 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
   auto kinematics_results_value = make_unique<Value<KinematicsResults<double>>>(
       KinematicsResults<double>(&tree));
   KinematicsResults<double>& kinematics_results =
-      kinematics_results_value->GetMutableValue<KinematicsResults<double>>();
+      kinematics_results_value->get_mutable_value();
 
   std::default_random_engine generator;  // Same seed every time, but that's OK.
   std::normal_distribution<double> distribution;
@@ -125,7 +124,7 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
 
   auto& kinematics_results_source =
       *builder.AddSystem<ConstantValueSource<double>>(
-          move(kinematics_results_value));
+          *kinematics_results_value);
   kinematics_results_source.set_name("kinematics_results_source");
 
   // Effort sources.
@@ -148,7 +147,7 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
   auto contact_results_value =
       make_unique<Value<ContactResults<double>>>(ContactResults<double>());
   ContactResults<double>& contact_results =
-      contact_results_value->GetMutableValue<ContactResults<double>>();
+      contact_results_value->get_mutable_value();
 
   double spatial_forces_start = 0.0;
   for (Side side : Side::values) {
@@ -190,7 +189,7 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
 
   auto& contact_results_source =
       *builder.AddSystem<ConstantValueSource<double>>(
-          move(contact_results_value));
+          *contact_results_value);
   contact_results_source.set_name("contact_results_source");
 
   // RobotStateEncoder and RobotStateDecoder.
@@ -225,8 +224,8 @@ void TestEncodeThenDecode(FloatingBaseType floating_base_type) {
   diagram->CalcOutput(*context, output.get());
 
   // TODO(tkoolen): magic numbers.
-  auto cache_output = output->get_data(0)->GetValue<KinematicsCache<double>>();
-  auto msg_output = output->get_data(1)->GetValue<robot_state_t>();
+  auto cache_output = output->get_data(0)->get_value<KinematicsCache<double>>();
+  auto msg_output = output->get_data(1)->get_value<robot_state_t>();
 
   // Tolerance because we're converting to float and back:
   double tolerance = 10. * std::numeric_limits<float>::epsilon();

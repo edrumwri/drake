@@ -43,11 +43,6 @@ class TestSystem : public System<double> {
     this->set_name("TestSystem");
   }
 
-  // Implementation is required, but unused here.
-  int get_num_continuous_states() const final {
-    DRAKE_ABORT();
-  }
-
   ~TestSystem() override {}
 
   using System::AddConstraint;  // allow access to protected method.
@@ -81,11 +76,11 @@ class TestSystem : public System<double> {
         [](const ContextBase&, AbstractValue*) {});
     // TODO(sherm1) Use implicit_cast when available (from abseil). Several
     // places in this test.
-    auto port = std::make_unique<LeafOutputPort<double>>(
+    auto port = internal::FrameworkFactory::Make<LeafOutputPort<double>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
-        "y" + std::to_string(get_num_output_ports()),
-        OutputPortIndex(this->get_num_output_ports()),
+        "y" + std::to_string(num_output_ports()),
+        OutputPortIndex(this->num_output_ports()),
         assign_next_dependency_ticket(),
         kAbstractValued, 0, &cache_entry);
     LeafOutputPort<double>* const port_ptr = port.get();
@@ -96,8 +91,8 @@ class TestSystem : public System<double> {
   std::multimap<int, int> GetDirectFeedthroughs() const override {
     std::multimap<int, int> pairs;
     // Report *everything* as having direct feedthrough.
-    for (int i = 0; i < get_num_input_ports(); ++i) {
-      for (int o = 0; o < get_num_output_ports(); ++o) {
+    for (int i = 0; i < num_input_ports(); ++i) {
+      for (int o = 0; o < num_output_ports(); ++o) {
         pairs.emplace(i, o);
       }
     }
@@ -115,15 +110,14 @@ class TestSystem : public System<double> {
 
   double DoCalcWitnessValue(const Context<double>&,
                             const WitnessFunction<double>&) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
+    return {};
   }
 
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<double>*,
       CompositeEventCollection<double>*) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
   }
 
   // The default publish function.
@@ -133,6 +127,11 @@ class TestSystem : public System<double> {
   }
 
  protected:
+  int do_get_num_continuous_states() const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
+  }
+
   std::unique_ptr<AbstractValue> DoAllocateInput(
       const InputPort<double>&) const final {
     return {};
@@ -165,11 +164,24 @@ class TestSystem : public System<double> {
     }
   }
 
+  void DoApplyDiscreteVariableUpdate(
+      const EventCollection<DiscreteUpdateEvent<double>>& events,
+      DiscreteValues<double>* discrete_state,
+      Context<double>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
   void DispatchUnrestrictedUpdateHandler(
       const Context<double>&,
       const EventCollection<UnrestrictedUpdateEvent<double>>&,
       State<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
+  void DoApplyUnrestrictedUpdate(
+      const EventCollection<UnrestrictedUpdateEvent<double>>& events,
+      State<double>* state, Context<double>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   // Sets up an arbitrary mapping from the current time to the next discrete
@@ -224,7 +236,7 @@ class TestSystem : public System<double> {
  private:
   std::unique_ptr<ContextBase> DoAllocateContext() const final {
     auto context = std::make_unique<LeafContext<double>>();
-    InitializeContextBase(&*context);
+    InitializeContextBase(context.get());
     return context;
   }
 
@@ -245,15 +257,15 @@ TEST_F(SystemTest, MapVelocityToConfigurationDerivatives) {
   BasicVector<double> state_vec2(kSize);
 
   system_.MapVelocityToQDot(context_, *state_vec1, &state_vec2);
-  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
-  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
-  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+  EXPECT_EQ(1.0, state_vec2[0]);
+  EXPECT_EQ(2.0, state_vec2[1]);
+  EXPECT_EQ(3.0, state_vec2[2]);
 
   // Test Eigen specialized function specially.
   system_.MapVelocityToQDot(context_, state_vec1->CopyToVector(), &state_vec2);
-  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
-  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
-  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+  EXPECT_EQ(1.0, state_vec2[0]);
+  EXPECT_EQ(2.0, state_vec2[1]);
+  EXPECT_EQ(3.0, state_vec2[2]);
 }
 
 TEST_F(SystemTest, MapConfigurationDerivativesToVelocity) {
@@ -261,15 +273,15 @@ TEST_F(SystemTest, MapConfigurationDerivativesToVelocity) {
   BasicVector<double> state_vec2(kSize);
 
   system_.MapQDotToVelocity(context_, *state_vec1, &state_vec2);
-  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
-  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
-  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+  EXPECT_EQ(1.0, state_vec2[0]);
+  EXPECT_EQ(2.0, state_vec2[1]);
+  EXPECT_EQ(3.0, state_vec2[2]);
 
   // Test Eigen specialized function specially.
   system_.MapQDotToVelocity(context_, state_vec1->CopyToVector(), &state_vec2);
-  EXPECT_EQ(1.0, state_vec2.GetAtIndex(0));
-  EXPECT_EQ(2.0, state_vec2.GetAtIndex(1));
-  EXPECT_EQ(3.0, state_vec2.GetAtIndex(2));
+  EXPECT_EQ(1.0, state_vec2[0]);
+  EXPECT_EQ(2.0, state_vec2[1]);
+  EXPECT_EQ(3.0, state_vec2[2]);
 }
 
 TEST_F(SystemTest, ConfigurationDerivativeVelocitySizeMismatch) {
@@ -291,7 +303,7 @@ TEST_F(SystemTest, VelocityConfigurationDerivativeSizeMismatch) {
 // Tests that the default DoPublish is invoked when no other handler is
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscretePublish) {
-  context_.set_time(5.0);
+  context_.SetTime(5.0);
   auto event_info = system_.AllocateCompositeEventCollection();
   system_.CalcNextUpdateTime(context_, event_info.get());
   const auto& events =
@@ -309,7 +321,7 @@ TEST_F(SystemTest, DiscretePublish) {
 // handler is
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscreteUpdate) {
-  context_.set_time(15.0);
+  context_.SetTime(15.0);
 
   auto event_info = system_.AllocateCompositeEventCollection();
   system_.CalcNextUpdateTime(context_, event_info.get());
@@ -330,8 +342,8 @@ TEST_F(SystemTest, PortReferencesAreStable) {
     system_.AddAbstractInputPort();
     system_.AddAbstractOutputPort();
   }
-  EXPECT_EQ(1001, system_.get_num_input_ports());
-  EXPECT_EQ(1001, system_.get_num_output_ports());
+  EXPECT_EQ(1001, system_.num_input_ports());
+  EXPECT_EQ(1001, system_.num_output_ports());
 
   // Check for address equality.
   EXPECT_EQ(&first_input, &system_.get_input_port(0));
@@ -377,9 +389,42 @@ TEST_F(SystemTest, PortNameTest) {
       std::logic_error, ".*does not have an output port named.*");
 }
 
+TEST_F(SystemTest, PortSelectionTest) {
+  // Input ports.
+  EXPECT_EQ(system_.get_input_port_selection(InputPortSelection::kNoInput),
+            nullptr);
+  EXPECT_EQ(system_.get_input_port_selection(
+                InputPortSelection::kUseFirstInputIfItExists),
+            nullptr);
+
+  const auto& input_port =
+      system_.DeclareInputPort("my_input", kVectorValued, 3);
+  EXPECT_EQ(system_.get_input_port_selection(
+                InputPortSelection::kUseFirstInputIfItExists),
+            &input_port);
+
+  EXPECT_EQ(system_.get_input_port_selection(InputPortIndex{0}),
+            &system_.get_input_port(0));
+
+  // Output ports.
+  EXPECT_EQ(system_.get_output_port_selection(OutputPortSelection::kNoOutput),
+            nullptr);
+  EXPECT_EQ(system_.get_output_port_selection(
+                OutputPortSelection::kUseFirstOutputIfItExists),
+            nullptr);
+
+  const auto& output_port = system_.AddAbstractOutputPort();
+  EXPECT_EQ(system_.get_output_port_selection(
+                OutputPortSelection::kUseFirstOutputIfItExists),
+            &output_port);
+
+  EXPECT_EQ(system_.get_output_port_selection(OutputPortIndex{0}),
+            &system_.get_output_port(0));
+}
+
 // Tests the constraint list logic.
 TEST_F(SystemTest, SystemConstraintTest) {
-  EXPECT_EQ(system_.get_num_constraints(), 0);
+  EXPECT_EQ(system_.num_constraints(), 0);
   EXPECT_THROW(system_.get_constraint(SystemConstraintIndex(0)),
                std::out_of_range);
 
@@ -443,7 +488,7 @@ TEST_F(SystemTest, TransmogrifyNotSupported) {
 }
 
 template <typename T>
-using TestTypedVector = MyVector<1, T>;
+using TestTypedVector = MyVector<T, 1>;
 
 // A shell System for AbstractValue IO test.
 template <typename T>
@@ -464,11 +509,11 @@ class ValueIOTestSystem : public System<T> {
 
     this->DeclareInputPort(kUseDefaultName, kAbstractValued, 0);
 
-    this->AddOutputPort(std::make_unique<LeafOutputPort<T>>(
+    this->AddOutputPort(internal::FrameworkFactory::Make<LeafOutputPort<T>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
         "absport",
-        OutputPortIndex(this->get_num_output_ports()),
+        OutputPortIndex(this->num_output_ports()),
         this->assign_next_dependency_ticket(),
         kAbstractValued, 0 /* size */,
         &this->DeclareCacheEntry(
@@ -482,11 +527,11 @@ class ValueIOTestSystem : public System<T> {
                            RandomDistribution::kUniform);
     this->DeclareInputPort("gaussian", kVectorValued, 1,
                            RandomDistribution::kGaussian);
-    this->AddOutputPort(std::make_unique<LeafOutputPort<T>>(
+    this->AddOutputPort(internal::FrameworkFactory::Make<LeafOutputPort<T>>(
         this,  // implicit_cast<const System<T>*>(this)
         this,  // implicit_cast<const SystemBase*>(this)
         "vecport",
-        OutputPortIndex(this->get_num_output_ports()),
+        OutputPortIndex(this->num_output_ports()),
         this->assign_next_dependency_ticket(),
         kVectorValued, 1 /* size */,
         &this->DeclareCacheEntry(
@@ -499,24 +544,23 @@ class ValueIOTestSystem : public System<T> {
     this->set_name("ValueIOTestSystem");
   }
 
-  // Implementation is required, but unused here.
-  int get_num_continuous_states() const final {
-    DRAKE_ABORT();
-  }
+  ~ValueIOTestSystem() override {}
 
-    ~ValueIOTestSystem() override {}
+  int do_get_num_continuous_states() const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
+  }
 
   T DoCalcWitnessValue(const Context<T>&,
                        const WitnessFunction<T>&) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
+    return {};
   }
 
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<T>*,
       CompositeEventCollection<T>*) const override {
-    // This system uses no witness functions.
-    DRAKE_ABORT();
+    ADD_FAILURE() << "This system uses no witness functions.";
   }
 
   std::unique_ptr<AbstractValue> DoAllocateInput(
@@ -534,7 +578,7 @@ class ValueIOTestSystem : public System<T> {
 
   std::unique_ptr<ContextBase> DoAllocateContext() const final {
     auto context = std::make_unique<LeafContext<T>>();
-    this->InitializeContextBase(&*context);
+    this->InitializeContextBase(context.get());
     return context;
   }
 
@@ -552,8 +596,8 @@ class ValueIOTestSystem : public System<T> {
   std::multimap<int, int> GetDirectFeedthroughs() const override {
     std::multimap<int, int> pairs;
     // Report *everything* as having direct feedthrough.
-    for (int i = 0; i < this->get_num_input_ports(); ++i) {
-      for (int o = 0; o < this->get_num_output_ports(); ++o) {
+    for (int i = 0; i < this->num_input_ports(); ++i) {
+      for (int o = 0; o < this->num_output_ports(); ++o) {
         pairs.emplace(i, o);
       }
     }
@@ -566,7 +610,7 @@ class ValueIOTestSystem : public System<T> {
     const std::string* str_in =
         this->template EvalInputValue<std::string>(context, 0);
 
-    std::string& str_out = output->template GetMutableValue<std::string>();
+    std::string& str_out = output->template get_mutable_value<std::string>();
     str_out = *str_in + "output";
   }
 
@@ -575,28 +619,41 @@ class ValueIOTestSystem : public System<T> {
                         AbstractValue* output) const {
     const Context<T>& context = dynamic_cast<const Context<T>&>(context_base);
     const BasicVector<T>* vec_in = this->EvalVectorInput(context, 1);
-    auto& vec_out = output->template GetMutableValue<BasicVector<T>>();
+    auto& vec_out = output->template get_mutable_value<BasicVector<T>>();
     vec_out.get_mutable_value() = 2 * vec_in->get_value();
   }
 
   void DispatchPublishHandler(
       const Context<T>& context,
       const EventCollection<PublishEvent<T>>& event_info) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   void DispatchDiscreteVariableUpdateHandler(
       const Context<T>& context,
       const EventCollection<DiscreteUpdateEvent<T>>& event_info,
       DiscreteValues<T>* discrete_state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
+  void DoApplyDiscreteVariableUpdate(
+      const EventCollection<DiscreteUpdateEvent<T>>& events,
+      DiscreteValues<T>* discrete_state,
+      Context<T>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   void DispatchUnrestrictedUpdateHandler(
       const Context<T>& context,
       const EventCollection<UnrestrictedUpdateEvent<T>>& event_info,
       State<T>* state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
+  void DoApplyUnrestrictedUpdate(
+      const EventCollection<UnrestrictedUpdateEvent<T>>& events,
+      State<T>* state, Context<T>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
 
   std::unique_ptr<EventCollection<PublishEvent<T>>>
@@ -637,14 +694,14 @@ class SystemInputErrorTest : public ::testing::Test {
 
 // A BasicVector-derived type we can complain about in the next test.
 template <typename T>
-class WrongVector : public MyVector<2, T> {
+class WrongVector : public MyVector<T, 2> {
  public:
-  using MyVector<2, T>::MyVector;
+  using MyVector<T, 2>::MyVector;
 };
 
 // Test error messages from the EvalInput methods.
 TEST_F(SystemInputErrorTest, CheckMessages) {
-  ASSERT_EQ(system_.get_num_input_ports(), 4);
+  ASSERT_EQ(system_.num_input_ports(), 4);
 
   // Sanity check that this works with a good port number.
   EXPECT_NO_THROW(system_.get_input_port(1));
@@ -690,8 +747,8 @@ TEST_F(SystemInputErrorTest, CheckMessages) {
 
   DRAKE_EXPECT_THROWS_MESSAGE_IF_ARMED(
       system_.EvalEigenVectorInput(*context_, 1), std::logic_error,
-      ".*EvalEigenVectorInput.*input port\\[1\\].*neither connected nor "
-          "fixed.*");
+      ".*EvalEigenVectorInput.*input port 'u1' .*index 1.* is neither "
+      "connected nor fixed.*");
 
   // Assign values to all ports. All but port 0 are BasicVector ports.
   system_.AllocateFixedInputs(context_.get());
@@ -736,10 +793,10 @@ class SystemIOTest : public ::testing::Test {
     output_ = test_sys_.AllocateOutput();
 
     // make string input
-    context_->FixInputPort(0, Value<std::string>("input"));
+    test_sys_.get_input_port(0).FixValue(context_.get(), "input");
 
     // make vector input
-    context_->FixInputPort(1, {2.0});
+    test_sys_.get_input_port(1).FixValue(context_.get(), 2.0);
   }
 
   ValueIOTestSystem<double> test_sys_;
@@ -750,10 +807,10 @@ class SystemIOTest : public ::testing::Test {
 TEST_F(SystemIOTest, SystemValueIOTest) {
   test_sys_.CalcOutput(*context_, output_.get());
 
-  EXPECT_EQ(context_->get_num_input_ports(), 4);
-  EXPECT_EQ(output_->get_num_ports(), 2);
+  EXPECT_EQ(context_->num_input_ports(), 4);
+  EXPECT_EQ(output_->num_ports(), 2);
 
-  EXPECT_EQ(output_->get_data(0)->GetValue<std::string>(),
+  EXPECT_EQ(output_->get_data(0)->get_value<std::string>(),
             std::string("inputoutput"));
   EXPECT_EQ(output_->get_vector_data(1)->get_value()(0), 4);
 
@@ -775,7 +832,7 @@ TEST_F(SystemIOTest, SystemValueIOTest) {
   // Now allocate.
   test_sys_.AllocateFixedInputs(context_.get());
   // First input should have been re-allocated to the empty string.
-  EXPECT_EQ(test_sys_.EvalAbstractInput(*context_, 0)->GetValue<std::string>(),
+  EXPECT_EQ(test_sys_.EvalAbstractInput(*context_, 0)->get_value<std::string>(),
             "");
   // Second input should now be of type TestTypedVector.
   EXPECT_NE(dynamic_cast<const TestTypedVector<double> *>(
@@ -807,7 +864,7 @@ TEST_F(SystemIOTest, TransmogrifyAndFix) {
   dest_system.FixInputPortsFrom(test_sys_, *context_, dest_context.get());
 
   EXPECT_EQ(
-      dest_system.EvalAbstractInput(*dest_context, 0)->GetValue<std::string>(),
+      dest_system.EvalAbstractInput(*dest_context, 0)->get_value<std::string>(),
       "input");
 
   const TestTypedVector<AutoDiffXd>* fixed_vec =
@@ -843,12 +900,12 @@ class ComputationTestSystem final : public System<double> {
     EXPECT_EQ(pnc, pnc_count_);
   }
 
-  // Implementation is required, but unused here.
-  int get_num_continuous_states() const final {
-    DRAKE_ABORT();
+ private:
+  int do_get_num_continuous_states() const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
 
- private:
   // Two discrete variable groups of lengths 2 and 4.
   std::unique_ptr<DiscreteValues<double>> AllocateDiscreteVariables()
       const final {
@@ -860,7 +917,7 @@ class ComputationTestSystem final : public System<double> {
 
   std::unique_ptr<ContextBase> DoAllocateContext() const final {
     auto context = std::make_unique<LeafContext<double>>();
-    InitializeContextBase(&*context);
+    InitializeContextBase(context.get());
     return context;
   }
 
@@ -916,11 +973,12 @@ class ComputationTestSystem final : public System<double> {
   std::multimap<int, int> GetDirectFeedthroughs() const final { return {}; }
   double DoCalcWitnessValue(const Context<double>&,
                             const WitnessFunction<double>&) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+    return {};
   }
   void AddTriggeredWitnessFunctionToCompositeEventCollection(
       Event<double>*, CompositeEventCollection<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   std::unique_ptr<AbstractValue> DoAllocateInput(
       const InputPort<double>&) const final {
@@ -929,20 +987,35 @@ class ComputationTestSystem final : public System<double> {
   void DispatchPublishHandler(
       const Context<double>& context,
       const EventCollection<PublishEvent<double>>& events) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
   void DispatchDiscreteVariableUpdateHandler(
       const Context<double>& context,
       const EventCollection<DiscreteUpdateEvent<double>>& events,
       DiscreteValues<double>* discrete_state) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
+
+  void DoApplyDiscreteVariableUpdate(
+      const EventCollection<DiscreteUpdateEvent<double>>& events,
+      DiscreteValues<double>* discrete_state,
+      Context<double>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
   void DispatchUnrestrictedUpdateHandler(
       const Context<double>&,
       const EventCollection<UnrestrictedUpdateEvent<double>>&,
       State<double>*) const final {
-    DRAKE_ABORT_MSG("test should not get here");
+    ADD_FAILURE() << "Implementation is required, but unused here.";
   }
+
+  void DoApplyUnrestrictedUpdate(
+      const EventCollection<UnrestrictedUpdateEvent<double>>& events,
+      State<double>* state, Context<double>* context) const final {
+    ADD_FAILURE() << "Implementation is required, but unused here.";
+  }
+
   std::map<PeriodicEventData, std::vector<const Event<double>*>,
            PeriodicEventDataComparator>
   DoGetPeriodicEvents() const final { return {}; }
@@ -967,7 +1040,7 @@ class ComputationTest : public ::testing::Test {
 };
 
 TEST_F(ComputationTest, Eval) {
-  context_->set_time(1.);
+  context_->SetTime(1.);
 
   //                 xcdot, pe, ke, pc, pnc
   test_sys_.ExpectCount(0, 0, 0, 0, 0);
@@ -995,7 +1068,7 @@ TEST_F(ComputationTest, Eval) {
 
   // Each of the Calc methods should cause computation.
   auto derivatives = test_sys_.AllocateTimeDerivatives();
-  test_sys_.CalcTimeDerivatives(*context_, &*derivatives);
+  test_sys_.CalcTimeDerivatives(*context_, derivatives.get());
   test_sys_.ExpectCount(2, 1, 1, 1, 1);
   EXPECT_EQ((*derivatives)[1], -2.);
   EXPECT_EQ(test_sys_.CalcPotentialEnergy(*context_), 1.);
@@ -1011,7 +1084,7 @@ TEST_F(ComputationTest, Eval) {
   // about dependencies here. For now we'll just verify that changing
   // some significant variables causes recomputation, not that *only*
   // significant variables cause recomputation.
-  context_->set_time(2.);
+  context_->SetTime(2.);
   EXPECT_EQ(test_sys_.EvalTimeDerivatives(*context_)[0], -2.);
   EXPECT_EQ(test_sys_.EvalTimeDerivatives(*context_)[1], -4.);
   EXPECT_EQ(test_sys_.EvalTimeDerivatives(*context_)[2], -6.);
@@ -1032,6 +1105,15 @@ TEST_F(ComputationTest, Eval) {
   test_sys_.ExpectCount(4, 3, 3, 3, 3);
   EXPECT_EQ(test_sys_.EvalNonConservativePower(*context_), 8.);  // Again.
   test_sys_.ExpectCount(4, 3, 3, 3, 4);
+
+  // Check that the reported time derivatives cache entry is the right one.
+  context_->SetTime(3.);  // Invalidate.
+  const CacheEntry& entry = test_sys_.get_time_derivatives_cache_entry();
+  const int64_t serial_number =
+      entry.get_cache_entry_value(*context_).serial_number();
+  test_sys_.EvalTimeDerivatives(*context_);
+  EXPECT_NE(entry.get_cache_entry_value(*context_).serial_number(),
+            serial_number);
 }
 
 }  // namespace

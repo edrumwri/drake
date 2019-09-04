@@ -3,10 +3,13 @@
 
 load("@drake//tools/skylark:drake_py.bzl", "py_test_isolated")
 
+# N.B. Copied from `DEFAULT_IGNORE` in `pycodestyle.py`.
+PYTHON_LINT_IGNORE_DEFAULT = "E121,E123,E126,E226,E24,E704,W503".split(",")
+
 # Internal helper.
-def _python_lint(name_prefix, files, ignore):
-    if ignore:
-        ignore = ["--ignore=" + ",".join(["E%s" % e for e in ignore])]
+def _python_lint(name_prefix, files, ignore, disallow_executable):
+    ignore_types = PYTHON_LINT_IGNORE_DEFAULT + (ignore or [])
+    ignore_args = ["--ignore={}".format(",".join(ignore_types))]
 
     # Pycodestyle.
     locations = ["$(location %s)" % f for f in files]
@@ -15,19 +18,23 @@ def _python_lint(name_prefix, files, ignore):
         size = "small",
         srcs = ["@pycodestyle//:pycodestyle"],
         data = files,
-        args = (ignore or []) + locations,
+        args = ignore_args + locations,
         main = "@pycodestyle//:pycodestyle.py",
         srcs_version = "PY2AND3",
         tags = ["pycodestyle", "lint"],
     )
 
     # Additional Drake lint.
+    drakelint_args = []
+    if disallow_executable:
+        drakelint_args += ["--disallow_executable"]
+    drakelint_args += locations
     py_test_isolated(
         name = name_prefix + "_drakelint",
         size = "small",
         srcs = ["@drake//tools/lint:drakelint"],
         data = files,
-        args = locations,
+        args = drakelint_args,
         main = "@drake//tools/lint:drakelint.py",
         tags = ["drakelint", "lint"],
     )
@@ -44,8 +51,8 @@ def python_lint(
         existing_rules: The value of native.existing_result().values(), in case
             it has already been computed.  When not supplied, the value will be
             internally (re-)computed.
-        ignore: List of errors (as integers, without the 'E') to ignore
-            (default = []).
+        ignore: List of errors to ingore, in addition to
+            PYTHON_LINT_IGNORE_DEFAULT (as strings, with the 'E' or 'W').
         exclude: List of labels to exclude from linting, e.g., [:foo.py].
         extra_srcs: Source files that are not discoverable via rules.
 
@@ -60,7 +67,6 @@ def python_lint(
 
             python_lint()
     """
-
     if existing_rules == None:
         existing_rules = native.existing_rules().values()
     for rule in existing_rules:
@@ -87,10 +93,12 @@ def python_lint(
                 name_prefix = rule["name"],
                 files = files,
                 ignore = ignore,
+                disallow_executable = True,
             )
     if extra_srcs:
         _python_lint(
             name_prefix = "extra_srcs",
             files = extra_srcs,
             ignore = ignore,
+            disallow_executable = False,
         )

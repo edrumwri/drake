@@ -13,7 +13,6 @@ libhdf5-10
 libjpeg8
 libjsoncpp1
 liblapack3
-libnetcdf-c++4
 libnetcdf11
 libnlopt0
 libogg0
@@ -38,6 +37,7 @@ python-scipy
 python-six
 python-tk
 python-tornado
+python-virtualenv
 python-yaml
 python-zmq
 qtbase5-dev

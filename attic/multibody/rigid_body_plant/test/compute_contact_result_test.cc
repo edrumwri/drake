@@ -61,7 +61,7 @@ class ContactResultTest : public ContactResultTestCommon<double> {
 
     const int port_index = plant_->contact_results_output_port().get_index();
     contact_results_ =
-        output_->get_data(port_index)->GetValue<ContactResults<double>>();
+        output_->get_data(port_index)->get_value<ContactResults<double>>();
     return contact_results_;
   }
 
@@ -115,7 +115,7 @@ TEST_F(ContactResultTest, SingleCollision) {
 
   // Confirms the contact details are as expected.
   const auto& resultant = info.get_resultant_force();
-  SpatialForce<double> expected_spatial_force;
+  Vector6<double> expected_spatial_force;
   // Note: This is fragile. It assumes a particular collision model.  Once the
   // model has been generalized, this will have to adapt to account for that.
 

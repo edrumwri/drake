@@ -8,18 +8,14 @@
 namespace drake {
 namespace solvers {
 
-SolverId MosekSolver::solver_id() const {
-  return id();
-}
+MosekSolver::MosekSolver()
+    : SolverBase(&id, &is_available, &ProgramAttributesSatisfied) {}
+
+MosekSolver::~MosekSolver() = default;
 
 SolverId MosekSolver::id() {
   static const never_destroyed<SolverId> singleton{"Mosek"};
   return singleton.access();
-}
-
-bool MosekSolver::AreProgramAttributesSatisfied(
-    const MathematicalProgram& prog) const {
-  return MosekSolver::ProgramAttributesSatisfied(prog);
 }
 
 bool MosekSolver::ProgramAttributesSatisfied(const MathematicalProgram& prog) {
@@ -30,6 +26,7 @@ bool MosekSolver::ProgramAttributesSatisfied(const MathematicalProgram& prog) {
           ProgramAttribute::kLorentzConeConstraint,
           ProgramAttribute::kRotatedLorentzConeConstraint,
           ProgramAttribute::kPositiveSemidefiniteConstraint,
+          ProgramAttribute::kExponentialConeConstraint,
           ProgramAttribute::kLinearCost, ProgramAttribute::kQuadraticCost,
           ProgramAttribute::kBinaryVariable});
   return AreRequiredAttributesSupported(prog.required_capabilities(),

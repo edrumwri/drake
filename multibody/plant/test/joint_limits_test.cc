@@ -18,7 +18,6 @@ namespace drake {
 using systems::Context;
 using systems::Simulator;
 using multibody::Parser;
-using multibody::UniformGravityFieldElement;
 
 namespace multibody {
 namespace {
@@ -69,13 +68,16 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
 
   for (double time_step : {2.5e-4, 5.0e-4, 1.0e-3}) {
     MultibodyPlant<double> plant(time_step);
+    plant.mutable_gravity_field().set_gravity_vector(
+        Vector3<double>::Zero());
     const auto M_B = SpatialInertia<double>::MakeFromCentralInertia(
         mass, Vector3<double>::Zero(),
         mass * UnitInertia<double>::SolidBox(box_size, box_size, box_size));
     const RigidBody<double>& body = plant.AddRigidBody("Body", M_B);
     const PrismaticJoint<double>& slider = plant.AddJoint<PrismaticJoint>(
-        "Slider", plant.world_body(), {}, body, {}, Vector3<double>::UnitZ(),
-        0.0 /* lower limit */, 0.1 /* upper limit */, 0.0 /* damping */);
+        "Slider", plant.world_body(), nullopt, body, nullopt,
+        Vector3<double>::UnitZ(), 0.0 /* lower limit */, 0.1 /* upper limit */,
+        0.0 /* damping */);
     plant.AddJointActuator("ForceAlongZ", slider);
     plant.Finalize();
 
@@ -85,9 +87,11 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
 
     Simulator<double> simulator(plant);
     Context<double>& context = simulator.get_mutable_context();
-    context.FixInputPort(0, Vector1<double>::Constant(-10.0));
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(-10.0));
     simulator.Initialize();
-    simulator.StepTo(simulation_time);
+    simulator.AdvanceTo(simulation_time);
 
     // We expect a second order convergence with the time step. That is, we
     // expect the error to be lower than:
@@ -101,9 +105,11 @@ GTEST_TEST(JointLimitsTest, PrismaticJointConvergenceTest) {
     EXPECT_NEAR(slider.get_translation_rate(context), 0.0, kVelocityTolerance);
 
     // Set the force to be positive and re-start the simulation.
-    context.FixInputPort(0, Vector1<double>::Constant(10.0));
-    context.set_time(0.0);
-    simulator.StepTo(simulation_time);
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(10.0));
+    context.SetTime(0.0);
+    simulator.AdvanceTo(simulation_time);
 
     // Verify we are at rest near the upper limit.
     EXPECT_NEAR(slider.get_translation(context), slider.position_upper_limit(),
@@ -145,9 +151,9 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
             rod_radius, rod_length, Vector3<double>::UnitX()));
     const RigidBody<double>& body = plant.AddRigidBody("Body", M_B);
     const RevoluteJoint<double>& pin = plant.AddJoint<RevoluteJoint>(
-        "Pin", plant.world_body(), {}, body, {}, Vector3<double>::UnitZ(),
-        -M_PI / 5.0 /* lower limit */, M_PI / 3.0 /* upper limit */,
-        0.0 /* damping */);
+        "Pin", plant.world_body(), nullopt, body, nullopt,
+        Vector3<double>::UnitZ(), -M_PI / 5.0 /* lower limit */,
+        M_PI / 3.0 /* upper limit */, 0.0 /* damping */);
     plant.AddJointActuator("TorqueAboutZ", pin);
     plant.Finalize();
 
@@ -157,9 +163,11 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
 
     Simulator<double> simulator(plant);
     Context<double>& context = simulator.get_mutable_context();
-    context.FixInputPort(0, Vector1<double>::Constant(1.5));
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(1.5));
     simulator.Initialize();
-    simulator.StepTo(simulation_time);
+    simulator.AdvanceTo(simulation_time);
 
     // We expect a second order convergence with the time step. That is, we
     // expect the error to be lower than:
@@ -173,9 +181,11 @@ GTEST_TEST(JointLimitsTest, RevoluteJoint) {
     EXPECT_NEAR(pin.get_angular_rate(context), 0.0, kVelocityTolerance);
 
     // Set the torque to be negative and re-start the simulation.
-    context.FixInputPort(0, Vector1<double>::Constant(-1.5));
-    context.set_time(0.0);
-    simulator.StepTo(simulation_time);
+    context.FixInputPort(
+      plant.get_actuation_input_port().get_index(),
+      Vector1<double>::Constant(-1.5));
+    context.SetTime(0.0);
+    simulator.AdvanceTo(simulation_time);
 
     // Verify we are at rest near the lower limit.
     EXPECT_NEAR(pin.get_angle(context), pin.position_lower_limit(),
@@ -221,6 +231,8 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   Parser(&plant).AddModelFromFile(FindResourceOrThrow(kIiwaFilePath));
   plant.WeldFrames(plant.world_frame(),
                    plant.GetFrameByName("iiwa_link_0"));
+  plant.mutable_gravity_field().set_gravity_vector(
+      Vector3<double>::Zero());
   plant.Finalize();
 
   // Some sanity check on model sizes.
@@ -254,9 +266,11 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   Context<double>& context = simulator.get_mutable_context();
 
   // Drive all the joints to their upper limit by applying a positive torque.
-  context.FixInputPort(0, VectorX<double>::Constant(nq, 0.4));
+  context.FixInputPort(
+    plant.get_actuation_input_port().get_index(),
+    VectorX<double>::Constant(nq, 0.4));
   simulator.Initialize();
-  simulator.StepTo(simulation_time);
+  simulator.AdvanceTo(simulation_time);
 
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
@@ -269,10 +283,12 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   }
 
   // Drive all the joints to their lower limit by applying a negative torque.
-  context.FixInputPort(0, VectorX<double>::Constant(nq, -0.4));
+  context.FixInputPort(
+    plant.get_actuation_input_port().get_index(),
+    VectorX<double>::Constant(nq, -0.4));
   plant.SetDefaultContext(&context);
-  context.set_time(0.0);
-  simulator.StepTo(simulation_time);
+  context.SetTime(0.0);
+  simulator.AdvanceTo(simulation_time);
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
     const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);

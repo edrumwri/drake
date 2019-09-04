@@ -8,10 +8,19 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
-#include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/symbolic_types_pybind.h"
+
+#pragma GCC diagnostic push
+// Apple LLVM version 10.0.1 (clang-1001.0.46.3) adds `-Wself-assign-overloaded`
+// to `-Wall`, which generates warnings on Pybind11's operator-overloading idiom
+// that is using py::self (example: `def(py::self + py::self)`).
+// Here, we suppress the warning using `#pragma diagnostic`.
+#if (__APPLE__) && (__clang__) && (__clang_major__ >= 10) && \
+    (__clang_minor__ >= 0) && (__clang_patchlevel__ >= 1)
+#pragma GCC diagnostic ignored "-Wself-assign-overloaded"
+#endif
 
 namespace drake {
 namespace pydrake {
@@ -195,7 +204,7 @@ PYBIND11_MODULE(symbolic, m) {
   });
 
   // TODO(m-chaturvedi) Add Pybind11 documentation for operator overloads, etc.
-  py::class_<Expression> expr_cls(m, "Expression");
+  py::class_<Expression> expr_cls(m, "Expression", doc.Expression.doc);
   expr_cls.def(py::init<>(), doc.Expression.ctor.doc_0args)
       .def(py::init<double>(), doc.Expression.ctor.doc_1args_d)
       .def(py::init<const Variable&>(), doc.Expression.ctor.doc_1args_var)
@@ -225,6 +234,8 @@ PYBIND11_MODULE(symbolic, m) {
             return self.EvaluatePartial(Environment{env});
           },
           doc.Expression.EvaluatePartial.doc)
+      .def("GetVariables", &Expression::GetVariables,
+          doc.Expression.GetVariables.doc)
       .def("Substitute",
           [](const Expression& self, const Variable& var, const Expression& e) {
             return self.Substitute(var, e);
@@ -313,7 +324,7 @@ PYBIND11_MODULE(symbolic, m) {
       .def("Differentiate", &Expression::Differentiate,
           doc.Expression.Differentiate.doc)
       .def("Jacobian", &Expression::Jacobian, doc.Expression.Jacobian.doc)
-      // TODO(eric.cousineau): Figure out how to consolidate with the below
+      // TODO(eric.cousineau): Figure out how to consolidate with the `math`
       // methods.
       .def("log", &symbolic::log, doc.log.doc)
       .def("__abs__", &symbolic::abs)
@@ -335,30 +346,10 @@ PYBIND11_MODULE(symbolic, m) {
       .def("floor", &symbolic::floor, doc.floor.doc);
   DefCopyAndDeepCopy(&expr_cls);
 
-  // TODO(eric.cousineau): Consider deprecating these methods?
-  // TODO(m-chaturvedi) Add Pybind11 documentation.
-  auto math = py::module::import("pydrake.math");
-  MirrorDef<py::module, py::module>(&math, &m)
-      .def("log", &symbolic::log)
-      .def("abs", &symbolic::abs)
-      .def("exp", &symbolic::exp)
-      .def("sqrt", &symbolic::sqrt)
-      .def("pow", py::overload_cast<const Expression&, const Expression&>(
-                      &symbolic::pow))
-      .def("sin", &symbolic::sin)
-      .def("cos", &symbolic::cos)
-      .def("tan", &symbolic::tan)
-      .def("asin", &symbolic::asin)
-      .def("acos", &symbolic::acos)
-      .def("atan", &symbolic::atan)
-      .def("atan2", &symbolic::atan2)
-      .def("sinh", &symbolic::sinh)
-      .def("cosh", &symbolic::cosh)
-      .def("tanh", &symbolic::tanh)
-      .def("min", &symbolic::min)
-      .def("max", &symbolic::max)
-      .def("ceil", &symbolic::ceil)
-      .def("floor", &symbolic::floor);
+  // TODO(eric.cousineau): These should actually exist on the class, and should
+  // be should be consolidated with the above repeated definitions. This would
+  // yield the same parity with AutoDiff.
+  pydrake::internal::BindSymbolicMathOverloads(&m);
 
   m.def("if_then_else", &symbolic::if_then_else);
 
@@ -368,6 +359,25 @@ PYBIND11_MODULE(symbolic, m) {
         return Jacobian(f, vars);
       },
       doc.Expression.Jacobian.doc);
+
+  m.def("Evaluate",
+      [](const MatrixX<Expression>& M, const Environment::map& env,
+          RandomGenerator* random_generator) {
+        return Evaluate(M, Environment{env}, random_generator);
+      },
+      py::arg("m"), py::arg("env") = Environment::map{},
+      py::arg("generator") = nullptr, doc.Evaluate.doc);
+
+  m.def("Substitute",
+      [](const MatrixX<Expression>& M, const Substitution& subst) {
+        return Substitute(M, subst);
+      },
+      py::arg("m"), py::arg("subst"), doc.Substitute.doc_2args);
+
+  m.def("Substitute",
+      [](const MatrixX<Expression>& M, const Variable& var,
+          const Expression& e) { return Substitute(M, var, e); },
+      py::arg("m"), py::arg("var"), py::arg("e"), doc.Substitute.doc_3args);
 
   py::class_<Formula> formula_cls(m, "Formula", doc.Formula.doc);
   formula_cls
@@ -441,7 +451,7 @@ PYBIND11_MODULE(symbolic, m) {
       .def("logical_not", [](const Formula& a) { return !a; });
 
   // TODO(m-chaturvedi) Add Pybind11 documentation for operator overloads, etc.
-  py::class_<Monomial>(m, "Monomial")
+  py::class_<Monomial>(m, "Monomial", doc.Monomial.doc)
       .def(py::init<const Variable&>(), doc.Monomial.ctor.doc_1args_var)
       .def(py::init<const Variable&, int>(),
           doc.Monomial.ctor.doc_2args_var_exponent)
@@ -523,6 +533,10 @@ PYBIND11_MODULE(symbolic, m) {
       .def("Differentiate", &Polynomial::Differentiate,
           doc.Polynomial.Differentiate.doc)
       .def("AddProduct", &Polynomial::AddProduct, doc.Polynomial.AddProduct.doc)
+      .def("RemoveTermsWithSmallCoefficients",
+          &Polynomial::RemoveTermsWithSmallCoefficients,
+          py::arg("coefficient_tol"),
+          doc.Polynomial.RemoveTermsWithSmallCoefficients.doc)
       .def(py::self + py::self)
       .def(py::self + Monomial())
       .def(Monomial() + py::self)
@@ -557,6 +571,18 @@ PYBIND11_MODULE(symbolic, m) {
             return self.Evaluate(Environment{env});
           },
           doc.Polynomial.Evaluate.doc)
+      // TODO(Eric.Cousineau): add python binding for symbolic::Environment.
+      .def("EvaluatePartial",
+          [](const Polynomial& self, const Environment::map& env) {
+            return self.EvaluatePartial(Environment{env});
+          },
+          py::arg("env"), doc.Polynomial.EvaluatePartial.doc_1args)
+      .def("EvaluatePartial",
+          [](const Polynomial& self, const Variable& var, double c) {
+            return self.EvaluatePartial(var, c);
+          },
+          py::arg("var"), py::arg("c"),
+          doc.Polynomial.EvaluatePartial.doc_2args)
       .def("Jacobian",
           [](const Polynomial& p,
               const Eigen::Ref<const VectorX<Variable>>& vars) {
@@ -575,7 +601,10 @@ PYBIND11_MODULE(symbolic, m) {
       drake::symbolic::Polynomial>();
 
   ExecuteExtraPythonCode(m);
+  // NOLINTNEXTLINE(readability/fn_size)
 }
 
 }  // namespace pydrake
 }  // namespace drake
+
+#pragma GCC diagnostic pop

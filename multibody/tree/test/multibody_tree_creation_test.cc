@@ -1,5 +1,5 @@
 /* clang-format off to disable clang-format-includes */
-#include "drake/multibody/tree/multibody_tree.h"
+#include "drake/multibody/tree/multibody_tree-inl.h"
 /* clang-format on */
 
 #include <algorithm>
@@ -14,7 +14,6 @@
 #include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/revolute_mobilizer.h"
 #include "drake/multibody/tree/rigid_body.h"
-#include "drake/multibody/tree/uniform_gravity_field_element.h"
 #include "drake/multibody/tree/weld_joint.h"
 
 namespace drake {
@@ -242,9 +241,6 @@ class TreeTopologyTests : public ::testing::Test {
     ConnectBodies(*bodies_[0], *bodies_[5]);  // mob. 4
     ConnectBodies(*bodies_[4], *bodies_[1]);  // mob. 5
     ConnectBodies(*bodies_[0], *bodies_[4], true);  // mob. 6
-
-    // Adds a force element for a uniform gravity field.
-    model_->AddForceElement<UniformGravityFieldElement>();
   }
 
   const RigidBody<double>* AddTestBody() {
@@ -266,9 +262,10 @@ class TreeTopologyTests : public ::testing::Test {
       // We DO want the model to have a frame M on body "outbaord" (frame B)
       // with a pose X_BM = Identity. We therefore pass the identity transform.
       const auto* joint = &model_->AddJoint<RevoluteJoint>(
-          "FooJoint",
-          inboard, {}, /* Model does not create frame F, and makes F = P.  */
-          outboard, Eigen::Isometry3d::Identity(), /* Model creates frame M. */
+          "FooJoint", inboard,
+          {}, /* Model does not create frame F, and makes F = P.  */
+          outboard,
+          math::RigidTransformd::Identity(), /* Model creates frame M. */
           Vector3d::UnitZ());
       joints_.push_back(joint);
     } else {
@@ -520,6 +517,29 @@ TEST_F(TreeTopologyTests, ToAutoDiffXd) {
   VerifyTopology(autodiff_topology);
 }
 
+// Verifies that the symbolic version of a given MultibodyTree model created
+// with MultibodyTree::ToSymbolic() has exactly the same topology as the
+// original model.
+TEST_F(TreeTopologyTests, ToSymbolic) {
+  model_->Finalize();
+  EXPECT_EQ(model_->num_bodies(), 8);
+  EXPECT_EQ(model_->num_mobilizers(), 7);
+  const MultibodyTreeTopology& topology = model_->get_topology();
+
+  auto symbolic_model = model_->CloneToScalar<symbolic::Expression>();
+  EXPECT_EQ(symbolic_model->num_bodies(), 8);
+  const MultibodyTreeTopology& symbolic_topology =
+      symbolic_model->get_topology();
+
+  // The topology of the clone must be exactly equal to the topology of the
+  // original MultibodyTree.
+  EXPECT_EQ(topology, symbolic_topology);
+
+  // Even though the test above confirms the two topologies are exactly equal,
+  // we perform a number of additional tests.
+  VerifyTopology(symbolic_topology);
+}
+
 // Verifies the correctness of the method
 // MultibodyTreeTopology::GetKinematicPathToWorld() by computing the path from a
 // given body to the world (root) of the tree on a known topology.
@@ -625,12 +645,12 @@ GTEST_TEST(WeldedBodies, CreateListOfWeldedBodies) {
   };
 
   // Helper method to add a WeldJoint between two bodies.
-  auto AddWeldJoint =
-      [&model](const std::string& name,
-               const Body<double>& parent, const Body<double>& child) {
-        model.AddJoint<WeldJoint>(
-            name, parent, {}, child, {}, Eigen::Isometry3d::Identity());
-      };
+  auto AddWeldJoint = [&model](const std::string& name,
+                               const Body<double>& parent,
+                               const Body<double>& child) {
+    model.AddJoint<WeldJoint>(name, parent, nullopt, child, nullopt,
+                              math::RigidTransformd::Identity());
+  };
 
   // Start building the test model.
   const RigidBody<double>& body_a = AddRigidBody("a");

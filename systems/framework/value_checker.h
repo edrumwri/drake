@@ -6,12 +6,12 @@
 
 #include "drake/common/drake_throw.h"
 #include "drake/common/nice_type_name.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
-namespace detail {
+namespace internal {
 
 /// Checks some BasicVector invariants on @p basic_vector.
 ///
@@ -67,6 +67,6 @@ void CheckVectorValueInvariants(const AbstractValue* abstract_value) {
   }
 }
 
-}  // namespace detail
+}  // namespace internal
 }  // namespace systems
 }  // namespace drake

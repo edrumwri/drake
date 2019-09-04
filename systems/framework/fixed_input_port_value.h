@@ -10,9 +10,9 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_deprecated.h"
 #include "drake/common/reset_on_copy.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/basic_vector.h"
 #include "drake/systems/framework/framework_common.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
@@ -20,10 +20,10 @@ namespace systems {
 class ContextBase;
 
 #ifndef DRAKE_DOXYGEN_CXX
-namespace detail {
+namespace internal {
 // This provides ContextBase limited "friend" access to FixedInputPortValue.
 class ContextBaseFixedInputAttorney;
-}  // namespace detail
+}  // namespace internal
 #endif
 
 /** A %FixedInputPortValue encapsulates a vector or abstract value for
@@ -56,7 +56,7 @@ class FixedInputPortValue {
   exception if this doesn't contain an object of that type. */
   template <typename T>
   const BasicVector<T>& get_vector_value() const {
-    return get_value().GetValueOrThrow<BasicVector<T>>();
+    return get_value().get_value<BasicVector<T>>();
   }
 
   /** Returns a pointer to the data inside this %FixedInputPortValue, and
@@ -85,7 +85,7 @@ class FixedInputPortValue {
             Eigen scalar. */
   template <typename T>
   BasicVector<T>* GetMutableVectorData() {
-    return &GetMutableData()->GetMutableValueOrThrow<BasicVector<T>>();
+    return &GetMutableData()->get_mutable_value<BasicVector<T>>();
   }
 
   /** Returns the serial number of the contained value. This counts up every
@@ -105,7 +105,7 @@ class FixedInputPortValue {
   }
 
  private:
-  friend class detail::ContextBaseFixedInputAttorney;
+  friend class internal::ContextBaseFixedInputAttorney;
 
   // Allow this adapter access to our private copy constructor. This is intended
   // only for use by ContextBase.
@@ -157,7 +157,7 @@ class FixedInputPortValue {
 };
 
 #ifndef DRAKE_DOXYGEN_CXX
-namespace detail {
+namespace internal {
 
 class ContextBaseFixedInputAttorney {
  public:
@@ -191,7 +191,7 @@ class ContextBaseFixedInputAttorney {
   }
 };
 
-}  // namespace detail
+}  // namespace internal
 #endif
 
 }  // namespace systems

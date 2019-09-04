@@ -22,15 +22,17 @@ void ContactResultsToLcmSystem<T>::CalcLcmContactOutput(
     const Context<T>& context, lcmt_contact_results_for_viz* output) const {
   // Get input / output.
   const auto& contact_results =
-      EvalAbstractInput(context, 0)->template GetValue<ContactResults<T>>();
+      get_input_port(0).template Eval<ContactResults<T>>(context);
   auto& msg = *output;
 
   msg.timestamp = static_cast<int64_t>(context.get_time() * 1e6);
-  msg.num_contacts = contact_results.get_num_contacts();
-  msg.contact_info.resize(msg.num_contacts);
+  msg.num_point_pair_contacts =
+      contact_results.get_num_contacts();
+  msg.point_pair_contact_info.resize(msg.num_point_pair_contacts);
 
   for (int i = 0; i < contact_results.get_num_contacts(); ++i) {
-    lcmt_contact_info_for_viz& info_msg = msg.contact_info[i];
+    lcmt_point_pair_contact_info_for_viz& info_msg =
+        msg.point_pair_contact_info[i];
     info_msg.timestamp = static_cast<int64_t>(context.get_time() * 1e6);
 
     const ContactInfo<T>& contact_info = contact_results.get_contact_info(i);

@@ -22,7 +22,7 @@ void SetInput(double time, const std::string& name, double val,
   msg.val.resize(kDim, val);
   msg.coord.resize(kDim, name);
   msg.timestamp = time * 1e6;
-  context->set_time(time);
+  context->SetTime(time);
   context->FixInputPort(0, AbstractValue::Make<lcmt_drake_signal>(msg));
 }
 
@@ -50,18 +50,18 @@ class DummySys : public LeafSystem<double> {
 
  private:
   EventStatus SaveMessage(const Context<double>& context) const {
-    const lcmt_drake_signal* msg =
-        EvalInputValue<lcmt_drake_signal>(context, 0);
+    const lcmt_drake_signal& msg =
+        this->get_input_port(0).Eval<lcmt_drake_signal>(context);
 
     bool is_new_msg = false;
-    if (received_msgs_.empty() && msg->timestamp != 0) is_new_msg = true;
+    if (received_msgs_.empty() && msg.timestamp != 0) is_new_msg = true;
     if (!received_msgs_.empty() &&
-        (msg->timestamp != received_msgs_.back().timestamp)) {
+        (msg.timestamp != received_msgs_.back().timestamp)) {
       is_new_msg = true;
     }
 
     if (is_new_msg) {
-      received_msgs_.push_back(*msg);
+      received_msgs_.push_back(msg);
 
       // The diagram that this system is embedded in works the following way:
       // The LCM Subscriber system receives a message and then requests an
@@ -163,7 +163,7 @@ void CheckLog() {
   auto diagram = builder.Build();
 
   Simulator<double> sim(*diagram);
-  sim.StepTo(0.5);
+  sim.AdvanceTo(0.5);
 
   // printer0 should have msg at t = [0.1, 0.3], with val = [1, 5].
   CheckLog({0.1, 0.3}, {1, 5}, "Ch0", printer0->get_received_msgs(),

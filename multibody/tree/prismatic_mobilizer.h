@@ -6,11 +6,9 @@
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/mobilizer_impl.h"
-#include "drake/multibody/tree/multibody_tree_context.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
 
@@ -37,6 +35,7 @@ namespace internal {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -68,8 +67,6 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
 
   /// Gets the translational distance for `this` mobilizer from `context`. See
   /// class documentation for sign convention details.
-  /// @throws std::logic_error if `context` is not a valid
-  /// MultibodyTreeContext.
   /// @param[in] context The context of the MultibodyTree this mobilizer
   ///                    belongs to.
   /// @returns The translation coordinate of `this` mobilizer in the `context`.
@@ -77,7 +74,6 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
 
   /// Sets `context` so that the generalized coordinate corresponding to the
   /// translation for `this` mobilizer equals `translation`.
-  /// @throws std::logic_error if `context` is not a valid MultibodyTreeContext.
   /// @param[in] context The context of the MultibodyTree this mobilizer
   ///                    belongs to.
   /// @param[in] translation The desired translation in meters.
@@ -111,8 +107,8 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
   /// along this mobilizer's axis (see translation_axis().)
   /// The generalized coordinate q for `this` mobilizer (the translation
   /// distance) is read from in `context`.
-  Isometry3<T> CalcAcrossMobilizerTransform(
-      const MultibodyTreeContext<T>& context) const final;
+  math::RigidTransform<T> CalcAcrossMobilizerTransform(
+      const systems::Context<T>& context) const final;
 
   /// Computes the across-mobilizer velocity `V_FM(q, v)` of the outboard frame
   /// M measured and expressed in frame F as a function of the translation taken
@@ -122,7 +118,7 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
   /// distance) is read from in `context`.
   /// This method aborts in Debug builds if `v.size()` is not one.
   SpatialVelocity<T> CalcAcrossMobilizerSpatialVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v) const final;
 
   /// Computes the across-mobilizer acceleration `A_FM(q, v, v̇)` of the
@@ -134,7 +130,7 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
   /// See class documentation for the translation sign convention.
   /// This method aborts in Debug builds if `vdot.size()` is not one.
   SpatialAcceleration<T> CalcAcrossMobilizerSpatialAcceleration(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& vdot) const final;
 
   /// Projects the spatial force `F_Mo_F` on `this` mobilizer's outboard
@@ -146,30 +142,30 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
   /// force along the axis of `this` mobilizer.
   /// This method aborts in Debug builds if `tau.size()` is not one.
   void ProjectSpatialForce(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const SpatialForce<T>& F_Mo_F,
       Eigen::Ref<VectorX<T>> tau) const final;
 
   /// Computes the kinematic mapping from generalized velocities v to time
   /// derivatives of the generalized positions `q̇`. For this mobilizer `q̇ = v`.
   void MapVelocityToQDot(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v,
       EigenPtr<VectorX<T>> qdot) const final;
 
   /// Computes the kinematic mapping from time derivatives of the generalized
   /// positions `q̇` to generalized velocities v. For this mobilizer `v = q̇`.
   void MapQDotToVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& qdot,
       EigenPtr<VectorX<T>> v) const final;
 
  protected:
-  void DoCalcNMatrix(const MultibodyTreeContext<T>& context,
+  void DoCalcNMatrix(const systems::Context<T>& context,
                      EigenPtr<MatrixX<T>> N) const final;
 
   void DoCalcNplusMatrix(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       EigenPtr<MatrixX<T>> Nplus) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
@@ -177,6 +173,9 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
 
   std::unique_ptr<Mobilizer<AutoDiffXd>> DoCloneToScalar(
       const MultibodyTree<AutoDiffXd>& tree_clone) const final;
+
+  std::unique_ptr<Mobilizer<symbolic::Expression>> DoCloneToScalar(
+      const MultibodyTree<symbolic::Expression>& tree_clone) const final;
 
  private:
   typedef MobilizerImpl<T, 1, 1> MobilizerBase;
@@ -199,16 +198,8 @@ class PrismaticMobilizer final : public MobilizerImpl<T, 1, 1> {
 };
 
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using PrismaticMobilizer
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::PrismaticMobilizer<T>;
-
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class ::drake::multibody::internal::PrismaticMobilizer)

@@ -93,7 +93,8 @@ class CubicPolynomialSystem final : public LeafSystem<T> {
         time_step_(time_step) {
     this->DeclareInputPort(systems::kVectorValued, 1);
     this->DeclareVectorOutputPort(BasicVector<T>(2),
-                                  &CubicPolynomialSystem::OutputState);
+                                  &CubicPolynomialSystem::OutputState,
+                                  {this->all_state_ticket()});
     this->DeclareDiscreteState(2);
     this->DeclarePeriodicDiscreteUpdate(time_step);
   }
@@ -113,7 +114,7 @@ class CubicPolynomialSystem final : public LeafSystem<T> {
       DiscreteValues<T>* next_state) const final {
     using std::pow;
     const T& x1 = context.get_discrete_state(0).get_value()[0];
-    const T& u = this->EvalVectorInput(context, 0)->get_value()[0];
+    const T& u = this->get_input_port(0).Eval(context)[0];
     next_state->get_mutable_vector(0).SetAtIndex(0, u);
     next_state->get_mutable_vector(0).SetAtIndex(1, pow(x1, 3.));
   }
@@ -121,13 +122,6 @@ class CubicPolynomialSystem final : public LeafSystem<T> {
   void OutputState(const systems::Context<T>& context,
                    BasicVector<T>* output) const {
     output->set_value(context.get_discrete_state(0).get_value());
-  }
-
-  // TODO(jadecastro) We know a discrete system of this format does not have
-  // direct feedthrough, even though sparsity reports the opposite.  This is a
-  // hack to patch in the correct result.
-  optional<bool> DoHasDirectFeedthrough(int, int) const override {
-    return false;
   }
 
   const double time_step_{0.};
@@ -206,7 +200,7 @@ class TestMpcWithCubicSystem : public ::testing::Test {
 
     simulator_->set_target_realtime_rate(1.);
     simulator_->Initialize();
-    simulator_->StepTo(time_horizon_);
+    simulator_->AdvanceTo(time_horizon_);
   }
 
   const double time_step_ = 0.1;

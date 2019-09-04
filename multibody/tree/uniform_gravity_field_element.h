@@ -20,6 +20,7 @@ namespace multibody {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -42,9 +43,15 @@ class UniformGravityFieldElement : public ForceElement<T> {
   /// acceleration of gravity vector `g_W`, expressed in the world frame W.
   explicit UniformGravityFieldElement(Vector3<double> g_W);
 
-  /// Returns the acceleration of gravity vector, expressed in the world frame
-  /// W.
+  /// Returns the acceleration of the gravity vector in m/s², expressed in the
+  /// world frame W.
   const Vector3<double>& gravity_vector() const { return g_W_; }
+
+  /// Sets the acceleration of gravity vector, expressed in the world frame
+  /// W in m/s².
+  void set_gravity_vector(const Vector3<double>& g_W) {
+    g_W_ = g_W;
+  }
 
   /// Computes the generalized forces `tau_g(q)` due to `this` gravity field
   /// element as a function of the generalized positions `q` stored in the input
@@ -79,22 +86,22 @@ class UniformGravityFieldElement : public ForceElement<T> {
   /// will have zero potential energy when its the height of its center of mass
   /// is at the world's origin.
   T CalcPotentialEnergy(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc) const final;
 
   T CalcConservativePower(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc) const final;
 
   T CalcNonConservativePower(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc) const final;
 
  protected:
   void DoCalcAndAddForceContribution(
-      const internal::MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const internal::PositionKinematicsCache<T>& pc,
       const internal::VelocityKinematicsCache<T>& vc,
       MultibodyForces<T>* forces) const final;
@@ -105,6 +112,9 @@ class UniformGravityFieldElement : public ForceElement<T> {
   std::unique_ptr<ForceElement<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
 
+  std::unique_ptr<ForceElement<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const override;
+
  private:
   Vector3<double> g_W_;
 };
@@ -112,5 +122,5 @@ class UniformGravityFieldElement : public ForceElement<T> {
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class ::drake::multibody::UniformGravityFieldElement)

@@ -3,19 +3,10 @@
 #include <vector>
 
 using drake::multibody::MultibodyPlant;
-using drake::multibody::PositionKinematicsCache;
-using drake::multibody::VelocityKinematicsCache;
 
 namespace drake {
 namespace systems {
 namespace controllers {
-
-template <typename T>
-InverseDynamics<T>::InverseDynamics(const MultibodyPlant<T>* plant,
-                                    bool pure_gravity_compensation)
-    : InverseDynamics(plant, pure_gravity_compensation ?
-                      InverseDynamicsMode::kGravityCompensation :
-                      InverseDynamicsMode::kInverseDynamics) {}
 
 template <typename T>
 InverseDynamics<T>::InverseDynamics(const MultibodyPlant<T>* plant,
@@ -52,7 +43,7 @@ template <typename T>
 void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
                                           BasicVector<T>* output) const {
   // State input.
-  VectorX<T> x = this->EvalEigenVectorInput(context, input_port_index_state_);
+  VectorX<T> x = get_input_port_estimated_state().Eval(context);
 
   // Desired acceleration input.
   VectorX<T> desired_vd = VectorX<T>::Zero(v_dim_);
@@ -60,8 +51,7 @@ void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
   if (!this->is_pure_gravity_compensation()) {
     // Only eval acceleration input port when we are not in pure gravity
     // compensation mode.
-    desired_vd = this->EvalEigenVectorInput(
-        context, input_port_index_desired_acceleration_);
+    desired_vd = get_input_port_desired_acceleration().Eval(context);
   } else {
     // Sets velocity to zero in pure gravity compensation.
     x.tail(v_dim_).setZero();
@@ -69,7 +59,7 @@ void InverseDynamics<T>::CalcOutputForce(const Context<T>& context,
 
   auto& plant = *multibody_plant_;
   // Set the position and velocity in the context.
-  plant.GetMutablePositionsAndVelocities(multibody_plant_context_.get()) = x;
+  plant.SetPositionsAndVelocities(multibody_plant_context_.get(), x);
 
   if (this->is_pure_gravity_compensation()) {
     output->get_mutable_value() =

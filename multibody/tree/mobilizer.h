@@ -12,7 +12,6 @@
 #include "drake/multibody/math/spatial_force.h"
 #include "drake/multibody/math/spatial_velocity.h"
 #include "drake/multibody/tree/frame.h"
-#include "drake/multibody/tree/multibody_tree_context.h"
 #include "drake/multibody/tree/multibody_tree_element.h"
 #include "drake/multibody/tree/multibody_tree_indexes.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
@@ -172,7 +171,7 @@ template<typename T> class BodyNode;
 /// </pre>
 ///
 /// Similarly, for the rotational component: <pre>
-///  dR_FM/dt = Xdot_FM.linear() = [w_FM] * R_FM = [Hw_FM * v] * R_FM
+///  dR_FM/dt = Xdot_FM.rotation() = [w_FM] * R_FM = [Hw_FM * v] * R_FM
 /// </pre>
 /// where `[w_FM]` is the cross product matrix of the across-mobilizer angular
 /// velocity `w_FM`, `R_FM` is the orientation of M in F, and `Hw_FM`
@@ -306,6 +305,12 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
     return outboard_frame().body();
   }
 
+  /// Returns `true` if `this` mobilizer grants 6-dofs to the outboard frame.
+  virtual bool is_floating() const { return false; }
+
+  /// Returns `true` if `this` uses a quaternion parametrization of rotations.
+  virtual bool has_quaternion_dofs() const { return false; }
+
   /// Returns the topology information for this mobilizer. Users should not
   /// need to call this method since MobilizerTopology is an internal
   /// bookkeeping detail.
@@ -342,12 +347,6 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   virtual void set_zero_state(const systems::Context<T>& context,
                               systems::State<T>* state) const = 0;
 
-  DRAKE_DEPRECATED("Call set_zero_state() directly instead.  This method will "
-                   "be deleted after 3/1/19.")
-  void set_zero_configuration(systems::Context<T>* context) const {
-    set_zero_state(*context, &context->get_mutable_state());
-  }
-
   /// Sets the `state` to the _default_ state (position and velocity) for
   /// `this` mobilizer.  For example, the zero state for our standard IIWA
   /// model has the arm pointing directly up; this is the correct definition of
@@ -383,8 +382,8 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   ///
   /// Additionally, `context` can provide any other parameters the mobilizer
   /// could depend on.
-  virtual Isometry3<T> CalcAcrossMobilizerTransform(
-      const MultibodyTreeContext<T>& context) const = 0;
+  virtual math::RigidTransform<T> CalcAcrossMobilizerTransform(
+      const systems::Context<T>& context) const = 0;
 
   /// Computes the across-mobilizer spatial velocity `V_FM(q, v)` of the
   /// outboard frame M in the inboard frame F.
@@ -407,7 +406,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// @retval V_FM The across-mobilizer spatial velocity of the outboard frame
   /// M measured and expressed in the inboard frame F.
   virtual SpatialVelocity<T> CalcAcrossMobilizerSpatialVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v) const = 0;
 
   /// Computes the across-mobilizer spatial accelerations `A_FM(q, v, v̇)` of the
@@ -434,7 +433,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   ///   The across-mobilizer spatial acceleration of the outboard frame M
   ///   measured and expressed in the inboard frame F.
   virtual SpatialAcceleration<T> CalcAcrossMobilizerSpatialAcceleration(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& vdot) const = 0;
 
   /// Projects the spatial force `F_Mo` on `this` mobilizer's outboard frame
@@ -465,7 +464,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// @retval tau
   ///   The vector of generalized forces. It must live in ℝⁿᵛ.
   virtual void ProjectSpatialForce(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const SpatialForce<T>& F_Mo_F,
       Eigen::Ref<VectorX<T>> tau) const = 0;
 
@@ -481,7 +480,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   ///   number of generalized velocities for this mobilizer, respectively.
   /// @see MapVelocityToQDot().
   void CalcNMatrix(
-      const MultibodyTreeContext<T>& context, EigenPtr<MatrixX<T>> N) const {
+      const systems::Context<T>& context, EigenPtr<MatrixX<T>> N) const {
     DRAKE_DEMAND(N != nullptr);
     DRAKE_DEMAND(N->rows() == num_positions());
     DRAKE_DEMAND(N->cols() == num_velocities());
@@ -501,7 +500,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   ///   number of generalized velocities.
   /// @see MapVelocityToQDot().
   void CalcNplusMatrix(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       EigenPtr<MatrixX<T>> Nplus) const {
     DRAKE_DEMAND(Nplus != nullptr);
     DRAKE_DEMAND(Nplus->rows() == num_velocities());
@@ -513,7 +512,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// velocities v and time derivatives of the generalized positions `qdot`.
   /// The generalized positions vector is stored in `context`.
   virtual void MapVelocityToQDot(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v,
       EigenPtr<VectorX<T>> qdot) const = 0;
 
@@ -522,7 +521,7 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// the left pseudo-inverse of `N(q)` defined by MapVelocityToQDot().
   /// The generalized positions vector is stored in `context`.
   virtual void MapQDotToVelocity(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& qdot,
       EigenPtr<VectorX<T>> v) const = 0;
   /// @}
@@ -628,12 +627,12 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// NVI to CalcNMatrix(). Implementations can safely assume that N is not the
   /// nullptr and that N has the proper size.
   virtual void DoCalcNMatrix(
-      const MultibodyTreeContext<T>& context, EigenPtr<MatrixX<T>> N) const = 0;
+      const systems::Context<T>& context, EigenPtr<MatrixX<T>> N) const = 0;
 
   /// NVI to CalcNplusMatrix(). Implementations can safely assume that Nplus is
   /// not the nullptr and that Nplus has the proper size.
   virtual void DoCalcNplusMatrix(
-      const MultibodyTreeContext<T>& context,
+      const systems::Context<T>& context,
       EigenPtr<MatrixX<T>> Nplus) const = 0;
 
   /// @name Methods to make a clone templated on different scalar types.
@@ -656,6 +655,9 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
   /// in `tree_clone`.
   virtual std::unique_ptr<Mobilizer<AutoDiffXd>> DoCloneToScalar(
       const MultibodyTree<AutoDiffXd>& tree_clone) const = 0;
+
+  virtual std::unique_ptr<Mobilizer<symbolic::Expression>> DoCloneToScalar(
+      const MultibodyTree<symbolic::Expression>& tree_clone) const = 0;
   /// @}
 
  private:
@@ -672,13 +674,5 @@ class Mobilizer : public MultibodyTreeElement<Mobilizer<T>, MobilizerIndex> {
 };
 
 }  // namespace internal
-
-/// WARNING: This will be removed on or around 2019/03/01.
-template <typename T>
-using Mobilizer
-DRAKE_DEPRECATED(
-    "This public alias is deprecated, and will be removed around 2019/03/01.")
-    = internal::Mobilizer<T>;
-
 }  // namespace multibody
 }  // namespace drake

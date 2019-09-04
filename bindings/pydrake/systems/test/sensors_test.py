@@ -2,15 +2,16 @@ from __future__ import division
 
 import pydrake.systems.sensors as mut
 
-import numpy as np
 import unittest
 
+import numpy as np
+
 from pydrake.common import FindResourceOrThrow
-from pydrake.multibody.rigid_body_tree import (
-    AddModelInstancesFromSdfString,
-    FloatingBaseType,
-    RigidBodyTree,
-    RigidBodyFrame,
+from pydrake.geometry import FrameId
+from pydrake.geometry.render import CameraProperties, DepthCameraProperties
+from pydrake.math import (
+    RigidTransform,
+    RollPitchYaw,
     )
 from pydrake.systems.framework import (
     AbstractValue,
@@ -18,7 +19,6 @@ from pydrake.systems.framework import (
     OutputPort,
     Value,
     )
-from pydrake.common.eigen_geometry import Isometry3
 
 # Shorthand aliases, to reduce verbosity.
 pt = mut.PixelType
@@ -202,64 +202,6 @@ class TestSensors(unittest.TestCase):
     def _check_output(self, value):
         self.assertIsInstance(value, OutputPort)
 
-    def _check_ports(self, system):
-        self._check_input(system.state_input_port())
-        self._check_output(system.color_image_output_port())
-        self._check_output(system.depth_image_output_port())
-        self._check_output(system.label_image_output_port())
-        self._check_output(system.camera_base_pose_output_port())
-
-    def test_rgbd_camera(self):
-        sdf_path = FindResourceOrThrow(
-            "drake/systems/sensors/test/models/nothing.sdf")
-        tree = RigidBodyTree()
-        with open(sdf_path) as f:
-            sdf_string = f.read()
-        AddModelInstancesFromSdfString(
-            sdf_string, FloatingBaseType.kFixed, None, tree)
-        frame = RigidBodyFrame("rgbd camera frame", tree.FindBody("link"))
-        tree.addFrame(frame)
-
-        # Use HDTV size.
-        width = 1280
-        height = 720
-
-        camera = mut.RgbdCamera(
-            name="camera", tree=tree, frame=frame,
-            z_near=0.5, z_far=5.0,
-            fov_y=np.pi / 4, show_window=False,
-            width=width, height=height)
-
-        def check_info(camera_info):
-            self.assertIsInstance(camera_info, mut.CameraInfo)
-            self.assertEqual(camera_info.width(), width)
-            self.assertEqual(camera_info.height(), height)
-
-        check_info(camera.color_camera_info())
-        check_info(camera.depth_camera_info())
-        self.assertIsInstance(camera.color_camera_optical_pose(), Isometry3)
-        self.assertIsInstance(camera.depth_camera_optical_pose(), Isometry3)
-        self.assertTrue(camera.tree() is tree)
-        # N.B. `RgbdCamera` copies the input frame.
-        self.assertEqual(camera.frame().get_name(), frame.get_name())
-        self._check_ports(camera)
-
-        # Test discrete camera.
-        period = mut.RgbdCameraDiscrete.kDefaultPeriod
-        discrete = mut.RgbdCameraDiscrete(
-            camera=camera, period=period, render_label_image=True)
-        self.assertTrue(discrete.camera() is camera)
-        self.assertTrue(discrete.mutable_camera() is camera)
-        self.assertEqual(discrete.period(), period)
-        self._check_ports(discrete)
-
-        # That we can access the state as images.
-        context = discrete.CreateDefaultContext()
-        values = context.get_abstract_state()
-        self.assertIsInstance(values.get_value(0), Value[mut.ImageRgba8U])
-        self.assertIsInstance(values.get_value(1), Value[mut.ImageDepth32F])
-        self.assertIsInstance(values.get_value(2), Value[mut.ImageLabel16I])
-
     def test_image_to_lcm_image_array_t(self):
         # Test nominal constructor.
         dut = mut.ImageToLcmImageArrayT(
@@ -290,3 +232,72 @@ class TestSensors(unittest.TestCase):
         # N.B. This Value[] is a C++ LCM object. See
         # `lcm_py_bind_cpp_serializers.h` for more information.
         self.assertIsInstance(output.get_data(0), AbstractValue)
+
+    def test_rgbd_sensor(self):
+        def check_ports(system):
+            self.assertIsInstance(system.query_object_input_port(), InputPort)
+            self.assertIsInstance(system.color_image_output_port(), OutputPort)
+            self.assertIsInstance(system.depth_image_32F_output_port(),
+                                  OutputPort)
+            self.assertIsInstance(system.depth_image_16U_output_port(),
+                                  OutputPort)
+            self.assertIsInstance(system.label_image_output_port(), OutputPort)
+
+        # Use HDTV size.
+        width = 1280
+        height = 720
+
+        color_properties = CameraProperties(
+            width=width, height=height, fov_y=np.pi/6,
+            renderer_name="renderer")
+        depth_properties = DepthCameraProperties(
+            width=width, height=height, fov_y=np.pi/6,
+            renderer_name="renderer", z_near=0.1, z_far=5.5)
+
+        # Put it at the origin.
+        X_WB = RigidTransform()
+        # This id would fail if we tried to render; no such id exists.
+        parent_id = FrameId.get_new_id()
+        camera_poses = mut.RgbdSensor.CameraPoses(
+            X_BC=RigidTransform(), X_BD=RigidTransform())
+        sensor = mut.RgbdSensor(parent_id=parent_id, X_PB=X_WB,
+                                color_properties=color_properties,
+                                depth_properties=depth_properties,
+                                camera_poses=camera_poses,
+                                show_window=False)
+
+        def check_info(camera_info):
+            self.assertIsInstance(camera_info, mut.CameraInfo)
+            self.assertEqual(camera_info.width(), width)
+            self.assertEqual(camera_info.height(), height)
+
+        check_info(sensor.color_camera_info())
+        check_info(sensor.depth_camera_info())
+        self.assertIsInstance(sensor.X_BC(),
+                              RigidTransform)
+        self.assertIsInstance(sensor.X_BD(),
+                              RigidTransform)
+        self.assertEqual(sensor.parent_frame_id(), parent_id)
+        check_ports(sensor)
+
+        # Test discrete camera, reconstructing using single-properties
+        # constructor.
+        color_and_depth_properties = depth_properties
+        sensor = mut.RgbdSensor(parent_id=parent_id, X_PB=X_WB,
+                                properties=color_and_depth_properties,
+                                camera_poses=camera_poses,
+                                show_window=False)
+        period = mut.RgbdSensorDiscrete.kDefaultPeriod
+        discrete = mut.RgbdSensorDiscrete(
+            sensor=sensor, period=period, render_label_image=True)
+        self.assertTrue(discrete.sensor() is sensor)
+        self.assertEqual(discrete.period(), period)
+        check_ports(discrete)
+
+        # That we can access the state as images.
+        context = discrete.CreateDefaultContext()
+        values = context.get_abstract_state()
+        self.assertIsInstance(values.get_value(0), Value[mut.ImageRgba8U])
+        self.assertIsInstance(values.get_value(1), Value[mut.ImageDepth32F])
+        self.assertIsInstance(values.get_value(2), Value[mut.ImageDepth16U])
+        self.assertIsInstance(values.get_value(3), Value[mut.ImageLabel16I])

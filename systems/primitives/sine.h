@@ -4,6 +4,7 @@
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_throw.h"
 #include "drake/common/eigen_types.h"
 #include "drake/systems/framework/vector_system.h"
 
@@ -104,7 +105,7 @@ class Sine final : public LeafSystem<T> {
   /// Returns the phase vector constant.
   const Eigen::VectorXd& phase_vector() const;
 
- protected:
+ private:
   void CalcValueOutput(const Context<T>& context,
                        BasicVector<T>* output) const;
   void CalcFirstDerivativeOutput(const Context<T>& context,
@@ -144,8 +145,8 @@ Sine<T>::Sine(const Eigen::VectorXd& amplitudes,
       amplitude_(amplitudes), frequency_(frequencies), phase_(phases),
       is_time_based_(is_time_based) {
   // Ensure the incoming vectors are all the same size
-  DRAKE_DEMAND(amplitudes.size() == frequencies.size());
-  DRAKE_DEMAND(amplitudes.size() == phases.size());
+  DRAKE_THROW_UNLESS(amplitudes.size() == frequencies.size());
+  DRAKE_THROW_UNLESS(amplitudes.size() == phases.size());
 
   // Check each of the incoming vectors. For each vector, set a flag if every
   // element in that vector is the same.
@@ -280,7 +281,7 @@ void Sine<T>::CalcArg(
     *arg = frequency_.array() * time_vec.array() + phase_.array();
   } else {
     Eigen::VectorBlock<const VectorX<T>> input =
-        this->EvalEigenVectorInput(context, 0);
+        this->get_input_port(0).Eval(context);
     *arg = frequency_.array() * input.array() + phase_.array();
   }
 }

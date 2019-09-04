@@ -23,7 +23,8 @@ DiscreteDerivative<T>::DiscreteDerivative(int num_inputs, double time_step)
 
   this->DeclareVectorInputPort("u", systems::BasicVector<T>(n_));
   this->DeclareVectorOutputPort("dudt", systems::BasicVector<T>(n_),
-                                &DiscreteDerivative<T>::CalcOutput);
+                                &DiscreteDerivative<T>::CalcOutput,
+                                {this->xd_ticket()});
 
   // TODO(sherm): Prefer two state vectors of size n_ upon resolution of #9705.
   this->DeclareDiscreteState(2 * n_);
@@ -50,7 +51,7 @@ void DiscreteDerivative<T>::DoCalcDiscreteVariableUpdates(
     drake::systems::DiscreteValues<T>* discrete_state) const {
   // x₀[n+1] = u[n].
   discrete_state->get_mutable_vector().get_mutable_value().head(n_) =
-      this->EvalEigenVectorInput(context, 0);
+      get_input_port().Eval(context);
 
   // x₁[n+1] = x₀[n].
   discrete_state->get_mutable_vector().get_mutable_value().tail(n_) =

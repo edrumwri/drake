@@ -6,12 +6,12 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/value.h"
 #include "drake/systems/framework/basic_vector.h"
-#include "drake/systems/framework/value.h"
 
 namespace drake {
 namespace systems {
-namespace detail {
+namespace internal {
 
 /// Represents models for a sequence of AbstractValues (usually a sequence of
 /// either input or output ports).  The models are the "prototype" design
@@ -88,11 +88,10 @@ ModelValues::CloneVectorModel(int index) const {
   if (abstract_result.get() == nullptr) {
     return nullptr;
   }
-  const BasicVector<T>& basic_vector =
-      abstract_result->GetValueOrThrow<BasicVector<T>>();
+  const auto& basic_vector = abstract_result->get_value<BasicVector<T>>();
   return basic_vector.Clone();
 }
 
-}  // namespace detail
+}  // namespace internal
 }  // namespace systems
 }  // namespace drake

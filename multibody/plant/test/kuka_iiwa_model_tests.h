@@ -48,7 +48,7 @@ class KukaIiwaModelTests : public ::testing::Test {
     // Add a frame H with a fixed pose X_EH in the end effector frame E.
     end_effector_link_ = &plant_->GetBodyByName("iiwa_link_7");
     frame_H_ = &plant_->AddFrame(std::make_unique<FixedOffsetFrame<double>>(
-        "H", *end_effector_link_, X_EH_.GetAsIsometry3()));
+        "H", *end_effector_link_, X_EH_));
     plant_->Finalize();
 
     context_ = plant_->CreateDefaultContext();
@@ -58,7 +58,10 @@ class KukaIiwaModelTests : public ::testing::Test {
     context_autodiff_ = plant_autodiff_->CreateDefaultContext();
   }
 
-  void SetArbitraryConfiguration() {
+  // If unit_quaternion = false then the quaternion for the free floating base
+  // is not normalized. This configuration is useful to verify the computation
+  // of analytical Jacobians even if the state stores a non-unit quaternion.
+  void SetArbitraryConfiguration(bool unit_quaternion = true) {
     // Get an arbitrary set of angles and velocities for each joint.
     const VectorX<double> x0 = GetArbitraryJointConfiguration();
 
@@ -78,13 +81,21 @@ class KukaIiwaModelTests : public ::testing::Test {
         RollPitchYaw<double>(M_PI / 3, -M_PI / 2, M_PI / 8),
         Vector3<double>(0.05, -0.2, 0.05));
     plant_->SetFreeBodyPoseInAnchoredFrame(
-        context_.get(), plant_->world_frame(), base_body,
-        X_WB.GetAsIsometry3());
+        context_.get(), plant_->world_frame(), base_body, X_WB);
     // Set an arbitrary non-zero spatial velocity of the floating base link.
     const Vector3<double> w_WB{-1, 1, -1};
     const Vector3<double> v_WB{1, -1, 1};
     plant_->SetFreeBodySpatialVelocity(
         context_.get(), base_body, {w_WB, v_WB});
+
+    if (!unit_quaternion) {
+        VectorX<double> q = plant_->GetPositions(*context_);
+        // TODO(amcastro-tri): This assumes the first 4 entries in the
+        // generalized positions correspond to the quaternion for the free
+        // floating robot base. Provide API to access these values.
+        q.head<4>() *= 2;  // multiply quaternion by a factor.
+        plant_->SetPositions(context_.get(), q);
+    }
   }
 
   // Gets an arm state to an arbitrary configuration in which joint angles and
@@ -121,19 +132,31 @@ class KukaIiwaModelTests : public ::testing::Test {
   // the end effector frame E, given their (fixed) position p_EPi in the end
   // effector frame.
   // This templated helper method allows us to use automatic differentiation.
-  // See MultibodyTree::CalcPointsAnalyticalJacobianExpressedInWorld() for
-  // details.
+  // See MultibodyTree::CalcJacobianTranslationalVelocity() for details.
   // TODO(amcastro-tri): Rename this method as per issue #10155.
+  // TODO(Mitiguy): If this method is not used, delete it per issue #10155.
   template <typename T>
+  DRAKE_DEPRECATED("2019-10-01", "Use CalcJacobianSpatialVelocity().")
   void CalcPointsOnEndEffectorAnalyticJacobian(
       const MultibodyPlant<T>& plant_on_T,
       const Context<T>& context_on_T,
-      const MatrixX<T>& p_EPi,
-      MatrixX<T>* p_WPi, MatrixX<T>* Jq_WPi) const {
-    const Body<T>& linkG_on_T =
-        plant_on_T.get_body(end_effector_link_->index());
-    plant_on_T.CalcPointsAnalyticalJacobianExpressedInWorld(
-        context_on_T, linkG_on_T.body_frame(), p_EPi, p_WPi, Jq_WPi);
+      const MatrixX<T>& p_EoEi_E,
+      MatrixX<T>* p_WoEi_W,
+      MatrixX<T>* Jq_v_WEi_W) const {
+    const Frame<T>& frame_W = plant_on_T.world_frame();
+    const Frame<T>& frame_E =  /* End-effector frame E */
+        (plant_on_T.get_body(end_effector_link_->index())).body_frame();
+
+    plant_on_T.CalcJacobianTranslationalVelocity(context_on_T,
+                                                 JacobianWrtVariable::kQDot,
+                                                 frame_E,
+                                                 p_EoEi_E,
+                                                 frame_W,
+                                                 frame_W,
+                                                 Jq_v_WEi_W);
+    plant_on_T.CalcPointsPositions(context_on_T,
+                                   frame_E, p_EoEi_E,     /* From frame E */
+                                   frame_W, p_WoEi_W);   /* To world frame W */
   }
 
  protected:

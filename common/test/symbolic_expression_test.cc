@@ -1927,6 +1927,13 @@ TEST_F(SymbolicExpressionTest, ExtractDoubleTest) {
   // 2x - 7 -2x + 2 => -5
   const Expression e3{2 * x_ - 7 - 2 * x_ + 2};
   EXPECT_EQ(ExtractDoubleOrThrow(e3), -5);
+
+  // Literal NaN should come through without an exception during Extract.
+  EXPECT_TRUE(std::isnan(ExtractDoubleOrThrow(e_nan_)));
+
+  // Computed NaN should still throw.
+  const Expression bogus = zero_ / e_nan_;
+  EXPECT_THROW(ExtractDoubleOrThrow(bogus), std::exception);
 }
 
 TEST_F(SymbolicExpressionTest, Jacobian) {
@@ -2145,6 +2152,15 @@ TEST_F(SymbolicExpressionTest, UniformRealDistribution) {
     EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_UNIFORM);
   }
 
+  // Checks the same thing, but tests operator() with no arguments.
+  {
+    uniform_real_distribution<Expression> d{0.0, 1.0};
+    const Expression e{d()};
+    ASSERT_TRUE(is_variable(e));
+    const Variable& v{get_variable(e)};
+    EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_UNIFORM);
+  }
+
   // A general case: X ~ U(-5, 10) should generate a symbolic expression
   // -5 + 15 * v where v is a random uniform variable.
   {
@@ -2295,6 +2311,15 @@ TEST_F(SymbolicExpressionTest, NormalDistribution) {
     EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_GAUSSIAN);
   }
 
+  // Checks the same thing, but tests operator() with no arguments.
+  {
+    normal_distribution<Expression> d{0.0, 1.0};
+    const Expression e{d()};
+    ASSERT_TRUE(is_variable(e));
+    const Variable& v{get_variable(e)};
+    EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_GAUSSIAN);
+  }
+
   // A general case: X ~ N(5, 10) should generate a symbolic expression
   // 5 + 10 * v where v is a random Gaussian variable.
   {
@@ -2429,6 +2454,15 @@ TEST_F(SymbolicExpressionTest, ExponentialDistribution) {
   {
     exponential_distribution<Expression> d{1.0};
     const Expression e{d(generator)};
+    ASSERT_TRUE(is_variable(e));
+    const Variable& v{get_variable(e)};
+    EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_EXPONENTIAL);
+  }
+
+  // Checks the same thing, but tests operator() with no arguments.
+  {
+    exponential_distribution<Expression> d{1.0};
+    const Expression e{d()};
     ASSERT_TRUE(is_variable(e));
     const Variable& v{get_variable(e)};
     EXPECT_EQ(v.get_type(), Variable::Type::RANDOM_EXPONENTIAL);

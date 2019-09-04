@@ -41,7 +41,7 @@ drake_cc_library(
     deps = [
         "//common:essential",
         "//math:wrap_to",
-        "//solvers:mathematical_program",
+        "//solvers:mathematical_program_lite",
         "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/framework",
@@ -82,6 +82,7 @@ drake_cc_library(
     hdrs = ["linear_model_predictive_controller.h"],
     deps = [
         "//common/trajectories:piecewise_polynomial",
+        "//solvers:solve",
         "//systems/primitives:linear_system",
         "//systems/trajectory_optimization:direct_transcription",
     ],
@@ -163,7 +164,7 @@ drake_cc_googletest(
     deps = [
         ":dynamic_programming",
         ":linear_quadratic_regulator",
-        "//common/proto:call_matlab",
+        "//common/proto:call_python",
         "//common/test_utilities:eigen_matrix_compare",
         "//systems/primitives:integrator",
         "//systems/primitives:linear_system",

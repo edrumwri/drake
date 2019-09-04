@@ -2,6 +2,9 @@
 #include "drake/solvers/snopt_solver.h"
 /* clang-format on */
 
+// NOLINTNEXTLINE(whitespace/line_length)
+#warning DRAKE DEPRECATED: The f2c-based SNOPT bindings are deprecated, in favor of the Fortran-based SNOPT bindings.  The f2c-based SNOPT bindings will be removed from Drake on or after 2019-11-01.
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -312,11 +315,29 @@ void EvaluateNonlinearConstraints(
       F[(*constraint_index)++] = static_cast<snopt::doublereal>(ty(i).value());
     }
 
-    for (snopt::integer i = 0; i < static_cast<snopt::integer>(num_constraints);
-         i++) {
-      for (int j = 0; j < num_v_variables; ++j) {
-        G[(*grad_index)++] =
-            static_cast<snopt::doublereal>(ty(i).derivatives()(j));
+    const optional<std::vector<std::pair<int, int>>>&
+        gradient_sparsity_pattern =
+            binding.evaluator()->gradient_sparsity_pattern();
+    if (gradient_sparsity_pattern.has_value()) {
+      for (const auto& nonzero_entry : gradient_sparsity_pattern.value()) {
+        G[(*grad_index)++] = static_cast<snopt::doublereal>(
+            ty(nonzero_entry.first).derivatives().size() > 0
+                ? ty(nonzero_entry.first).derivatives()(nonzero_entry.second)
+                : 0.0);
+      }
+    } else {
+      for (snopt::integer i = 0;
+           i < static_cast<snopt::integer>(num_constraints); i++) {
+        if (ty(i).derivatives().size() > 0) {
+          for (int j = 0; j < num_v_variables; ++j) {
+            G[(*grad_index)++] =
+                static_cast<snopt::doublereal>(ty(i).derivatives()(j));
+          }
+        } else {
+          for (int j = 0; j < num_v_variables; ++j) {
+            G[(*grad_index)++] = snopt::doublereal(0.0);
+          }
+        }
       }
     }
   }
@@ -361,10 +382,13 @@ void EvaluateAllCosts(const MathematicalProgram& prog,
 
     F[0] += static_cast<snopt::doublereal>(ty(0).value());
 
-    for (int j = 0; j < num_v_variables; ++j) {
-      size_t vj_index = prog.FindDecisionVariableIndex(binding.variables()(j));
-      cost_gradient[vj_index] +=
-          static_cast<snopt::doublereal>(ty(0).derivatives()(j));
+    if (ty(0).derivatives().size() > 0) {
+      for (int j = 0; j < num_v_variables; ++j) {
+        size_t vj_index =
+            prog.FindDecisionVariableIndex(binding.variables()(j));
+        cost_gradient[vj_index] +=
+            static_cast<snopt::doublereal>(ty(0).derivatives()(j));
+      }
     }
   }
   for (const auto cost_gradient_index : cost_gradient_indices) {
@@ -445,8 +469,13 @@ void UpdateNumNonlinearConstraintsAndGradients(
     int* num_nonlinear_constraints, int* max_num_gradients) {
   for (auto const& binding : constraint_list) {
     auto const& c = binding.evaluator();
-    int n = c->num_constraints();
-    *max_num_gradients += n * binding.GetNumElements();
+    const int n = c->num_constraints();
+    if (binding.evaluator()->gradient_sparsity_pattern().has_value()) {
+      *max_num_gradients += static_cast<int>(
+          binding.evaluator()->gradient_sparsity_pattern().value().size());
+    } else {
+      *max_num_gradients += n * binding.GetNumElements();
+    }
     *num_nonlinear_constraints += n;
   }
 }
@@ -483,12 +512,27 @@ void UpdateConstraintBoundsAndGradients(
       Fupp[*constraint_index + i] = static_cast<snopt::doublereal>(ub(i));
     }
 
-    for (int i = 0; i < n; i++) {
-      for (int j = 0; j < static_cast<int>(binding.GetNumElements()); ++j) {
-        iGfun[*grad_index] = *constraint_index + i + 1;  // row order
+    const std::vector<int> bound_var_indices_in_prog =
+        prog.FindDecisionVariableIndices(binding.variables());
+
+    const optional<std::vector<std::pair<int, int>>>&
+        gradient_sparsity_pattern =
+            binding.evaluator()->gradient_sparsity_pattern();
+    if (gradient_sparsity_pattern.has_value()) {
+      for (const auto& nonzero_entry : gradient_sparsity_pattern.value()) {
+        // Fortran is 1-indexed.
+        iGfun[*grad_index] = 1 + *constraint_index + nonzero_entry.first;
         jGvar[*grad_index] =
-            prog.FindDecisionVariableIndex(binding.variables()(j)) + 1;
+            1 + bound_var_indices_in_prog[nonzero_entry.second];
         (*grad_index)++;
+      }
+    } else {
+      for (int i = 0; i < n; i++) {
+        for (int j = 0; j < static_cast<int>(binding.GetNumElements()); ++j) {
+          iGfun[*grad_index] = *constraint_index + i + 1;  // row order
+          jGvar[*grad_index] = bound_var_indices_in_prog[j] + 1;
+          (*grad_index)++;
+        }
       }
     }
 
@@ -604,25 +648,14 @@ void UpdateLinearConstraint(const MathematicalProgram& prog,
 
 bool SnoptSolver::is_available() { return true; }
 
-void SnoptSolver::Solve(const MathematicalProgram& prog,
-                        const optional<Eigen::VectorXd>& initial_guess,
-                        const optional<SolverOptions>& solver_options,
-                        MathematicalProgramResult* result) const {
-  *result = {};
-
-  // Our function's arguments for initial_guess and solver_options take
-  // precedence over prog's values.
-  const Eigen::VectorXd& x_init =
-      initial_guess ? *initial_guess : prog.initial_guess();
-  SolverOptions merged_options =
-      solver_options ? *solver_options : SolverOptions();
-  merged_options.Merge(prog.solver_options());
-
-  // TODO(jwnimmer-tri) If we ever decide to report solver details to the user,
-  // we'll have to set the user type here instead of our private type, and then
-  // nest our private SNOPTData within it.  But for now at least, this is an
-  // easy place to keep it.
-  SNOPTData& snopt_data = result->SetSolverDetailsType<SNOPTData>();
+void SnoptSolver::DoSolve(
+    const MathematicalProgram& prog,
+    const Eigen::VectorXd& initial_guess,
+    const SolverOptions& merged_options,
+    MathematicalProgramResult* result) const {
+  // TODO(hongkai.dai): put SNOPTData inside SnoptSolverDetails, so that we do
+  // not need to allocate memory for SNOPTData when we call Solve repeatedly.
+  SNOPTData snopt_data{};
   auto d = &snopt_data;
 
   const std::unordered_set<int> cost_gradient_indices =
@@ -638,8 +671,8 @@ void SnoptSolver::Solve(const MathematicalProgram& prog,
   snopt::doublereal* xlow = d->xlow.data();
   snopt::doublereal* xupp = d->xupp.data();
   for (int i = 0; i < nx; i++) {
-    if (!std::isnan(x_init(i))) {
-      x[i] = static_cast<snopt::doublereal>(x_init(i));
+    if (!std::isnan(initial_guess(i))) {
+      x[i] = static_cast<snopt::doublereal>(initial_guess(i));
     } else {
       x[i] = 0.0;
     }
@@ -832,7 +865,12 @@ void SnoptSolver::Solve(const MathematicalProgram& prog,
       npname, 8 * nxname, 8 * nFname, 8 * d->lencw, 8 * d->lencw);
 
   // Populate our results structure.
-  result->set_solver_id(id());
+  SnoptSolverDetails& solver_details =
+      result->SetSolverDetailsType<SnoptSolverDetails>();
+  solver_details.info = info;
+  solver_details.xmul = Eigen::Map<Eigen::VectorXd>(xmul, nx);
+  solver_details.F = Eigen::Map<Eigen::VectorXd>(F, nF);
+  solver_details.Fmul = Eigen::Map<Eigen::VectorXd>(Fmul, nF);
   SolutionResult solution_result{SolutionResult::kUnknownError};
   if (info >= 1 && info <= 6) {
     solution_result = SolutionResult::kSolutionFound;
@@ -856,7 +894,6 @@ void SnoptSolver::Solve(const MathematicalProgram& prog,
   } else {
     result->set_optimal_cost(*F);
   }
-  // todo: extract the other useful quantities, too.
 }
 
 bool SnoptSolver::is_thread_safe() { return false; }

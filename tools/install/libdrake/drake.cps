@@ -78,7 +78,8 @@
         "protobuf:libprotobuf",
         "robotlocomotion-lcmtypes:robotlocomotion-lcmtypes-cpp",
         "spdlog:spdlog",
-        "stx:stx"
+        "stx:stx",
+        "yaml-cpp"
       ]
     },
     "drake-common-text-logging-gflags": {
@@ -101,9 +102,6 @@
       "Type": "dylib",
       "Location": "@prefix@/lib/libdrake_marker.so"
     }
-  },
-  "X-CMake-Variables": {
-    "drake_RESOURCE_ROOT": "${CMAKE_CURRENT_LIST_DIR}/../../../share/drake"
   },
   "X-CMake-Variables-Init": {
     "_Boost_IMPORTED_TARGETS": 1,

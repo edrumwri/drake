@@ -4,8 +4,10 @@
 
 #include <gtest/gtest.h>
 #include <sdf/sdf.hh>
+#include <spruce.hh>
 
 #include "drake/common/find_resource.h"
+#include "drake/common/temp_directory.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/geometry/geometry_instance.h"
@@ -18,10 +20,9 @@
 
 namespace drake {
 namespace multibody {
-namespace detail {
+namespace internal {
 namespace {
 
-using Eigen::Isometry3d;
 using Eigen::Vector3d;
 using geometry::GeometryId;
 using geometry::GeometryInstance;
@@ -42,12 +43,13 @@ GTEST_TEST(MultibodyPlantSdfParserTest, PackageMapSpecified) {
 
   const std::string full_sdf_filename = FindResourceOrThrow(
       "drake/multibody/parsing/test/box_package/sdfs/box.sdf");
-  const std::string package_path = FindResourceOrThrow(
-      "drake/multibody/parsing/test/box_package");
+  spruce::path package_path = full_sdf_filename;
+  package_path = package_path.root();
+  package_path = package_path.root();
 
   // Construct the PackageMap.
   PackageMap package_map;
-  package_map.PopulateFromFolder(package_path);
+  package_map.PopulateFromFolder(package_path.getStr());
 
   // Read in the SDF file.
   AddModelFromSdfFile(full_sdf_filename, "", package_map, &plant, &scene_graph);
@@ -178,33 +180,33 @@ GTEST_TEST(MultibodyPlantSdfParserTest, ModelInstanceTest) {
   const double eps = std::numeric_limits<double>::epsilon();
   auto check_frame = [&plant, instance1, &context, eps](
       std::string parent_name, std::string name,
-      const Isometry3d& X_PF_expected) {
+      const RigidTransformd& X_PF_expected) {
     const Frame<double>& frame = plant.GetFrameByName(name, instance1);
     const Frame<double>& parent_frame =
         plant.GetFrameByName(parent_name, instance1);
-    const Isometry3d X_PF = plant.CalcRelativeTransform(
+    const RigidTransformd X_PF = plant.CalcRelativeTransform(
         *context, parent_frame, frame);
     EXPECT_TRUE(CompareMatrices(X_PF_expected.matrix(), X_PF.matrix(), eps))
         << name;
   };
 
-  const Isometry3d X_L1F1 = RigidTransformd(
-      RollPitchYawd(0.4, 0.5, 0.6), Vector3d(0.1, 0.2, 0.3)).GetAsIsometry3();
+  const RigidTransformd X_L1F1(
+      RollPitchYawd(0.4, 0.5, 0.6), Vector3d(0.1, 0.2, 0.3));
   check_frame("link1", "model_scope_link1_frame", X_L1F1);
-  const Isometry3d X_F1F2 = RigidTransformd(
-      Vector3d(0.1, 0.0, 0.0)).GetAsIsometry3();
+  const RigidTransformd X_F1F2(Vector3d(0.1, 0.0, 0.0));
   check_frame(
       "model_scope_link1_frame", "model_scope_link1_frame_child", X_F1F2);
-  const Isometry3d X_MF3 = RigidTransformd(
-      Vector3d(0.7, 0.8, 0.9)).GetAsIsometry3();
-  check_frame("instance1", "model_scope_model_frame_implicit", X_MF3);
+  const RigidTransformd X_MF3(Vector3d(0.7, 0.8, 0.9));
+  check_frame(
+      "_instance1_sdf_model_frame", "model_scope_model_frame_implicit", X_MF3);
 }
 
 // Verify that our SDF parser throws an exception when a user specifies a joint
 // with negative damping.
 GTEST_TEST(SdfParserThrowsWhen, JointDampingIsNegative) {
   const std::string sdf_file_path = FindResourceOrThrow(
-      "drake/multibody/parsing/test/negative_damping_joint.sdf");
+      "drake/multibody/parsing/test/sdf_parser_test/"
+      "negative_damping_joint.sdf");
   PackageMap package_map;
   package_map.PopulateUpstreamToDrake(sdf_file_path);
   MultibodyPlant<double> plant;
@@ -217,9 +219,10 @@ GTEST_TEST(SdfParserThrowsWhen, JointDampingIsNegative) {
 }
 
 GTEST_TEST(SdfParser, IncludeTags) {
-  const std::string sdf_file_path =
-      "drake/multibody/parsing/test";
-  sdf::addURIPath("model://", FindResourceOrThrow(sdf_file_path));
+  const std::string full_name = FindResourceOrThrow(
+      "drake/multibody/parsing/test/sdf_parser_test/"
+      "include_models.sdf");
+  sdf::addURIPath("model://", spruce::path(full_name).root());
   MultibodyPlant<double> plant;
 
   // We start with the world and default model instances.
@@ -228,8 +231,6 @@ GTEST_TEST(SdfParser, IncludeTags) {
   ASSERT_EQ(plant.num_joints(), 0);
 
   PackageMap package_map;
-  const std::string full_name = FindResourceOrThrow(
-      sdf_file_path + "/include_models.sdf");
   package_map.PopulateUpstreamToDrake(full_name);
   AddModelsFromSdfFile(full_name, package_map, &plant);
   plant.Finalize();
@@ -308,7 +309,146 @@ GTEST_TEST(SdfParser, TestOptionalSceneGraph) {
   }
 }
 
+// Verifies that the SDF loader can leverage a specified package map.
+GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
+  MultibodyPlant<double> plant;
+  geometry::SceneGraph<double> scene_graph;
+
+  const std::string full_name = FindResourceOrThrow(
+      "drake/multibody/parsing/test/sdf_parser_test/"
+      "joint_parsing_test.sdf");
+  PackageMap package_map;
+  package_map.PopulateUpstreamToDrake(full_name);
+
+  // Read in the SDF file.
+  AddModelFromSdfFile(full_name, "", package_map, &plant, &scene_graph);
+  plant.Finalize();
+
+  const Joint<double>& revolute_joint = plant.GetJointByName("revolute_joint");
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.position_lower_limits(), Vector1d(-1)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.position_upper_limits(), Vector1d(2)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.velocity_lower_limits(), Vector1d(-100)));
+  EXPECT_TRUE(CompareMatrices(
+      revolute_joint.velocity_upper_limits(), Vector1d(100)));
+
+  const Joint<double>& prismatic_joint =
+      plant.GetJointByName("prismatic_joint");
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.position_lower_limits(), Vector1d(-2)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.position_upper_limits(), Vector1d(1)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.velocity_lower_limits(), Vector1d(-5)));
+  EXPECT_TRUE(CompareMatrices(
+      prismatic_joint.velocity_upper_limits(), Vector1d(5)));
+
+  const Joint<double>& no_limit_joint =
+      plant.GetJointByName("revolute_joint_no_limits");
+  const Vector1d inf(std::numeric_limits<double>::infinity());
+  const Vector1d neg_inf(-std::numeric_limits<double>::infinity());
+
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.position_lower_limits(), neg_inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.position_upper_limits(), inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.velocity_lower_limits(), neg_inf));
+  EXPECT_TRUE(CompareMatrices(no_limit_joint.velocity_upper_limits(), inf));
+}
+
+// Verifies that the SDF parser parses the joint actuator limit correctly.
+GTEST_TEST(MultibodyPlantSdfParserTest, JointActuatorParsingTest) {
+  MultibodyPlant<double> plant;
+
+  const std::string full_name = FindResourceOrThrow(
+      "drake/multibody/parsing/test/sdf_parser_test/"
+      "joint_actuator_parsing_test.sdf");
+  PackageMap package_map;
+  package_map.PopulateUpstreamToDrake(full_name);
+
+  // Read in the SDF file.
+  AddModelFromSdfFile(full_name, "", package_map, &plant, nullptr);
+  plant.Finalize();
+
+  // In SDF, effort limits are specified in <joint><axis><limit><effort>,
+  // which is the reason we read the joint actuator using the joint name.
+  // Test the joint actuator with a positive effort limit.
+  const auto& limited_joint_actuator =
+      plant.GetJointActuatorByName("revolute_joint_positive_limit");
+  EXPECT_EQ(limited_joint_actuator.effort_limit(), 100);
+
+  // Test the joint actuator with the effort limit set to negative value,
+  // which will be treated as no limit per the SDF standard.
+  constexpr double kInf = std::numeric_limits<double>::infinity();
+  const auto& no_limit_joint_actuator =
+      plant.GetJointActuatorByName("revolute_joint_no_limit");
+  EXPECT_TRUE(no_limit_joint_actuator.effort_limit() == kInf);
+
+  // Test the joint actuator with the effort limit set to 0, which means no
+  // actuation.
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant.GetJointActuatorByName("prismatic_joint_zero_limit"),
+      std::logic_error, "There is no joint actuator named '.*' in the model.");
+}
+
+void ExpectUnsupportedFrame(const std::string& inner) {
+  const std::string filename = temp_directory() + "/bad.sdf";
+  std::ofstream file(filename);
+  file << "<sdf version='1.6'>" << inner << "\n</sdf>\n";
+  file.close();
+
+  MultibodyPlant<double> plant;
+  SceneGraph<double> scene_graph;
+  PackageMap package_map;
+  plant.RegisterAsSourceForSceneGraph(&scene_graph);
+  drake::log()->debug("inner: {}", inner);
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      AddModelsFromSdfFile(filename, package_map, &plant),
+      std::runtime_error,
+      R"(<pose frame='\{non-empty\}'/> is presently not supported )"
+      R"(outside of the <frame/> tag.)");
+}
+
+GTEST_TEST(SdfParser, TestUnsupportedFrames) {
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <pose frame='hello'/>
+</model>)");
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <link name='a'><pose frame='hello'/></link>
+</model>)");
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <link name='a'>
+    <inertial><pose frame='hello'/></inertial>
+  </link>
+</model>)");
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <link name='a'>"
+    <visual name='b'><pose frame='hello'/></visual>
+  </link>
+</model>)");
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <link name='a'>"
+    <collision name='b'><pose frame='hello'/></collision>
+  </link>
+</model>)");
+  ExpectUnsupportedFrame(R"(
+<model name='bad'>
+  <link name='a'/>
+  <joint name='b' type='fixed'>"
+    <pose frame='hello'/>"
+    <parent>world</parent>
+    <child>a</child>"
+  </joint>
+</model>)");
+}
+
+
 }  // namespace
-}  // namespace detail
+}  // namespace internal
 }  // namespace multibody
 }  // namespace drake

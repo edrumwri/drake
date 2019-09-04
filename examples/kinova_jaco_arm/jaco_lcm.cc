@@ -33,11 +33,16 @@ JacoCommandReceiver::JacoCommandReceiver(int num_joints, int num_fingers)
       num_fingers_(num_fingers) {
   this->DeclareAbstractInputPort(
       systems::kUseDefaultName,
-      systems::Value<lcmt_jaco_command>{});
+      Value<lcmt_jaco_command>{});
   this->DeclareVectorOutputPort(
       systems::BasicVector<double>((num_joints_ + num_fingers_) * 2),
       &JacoCommandReceiver::OutputCommand);
-  this->DeclarePeriodicDiscreteUpdate(kJacoLcmStatusPeriod);
+  this->DeclarePeriodicDiscreteUpdateEvent(
+      kJacoLcmStatusPeriod, 0., &JacoCommandReceiver::UpdateDiscreteState);
+  // Register a forced discrete state update event. It is added for unit test,
+  // or for potential users who require forced updates.
+  this->DeclareForcedDiscreteUpdateEvent(
+      &JacoCommandReceiver::UpdateDiscreteState);
   this->DeclareDiscreteState((num_joints_ + num_fingers_) * 2);
 }
 
@@ -52,13 +57,12 @@ void JacoCommandReceiver::set_initial_position(
       VectorX<double>::Zero(num_joints_ + num_fingers_);
 }
 
-void JacoCommandReceiver::DoCalcDiscreteVariableUpdates(
+systems::EventStatus JacoCommandReceiver::UpdateDiscreteState(
     const Context<double>& context,
-    const std::vector<const DiscreteUpdateEvent<double>*>&,
     DiscreteValues<double>* discrete_state) const {
-  const systems::AbstractValue* input = this->EvalAbstractInput(context, 0);
+  const AbstractValue* input = this->EvalAbstractInput(context, 0);
   DRAKE_ASSERT(input != nullptr);
-  const auto& command = input->GetValue<lcmt_jaco_command>();
+  const auto& command = input->get_value<lcmt_jaco_command>();
 
   // If we're using a default constructed message (haven't received
   // a command yet), keep using the initial state.
@@ -80,6 +84,8 @@ void JacoCommandReceiver::DoCalcDiscreteVariableUpdates(
     velocities(i + num_joints_) =
         command.finger_velocity[i] * kFingerSdkToUrdf;
   }
+
+  return systems::EventStatus::Succeeded();
 }
 
 void JacoCommandReceiver::OutputCommand(const Context<double>& context,
@@ -132,18 +138,22 @@ JacoStatusReceiver::JacoStatusReceiver(int num_joints, int num_fingers)
       &JacoStatusReceiver::OutputStatus);
   this->DeclareAbstractInputPort(
       systems::kUseDefaultName,
-      systems::Value<lcmt_jaco_status>{});
+      Value<lcmt_jaco_status>{});
   this->DeclareDiscreteState((num_joints_ + num_fingers_)* 2);
-  this->DeclarePeriodicDiscreteUpdate(kJacoLcmStatusPeriod);
+  this->DeclarePeriodicDiscreteUpdateEvent(
+      kJacoLcmStatusPeriod, 0., &JacoStatusReceiver::UpdateDiscreteState);
+  // Register a forced discrete state update event. It is added for unit test,
+  // or for potential users who require forced updates.
+  this->DeclareForcedDiscreteUpdateEvent(
+      &JacoStatusReceiver::UpdateDiscreteState);
 }
 
-void JacoStatusReceiver::DoCalcDiscreteVariableUpdates(
+systems::EventStatus JacoStatusReceiver::UpdateDiscreteState(
     const Context<double>& context,
-    const std::vector<const DiscreteUpdateEvent<double>*>&,
     DiscreteValues<double>* discrete_state) const {
-  const systems::AbstractValue* input = this->EvalAbstractInput(context, 0);
+  const AbstractValue* input = this->EvalAbstractInput(context, 0);
   DRAKE_ASSERT(input != nullptr);
-  const auto& status = input->GetValue<lcmt_jaco_status>();
+  const auto& status = input->get_value<lcmt_jaco_status>();
 
   BasicVector<double>& state = discrete_state->get_mutable_vector(0);
   auto state_value = state.get_mutable_value();
@@ -169,6 +179,8 @@ void JacoStatusReceiver::DoCalcDiscreteVariableUpdates(
     velocities(i + num_joints_) =
         status.finger_velocity[i] * kFingerSdkToUrdf;
   }
+
+  return systems::EventStatus::Succeeded();
 }
 
 void JacoStatusReceiver::OutputStatus(const Context<double>& context,

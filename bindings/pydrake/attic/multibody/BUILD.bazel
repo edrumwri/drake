@@ -1,7 +1,6 @@
 # -*- python -*-
 
 load("@drake//tools/install:install.bzl", "install")
-load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
     "@drake//tools/skylark:pybind.bzl",
     "drake_pybind_library",
@@ -11,7 +10,9 @@ load(
 load(
     "@drake//tools/skylark:drake_py.bzl",
     "drake_py_library",
+    "drake_py_unittest",
 )
+load("//bindings/pydrake:pydrake.bzl", "add_lint_tests_pydrake")
 
 package(default_visibility = [
     "//bindings/pydrake:__subpackages__",
@@ -26,7 +27,7 @@ drake_py_library(
     srcs = ["__init__.py"],
     imports = PACKAGE_INFO.py_imports,
     deps = [
-        "//bindings/pydrake:module_py",
+        "//bindings/pydrake/attic:module_py",
     ],
 )
 
@@ -43,7 +44,7 @@ drake_pybind_library(
     name = "rigid_body_plant_py",
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
-        "//bindings/pydrake/systems:systems_pybind",
+        "//bindings/pydrake/common:value_pybind",
         "//lcmtypes:viewer",
     ],
     cc_srcs = ["rigid_body_plant_py.cc"],
@@ -159,10 +160,51 @@ install(
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
-# NOTE: Unittests on `attic` should not move until the forwarding modules
-# outside of the attic are deprecated!
-
-add_lint_tests(
-    cpplint_data = ["//bindings/pydrake:.clang-format"],
-    enable_clang_format_lint = True,
+drake_py_unittest(
+    name = "rigid_body_plant_test",
+    data = ["//examples/pendulum:models"],
+    deps = [
+        ":rigid_body_plant_py",
+        ":rigid_body_tree_py",
+    ],
 )
+
+drake_py_unittest(
+    name = "shapes_test",
+    data = ["//examples/quadrotor:models"],
+    deps = [
+        ":shapes_py",
+    ],
+)
+
+drake_py_unittest(
+    name = "rigid_body_tree_test",
+    data = [
+        "//examples/atlas:models",
+        "//examples/pendulum:models",
+        "//examples/simple_four_bar:models",
+    ],
+    deps = [
+        ":collision_py",
+        ":joints_py",
+        ":parsers_py",
+        ":rigid_body_py",
+        ":rigid_body_tree_py",
+        ":shapes_py",
+    ],
+)
+
+drake_py_unittest(
+    name = "parsers_test",
+    data = [
+        "//examples/acrobot:models",
+        "//examples/atlas:models",
+        "//examples/pr2:models",
+    ],
+    deps = [
+        ":parsers_py",
+        ":rigid_body_tree_py",
+    ],
+)
+
+add_lint_tests_pydrake()

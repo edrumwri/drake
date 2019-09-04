@@ -31,6 +31,7 @@ namespace multibody {
 ///
 /// - double
 /// - AutoDiffXd
+/// - symbolic::Expression
 ///
 /// They are already available to link against in the containing library.
 /// No other values for T are currently supported.
@@ -41,6 +42,8 @@ class RevoluteJoint final : public Joint<T> {
 
   template<typename Scalar>
   using Context = systems::Context<Scalar>;
+
+  static const char kTypeName[];
 
   /// Constructor to create a revolute joint between two bodies so that
   /// frame F attached to the parent body P and frame M attached to the child
@@ -127,6 +130,11 @@ class RevoluteJoint final : public Joint<T> {
     damping_ = damping;
   }
 
+  const std::string& type_name() const override {
+    static const never_destroyed<std::string> name{kTypeName};
+    return name.access();
+  }
+
   /// Returns the axis of revolution of `this` joint as a unit vector.
   /// Since the measures of this axis in either frame F or M are the same (see
   /// this class's documentation for frames's definitions) then,
@@ -169,9 +177,6 @@ class RevoluteJoint final : public Joint<T> {
   }
 
   /// @name Context-dependent value access
-  ///
-  /// These methods require the provided context to be an instance of
-  /// MultibodyTreeContext. Failure to do so leads to a std::logic_error.
   /// @{
 
   /// Gets the rotation angle of `this` mobilizer from `context`.
@@ -319,6 +324,9 @@ class RevoluteJoint final : public Joint<T> {
   std::unique_ptr<Joint<AutoDiffXd>> DoCloneToScalar(
       const internal::MultibodyTree<AutoDiffXd>& tree_clone) const override;
 
+  std::unique_ptr<Joint<symbolic::Expression>> DoCloneToScalar(
+      const internal::MultibodyTree<symbolic::Expression>&) const override;
+
   // Make RevoluteJoint templated on every other scalar type a friend of
   // RevoluteJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can access
   // private members of RevoluteJoint<T>.
@@ -361,8 +369,10 @@ class RevoluteJoint final : public Joint<T> {
   double damping_{0};
 };
 
+template <typename T> const char RevoluteJoint<T>::kTypeName[] = "revolute";
+
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class ::drake::multibody::RevoluteJoint)

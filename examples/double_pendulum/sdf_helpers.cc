@@ -78,7 +78,7 @@ void ParseGeometry(sdf::ElementPtr sdf_geometry_element,
     return;
   }
   // TODO(hidmic): Support mesh and sphere geometries.
-  DRAKE_ABORT_MSG("Unsupported geometry!");
+  throw std::domain_error("Unsupported geometry!");
 }
 
 // Parses a visual geometry from the given SDF element and adds a
@@ -239,13 +239,13 @@ ParseJointType(sdf::ElementPtr sdf_joint_element,
         // Axis of rotation is defined in the model frame (D).
 
         // Joint frame's (M) pose in model frame (D).
-        const Isometry3<double> X_DM =
-            frame_cache.Transform(instance.name, joint_name);
+        const math::RotationMatrix<double> R_DM(
+            frame_cache.Transform(instance.name, joint_name).linear());
         // Axis of rotation must be rotated back to the joint
         // frame (M), so the inverse of the rotational part of the
         // pose of the joint frame (M) in the model frame (D)
         // is applied.
-        axis_of_rotation = X_DM.linear().inverse() * axis_of_rotation;
+        axis_of_rotation = R_DM.inverse() * axis_of_rotation;
       }
     }
     // To instantiate the joint we require the joint location as seen from
@@ -258,7 +258,7 @@ ParseJointType(sdf::ElementPtr sdf_joint_element,
     return std::move(joint);
   }
   // TODO(hidmic): Support prismatic and fixed joints.
-  DRAKE_ABORT_MSG("Unsupported joint type!");
+  throw std::domain_error("Unsupported joint type!");
 }
 
 // Parses a joint from the given SDF element and adds a DrakeJoint instance

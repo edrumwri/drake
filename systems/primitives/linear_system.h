@@ -149,45 +149,39 @@ class TimeVaryingLinearSystem : public TimeVaryingAffineSystem<T> {
   }
 };
 
-#ifndef DRAKE_DOXYGEN_CXX
-// LinearSystem special values for port indices.  Omitted from Doxygen because
-// we should really not be using `int`s here in the first place, and we don't
-// really want to leak these into the drake::systems namespace globally.
-const int kNoInput = -1;
-const int kUseFirstInputIfItExists = -2;
-const int kNoOutput = -3;
-const int kUseFirstOutputIfItExists = -4;
-#endif
-
 /// Takes the first-order Taylor expansion of a System around a nominal
 /// operating point (defined by the Context).
 ///
 /// This method currently supports linearizing around at most a single vector
 /// input port and at most a single vector output port.  For systems with
 /// more ports, use @p input_port_index and @p output_port_index to select
-/// the input for the newly constructed system.  Any additional input ports
-/// will be treated as constants (fixed at the value specified in @p context).
+/// the input for the newly constructed system.  Any additional _vector_
+/// input ports will be treated as constants (fixed at the value specified in
+/// `context`). Abstract-valued input ports must be unconnected (i.e., the
+/// system must treat the port as optional and it must be unused).
 ///
 /// @param system The system or subsystem to linearize.
 /// @param context Defines the nominal operating point about which the system
 /// should be linearized.  See note below.
-/// @param input_port_index A valid input port index for @p system or kNoInput
-/// or (default) kUseFirstInputIfItExists.
+/// @param input_port_index A valid input port index for @p system or
+/// InputPortSelection.  All other inputs are assumed to be fixed to the
+/// value described by the @p context. @default kUseFirstInputIfItExists.
 /// @param output_port_index A valid output port index for @p system or
-/// kNoOutput or (default) kUseFirstOutputIfItExists.
+/// an OutputPortSelection. @default kUseFirstOutputIfItExists.
 /// @param equilibrium_check_tolerance Specifies the tolerance on ensuring that
 /// the derivative vector isZero at the nominal operating point.  @default 1e-6.
 /// @returns A LinearSystem that approximates the original system in the
 /// vicinity of the operating point.  See note below.
-/// @throws std::runtime_error if the system the operating point is not an
+/// @throws std::runtime_error if the operating point is not an
 /// equilibrium point of the system (within the specified tolerance)
-/// @throws std::runtime_error if the system if the system is not (only)
+/// @throws std::runtime_error if the system is not (only)
 /// continuous or (only) discrete time with a single periodic update.
 ///
-/// @note All inputs in the Context must be connected, either to the
+/// @note All _vector_ inputs in the system must be connected, either to the
 /// output of some upstream System within a Diagram (e.g., if system is a
 /// reference to a subsystem in a Diagram), or to a constant value using, e.g.
-///   context->FixInputPort(0,default_input);
+/// `context->FixInputPort(0,default_input)`. Any _abstract_ inputs in the
+/// system must be unconnected (the port must be both optional and unused).
 ///
 /// @note The inputs, states, and outputs of the returned system are NOT the
 /// same as the original system.  Denote x0,u0 as the nominal state and input
@@ -199,8 +193,10 @@ const int kUseFirstOutputIfItExists = -4;
 ///
 std::unique_ptr<LinearSystem<double>> Linearize(
     const System<double>& system, const Context<double>& context,
-    int input_port_index = kUseFirstInputIfItExists,
-    int output_port_index = kUseFirstOutputIfItExists,
+    variant<InputPortSelection, InputPortIndex> input_port_index =
+        InputPortSelection::kUseFirstInputIfItExists,
+    variant<OutputPortSelection, OutputPortIndex> output_port_index =
+        OutputPortSelection::kUseFirstOutputIfItExists,
     double equilibrium_check_tolerance = 1e-6);
 
 /// A first-order Taylor series approximation to a @p system in the neighborhood
@@ -230,13 +226,15 @@ std::unique_ptr<LinearSystem<double>> Linearize(
 /// @param system The system or subsystem to linearize.
 /// @param context Defines the nominal operating point about which the system
 /// should be linearized.
-/// @param input_port_index A valid input port index for @p system or kNoInput
-/// or (default) kUseFirstInputIfItExists.
+/// @param input_port_index A valid input port index for @p system or
+/// InputPortSelection. @default kUseFirstInputIfItExists.
 /// @param output_port_index A valid output port index for @p system or
-/// kNoOutput or (default) kUseFirstOutputIfItExists.
+/// OutputPortSelection. @default kUseFirstOutputIfItExists.
 /// @returns An AffineSystem at this linearization point.
-/// @throws std::runtime_error if the system if the system is not (only)
-/// continuous or (only) discrete time with a single periodic update.
+/// @throws if any abstract inputs are connected, if any
+///         vector-valued inputs are unconnected, if the system is not (only)
+///         continuous or not (only) discrete time with a single periodic
+///         update.
 ///
 /// Note that x, u and y are in the same coordinate system as the original
 /// @p system, since the terms involving @f$ x_0, u_0 @f$ reside in
@@ -248,8 +246,10 @@ std::unique_ptr<LinearSystem<double>> Linearize(
 // me handle the additional options without a lot of boilerplate.
 std::unique_ptr<AffineSystem<double>> FirstOrderTaylorApproximation(
     const System<double>& system, const Context<double>& context,
-    int input_port_index = kUseFirstInputIfItExists,
-    int output_port_index = kUseFirstOutputIfItExists);
+    variant<InputPortSelection, InputPortIndex> input_port_index =
+        InputPortSelection::kUseFirstInputIfItExists,
+    variant<OutputPortSelection, OutputPortIndex> output_port_index =
+        OutputPortSelection::kUseFirstOutputIfItExists);
 
 /// Returns the controllability matrix:  R = [B, AB, ..., A^{n-1}B].
 /// @ingroup control_systems

@@ -4,7 +4,6 @@
 #include <utility>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/common/drake_deprecated.h"
 #include "drake/solvers/decision_variable.h"
 
 namespace drake {
@@ -42,9 +41,6 @@ class Binding {
           typename std::enable_if<std::is_convertible<
               std::shared_ptr<U>, std::shared_ptr<C>>::value>::type* = nullptr)
       : Binding(b.evaluator(), b.variables()) {}
-
-  DRAKE_DEPRECATED("Please use evaluator() instead of constraint()")
-  const std::shared_ptr<C>& constraint() const { return evaluator_; }
 
   const std::shared_ptr<C>& evaluator() const { return evaluator_; }
 

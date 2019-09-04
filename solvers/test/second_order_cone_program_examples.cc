@@ -9,6 +9,8 @@
 namespace drake {
 namespace solvers {
 namespace test {
+const double kInf = std::numeric_limits<double>::infinity();
+
 std::vector<EllipsoidsSeparationProblem> GetEllipsoidsSeparationProblems() {
   return {EllipsoidsSeparationProblem::kProblem0,
           EllipsoidsSeparationProblem::kProblem1,
@@ -81,26 +83,25 @@ TestEllipsoidsSeparation::TestEllipsoidsSeparation() {
 }
 
 void TestEllipsoidsSeparation::SolveAndCheckSolution(
-    const MathematicalProgramSolverInterface& solver, double tol) {
+    const SolverInterface& solver, double tol) {
   MathematicalProgramResult result = RunSolver(prog_, solver);
 
   // Check the solution.
   // First check if each constraint is satisfied.
-  const auto& a_value = prog_.GetSolution(a_, result);
+  const auto& a_value = result.GetSolution(a_);
   const auto& R1a_value = R1_.transpose() * a_value;
   const auto& R2a_value = R2_.transpose() * a_value;
-  EXPECT_NEAR(prog_.GetSolution(t_(0), result), R1a_value.norm(), 100 * tol);
-  EXPECT_NEAR(prog_.GetSolution(t_(1), result), R2a_value.norm(), 100 * tol);
+  EXPECT_NEAR(result.GetSolution(t_(0)), R1a_value.norm(), 100 * tol);
+  EXPECT_NEAR(result.GetSolution(t_(1)), R2a_value.norm(), 100 * tol);
   EXPECT_NEAR((x2_ - x1_).dot(a_value), 1.0, tol);
 
   // Now check if the solution is meaningful, that it really finds a separating
   // hyperplane.
   // The separating hyperplane exists if and only if p* <= 1
-  const double p_star =
-      prog_.GetSolution(t_(0), result) + prog_.GetSolution(t_(1), result);
+  const double p_star = result.GetSolution(t_(0)) + result.GetSolution(t_(1));
   const bool is_separated = p_star <= 1.0;
-  const double t1 = prog_.GetSolution(t_(0), result);
-  const double t2 = prog_.GetSolution(t_(1), result);
+  const double t1 = result.GetSolution(t_(0));
+  const double t2 = result.GetSolution(t_(1));
   if (is_separated) {
     // Then the hyperplane a' * x = 0.5 * (a'*x1 + t1 + a'*x2 - t2)
     const double b1 = a_value.dot(x1_) + t1;
@@ -153,11 +154,11 @@ void TestEllipsoidsSeparation::SolveAndCheckSolution(
     result = RunSolver(prog_intersect, solver);
 
     // Check if the constraints are satisfied
-    const auto& u1_value = prog_intersect.GetSolution(u1, result);
-    const auto& u2_value = prog_intersect.GetSolution(u2, result);
+    const auto& u1_value = result.GetSolution(u1);
+    const auto& u2_value = result.GetSolution(u2);
     EXPECT_LE(u1_value.norm(), 1);
     EXPECT_LE(u2_value.norm(), 1);
-    const auto& y_value = prog_intersect.GetSolution(y, result);
+    const auto& y_value = result.GetSolution(y);
     EXPECT_TRUE(CompareMatrices(y_value, x1_ + R1_ * u1_value, tol,
                                 MatrixCompareType::absolute));
     EXPECT_TRUE(CompareMatrices(y_value, x2_ + R2_ * u2_value, tol,
@@ -176,8 +177,8 @@ TestQPasSOCP::TestQPasSOCP() {
       Q_ = Eigen::Matrix2d::Identity();
       c_ = Eigen::Vector2d::Ones();
       A_ = Eigen::RowVector2d(0, 0);
-      b_lb_ = Vector1<double>(-std::numeric_limits<double>::infinity());
-      b_ub_ = Vector1<double>(std::numeric_limits<double>::infinity());
+      b_lb_ = Vector1<double>(-kInf);
+      b_ub_ = Vector1<double>(kInf);
       break;
     case QPasSOCPProblem::kProblem1:
       // Constrained QP
@@ -219,24 +220,24 @@ TestQPasSOCP::TestQPasSOCP() {
 }
 
 void TestQPasSOCP::SolveAndCheckSolution(
-    const MathematicalProgramSolverInterface& solver, double tol) {
+    const SolverInterface& solver, double tol) {
   MathematicalProgramResult result;
   result = RunSolver(prog_socp_, solver);
-  const auto& x_socp_value = prog_socp_.GetSolution(x_socp_, result);
+  const auto& x_socp_value = result.GetSolution(x_socp_);
   const double objective_value_socp =
-      c_.dot(x_socp_value) + prog_socp_.GetSolution(y_, result);
+      c_.dot(x_socp_value) + result.GetSolution(y_);
 
   // Check the solution
   const int kXdim = Q_.rows();
   const Eigen::MatrixXd Q_symmetric = 0.5 * (Q_ + Q_.transpose());
   const Eigen::LLT<Eigen::MatrixXd, Eigen::Upper> lltOfQ(Q_symmetric);
   const Eigen::MatrixXd Q_sqrt = lltOfQ.matrixU();
-  EXPECT_NEAR(2 * prog_socp_.GetSolution(y_, result),
-              (Q_sqrt * x_socp_value).squaredNorm(), tol);
-  EXPECT_GE(prog_socp_.GetSolution(y_, result), 0);
+  EXPECT_NEAR(2 * result.GetSolution(y_), (Q_sqrt * x_socp_value).squaredNorm(),
+              tol);
+  EXPECT_GE(result.GetSolution(y_), 0);
 
   result = RunSolver(prog_qp_, solver);
-  const auto& x_qp_value = prog_qp_.GetSolution(x_qp_, result);
+  const auto& x_qp_value = result.GetSolution(x_qp_);
   const Eigen::RowVectorXd x_qp_transpose = x_qp_value.transpose();
   Eigen::VectorXd Q_x_qp = Q_ * x_qp_value;
   double objective_value_qp = c_.dot(x_qp_value);
@@ -275,11 +276,9 @@ TestFindSpringEquilibrium::TestFindSpringEquilibrium() {
   prog_.AddBoundingBoxConstraint(
       end_pos2_, end_pos2_,
       {x_.segment<1>(num_nodes - 1), y_.segment<1>(num_nodes - 1)});
-  prog_.AddBoundingBoxConstraint(
-      Eigen::VectorXd::Zero(num_nodes - 1),
-      Eigen::VectorXd::Constant(num_nodes - 1,
-                                std::numeric_limits<double>::infinity()),
-      t_);
+  prog_.AddBoundingBoxConstraint(Eigen::VectorXd::Zero(num_nodes - 1),
+                                 Eigen::VectorXd::Constant(num_nodes - 1, kInf),
+                                 t_);
 
   // sqrt((x(i)-x(i+1))^2 + (y(i) - y(i+1))^2) <= ti + spring_rest_length
   for (int i = 0; i < num_nodes - 1; ++i) {
@@ -300,7 +299,7 @@ TestFindSpringEquilibrium::TestFindSpringEquilibrium() {
 }
 
 void TestFindSpringEquilibrium::SolveAndCheckSolution(
-    const MathematicalProgramSolverInterface& solver, double tol) {
+    const SolverInterface& solver, double tol) {
   const MathematicalProgramResult result = RunSolver(prog_, solver);
 
   const optional<SolverId> solver_id = result.get_solver_id();
@@ -308,25 +307,23 @@ void TestFindSpringEquilibrium::SolveAndCheckSolution(
   const int num_nodes = weight_.rows();
   for (int i = 0; i < num_nodes - 1; ++i) {
     Eigen::Vector2d spring(
-        prog_.GetSolution(x_(i + 1), result) - prog_.GetSolution(x_(i), result),
-        prog_.GetSolution(y_(i + 1), result) -
-            prog_.GetSolution(y_(i), result));
+        result.GetSolution(x_(i + 1)) - result.GetSolution(x_(i)),
+        result.GetSolution(y_(i + 1)) - result.GetSolution(y_(i)));
     if (spring.norm() < spring_rest_length_) {
-      EXPECT_LE(prog_.GetSolution(t_(i), result), 1E-3);
-      EXPECT_GE(prog_.GetSolution(t_(i), result), 0 - 1E-10);
+      EXPECT_LE(result.GetSolution(t_(i)), 1E-3);
+      EXPECT_GE(result.GetSolution(t_(i)), 0 - 1E-10);
     } else {
       EXPECT_TRUE(std::abs(spring.norm() - spring_rest_length_ -
-                           prog_.GetSolution(t_(i), result)) < 1E-3);
+                           result.GetSolution(t_(i))) < 1E-3);
     }
   }
-  const auto& t_value = prog_.GetSolution(t_, result);
-  EXPECT_NEAR(prog_.GetSolution(z_, result), t_value.squaredNorm(), 1E-3);
+  const auto& t_value = result.GetSolution(t_);
+  EXPECT_NEAR(result.GetSolution(z_), t_value.squaredNorm(), 1E-3);
   // Now test equilibrium.
   for (int i = 1; i < num_nodes - 1; i++) {
     Eigen::Vector2d left_spring(
-        prog_.GetSolution(x_(i - 1), result) - prog_.GetSolution(x_(i), result),
-        prog_.GetSolution(y_(i - 1), result) -
-            prog_.GetSolution(y_(i), result));
+        result.GetSolution(x_(i - 1)) - result.GetSolution(x_(i)),
+        result.GetSolution(y_(i - 1)) - result.GetSolution(y_(i)));
     Eigen::Vector2d left_spring_force;
     double left_spring_length = left_spring.norm();
     if (left_spring_length < spring_rest_length_) {
@@ -336,9 +333,8 @@ void TestFindSpringEquilibrium::SolveAndCheckSolution(
                           spring_stiffness_ * left_spring / left_spring_length;
     }
     Eigen::Vector2d right_spring(
-        prog_.GetSolution(x_(i + 1), result) - prog_.GetSolution(x_(i), result),
-        prog_.GetSolution(y_(i + 1), result) -
-            prog_.GetSolution(y_(i), result));
+        result.GetSolution(x_(i + 1)) - result.GetSolution(x_(i)),
+        result.GetSolution(y_(i + 1)) - result.GetSolution(y_(i)));
     Eigen::Vector2d right_spring_force;
     double right_spring_length = right_spring.norm();
     if (right_spring_length < spring_rest_length_) {
@@ -352,6 +348,128 @@ void TestFindSpringEquilibrium::SolveAndCheckSolution(
     EXPECT_TRUE(CompareMatrices(
         weight_i + left_spring_force + right_spring_force,
         Eigen::Vector2d::Zero(), tol, MatrixCompareType::absolute));
+  }
+}
+
+MaximizeGeometricMeanTrivialProblem1::MaximizeGeometricMeanTrivialProblem1()
+    : prog_{new MathematicalProgram()},
+      x_{prog_->NewContinuousVariables<1>()(0)} {
+  prog_->AddBoundingBoxConstraint(-kInf, 10, x_);
+  Eigen::Vector2d A(2, 3);
+  Eigen::Vector2d b(3, 2);
+  prog_->AddMaximizeGeometricMeanCost(A, b, Vector1<symbolic::Variable>(x_));
+}
+
+void MaximizeGeometricMeanTrivialProblem1::CheckSolution(
+    const MathematicalProgramResult& result, double tol) {
+  ASSERT_TRUE(result.is_success());
+  EXPECT_NEAR(result.GetSolution(x_), 10, tol);
+  EXPECT_NEAR(result.get_optimal_cost(), -std::sqrt(23 * 32), tol);
+}
+
+MaximizeGeometricMeanTrivialProblem2::MaximizeGeometricMeanTrivialProblem2()
+    : prog_{new MathematicalProgram()},
+      x_{prog_->NewContinuousVariables<1>()(0)} {
+  prog_->AddBoundingBoxConstraint(-kInf, 10, x_);
+  const Eigen::Vector3d A(2, 3, 4);
+  const Eigen::Vector3d b(3, 2, 5);
+  prog_->AddMaximizeGeometricMeanCost(A, b, Vector1<symbolic::Variable>(x_));
+}
+
+void MaximizeGeometricMeanTrivialProblem2::CheckSolution(
+    const MathematicalProgramResult& result, double tol) {
+  ASSERT_TRUE(result.is_success());
+  EXPECT_NEAR(result.GetSolution(x_), 10, tol);
+  EXPECT_NEAR(result.get_optimal_cost(), -std::pow(23 * 32 * 45, 1.0 / 4), tol);
+}
+
+SmallestEllipsoidCoveringProblem::SmallestEllipsoidCoveringProblem(
+    const Eigen::Ref<const Eigen::MatrixXd>& p)
+    : prog_{new MathematicalProgram()},
+      a_{prog_->NewContinuousVariables(p.rows())},
+      p_{p} {
+  prog_->AddMaximizeGeometricMeanCost(a_);
+  const Eigen::MatrixXd p_dot_p = (p_.array() * p_.array()).matrix();
+  const int num_points = p.cols();
+  prog_->AddLinearConstraint(p_dot_p.transpose(),
+                             Eigen::VectorXd::Constant(num_points, -kInf),
+                             Eigen::VectorXd::Ones(num_points), a_);
+}
+
+void SmallestEllipsoidCoveringProblem::CheckSolution(
+    const MathematicalProgramResult& result, double tol) const {
+  const auto a_sol = result.GetSolution(a_);
+  // p_dot_a_dot_p(i) is pᵢᵀ diag(a) * pᵢ
+  const Eigen::RowVectorXd p_dot_a_dot_p =
+      a_sol.transpose() * (p_.array() * p_.array()).matrix();
+  // All points are within the ellipsoid.
+  EXPECT_TRUE((p_dot_a_dot_p.array() <= 1 + tol).all());
+  // At least one point is on the boundary of the ellipsoid.
+  const int num_points = p_.cols();
+  EXPECT_TRUE(
+      ((p_dot_a_dot_p.transpose().array() - Eigen::ArrayXd::Ones(num_points))
+           .abs() <= Eigen::ArrayXd::Constant(num_points, tol))
+          .any());
+
+  const double cost_expected = -std::pow(
+      a_sol.prod(), 1.0 / std::pow(2, (std::ceil(std::log2(a_sol.rows())))));
+  EXPECT_NEAR(result.get_optimal_cost(), cost_expected, tol);
+
+  CheckSolutionExtra(result, tol);
+}
+
+// Cover the 4 points (1, 1), (1, -1), (-1, 1) and (-1, -1).
+SmallestEllipsoidCoveringProblem1::SmallestEllipsoidCoveringProblem1()
+    : SmallestEllipsoidCoveringProblem(
+          (Eigen::Matrix<double, 2, 4>() << 1, 1, -1, -1, 1, -1, 1, -1)
+              .finished()) {}
+
+void SmallestEllipsoidCoveringProblem1::CheckSolutionExtra(
+    const MathematicalProgramResult& result, double tol) const {
+  ASSERT_TRUE(result.is_success());
+  // The smallest ellipsoid is a = (0.5, 0.5);
+  const Eigen::Vector2d a_expected(0.5, 0.5);
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(a()), a_expected, tol));
+  EXPECT_NEAR(result.get_optimal_cost(), -0.5, tol);
+}
+
+void SolveAndCheckSmallestEllipsoidCoveringProblems(
+    const SolverInterface& solver, double tol) {
+  SmallestEllipsoidCoveringProblem1 prob1;
+  if (solver.available()) {
+    MathematicalProgramResult result;
+    solver.Solve(prob1.prog(), {}, {}, &result);
+    prob1.CheckSolution(result, tol);
+  }
+
+  // Now try 3D points;
+  Eigen::Matrix<double, 3, 4> points_3d;
+  // arbitrary points.
+  // clang-format off
+  points_3d << 0.1, 0.2, -1.2, 0.5,
+              -0.3, 0.1, -2.5, 0.8,
+              1.2, 0.3, 1.5, 3.2;
+  // clang-format on
+  SmallestEllipsoidCoveringProblem prob_3d(points_3d);
+  if (solver.available()) {
+    MathematicalProgramResult result;
+    solver.Solve(prob_3d.prog(), {}, {}, &result);
+    prob_3d.CheckSolution(result, tol);
+  }
+
+  // Now try arbitrary 4d points.
+  Eigen::Matrix<double, 4, 6> points_4d;
+  // clang-format off
+  points_4d << 1, 2, 3, 4, 5, 6,
+              0.1, 1.4, 3.2, -2.3, 0.7, -0.3,
+              -0.2, -3.1, 0.4, 1.5, 1.8, 1.9,
+              -1, -2, -3, -4, -5, -6;
+  // clang-format on
+  SmallestEllipsoidCoveringProblem prob_4d(points_4d);
+  if (solver.available()) {
+    MathematicalProgramResult result;
+    solver.Solve(prob_4d.prog(), {}, {}, &result);
+    prob_4d.CheckSolution(result, tol);
   }
 }
 }  // namespace test

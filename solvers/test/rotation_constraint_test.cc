@@ -8,7 +8,6 @@
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/math/random_rotation.h"
 #include "drake/math/rotation_matrix.h"
-#include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
@@ -43,8 +42,16 @@ void AddObjective(MathematicalProgram* prog,
 // evaluates a mesh of points within those limits.  This test confirms that
 // of the rotation matrices generated from rotations with those limits are
 // still feasible after the RPY limits constraints have been applied.
-GTEST_TEST(RotationTest, TestRPYLimits) {
-  for (int limits = (1 << 1); limits < (1 << 7); limits += 2) {
+class TestRpyLimitsFixture : public ::testing::TestWithParam<int> {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(TestRpyLimitsFixture)
+  TestRpyLimitsFixture() = default;
+};
+
+TEST_P(TestRpyLimitsFixture, TestRpyLimits) {
+  const int limits = GetParam();
+  // Add brace scope to avoid reflowing all of this code.
+  {
     MathematicalProgram prog;
     auto Rvar = NewRotationMatrixVars(&prog);
     AddBoundingBoxConstraintsImpliedByRollPitchYawLimits(
@@ -89,6 +96,10 @@ GTEST_TEST(RotationTest, TestRPYLimits) {
   }
 }
 
+INSTANTIATE_TEST_CASE_P(
+    RotationTest, TestRpyLimitsFixture,
+    ::testing::Range(1 << 1, 1 << 7, 2));
+
 // Sets up and solves an optimization:
 // <pre>
 //    min_R  sum_{i,j} |R(i,j) - R_desired(i,j)|^2
@@ -105,9 +116,9 @@ GTEST_TEST(RotationTest, TestSpectralPsd) {
   AddObjective(&prog, Rvar, 2 * Eigen::Matrix<double, 3, 3>::Ones());
   AddRotationMatrixSpectrahedralSdpConstraint(&prog, Rvar);
   MathematicalProgramResult result = Solve(prog);
-  ASSERT_EQ(result.get_solution_result(), kSolutionFound);
+  ASSERT_TRUE(result.is_success());
 
-  Matrix3d R = prog.GetSolution(Rvar, result);
+  Matrix3d R = result.GetSolution(Rvar);
 
   double tol = 1e-6;
   EXPECT_LE(R.col(0).lpNorm<2>(), 1 + tol);
@@ -154,9 +165,9 @@ GTEST_TEST(RotationTest, TestOrthonormal) {
   AddObjective(&prog, Rvar, 2 * Eigen::Matrix<double, 3, 3>::Ones());
   AddRotationMatrixOrthonormalSocpConstraint(&prog, Rvar);
   MathematicalProgramResult result = Solve(prog);
-  ASSERT_EQ(result.get_solution_result(), kSolutionFound);
+  ASSERT_TRUE(result.is_success());
 
-  Matrix3d R = prog.GetSolution(Rvar, result);
+  Matrix3d R = result.GetSolution(Rvar);
 
   double tol = 1e-4;
   EXPECT_LE(R.col(0).lpNorm<2>(), 1 + tol);

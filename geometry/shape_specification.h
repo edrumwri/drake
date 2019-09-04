@@ -8,6 +8,7 @@
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
+#include "drake/math/rigid_transform.h"
 
 /** @file
  Provides the classes through which geometric shapes are introduced into
@@ -174,19 +175,20 @@ class HalfSpace final : public Shape {
 
   /** Creates the pose of a canonical half space in frame F.
    The half space's normal is aligned to the positive z-axis of its canonical
-   frame C. Given the measure of that axis in frame F (Cz_F) and a position
-   vector to a point on the plane expressed in the same frame, `p_FC`, creates
-   the pose of the half space in frame F: `X_FC`.
-   @param Cz_F      The positive z-axis of the canonical frame expressed in
-                    frame F. It must be a non-zero vector but need not be unit
-                    length.
-   @param p_FC      A point lying on the half-space's boundary measured
+   frame H. Given a vector that points in the same direction, measured in the
+   F frame (Hz_dir_F) and a position vector to a point on the half space's
+   *boundary* expressed in the same frame, `p_FB`, creates
+   the pose of the half space in frame F: `X_FH`.
+   @param Hz_dir_F  A vector in the direction of the positive z-axis of the
+                    canonical frame expressed in frame F. It must be a non-zero
+                    vector but need not be unit length.
+   @param p_FB      A point B lying on the half space's boundary measured
                     and expressed in frame F.
-   @retval X_FC     The pose of the canonical half-space in frame F.
+   @retval X_FH     The pose of the canonical half-space in frame F.
    @throws std::logic_error if the normal is _close_ to a zero-vector (e.g.,
                             ‖normal_F‖₂ < ε). */
-  static Isometry3<double> MakePose(const Vector3<double>& Cz_F,
-                                    const Vector3<double>& p_FC);
+  static math::RigidTransform<double> MakePose(const Vector3<double>& Hz_dir_F,
+                                               const Vector3<double>& p_FB);
 };
 
 // TODO(SeanCurtis-TRI): Update documentation when the level of support for
@@ -293,7 +295,8 @@ class Convex final : public Shape {
  implementations require.  */
 class ShapeReifier {
  public:
-  virtual ~ShapeReifier() {}
+  virtual ~ShapeReifier() = default;
+
   virtual void ImplementGeometry(const Sphere& sphere, void* user_data) = 0;
   virtual void ImplementGeometry(const Cylinder& cylinder, void* user_data) = 0;
   virtual void ImplementGeometry(const HalfSpace& half_space,
@@ -301,6 +304,10 @@ class ShapeReifier {
   virtual void ImplementGeometry(const Box& box, void* user_data) = 0;
   virtual void ImplementGeometry(const Mesh& mesh, void* user_data) = 0;
   virtual void ImplementGeometry(const Convex& convex, void* user_data) = 0;
+
+ protected:
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ShapeReifier)
+  ShapeReifier() = default;
 };
 
 template <typename S>

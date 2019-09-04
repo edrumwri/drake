@@ -4,12 +4,14 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/tree/linear_spring_damper.h"
 #include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/context.h"
+#include "drake/systems/framework/test_utilities/scalar_conversion.h"
 
 namespace drake {
 
@@ -48,8 +50,9 @@ class SpringMassSystemTest : public ::testing::Test {
         mass, Vector3<double>::Zero(),
         mass * UnitInertia<double>::TriaxiallySymmetric(1.0));
     const RigidBody<double>& body = plant_.AddRigidBody("mass", M_B);
-    slider_ = &plant_.AddJoint<PrismaticJoint>(
-        "Slider", plant_.world_body(), {}, body, {}, Vector3<double>::UnitX());
+    slider_ = &plant_.AddJoint<PrismaticJoint>("Slider", plant_.world_body(),
+                                               nullopt, body, nullopt,
+                                               Vector3<double>::UnitX());
     plant_.AddForceElement<LinearSpringDamper>(
         plant_.world_body(), Vector3<double>::Zero(),
         body, Vector3<double>::Zero(),
@@ -138,8 +141,8 @@ TEST_F(SpringMassSystemTest, UnDampedCase) {
   slider_->set_translation(&context, free_length_ + amplitude);
   slider_->set_translation_rate(&context, 0.0);
   simulator.Initialize();
-  simulator.get_mutable_integrator()->set_target_accuracy(integration_accuracy);
-  simulator.StepTo(simulation_time);
+  simulator.get_mutable_integrator().set_target_accuracy(integration_accuracy);
+  simulator.AdvanceTo(simulation_time);
 
   const double x_analytic = CalcAnalyticSolution(
       period, damping_ratio, amplitude, 0.0, simulation_time);
@@ -169,8 +172,8 @@ TEST_F(SpringMassSystemTest, UnderDampedCase) {
   slider_->set_translation(&context, free_length_ + amplitude);
   slider_->set_translation_rate(&context, 0.0);
   simulator.Initialize();
-  simulator.get_mutable_integrator()->set_target_accuracy(integration_accuracy);
-  simulator.StepTo(simulation_time);
+  simulator.get_mutable_integrator().set_target_accuracy(integration_accuracy);
+  simulator.AdvanceTo(simulation_time);
 
   const double x_analytic = CalcAnalyticSolution(
       period, damping_ratio, amplitude, 0.0, simulation_time);
@@ -200,14 +203,40 @@ TEST_F(SpringMassSystemTest, OverDampedCase) {
   slider_->set_translation(&context, free_length_ + amplitude);
   slider_->set_translation_rate(&context, 0.0);
   simulator.Initialize();
-  simulator.get_mutable_integrator()->set_target_accuracy(integration_accuracy);
-  simulator.StepTo(simulation_time);
+  simulator.get_mutable_integrator().set_target_accuracy(integration_accuracy);
+  simulator.AdvanceTo(simulation_time);
 
   const double x_analytic = CalcAnalyticSolution(
       period, damping_ratio, amplitude, 0.0, simulation_time);
 
   EXPECT_NEAR(
       slider_->get_translation(context), x_analytic, integration_accuracy);
+}
+
+TEST_F(SpringMassSystemTest, Symbolic) {
+  // Make the double-valued system.
+  const double mass = 1.0;             // Mass of the body, [kg].
+  const double period = 1.0;           // Period of oscillation, [s].
+  const double damping_ratio = 0.0;    // Damping ratio, dimensionless.
+  MakeSpringMassSystem(mass, period, damping_ratio);
+  ASSERT_TRUE(is_symbolic_convertible(plant_));
+
+  // Make the symbolic system.
+  auto dut = MultibodyPlant<double>::ToSymbolic(plant_);
+  auto context = dut->CreateDefaultContext();
+
+  // Set the input and state to variables.
+  using T = symbolic::Expression;
+  const symbolic::Variable x("x");
+  const symbolic::Variable v("v");
+  dut->SetPositionsAndVelocities(context.get(), Vector2<T>(x, v));
+
+  // Check the symbolic derivatives.  (For now, just check that xdd only
+  // depends on x; we don't check its full expression.)
+  const auto& derivatives = dut->EvalTimeDerivatives(*context);
+  ASSERT_EQ(derivatives.size(), 2);
+  EXPECT_PRED2(symbolic::test::ExprEqual, derivatives[0], v);
+  EXPECT_EQ(derivatives[1].GetVariables(), symbolic::Variables{x});
 }
 
 }  // namespace

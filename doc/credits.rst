@@ -18,10 +18,12 @@ since contributed their talents to help make Drake successful.  Here's an alphab
 * Evan Drumwright
 * Maurice Fallon
 * Siyuan Feng
+* Moritz Fischer-Gundlach
 * Liang Fok
 * David German
 * Lucy Gibson
 * Grant Gould
+* Zhaoyuan Gu
 * Kunimatsu Hashimoto
 * Bill Hoffman
 * Greg Izatt
@@ -31,6 +33,7 @@ since contributed their talents to help make Drake successful.  Here's an alphab
 * Scott Kuindersma
 * Naveen Kuppuswamy
 * Benoit Landry
+* Dominic Liao-McPherson
 * Lucas Manuelli
 * Matt Marjanovic
 * Pat Marion
@@ -44,3 +47,4 @@ since contributed their talents to help make Drake successful.  Here's an alphab
 * `Russ Tedrake <http://people.csail.mit.edu/russt/>`_
 * Andres Valenzuela
 * Matthew Woehlke
+* Huihua Zhao

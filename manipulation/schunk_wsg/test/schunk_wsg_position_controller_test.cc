@@ -67,12 +67,12 @@ GTEST_TEST(SchunkWsgPositionControllerTest, SimTest) {
       "wsg_50_description/sdf/schunk_wsg_50.sdf");
   const auto wsg_model = Parser(wsg).AddModelFromFile(wsg_sdf_path, "gripper");
   wsg->WeldFrames(wsg->world_frame(), wsg->GetFrameByName("body", wsg_model),
-                  Eigen::Isometry3d::Identity());
+                  math::RigidTransformd::Identity());
   wsg->Finalize();
 
   const auto controller = builder.AddSystem<SchunkWsgPositionController>();
 
-  builder.Connect(wsg->get_continuous_state_output_port(wsg_model),
+  builder.Connect(wsg->get_state_output_port(wsg_model),
                   controller->get_state_input_port());
   builder.Connect(controller->get_generalized_force_output_port(),
                   wsg->get_actuation_input_port(wsg_model));
@@ -91,30 +91,26 @@ GTEST_TEST(SchunkWsgPositionControllerTest, SimTest) {
   double force_limit = 40;
   FixInputsAndHistory(*controller, desired_position, force_limit,
                       &controller_context);
-  EXPECT_LE(controller->get_grip_force_output_port()
-                .Eval<BasicVector<double>>(controller_context)
-                .GetAtIndex(0),
+  EXPECT_LE(controller->get_grip_force_output_port().
+                Eval(controller_context)[0],
             force_limit);
-  EXPECT_GE(controller->get_grip_force_output_port()
-                .Eval<BasicVector<double>>(controller_context)
-                .GetAtIndex(0),
+  EXPECT_GE(controller->get_grip_force_output_port().
+                Eval(controller_context)[0],
             -force_limit);
 
-  auto wsg_state = wsg->GetMutablePositionsAndVelocities(&wsg_context);
-  wsg_state = Vector4d::Zero();
-  simulator.StepTo(1.0);
+  wsg->SetPositionsAndVelocities(&wsg_context, Vector4d::Zero());
+  simulator.AdvanceTo(1.0);
 
   const double kTolerance = 1e-12;
 
   // Check that we achieved the desired position.
   EXPECT_TRUE(CompareMatrices(
-      wsg_state,
+      wsg->GetPositionsAndVelocities(wsg_context),
       Vector4d(-desired_position / 2, desired_position / 2, 0.0, 0.0),
       kTolerance));
   // The steady-state force should be near zero.
-  EXPECT_NEAR(controller->get_grip_force_output_port()
-                  .Eval<BasicVector<double>>(controller_context)
-                  .GetAtIndex(0),
+  EXPECT_NEAR(controller->get_grip_force_output_port().
+                  Eval(controller_context)[0],
               0.0, kTolerance);
 
   // Move in toward the middle of the range with lower force from the outside.
@@ -122,15 +118,14 @@ GTEST_TEST(SchunkWsgPositionControllerTest, SimTest) {
   force_limit = 20;
   FixInputsAndHistory(*controller, desired_position, force_limit,
                       &controller_context);
-  simulator.StepTo(2.0);
+  simulator.AdvanceTo(2.0);
   EXPECT_TRUE(CompareMatrices(
-      wsg_state,
+      wsg->GetPositionsAndVelocities(wsg_context),
       Vector4d(-desired_position / 2, desired_position / 2, 0.0, 0.0),
       kTolerance));
   // The steady-state force should be near zero.
-  EXPECT_NEAR(controller->get_grip_force_output_port()
-                  .Eval<BasicVector<double>>(controller_context)
-                  .GetAtIndex(0),
+  EXPECT_NEAR(controller->get_grip_force_output_port().
+                  Eval(controller_context)[0],
               0.0, kTolerance);
 
   // Move to more than closed, and see that the force is at the limit.
@@ -138,18 +133,17 @@ GTEST_TEST(SchunkWsgPositionControllerTest, SimTest) {
   force_limit = 20;
   FixInputsAndHistory(*controller, desired_position, force_limit,
                       &controller_context);
-  simulator.StepTo(3.0);
-  EXPECT_NEAR(controller->get_grip_force_output_port()
-                  .Eval<BasicVector<double>>(controller_context)
-                  .GetAtIndex(0),
+  simulator.AdvanceTo(3.0);
+  EXPECT_NEAR(controller->get_grip_force_output_port().
+                  Eval(controller_context)[0],
               force_limit, kTolerance);
 
   // Set the position to the target and observe zero force.
-  wsg_state = Vector4d(-desired_position / 2, desired_position / 2, 0.0, 0.0);
+  wsg->SetPositionsAndVelocities(&wsg_context,
+      Vector4d(-desired_position / 2, desired_position / 2, 0.0, 0.0));
 
-  EXPECT_EQ(controller->get_grip_force_output_port()
-                .Eval<BasicVector<double>>(controller_context)
-                .GetAtIndex(0),
+  EXPECT_EQ(controller->get_grip_force_output_port().
+                Eval(controller_context)[0],
             0.0);
 }
 

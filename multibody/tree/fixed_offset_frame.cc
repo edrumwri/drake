@@ -14,15 +14,15 @@ namespace multibody {
 template <typename T>
 FixedOffsetFrame<T>::FixedOffsetFrame(
     const std::string& name, const Frame<T>& P,
-    const Isometry3<double>& X_PF,
+    const math::RigidTransform<double>& X_PF,
     optional<ModelInstanceIndex> model_instance) :
     Frame<T>(name, P.body(), model_instance.value_or(P.model_instance())),
     parent_frame_(P), X_PF_(X_PF) {}
 
 template <typename T>
-FixedOffsetFrame<T>::FixedOffsetFrame(
-    const std::string& name, const Body<T>& B, const Isometry3<double>& X_BF) :
-    Frame<T>(name, B), parent_frame_(B.body_frame()), X_PF_(X_BF) {}
+FixedOffsetFrame<T>::FixedOffsetFrame(const std::string& name, const Body<T>& B,
+                                      const math::RigidTransform<double>& X_BF)
+    : Frame<T>(name, B), parent_frame_(B.body_frame()), X_PF_(X_BF) {}
 
 template <typename T>
 template <typename ToScalar>
@@ -46,8 +46,15 @@ std::unique_ptr<Frame<AutoDiffXd>> FixedOffsetFrame<T>::DoCloneToScalar(
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
+template <typename T>
+std::unique_ptr<Frame<symbolic::Expression>>
+FixedOffsetFrame<T>::DoCloneToScalar(
+    const internal::MultibodyTree<symbolic::Expression>& tree_clone) const {
+  return TemplatedDoCloneToScalar(tree_clone);
+}
+
 }  // namespace multibody
 }  // namespace drake
 
-DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
+DRAKE_DEFINE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_SCALARS(
     class drake::multibody::FixedOffsetFrame)

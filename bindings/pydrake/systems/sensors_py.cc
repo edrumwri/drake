@@ -10,15 +10,16 @@
 #include "drake/bindings/pydrake/common/eigen_geometry_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
+#include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/bindings/pydrake/systems/systems_pybind.h"
 #include "drake/common/drake_throw.h"
 #include "drake/common/eigen_types.h"
 #include "drake/systems/sensors/camera_info.h"
 #include "drake/systems/sensors/image.h"
 #include "drake/systems/sensors/image_to_lcm_image_array_t.h"
 #include "drake/systems/sensors/pixel_types.h"
+#include "drake/systems/sensors/rgbd_sensor.h"
 
 using std::string;
 using std::unique_ptr;
@@ -34,9 +35,15 @@ template <typename T, T... kPixelTypes>
 using constant_pack = type_pack<type_pack<constant<T, kPixelTypes>>...>;
 
 using Eigen::Map;
+using Eigen::Vector3d;
+using geometry::FrameId;
+using geometry::render::CameraProperties;
+using geometry::render::DepthCameraProperties;
+using math::RigidTransformd;
+using math::RollPitchYawd;
 
 PYBIND11_MODULE(sensors, m) {
-  PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(variable);
+  PYDRAKE_PREVENT_PYTHON3_MODULE_REIMPORT(m);
 
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake::systems;
@@ -46,8 +53,9 @@ PYBIND11_MODULE(sensors, m) {
 
   m.doc() = "Bindings for the sensors portion of the Systems framework.";
 
-  py::module::import("pydrake.systems.framework");
   py::module::import("pydrake.common.eigen_geometry");
+  py::module::import("pydrake.geometry.render");
+  py::module::import("pydrake.systems.framework");
 
   // Expose only types that are used.
   py::enum_<PixelFormat>(m, "PixelFormat")
@@ -123,6 +131,7 @@ PYBIND11_MODULE(sensors, m) {
       };
 
       py::class_<ImageT> image(m, TemporaryClassName<ImageT>().c_str());
+      AddTemplateClass(m, "Image", image, py_param);
       image  // BR
           .def(py::init<int, int>(), py::arg("width"), py::arg("height"),
               doc.Image.ctor.doc_2args)
@@ -142,12 +151,11 @@ PYBIND11_MODULE(sensors, m) {
       // Constants.
       image.attr("Traits") = traits;
       // - Do not duplicate aliases (e.g. `kNumChannels`) for now.
-      AddTemplateClass(m, "Image", image, py_param);
       // Add type alias for instantiation.
       const std::string suffix = pixel_type_name.substr(1);
       m.attr(("Image" + suffix).c_str()) = image;
       // Add abstract values.
-      pysystems::AddValueInstantiation<ImageT>(m);
+      AddValueInstantiation<ImageT>(m);
     };
     type_visit(instantiation_visitor, PixelTypeList{});
   }
@@ -164,6 +172,77 @@ PYBIND11_MODULE(sensors, m) {
   using T = double;
 
   // Systems.
+
+  auto def_camera_ports = [](auto* ppy_class, auto cls_doc) {
+    auto& py_class = *ppy_class;
+    using PyClass = std::decay_t<decltype(py_class)>;
+    using Class = typename PyClass::type;
+    py_class
+        .def("query_object_input_port", &Class::query_object_input_port,
+            py_reference_internal, cls_doc.query_object_input_port.doc)
+        .def("color_image_output_port", &Class::color_image_output_port,
+            py_reference_internal, cls_doc.color_image_output_port.doc)
+        .def("depth_image_32F_output_port", &Class::depth_image_32F_output_port,
+            py_reference_internal, cls_doc.depth_image_32F_output_port.doc)
+        .def("depth_image_16U_output_port", &Class::depth_image_16U_output_port,
+            py_reference_internal, cls_doc.depth_image_16U_output_port.doc)
+        .def("label_image_output_port", &Class::label_image_output_port,
+            py_reference_internal, cls_doc.label_image_output_port.doc)
+        .def("X_WB_output_port", &Class::X_WB_output_port,
+            py_reference_internal, cls_doc.X_WB_output_port.doc);
+  };
+
+  py::class_<RgbdSensor, LeafSystem<T>> rgbd_sensor(
+      m, "RgbdSensor", doc.RgbdSensor.doc);
+
+  py::class_<RgbdSensor::CameraPoses>(
+      rgbd_sensor, "CameraPoses", doc.RgbdSensor.CameraPoses.doc)
+      .def(ParamInit<RgbdSensor::CameraPoses>())
+      .def_readwrite("X_BC", &RgbdSensor::CameraPoses::X_BC)
+      .def_readwrite("X_BD", &RgbdSensor::CameraPoses::X_BD);
+
+  rgbd_sensor
+      .def(py::init<FrameId, const RigidTransformd&, const CameraProperties&,
+               const DepthCameraProperties&, const RgbdSensor::CameraPoses&,
+               bool>(),
+          py::arg("parent_id"), py::arg("X_PB"), py::arg("color_properties"),
+          py::arg("depth_properties"),
+          py::arg("camera_poses") = RgbdSensor::CameraPoses{},
+          py::arg("show_window") = false, doc.RgbdSensor.ctor.doc_6args)
+      .def(py::init<FrameId, const RigidTransformd&,
+               const DepthCameraProperties&, const RgbdSensor::CameraPoses&,
+               bool>(),
+          py::arg("parent_id"), py::arg("X_PB"), py::arg("properties"),
+          py::arg("camera_poses") = RgbdSensor::CameraPoses{},
+          py::arg("show_window") = false, doc.RgbdSensor.ctor.doc_5args)
+      .def("color_camera_info", &RgbdSensor::color_camera_info,
+          py_reference_internal, doc.RgbdSensor.color_camera_info.doc)
+      .def("depth_camera_info", &RgbdSensor::depth_camera_info,
+          py_reference_internal, doc.RgbdSensor.depth_camera_info.doc)
+      .def("X_BC", &RgbdSensor::X_BC, doc.RgbdSensor.X_BC.doc)
+      .def("X_BD", &RgbdSensor::X_BD, doc.RgbdSensor.X_BD.doc)
+      .def("parent_frame_id", &RgbdSensor::parent_frame_id,
+          py_reference_internal, doc.RgbdSensor.parent_frame_id.doc);
+  def_camera_ports(&rgbd_sensor, doc.RgbdSensor);
+
+  py::class_<RgbdSensorDiscrete, Diagram<T>> rgbd_camera_discrete(
+      m, "RgbdSensorDiscrete", doc.RgbdSensorDiscrete.doc);
+  rgbd_camera_discrete
+      .def(py::init<unique_ptr<RgbdSensor>, double, bool>(), py::arg("sensor"),
+          py::arg("period") = double{RgbdSensorDiscrete::kDefaultPeriod},
+          py::arg("render_label_image") = true,
+          // Keep alive, ownership: `sensor` keeps `self` alive.
+          py::keep_alive<2, 1>(), doc.RgbdSensorDiscrete.ctor.doc)
+      // N.B. Since `camera` is already connected, we do not need additional
+      // `keep_alive`s.
+      .def("sensor", &RgbdSensorDiscrete::sensor, py_reference_internal,
+          doc.RgbdSensorDiscrete.sensor.doc)
+      .def("period", &RgbdSensorDiscrete::period,
+          doc.RgbdSensorDiscrete.period.doc);
+  def_camera_ports(&rgbd_camera_discrete, doc.RgbdSensorDiscrete);
+  rgbd_camera_discrete.attr("kDefaultPeriod") =
+      double{RgbdSensorDiscrete::kDefaultPeriod};
+
   py::class_<CameraInfo>(m, "CameraInfo", doc.CameraInfo.doc)
       .def(py::init<int, int, double>(), py::arg("width"), py::arg("height"),
           py::arg("fov_y"), doc.CameraInfo.ctor.doc_3args)
@@ -181,8 +260,8 @@ PYBIND11_MODULE(sensors, m) {
           doc.CameraInfo.intrinsic_matrix.doc);
 
   {
-    constexpr auto& cls_doc = doc.ImageToLcmImageArrayT;
     using Class = ImageToLcmImageArrayT;
+    constexpr auto& cls_doc = doc.ImageToLcmImageArrayT;
     py::class_<Class, LeafSystem<T>> cls(
         m, "ImageToLcmImageArrayT", cls_doc.doc);
     cls  // BR
@@ -215,8 +294,6 @@ PYBIND11_MODULE(sensors, m) {
     };
     type_visit(def_image_input_port, PixelTypeList{});
   }
-
-  ExecuteExtraPythonCode(m);
 }
 
 }  // namespace pydrake
