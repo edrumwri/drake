@@ -10,6 +10,7 @@
 #include <Eigen/QR>
 
 #include <drake/common/unused.h>
+#include <drake/multibody/math/spatial_velocity.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/multibody/tree/revolute_joint.h>
 
@@ -20,26 +21,29 @@
 namespace DR {
 
 /**
- A "driver", i.e., implementations of Chopstick-specific methods.
+ A "driver", i.e., implementations of Chopstick-specific methods for kinematics
+ and inverse kinematics.
  */
 template <typename T>
-class ChopstickDriver : public InverseKinematics<T> {
+class ChopstickKinematics : public InverseKinematics<T> {
  public:
   /**
    Constructs the given driver using a plant and a seed for inverse kinematics
    @param robot_plant the plant containing one or more chopsticks model instances. Other model instances
-          (e.g., manipulands) can be present in the plant as well, but beware that this will slow the inverse kinematics
+          (e.g., manipulands) can be present in the plant as well, but beware that this may slow the inverse kinematics
           method considerably.
+   @param all_plant the plant containing all models in the environment, including the chopsticks models, manipulands,
+          fixed objects, etc.
    @param random_seed the seed to use for the pseudorandom generator in the inverse kinematics solver. Setting this
           variable to a constant will cause the IK process to act deterministically (i.e., repeatably). Setting this
           value to, e.g., `time(NULL)` will cause the IK process to act randomly.
    */
-  ChopstickDriver(const drake::multibody::MultibodyPlant<T>* robot_plant, unsigned random_seed)
+  ChopstickKinematics(const drake::multibody::MultibodyPlant<T>* robot_plant, unsigned random_seed)
       : plant_(*robot_plant), seed_(random_seed) {
     // Create a context for the plant.
     plant_context_ = robot_plant->CreateDefaultContext();
 
-    // How many model instances does MBP reserve.
+    // How many model instances MBP reserves.
     const int num_builtin_model_instances = 2;
 
     // Initialize mutable variables.
@@ -71,8 +75,7 @@ class ChopstickDriver : public InverseKinematics<T> {
         }
       }
     }
-    for (const auto& i : revolute_joint_indices_)
-      DR_DEMAND(i.size() == 2 || i.size() == 0);
+    for (const auto& i : revolute_joint_indices_) DR_DEMAND(i.size() == 2 || i.size() == 0);
 
     // Build the Body to body index map.
     for (drake::multibody::BodyIndex i(0); i < robot_plant->num_bodies(); ++i)
@@ -81,8 +84,7 @@ class ChopstickDriver : public InverseKinematics<T> {
     // Build the body index to model instance index map.
     for (drake::multibody::ModelInstanceIndex i(0); i < robot_plant->num_model_instances(); ++i) {
       const std::vector<drake::multibody::BodyIndex> body_indices = robot_plant->GetBodyIndices(i);
-      for (const auto& j : body_indices)
-        body_index_to_model_instance_index_map_[j] = i;
+      for (const auto& j : body_indices) body_index_to_model_instance_index_map_[j] = i;
     }
 
     // Set upper and lower limits.
@@ -140,9 +142,22 @@ class ChopstickDriver : public InverseKinematics<T> {
 
     // Use analytical IK by default.
     use_numerical_ik_ = false;
+
+    // Initialize the Jacobian matrix for converting generalized velocities to link velocities.
+    J_ = drake::MatrixX<T>(6, robot_plant->num_velocities());
   }
 
-  virtual ~ChopstickDriver() {}
+  virtual ~ChopstickKinematics() {}
+
+  enum class InverseKinematicsType { kPositionOnly, kOrientationOnly, kPositionAndOrientation };
+
+  /// Gets the type of inverse kinematics that will be performed.
+  /// @note Currently only usable for numerical IK.
+  InverseKinematicsType ik_type() const { return ik_type_; }
+
+  /// Sets the type of inverse kinematics that will be performed.
+  /// @note Currently only usable for numerical IK.
+  void set_ik_type(InverseKinematicsType ik_type) { ik_type_ = ik_type; }
 
   /// Gets the number of seeds to evaluate; more seeds implies higher solution accuracy (to a point).
   /// @note only relevant when `use_numerical_ik()` is `true`.
@@ -171,7 +186,7 @@ class ChopstickDriver : public InverseKinematics<T> {
 
   /// Gets the upper limits for the generalized positions of the given model instance.
   const drake::VectorX<T>& upper_limits(drake::multibody::ModelInstanceIndex model_instance) const {
-      return upper_limits_[model_instance];
+    return upper_limits_[model_instance];
   }
 
   /** Sets the seed to use for inverse kinematics. If no value is specified, the inverse kinematics algorithm will
@@ -198,10 +213,9 @@ class ChopstickDriver : public InverseKinematics<T> {
    generalized position q, and offset vector p_FG from Frame F to Frame G (expressed in Frame F). More precisely,
    `V_WG(q, v)` is the spatial velocity of frame `G` measured and expressed in the world frame W.
    */
-  drake::VectorX<T> SolveVelocityInverseKinematics(
-      const drake::multibody::Frame<T>& F, const drake::Vector3<T>& p_FG,
-      drake::multibody::ModelInstanceIndex,
-      const drake::VectorX<T>& q, const drake::VectorX<T>& V) const {
+  drake::VectorX<T> SolveVelocityInverseKinematics(const drake::multibody::Frame<T>& F, const drake::Vector3<T>& p_FG,
+                                                   drake::multibody::ModelInstanceIndex, const drake::VectorX<T>& q,
+                                                   const drake::VectorX<T>& V) const {
     // Set the generalized positions in the context.
     plant_.SetPositions(plant_context_.get(), q);
 
@@ -223,10 +237,11 @@ class ChopstickDriver : public InverseKinematics<T> {
    generalized position q, and offset vector p_FG from Frame F to Frame G (expressed in Frame F). More precisely,
    `w_WG(q, v)` is the angular velocity of frame `G` expressed in the world frame W.
    */
-  drake::VectorX<T> SolveOrientationVelocityInverseKinematics(
-      const drake::multibody::Frame<T>& F, const drake::Vector3<T>& p_FG,
-      drake::multibody::ModelInstanceIndex,
-      const drake::VectorX<T>& q, const drake::Vector3<T>& w) const {
+  drake::VectorX<T> SolveOrientationVelocityInverseKinematics(const drake::multibody::Frame<T>& F,
+                                                              const drake::Vector3<T>& p_FG,
+                                                              drake::multibody::ModelInstanceIndex,
+                                                              const drake::VectorX<T>& q,
+                                                              const drake::Vector3<T>& w) const {
     // Set the generalized positions in the context.
     plant_.SetPositions(plant_context_.get(), q);
 
@@ -249,10 +264,11 @@ class ChopstickDriver : public InverseKinematics<T> {
    velocity xdot, generalized position q, and offset vector p_FG from Frame F to Frame G (expressed in Frame F). More
    precisely, `xdot_WG(q, v)` is the translational velocity of frame `G` measured and expressed in the world frame W.
    */
-  drake::VectorX<T> SolveTranslationalVelocityInverseKinematics(
-      const drake::multibody::Frame<T>& F, const drake::Vector3<T>& p_FG,
-      drake::multibody::ModelInstanceIndex,
-      const drake::VectorX<T>& q, const drake::VectorX<T>& xdot) const {
+  drake::VectorX<T> SolveTranslationalVelocityInverseKinematics(const drake::multibody::Frame<T>& F,
+                                                                const drake::Vector3<T>& p_FG,
+                                                                drake::multibody::ModelInstanceIndex,
+                                                                const drake::VectorX<T>& q,
+                                                                const drake::VectorX<T>& xdot) const {
     // Set the generalized positions in the context.
     plant_.SetPositions(plant_context_.get(), q);
 
@@ -271,11 +287,10 @@ class ChopstickDriver : public InverseKinematics<T> {
   }
 
   /// Computes the operational space differential between rotation matrices.
-  drake::Vector3<T> CalcOrientationDifferential(
-      const drake::VectorX<T>& q, const drake::multibody::Frame<T>& F,
-      const drake::math::RotationMatrix<T>& R_FA, const drake::math::RotationMatrix<T>& R_FB) const {
-    const drake::Vector3<T> omega =
-        DifferentialInverseKinematics<T>::CalcOrientationDifferential(R_FA, R_FB);
+  drake::Vector3<T> CalcOrientationDifferential(const drake::VectorX<T>& q, const drake::multibody::Frame<T>& F,
+                                                const drake::math::RotationMatrix<T>& R_FA,
+                                                const drake::math::RotationMatrix<T>& R_FB) const {
+    const drake::Vector3<T> omega = DifferentialInverseKinematics<T>::CalcOrientationDifferential(R_FA, R_FB);
 
     // Get the body to which this frame is attached.
     const drake::multibody::Body<T>& chopstick_body = F.body();
@@ -294,7 +309,8 @@ class ChopstickDriver : public InverseKinematics<T> {
   /** Implements InverseKinematics<T>::SolveInverseKinematics().
    */
   drake::VectorX<T> SolveInverseKinematics(const drake::math::RigidTransform<T>& X_WG_target,
-      const drake::Vector3<T>& p_FG, const drake::multibody::Frame<T>& F) const final {
+                                           const drake::Vector3<T>& p_FG,
+                                           const drake::multibody::Frame<T>& F) const final {
     if (use_numerical_ik_) {
       return SolveInverseKinematicsNumerical(X_WG_target, p_FG, F);
     } else {
@@ -302,11 +318,13 @@ class ChopstickDriver : public InverseKinematics<T> {
     }
   }
 
-  /** Computes the forward kinematics of a Frame G rigidly attached to Frame F, given the vector `p_FG` which gives the
-   offset from the origin of Frame F to Frame G, expressed in F's frame.
+  /** Convenience function for computing the forward kinematics of a Frame G rigidly attached to Frame F.
+   @param q the configuration of the robot for which the frame velocity should be computed.
+   @param p_FG the vector offset from the origin of Frame F to Frame G, expressed in F's frame.
+   @param F the frame of interest.
    */
-  drake::math::RigidTransform<T> CalcForwardKinematics(
-      const drake::VectorX<T>& q, const drake::Vector3<T>& p_FG, const drake::multibody::Frame<T>& F) const {
+  drake::math::RigidTransform<T> CalcForwardKinematics(const drake::VectorX<T>& q, const drake::Vector3<T>& p_FG,
+                                                       const drake::multibody::Frame<T>& F) const {
     plant_.SetPositions(plant_context_.get(), q);
 
     // We want X_WG = X_WF * X_FG, where X_FG represents an identity orientation with p_FG as the translation
@@ -321,17 +339,39 @@ class ChopstickDriver : public InverseKinematics<T> {
     return drake::math::RigidTransform<T>(X_WF.rotation(), X_WF * p_FG);
   }
 
+  // TODO(edrumwri) This function needs to be unit tested.
+  /** Convenience function for computing the velocity of a Frame G rigidly attached to Frame F.
+   @param q the configuration of the robot for which the frame velocity should be computed.
+   @param v the velocity of the robot for which the frame velocity should be computed.
+   @param p_FG the vector offset from the origin of Frame F to Frame G, expressed in F's frame.
+   @param F the frame of interest.
+   */
+  drake::multibody::SpatialVelocity<T> CalcFrameVelocity(const drake::VectorX<T>& q, const drake::VectorX<T>& v,
+                                                         const drake::Vector3<T>& p_FG,
+                                                         const drake::multibody::Frame<T>& F) const {
+    plant_.SetPositions(plant_context_.get(), q);
+
+    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
+    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
+                                       world_frame, &J_);
+    return drake::multibody::SpatialVelocity<T>(J_ * v);
+  }
+
  private:
   // Analytical IK solutions computed using sympy.
   // Note: This approach only computes inverse kinematics for the end-link, which is all we need with the current robot
   // design.
-  drake::VectorX<T> SolveInverseKinematicsAnalytical(
-      const drake::math::RigidTransform<T>& X_WG_target, const drake::Vector3<T>& p_FG,
-      const drake::multibody::Frame<T>& F) const {
-    using std::pow;
-    using std::sqrt;
+  drake::VectorX<T> SolveInverseKinematicsAnalytical(const drake::math::RigidTransform<T>& X_WG_target,
+                                                     const drake::Vector3<T>& p_FG,
+                                                     const drake::multibody::Frame<T>& F) const {
     using std::acos;
     using std::asin;
+    using std::pow;
+    using std::sqrt;
+
+    // TODO(edrumwri) Implement position-only and orientation-only IK approaches to eliminate this demand.
+    // Verify that the ik type is both position and orientation.
+    DR_DEMAND(ik_type_ == InverseKinematicsType::kPositionAndOrientation);
 
     // Note that each robot is mounted to a particular base frame, B. The transformation X_WB gives the relative pose
     // of B in the world frame frame. We want the analytical solution to compute the result q such that X_WG- the end
@@ -394,30 +434,28 @@ class ChopstickDriver : public InverseKinematics<T> {
     // Determine which model instance is used.
     if (model_instance == left_chopstick_model_) {
       // Before attempting to compute the solution, ensure that the roll will be zero.
-      const double roll = asin(r32/sqrt(-r31*r31 + 1.0));
-      if (std::abs(roll) > zero_tolerance)
-        throw std::runtime_error("No solution exists for the desired target pose.");
+      const double roll = asin(r32 / sqrt(-r31 * r31 + 1.0));
+      if (std::abs(roll) > zero_tolerance) throw std::runtime_error("No solution exists for the desired target pose.");
 
       // Otherwise, compute the solution.
-      const double x = 0.03125 *
-                       (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                            (r11 * r31 * r32 -
-                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
-                        32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
-                            (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                             r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                             r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
-                             r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
-                        32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
-                        3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                            (-r11 * r31 * r32 +
-                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
+      const double x = 0.03125 * (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                                      (r11 * r31 * r32 -
+                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
+                                  32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
+                                      (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                                       r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                                       r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
+                                       r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
+                                  32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
+                                  3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                                      (-r11 * r31 * r32 +
+                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
                        pow(-r31 * r31 + 1.0, 7.0L / 2.0L);
       const double y =
           0.03125 *
@@ -453,30 +491,28 @@ class ChopstickDriver : public InverseKinematics<T> {
       q_model_[4] = pitch;
     } else {
       DR_DEMAND(model_instance == right_chopstick_model_);
-      const double roll = asin(r32/sqrt(-r31*r31 + 1.0));
-      if (std::abs(roll) > zero_tolerance)
-        throw std::runtime_error("No solution exists for the desired target pose.");
+      const double roll = asin(r32 / sqrt(-r31 * r31 + 1.0));
+      if (std::abs(roll) > zero_tolerance) throw std::runtime_error("No solution exists for the desired target pose.");
 
       // Otherwise, compute the solution.
-      const double x = 0.03125 *
-                       (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                            (r11 * r31 * r32 -
-                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
-                        32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
-                            (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                             r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                             r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
-                             r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
-                        32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
-                        3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                            (r11 * r31 * r32 -
-                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
+      const double x = 0.03125 * (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                                      (r11 * r31 * r32 -
+                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
+                                  32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
+                                      (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                                       r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                                       r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
+                                       r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
+                                  32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
+                                  3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                                      (r11 * r31 * r32 -
+                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
                        pow(-r31 * r31 + 1.0, 7.0L / 2.0L);
       const double y =
           0.03125 *
@@ -515,28 +551,59 @@ class ChopstickDriver : public InverseKinematics<T> {
     return q_model_;
   }
 
-  /* Leverages the information that the degrees of freedom that control chopstick orientation in our model are located
-   closer to the chopstick than the prismatic DoFs. This means that we can solve for generalized coordinates that attain
-   the desired orientation first; solving for the
-   desired translation thereafter will not affect the orientation (barring nastiness in the Jacobian pseudoinversion).
-
+  /*
+   Performs a numerical IK procedure for orientation only.
    @note The current implementation seems to be limited by the inability of the orientation differential function to
          remove all angular differential components not reachable from the current configuration, with the result being
          that solutions may not always be found. Increasing the number of seeds can help the solver find a solution to
          tolerance, though usually an increase of one or two orders of magnitude over the nominal number of
          seeds will be necessary.
  */
-  drake::VectorX<T> SolveInverseKinematicsNumerical(
+  drake::VectorX<T>& SolveInverseKinematicsNumericalOrientationOnly(
       const drake::math::RigidTransform<T>& X_WG_target, const drake::Vector3<T>& p_FG,
-      const drake::multibody::Frame<T>& F) const {
-    // Get the body to which this frame is attached.
-    const drake::multibody::Body<T>& chopstick_body = F.body();
-
+      const drake::multibody::Frame<T>& F, const drake::multibody::Body<T>& chopstick_body) const {
     // Set the lambda for computing the full operational space differential.
-    auto f_diff = [this, &chopstick_body](
-        const drake::math::RigidTransform<T>& X_FA, const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
+    const auto f_diff = [this, &chopstick_body](const drake::math::RigidTransform<T>& X_FA,
+                                                const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
+      // Compute the normal rotational differential.
+      delta_x_ = DifferentialInverseKinematics<T>::CalcOrientationDifferential(X_FA.rotation(), X_FB.rotation());
+
+      // Get the direction of the chopstick's longitudinal axis (the +x axis in the chopstick body frame)
+      // in the world frame. We rely upon some inside knowledge to do this: we know that the forward kinematics
+      // function is always going to be called before this function, so we know that the generalized positions used in
+      // the forward kinematics computation are the generalized positions that correspond to the chopstick pose we want.
+      const drake::math::RigidTransform<T>& X_WC = plant_.EvalBodyPoseInWorld(*plant_context_, chopstick_body);
+      const drake::Vector3<T> direction = X_WC.rotation() * drake::Vector3<T>(1, 0, 0);
+
+      // Remove the components aligned with this direction from delta_x.
+      return DifferentialInverseKinematics<T>::RemoveAngularVelocityComponentsAlongDirection(delta_x_, direction);
+    };
+
+    // Call the differential IK solver on the orientation only using the best seed found.
+    q_ = SolveOrientationalInverseKinematics(X_WG_target, p_FG, F, q_ik_seed_);
+
+    // Check whether the solution lies within the given tolerance.
+    const double squared_tol = ik_tolerance() * ik_tolerance();
+    const double solution_error = f_diff(CalcForwardKinematics(q_, p_FG, F), X_WG_target).squaredNorm();
+    if (solution_error > squared_tol) throw std::runtime_error("Could not find a solution to the desired tolerance.");
+
+    return q_;
+  }
+
+  /* Leverages the information that the degrees of freedom that control chopstick orientation in our model are located
+   closer to the chopstick than the prismatic DoFs. This means that we can solve for generalized coordinates that attain
+   the desired orientation first; solving for the desired translation thereafter will not affect the orientation
+   (barring nastiness in the Jacobian pseudoinversion).
+   @note See note in SolveInverseKinematicsNumericalOrientationOnly().
+  */
+  drake::VectorX<T>& SolveInverseKinematicsNumericalPositionAndOrientation(
+      const drake::math::RigidTransform<T>& X_WG_target, const drake::Vector3<T>& p_FG,
+      const drake::multibody::Frame<T>& F, const drake::multibody::Body<T>& chopstick_body) const {
+    // Set the lambda for computing the full operational space differential.
+    const auto f_diff = [this, &chopstick_body](const drake::math::RigidTransform<T>& X_FA,
+                                                const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
       // Compute the normal operational space differential.
-      const bool angular_components_on_top = true;    // Drake's Jacobians are ordered this way.
+      const bool angular_components_on_top = true;  // Drake's Jacobians are ordered this way.
       delta_x_ =
           DifferentialInverseKinematics<T>::CalcOperationalSpaceDifferential(X_FA, X_FB, angular_components_on_top);
 
@@ -563,21 +630,16 @@ class ChopstickDriver : public InverseKinematics<T> {
     // Check whether the solution lies within the given tolerance.
     const double squared_tol = ik_tolerance() * ik_tolerance();
     const double solution_error = f_diff(CalcForwardKinematics(q_, p_FG, F), X_WG_target).squaredNorm();
-    if (solution_error > squared_tol) {
-      throw std::runtime_error("Could not find a solution to the desired tolerance.");
-    }
+    if (solution_error > squared_tol) throw std::runtime_error("Could not find a solution to the desired tolerance.");
 
-    // Get just the part that corresponds to this model.
-    const drake::multibody::BodyIndex body_index = body_to_body_index_map_.at(&chopstick_body);
-    const drake::multibody::ModelInstanceIndex model_instance = body_index_to_model_instance_index_map_.at(body_index);
-    q_model_ = plant_.GetPositionsFromArray(model_instance, q_);
-
-    return q_model_;
+    return q_;
   }
 
   // Solves only the translational part of the IK problem.
-  drake::VectorX<T> SolveTranslationalInverseKinematics(const drake::math::RigidTransform<T>&  X_WG_target,
-      const drake::Vector3<T>& p_FG, const drake::multibody::Frame<T>& F, const drake::VectorX<T>& q_seed) const {
+  drake::VectorX<T> SolveTranslationalInverseKinematics(const drake::math::RigidTransform<T>& X_WG_target,
+                                                        const drake::Vector3<T>& p_FG,
+                                                        const drake::multibody::Frame<T>& F,
+                                                        const drake::VectorX<T>& q_seed) const {
     q_ = drake::VectorX<T>::Zero(plant_.num_positions());
 
     // Get the body to which this frame is attached.
@@ -585,7 +647,8 @@ class ChopstickDriver : public InverseKinematics<T> {
 
     // Define the translational space differential function.
     auto f_diff_translate = [this, &chopstick_body](const drake::VectorX<T>&,
-        const drake::math::RigidTransform<T>& X_FA, const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
+                                                    const drake::math::RigidTransform<T>& X_FA,
+                                                    const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
       return DifferentialInverseKinematics<T>::CalcPositionDifferential(X_FA.translation(), X_FB.translation());
     };
 
@@ -594,8 +657,8 @@ class ChopstickDriver : public InverseKinematics<T> {
         body_index_to_model_instance_index_map_.at(body_to_body_index_map_.at(&F.body()));
 
     // Set the solver function.
-    auto f_qdiff = [this, model_instance, &p_FG, &F](
-          const drake::VectorX<T>& q, const drake::VectorX<T>& xdot) -> drake::VectorX<T> {
+    auto f_qdiff = [this, model_instance, &p_FG, &F](const drake::VectorX<T>& q,
+                                                     const drake::VectorX<T>& xdot) -> drake::VectorX<T> {
       v_ = SolveTranslationalVelocityInverseKinematics(F, p_FG, model_instance, q, xdot);
       plant_.SetPositions(plant_context_.get(), q);
       plant_.MapVelocityToQDot(*plant_context_, v_, qdot_.get());
@@ -614,13 +677,14 @@ class ChopstickDriver : public InverseKinematics<T> {
 
   // Solves only the orientational part of the IK problem.
   drake::VectorX<T> SolveOrientationalInverseKinematics(const drake::math::RigidTransform<T>& X_WG_target,
-      const drake::Vector3<T>& p_FG, const drake::multibody::Frame<T>& F,
-      const drake::optional<drake::VectorX<T>>& q_seed) const {
+                                                        const drake::Vector3<T>& p_FG,
+                                                        const drake::multibody::Frame<T>& F,
+                                                        const drake::optional<drake::VectorX<T>>& q_seed) const {
     q_ = drake::VectorX<T>::Zero(plant_.num_positions());
 
     // Define the orientational space differential function.
-    auto f_diff_ori = [this, &F](const drake::VectorX<T>& q,
-        const drake::math::RigidTransform<T>& X_FA, const drake::math::RigidTransform<T>& X_FB) -> drake::Vector3<T> {
+    auto f_diff_ori = [this, &F](const drake::VectorX<T>& q, const drake::math::RigidTransform<T>& X_FA,
+                                 const drake::math::RigidTransform<T>& X_FB) -> drake::Vector3<T> {
       return CalcOrientationDifferential(q, F, X_FA.rotation(), X_FB.rotation());
     };
 
@@ -629,8 +693,8 @@ class ChopstickDriver : public InverseKinematics<T> {
         body_index_to_model_instance_index_map_.at(body_to_body_index_map_.at(&F.body()));
 
     // Set the solver function.
-    auto f_qdiff = [this, model_instance, &p_FG, &F](
-          const drake::VectorX<T>& q, const drake::VectorX<T>& xdot) -> drake::VectorX<T> {
+    auto f_qdiff = [this, model_instance, &p_FG, &F](const drake::VectorX<T>& q,
+                                                     const drake::VectorX<T>& xdot) -> drake::VectorX<T> {
       v_ = SolveOrientationVelocityInverseKinematics(F, p_FG, model_instance, q, xdot);
       plant_.SetPositions(plant_context_.get(), q);
       plant_.MapVelocityToQDot(*plant_context_, v_, qdot_.get());
@@ -667,6 +731,56 @@ class ChopstickDriver : public InverseKinematics<T> {
     return differential_ik_.SolveInverseKinematics(
         X_WG_target, [this, &p_FG, &F](const drake::VectorX<T>& q) { return CalcForwardKinematics(q, p_FG, F); },
         f_diff_ori, f_qdiff, best_seed_, max_iterations, tol);
+  }
+
+  drake::VectorX<T> SolveInverseKinematicsNumerical(const drake::math::RigidTransform<T>& X_WG_target,
+                                                    const drake::Vector3<T>& p_FG,
+                                                    const drake::multibody::Frame<T>& F) const {
+    // Get the body to which this frame is attached.
+    const drake::multibody::Body<T>& chopstick_body = F.body();
+
+    drake::VectorX<T>* q = nullptr;
+    switch (ik_type_) {
+      case InverseKinematicsType::kPositionOnly:
+        q = &SolveInverseKinematicsNumericalPositionOnly(X_WG_target, p_FG, F, chopstick_body);
+        break;
+
+      case InverseKinematicsType::kOrientationOnly:
+        q = &SolveInverseKinematicsNumericalOrientationOnly(X_WG_target, p_FG, F, chopstick_body);
+        break;
+
+      case InverseKinematicsType::kPositionAndOrientation:
+        q = &SolveInverseKinematicsNumericalPositionAndOrientation(X_WG_target, p_FG, F, chopstick_body);
+        break;
+    }
+    DR_DEMAND(q);
+
+    // Get just the part that corresponds to this model.
+    const drake::multibody::BodyIndex body_index = body_to_body_index_map_.at(&chopstick_body);
+    const drake::multibody::ModelInstanceIndex model_instance = body_index_to_model_instance_index_map_.at(body_index);
+    q_model_ = plant_.GetPositionsFromArray(model_instance, *q);
+
+    return q_model_;
+  }
+
+  drake::VectorX<T>& SolveInverseKinematicsNumericalPositionOnly(
+      const drake::math::RigidTransform<T>& X_WG_target, const drake::Vector3<T>& p_FG,
+      const drake::multibody::Frame<T>& F, const drake::multibody::Body<T>& chopstick_body) const {
+    const auto f_diff = [this, &chopstick_body](const drake::math::RigidTransform<T>& X_FA,
+                                                const drake::math::RigidTransform<T>& X_FB) -> drake::VectorX<T> {
+      return DifferentialInverseKinematics<T>::CalcPositionDifferential(X_FA.translation(), X_FB.translation());
+    };
+
+    // Call the differential IK solver on the full problem, using the solution for orientation as the seed.
+    q_seed_.setZero();
+    q_ = SolveTranslationalInverseKinematics(X_WG_target, p_FG, F, q_seed_);
+
+    // Check whether the solution lies within the given tolerance.
+    const double squared_tol = ik_tolerance() * ik_tolerance();
+    const double solution_error = f_diff(CalcForwardKinematics(q_, p_FG, F), X_WG_target).squaredNorm();
+    if (solution_error > squared_tol) throw std::runtime_error("Could not find a solution to the desired tolerance.");
+
+    return q_;
   }
 
   // The plant that contains the robot.
@@ -712,6 +826,13 @@ class ChopstickDriver : public InverseKinematics<T> {
 
   // Relative poses between the robot bases and the world.
   std::vector<drake::optional<drake::math::RigidTransform<T>>> X_WB_;
+
+  // The type of numerical inverse kinematics that is used.
+  InverseKinematicsType ik_type_{InverseKinematicsType::kPositionAndOrientation};
+
+  // Jacobian matrix used for mapping generalized velocities to link velocities. Note that this is mutable to avoid heap
+  // allocations; changing this variable will not change the result of any computations.
+  mutable drake::MatrixX<T> J_;
 };
 
 }  // namespace DR

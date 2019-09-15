@@ -62,7 +62,7 @@ file(
   GLOB
   SRC_FILES
   "common/*.cc"
-  "drivers/*.cc"
+  "drivers/chopstick/*.cc"
   "primitives/*.cc"
   "simulation/*.cc"
   "tools/*.cc"
@@ -106,7 +106,7 @@ file(
   GLOB
   TEST_SRC_FILES
   "common/test/*.cc"
-  "drivers/test/*.cc"
+  "drivers/chopstick/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
   "tools/test/*.cc"

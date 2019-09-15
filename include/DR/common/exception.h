@@ -1,5 +1,6 @@
 #pragma once
 
+#include <csignal>
 #include <iostream>
 
 #include <drake/common/drake_assert.h>
@@ -7,7 +8,7 @@
 
 /**
 This file wraps the DRAKE_DEMAND definitions used for condition checking in
-Drake.
+Drake and replicates the DRAKE_UNREACHABLE macro.
 */
 
 // DR_DEMAND macro that should be called by users.
@@ -48,3 +49,6 @@ Copies behavior of DRAKE_DEMAND, defined in drake/common/drake_assert.h while ad
 // Overloads of the DR_DEMAND macro.
 #define DR_DEMAND1(condition, ...) DRAKE_DEMAND(condition)
 #define DR_DEMAND2(condition, msg) DR_DEMAND_WITH_MESSAGE(condition, msg)
+
+#define DR_UNREACHABLE() std::abort();
+

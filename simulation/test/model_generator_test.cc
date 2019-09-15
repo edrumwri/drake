@@ -2,7 +2,7 @@
 
 #include <drake/common/autodiff.h>
 
-#include <DR/drivers/chopstick_config.h>
+#include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/simulation/config.h>
 #include <DR/simulation/model_generator.h>
 

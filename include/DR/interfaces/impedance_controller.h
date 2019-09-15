@@ -9,14 +9,14 @@ namespace DR {
 
 /**
  @section impedance-controller-overview Overview
-  
+
  An impedance controller determines actuation forces that regulate the accelerations (and, by extension, the positions
  and velocities) of the robot and any objects that it might be contacting. Given reference accelerations (typically
  computed by some plan that accounts for forces from contact interactions), an impedance controller will compute
  actuator forces that realize the accelerations for interacting multibodies (e.g., a robot manipulating a box) subject
  to mass-spring-damper models (see @ref impedance-control-physical-model). Concretely, this means that the controller
  should drive the robot to, e.g., keep the box in a secure grasp during pick-and-place, as the task execution inevitably
- diverges from the planned execution. 
+ diverges from the planned execution.
 
  @subsection impedance-control-physical-model Physical model
 
@@ -28,7 +28,7 @@ namespace DR {
  where φ is some function of the generalized coordinates of the multibody system (i.e., the robot and any objects
  that it interacts with), M̂ is a mass matrix, C and K are damping and stiffness matrices, respectively, and f̂ is some
  force.
- 
+
  That mass-spring-damper system is coupled to our multibody dynamics system by:
    @verbatim
    Mv̇ = Gᵀ(-Kφ - Cφ̇ - M̂Ġv) + Bu + f          (2)
@@ -46,13 +46,13 @@ namespace DR {
    M̂ ≡ (GM⁻¹Gᵀ)⁻¹
    f̂ ≡ M̂GM⁻¹f
    @endverbatim
- 
+
  The controller is able to compute M, C, K, B, f, φ, and φ̇. v̇ is passed to the controller- it will generally be
  expected that it is the combination of output from a planning process and some error feedback terms, e.g.:
    @verbatim
    v̇ ≡ v̇ᵈᵉˢ + kᵖ(qᵈᵉˢ - q) + kᵈ(vᵈᵉˢ - v)   (3)
    @endverbatim
- where kᵖ and kᵈ are proportional and derivative gains. 
+ where kᵖ and kᵈ are proportional and derivative gains.
 
  The resulting controller is to compute actuator forces u such that (1) is satisfied (for v̇). By rearranging (2) we
  arrive at:
@@ -61,7 +61,7 @@ namespace DR {
    @endverbatim
 
  For the common case where B is a binary matrix, u is particularly easy to compute. **This class requires B to be
- a binary matrix.** 
+ a binary matrix.**
 
  @subsection impedance-control-challenges Challenges
 
@@ -71,7 +71,7 @@ namespace DR {
 
  Stiffness and damping matrices K and C use units of force/displacement (e.g., N/m) and force/speed (e.g., Ns/m). K and
  C are determined by the ways that a robot is expected to interact with its  environment.
- 
+
  If φ and φ̇ correspond to an axial contact, then K can be derived using Young's Modulus (often denoted "E"); values of E
  for typical materials are listed in engineering tables. Young's Modulus has units of pressure (e.g., N/m²), meaning
  that E has to be instantaneously converted to K using the current shape of a material (i.e., K will be a function of
@@ -83,15 +83,15 @@ namespace DR {
 
  where A is the cross-sectional area of contact and L is the length along that axis. Using the example of the sphere of
  radius r pressed d meters into a cube of volume (s³), where r < s/2, A will be rd and L will be s. See
- https://en.wikipedia.org/wiki/Contact_mechanics#Contact_between_a_sphere_and_a_half-space. 
+ https://en.wikipedia.org/wiki/Contact_mechanics#Contact_between_a_sphere_and_a_half-space.
 
- C generally must be determined empirically or estimated: there are no principled ways of determining this value. 
+ C generally must be determined empirically or estimated: there are no principled ways of determining this value.
 
  φ and φ̇ can correspond to many other applications including effecting virtual constraints. For example, φ can be used
  to represent the deflection along some axes, with different stiffnesses along the different axes. Put another way,
  the robot can be made to act stiff in some directions and compliant in others. [Ott 2010] claims that impedance
  control results in poor accuracy in free-space due to unmodeled dynamics, though we note that is the case because there
- is no term that corrects steady-state error; our formulation in (3) can incorporate such a term. 
+ is no term that corrects steady-state error; our formulation in (3) can incorporate such a term.
 
  @subsubsection impedance-control-measuring Measuring φ and φ̇
 
@@ -105,21 +105,21 @@ namespace DR {
 
  Note that small measurement errors can result in large forces when materials are modeled as nearly rigid.
  The approach in [Drumwright 2019] can be used to address this problem because it underestimates contact forces for
- relatively large integration steps (which corresponds to controller update rates of 1000Hz or lower). 
+ relatively large integration steps (which corresponds to controller update rates of 1000Hz or lower).
 
- @subsubsection impedance-control-modeling-friction Modeling friction 
+ @subsubsection impedance-control-modeling-friction Modeling friction
 
  Although it is possible to model friction using a mass-spring-damper model, it can be technically challenging.
  Recalling that no sensing system currently exists that can directly sense deformation, we again consider model-based
  alternatives. The quasistatic approach described above does not easily map to tangential deformation. Alternatively,
  one could imagine a model-based approach that uses Bayesian filtering to estimate state variables that describe
  contacting bodies' deformations, though we are presently unaware of any work that has demonstrated this idea.
- 
+
  Another way to effect friction is to ignore φ (by assuming that K is zero) and use a large value for C to model
  friction. The advantage of this idea is that φ̇ can be easy to measure in that case: it would just be the slip velocity
  at a point of contact. The disadvantage is that spurious φ̇ measurements could result in large forces (see @ref
  impedance-control-measuring) and that stiction is not modeled (no force is applied when φ̇ is zero). However, the
- approach in [Drumwright 2019] organically avoids both problems. 
+ approach in [Drumwright 2019] organically avoids both problems.
 
   @section impedance-controller-refs References
 
@@ -352,7 +352,3 @@ void ImpedanceController<T>::CalcControlOutput(
 }
 
 }  // namespace DR
-
-// Instantiate templates.
-extern template class DR::ImpedanceController<double>;
-

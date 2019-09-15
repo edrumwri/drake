@@ -84,10 +84,15 @@ RobotInstanceConfig CreateChopstickRobotInstanceConfig(
  */
 std::vector<RobotInstanceConfig> CreateChopstickRobotsConfig() {
   std::vector<RobotInstanceConfig> robots;
-  // Gets the absolute path to this source file so it can locate the relative
-  // pose of the models directory.
-  std::string file_path = __FILE__;
-  std::string model_directory = file_path.substr(0, file_path.rfind("/")) + "/../../../models/";
+
+  // Get the absolute model path from an environment variable.
+  const char* absolute_model_path_env_var = std::getenv("DR_ABSOLUTE_MODEL_PATH");
+  DR_DEMAND(absolute_model_path_env_var);
+  std::string absolute_model_path = std::string(absolute_model_path_env_var);
+
+  // Add a trailing slash if necessary.
+  if (absolute_model_path.back() != '/')
+    absolute_model_path += '/';
 
   // Get default trailer width.
   // TODO(samzapo): Build the environment model in this file as well.
@@ -97,13 +102,13 @@ std::vector<RobotInstanceConfig> CreateChopstickRobotsConfig() {
 
   // Offset left chopstick half the trailer width to the left.
   robots.push_back(CreateChopstickRobotInstanceConfig(
-      "chopstick_left", model_directory, "/chopstick/chopstick_left.sdf",
+      "chopstick_left", absolute_model_path, "/chopstick/chopstick_left.sdf",
       drake::math::RigidTransform<double>(drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
                                           drake::Vector3<double>(0.0, default_trailer_width / 2.0, 0.0))));
 
   // Offset right chopstick half the trailer width to the right.
   robots.push_back(CreateChopstickRobotInstanceConfig(
-      "chopstick_right", model_directory, "/chopstick/chopstick_right.sdf",
+      "chopstick_right", absolute_model_path, "/chopstick/chopstick_right.sdf",
       drake::math::RigidTransform<double>(drake::math::RollPitchYaw<double>(0.0, 0.0, 0.0).ToRotationMatrix(),
                                           drake::Vector3<double>(0.0, -default_trailer_width / 2.0, 0.0))));
 

@@ -17,28 +17,28 @@ namespace DR {
 /**
  A base class for primitive behaviors that permits derived classes to easily implement control with long-term planning
  using the block diagram paradigm. %PrimitiveBehavior provides many of the building blocks for developing robot
- controllers, a pointer to the robot plant, estimated robot state, and generalized "effort" outputs. 
+ controllers, a pointer to the robot plant, and generalized "effort" outputs.
 
  @section planning-system-operation Planning system operation
 
  %PrimitiveBehavior triggers its planning system whenever 1) a plan is not _active_, meaning that no plan has been
  computed or the last plan that was computed is no longer valid (due to, e.g., its time of validity expiring); 2) the
  output port is calculated (i.e., its `Calc()` or `Eval()` methods are called); and 3) the operation signal input is not
- set to `OperationalSignalType::kInactive`. 
+ set to `OperationalSignalType::kInactive`.
 
  The planning mechanism runs in a separate thread, and only one plan is computed at any instance in time. While a plan
  is being computed, an _active_ plan, which lives in the %PrimitiveBehavior's State, might or might not already exist
  for the controller to use. The controller must be able to generate control outputs in either case.
- 
+
  After a plan is computed, another step must be completed before the plan becomes active: the %PrimitiveBehavior must be
  advanced in time to the inverse of the next `copy_freq()` time, at which point the plan will be copied to the
  %PrimitiveBehavior's State. Note that we only update the %PrimitiveBehavior's state infrequently (i.e., at copy_freq())
  in order to minimize the number of mutex locks and heap allocations. Though not the expected case, it is conceivable
  that multiple plans may be computed in between updates to the State. In this case, only the last plan is copied to the
- state; the others are treated as out-of-date and are discarded. 
+ state; the others are treated as out-of-date and are discarded.
 
- @subsection warnings Warnings 
- 
+ @subsection warnings Warnings
+
  @subsubsection concurrency-warnings Warning related to concurrency
 
  Drake systems are nominally "const", which allows separating data and code for effective parallelism and better design.
@@ -66,10 +66,6 @@ namespace DR {
  Input ports:
  - operation signal (abstract): a variable of type OperationSignal that indicates whether the primitive sends zero
    outputs.
- - robot_q_estimated (vector): the estimated robot generalized positions, ordered the same way that the MultibodyPlant
-   orders the robot's generalized positions
- - robot_v_estimated (vector): the estimated robot generalized velocities, ordered the same way that the MultibodyPlant
-   orders the robot's generalized velocities
 
  Output ports:
  - control output (vector): the vector of generalized effort commands
@@ -115,16 +111,6 @@ class PrimitiveBehavior : public drake::systems::LeafSystem<T> {
   /// Gets the input port for the operation signal. See DoCalcControlOutput().
   const drake::systems::InputPort<T>& operation_signal_input_port() const {
     return drake::systems::System<T>::get_input_port(operation_signal_input_port_index_);
-  }
-
-  /// Gets the input port for the estimated robot generalized positions.
-  const drake::systems::InputPort<T>& robot_q_estimated_input_port() const {
-    return drake::systems::System<T>::get_input_port(robot_q_estimated_input_port_index_);
-  }
-
-  /// Gets the input port for the estimated robot generalized velocities.
-  const drake::systems::InputPort<T>& robot_v_estimated_input_port() const {
-    return drake::systems::System<T>::get_input_port(robot_v_estimated_input_port_index_);
   }
 
   /// Gets the output port for the generalized effort output.
@@ -174,8 +160,6 @@ class PrimitiveBehavior : public drake::systems::LeafSystem<T> {
 
   // Port indices.
   drake::systems::InputPortIndex operation_signal_input_port_index_{};
-  drake::systems::InputPortIndex robot_q_estimated_input_port_index_{};
-  drake::systems::InputPortIndex robot_v_estimated_input_port_index_{};
   drake::systems::OutputPortIndex generalized_effort_output_port_index_{};
   drake::systems::AbstractStateIndex plan_index_;
 };
@@ -200,12 +184,6 @@ PrimitiveBehavior<T>::PrimitiveBehavior(const drake::multibody::MultibodyPlant<T
   // Declare the operation signal input port.
   operation_signal_input_port_index_ = this->DeclareAbstractInputPort(
           "operation_signal", drake::Value<OperationSignalType>()).get_index();
-
-  // Declare estimated state inputs.
-  robot_q_estimated_input_port_index_ = this->DeclareVectorInputPort("robot_q_estimated",
-      drake::systems::BasicVector<T>(robot_plant->num_actuators())).get_index();
-  robot_v_estimated_input_port_index_ = this->DeclareVectorInputPort("robot_v_estimated",
-      drake::systems::BasicVector<T>(robot_plant->num_actuators())).get_index();
 
   // Declare the generalized effort output port.
   generalized_effort_output_port_index_ = this->DeclareVectorOutputPort("generalized_effort",

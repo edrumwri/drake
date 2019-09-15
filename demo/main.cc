@@ -26,7 +26,7 @@
 
 #include <drake/common/text_logging_gflags.h>
 
-#include <DR/drivers/chopstick_config.h>
+#include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/simulation/controller_generator.h>
 #include <DR/simulation/model_generator.h>
 #include <DR/simulation/simulation_generator.h>

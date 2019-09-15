@@ -29,24 +29,57 @@ function run_tests()
     (cd ${GIT_ROOT} && md5sum "$i" >> ${GIT_ROOT}/test_results.txt)
   done
 
-  # Copy the test results hashes to the linting results
-  # file.
-  (cat ${GIT_ROOT}/test_results.txt > ${GIT_ROOT}/lint_results.txt)
-
   # Add test results to test results file.
   export CTEST_OUTPUT_ON_FAILURE=1
   (cd ${BUILD_DIR} && make -j && make test >> ${GIT_ROOT}/test_results.txt)
   # Record return status for command line exit status.
   status=$?
 
+  # Output the results to the console.
+  echo "$(cat ${GIT_ROOT}/test_results.txt)"
+
+  exit $status
+}
+
+function lint()
+{
+  USAGE_STR="usage: lint.sh <build dir>"
+  if [ "$#" -ne "1" ]; then
+    echo ${USAGE_STR}
+    exit 1
+  fi
+
+  BUILD_DIR=$1
+
+  if [ ! -d "${BUILD_DIR}" ]; then
+    echo ${USAGE_STR}
+    echo "<build dir>:'${BUILD_DIR}' is not a valid directory!"
+    exit 1
+  fi
+
+  GIT_ROOT=$(git rev-parse --show-toplevel)
+  # Make a new lint results file.
+  (cd ${GIT_ROOT} && echo "Test Results:" > ${GIT_ROOT}/lint_results.txt)
+
+  # Generate MD5 sum from all source code.
+  # Check MD5 hash of source code against MD5 of test results file.
+  for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
+  do
+    (cd ${GIT_ROOT} && md5sum "$i" >> ${GIT_ROOT}/lint_results.txt)
+  done
+
+  # Add test results to test results file.
+  export CTEST_OUTPUT_ON_FAILURE=1
+  status=$?
+
   # Add lint results to lint results file.
   for i in `(cd ${GIT_ROOT} && git ls-tree -r HEAD --name-only | grep '\.cc\|\.h' | sort -k 3)` 
   do
+    echo "Running lint on $i"
     (cd ${GIT_ROOT} && cpplint --quiet --filter=-legal/copyright,-build/include_order,-build/c++11 --linelength=120 "$i" >> ${GIT_ROOT}/lint_results.txt)
   done
 
   # Output the results to the console.
-  echo "$(cat ${GIT_ROOT}/test_results.txt)"
   echo "$(cat ${GIT_ROOT}/lint_results.txt)"
 
   exit $status
