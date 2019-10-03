@@ -13,6 +13,7 @@
 #include <drake/systems/primitives/constant_vector_source.h>
 #include <drake/systems/primitives/demultiplexer.h>
 
+#include <DR/common/actuator_demultiplexer.h>
 #include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/drivers/chopstick/chopstick_impedance_controller.h>
 #include <DR/drivers/chopstick/chopstick_kinematics.h>
@@ -247,47 +248,6 @@ class WipingPrimitive : public PrimitiveBehavior<double> {
   std::unique_ptr<ChopstickKinematics<double>> kinematics_;
 };
 
-// TODO(edrumwri) Replace this with a utility class that demuxes a MultibodyPlant's actuators into actuators for each
-// model instance.
-// Demuxes the actuation from the WipingPrimitive's output to the two output ports, one for each chopstick instance.
-class ActuatorDemuxer : public drake::systems::LeafSystem<double> {
- public:
-  ActuatorDemuxer(const drake::multibody::MultibodyPlant<double>* robot_plant,
-                  drake::multibody::ModelInstanceIndex left_instance)
-      : robot_plant_(robot_plant), left_instance_(left_instance) {
-    robot_plant_actuator_input_port_index_ =
-        this->DeclareVectorInputPort("robot_plant_actuator_input",
-                                     drake::systems::BasicVector<double>(robot_plant->num_actuators()))
-            .get_index();
-    left_chopstick_actuator_output_port_index_ =
-        this->DeclareVectorOutputPort(
-                "left_chopstick_actuator_output",
-                drake::systems::BasicVector<double>(robot_plant->num_actuated_dofs(left_instance)),
-                &ActuatorDemuxer::LeftOutput)
-            .get_index();
-  }
-
-  const drake::systems::InputPort<double>& robot_plant_actuator_input_port() const {
-    return this->get_input_port(robot_plant_actuator_input_port_index_);
-  }
-
-  const drake::systems::OutputPort<double>& left_chopstick_actuator_output_port() const {
-    return this->get_output_port(left_chopstick_actuator_output_port_index_);
-  }
-
- private:
-  void LeftOutput(const drake::systems::Context<double>& context, drake::systems::BasicVector<double>* output) const {
-    Eigen::VectorBlock<const drake::VectorX<double>> robot_u =
-        this->get_input_port(robot_plant_actuator_input_port_index_).Eval(context);
-    output->SetFromVector(robot_plant_->GetActuationFromArray(left_instance_, robot_u));
-  }
-
-  const drake::multibody::MultibodyPlant<double>* robot_plant_;
-  const drake::multibody::ModelInstanceIndex left_instance_;
-  drake::systems::InputPortIndex robot_plant_actuator_input_port_index_{};
-  drake::systems::OutputPortIndex left_chopstick_actuator_output_port_index_{};
-};
-
 // Fixture for testing the wiping primitive.
 class WipingTest : public ::testing::Test {
  public:
@@ -398,10 +358,9 @@ class WipingTest : public ::testing::Test {
     builder.Connect(mbp_demuxer->get_output_port(1), wiping_primitive_->all_v_estimated_input_port());
 
     // The wiping primitive goes (nearly) straight to the actuator inputs.
-    auto actuator_demuxer = builder.AddSystem<ActuatorDemuxer>(robot_plant_.get(), robot_left_instance_);
-    builder.Connect(wiping_primitive_->generalized_effort_output_port(),
-                    actuator_demuxer->robot_plant_actuator_input_port());
-    builder.Connect(actuator_demuxer->left_chopstick_actuator_output_port(),
+    auto actuator_demuxer = builder.AddSystem<ActuatorDemultiplexer<double>>(robot_plant_.get());
+    builder.Connect(wiping_primitive_->generalized_effort_output_port(), actuator_demuxer->full_actuation_input_port());
+    builder.Connect(actuator_demuxer->actuated_model_output_port(robot_left_instance_),
                     all_plant_->get_actuation_input_port(all_left_instance_));
     auto zero_right_actuation_input = builder.AddSystem<drake::systems::ConstantVectorSource<double>>(
         drake::VectorX<double>::Zero(all_plant_->num_actuated_dofs(all_right_instance)));

@@ -43,20 +43,6 @@ function run_tests()
 
 function lint()
 {
-  USAGE_STR="usage: lint.sh <build dir>"
-  if [ "$#" -ne "1" ]; then
-    echo ${USAGE_STR}
-    exit 1
-  fi
-
-  BUILD_DIR=$1
-
-  if [ ! -d "${BUILD_DIR}" ]; then
-    echo ${USAGE_STR}
-    echo "<build dir>:'${BUILD_DIR}' is not a valid directory!"
-    exit 1
-  fi
-
   GIT_ROOT=$(git rev-parse --show-toplevel)
   # Make a new lint results file.
   (cd ${GIT_ROOT} && echo "Test Results:" > ${GIT_ROOT}/lint_results.txt)
