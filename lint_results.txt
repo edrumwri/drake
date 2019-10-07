@@ -1,5 +1,6 @@
 Test Results:
 32c9b4ef4e874323c845101b71371fc3  common/actuator_demultiplexer.cc
+e814e4dce23b46ae7426a3917686de88  common/logging.cc
 bd1e96ee0e4400aee10da3f7eed738c9  common/test/actuator_demultiplexer_test.cc
 e57224907c2c34df48107ad1d99d5e67  common/test/debug_test.cc
 05f98d7f870d8dde3063ff662fbe1fa5  common/test/release_test.cc
@@ -10,6 +11,7 @@ dc49fcacf3f4e4652a2424cbe302feab  drivers/chopstick/test/chopstick_kinematics_te
 2850dc03d1951b55863d4b8d6d7207e1  drivers/chopstick/test/chopstick_wiping_primitive_test.cc
 532eb820be128edb8d4af76370891281  include/DR/common/actuator_demultiplexer.h
 2e270f6af58755be7aa3af993d65edb9  include/DR/common/exception.h
+52239b73bb06606d073644ac11d459d7  include/DR/common/logging.h
 1d8e74b5dd1e996809abf9af881814dd  include/DR/drivers/chopstick/chopstick_config.h
 85f4f7d8782f893afe4b75d96c92d5c7  include/DR/drivers/chopstick/chopstick_impedance_controller.h
 1c73dc794b7546adea1af71f0d5435d8  include/DR/drivers/chopstick/chopstick_kinematics.h
