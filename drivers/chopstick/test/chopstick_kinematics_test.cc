@@ -6,16 +6,17 @@
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/context.h>
 
+#include <DR/common/environment.h>
 #include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/drivers/chopstick/chopstick_kinematics.h>
 #include <DR/simulation/model_generator.h>
 
 #include <gtest/gtest.h>
 
+using drake::Vector3;
+using drake::VectorX;
 using drake::math::RigidTransform;
 using drake::math::RotationMatrix;
-using drake::VectorX;
-using drake::Vector3;
 
 namespace DR {
 namespace {
@@ -43,25 +44,11 @@ class ChopstickTest : public ::testing::TestWithParam<ChopstickId> {
 
  private:
   void SetUp() override {
-    // Get the absolute model path from an environment variable.
-    const char* absolute_model_path_env_var = std::getenv("DR_ABSOLUTE_MODEL_PATH");
-    ASSERT_NE(absolute_model_path_env_var, nullptr);
-    std::string absolute_model_path = std::string(absolute_model_path_env_var);
-
-    // Add a trailing slash if necessary.
-    if (absolute_model_path.back() != '/') absolute_model_path += '/';
-
     // Construct the plant.
     plant_ = std::make_unique<drake::multibody::MultibodyPlant<double>>();
 
     // Add robots to plant.
-    ModelGenerator<double> model_generator;
-    std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
-    ASSERT_EQ(robots.front().name(), "chopstick_left");
-    ASSERT_EQ(robots.back().name(), "chopstick_right");
-    left_instance_ = model_generator.AddRobotToMBP(robots.front(), plant_.get());
-    right_instance_ = model_generator.AddRobotToMBP(robots.back(), plant_.get());
-
+    std::tie(left_instance_, right_instance_) = AddChopsticksToMBP(plant_.get());
     // Finalize the plant.
     plant_->Finalize();
     context_ = plant_->CreateDefaultContext();
@@ -78,7 +65,7 @@ class ChopstickTest : public ::testing::TestWithParam<ChopstickId> {
   std::unique_ptr<drake::multibody::MultibodyPlant<double>> plant_;
   std::unique_ptr<drake::systems::Context<double>> context_;
   std::unique_ptr<ChopstickKinematics<double>> kinematics_;
-};
+};  // namespace
 
 // Tests the ability of the inverse kinematics solver to find a solution.
 TEST_P(ChopstickTest, InverseKinematics) {

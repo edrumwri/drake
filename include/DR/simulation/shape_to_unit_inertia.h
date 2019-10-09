@@ -35,35 +35,25 @@ class ShapeToUnitInertia final : public drake::geometry::ShapeReifier {
   /** @name  Implementation of ShapeReifier interface  */
   //@{
 
-  void ImplementGeometry(const drake::geometry::Sphere& sphere,
-                         void*) final {
-    unit_inertia_ =
-        drake::multibody::UnitInertia<T>::SolidSphere(sphere.get_radius());
+  void ImplementGeometry(const drake::geometry::Sphere& sphere, void*) final {
+    unit_inertia_ = drake::multibody::UnitInertia<T>::SolidSphere(sphere.get_radius());
   }
-  void ImplementGeometry(const drake::geometry::Cylinder& cylinder,
-                         void*) final {
-    unit_inertia_ = drake::multibody::UnitInertia<T>::SolidCylinder(
-        cylinder.get_radius(), cylinder.get_length(),
-        drake::Vector3<T>::UnitZ());
+  void ImplementGeometry(const drake::geometry::Cylinder& cylinder, void*) final {
+    unit_inertia_ = drake::multibody::UnitInertia<T>::SolidCylinder(cylinder.get_radius(), cylinder.get_length(),
+                                                                    drake::Vector3<T>::UnitZ());
   }
-  void ImplementGeometry(const drake::geometry::HalfSpace&,
-                         void*) final {
+  void ImplementGeometry(const drake::geometry::HalfSpace&, void*) final {
     throw std::logic_error("Cannot calculate the inertia of a HalfSpace");
   }
-  void ImplementGeometry(const drake::geometry::Box& box,
-                         void*) final {
+  void ImplementGeometry(const drake::geometry::Box& box, void*) final {
     const drake::Vector3<T>& size = box.size();
-    unit_inertia_ =
-        drake::multibody::UnitInertia<T>::SolidBox(size[0], size[1], size[2]);
+    unit_inertia_ = drake::multibody::UnitInertia<T>::SolidBox(size[0], size[1], size[2]);
   }
-  void ImplementGeometry(const drake::geometry::Mesh&,
-                         void*) final {
+  void ImplementGeometry(const drake::geometry::Mesh&, void*) final {
     throw std::logic_error("Inertia calculation not yet supported for Mesh");
   }
-  void ImplementGeometry(const drake::geometry::Convex&,
-                         void*) final {
-    throw std::logic_error(
-        "Inertia calculation not yet supported for Convex");
+  void ImplementGeometry(const drake::geometry::Convex&, void*) final {
+    throw std::logic_error("Inertia calculation not yet supported for Convex");
   }
 
   //@}

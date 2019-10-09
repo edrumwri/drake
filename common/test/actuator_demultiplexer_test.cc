@@ -49,28 +49,13 @@ class VelocityToActuationConverter : public drake::systems::LeafSystem<double> {
 // Tests the actuator demultiplexer by demultiplexing the output of two inverse dynamics controllers into a plant
 // containing two chopstick model instances.
 GTEST_TEST(ActuatorDemultiplexer, InverseDynamics) {
-  // TODO(edrumwri) Turn the next block of code into a utility. It's going to be impossible to maintain as-is.
-  // Get the absolute model path from an environment variable.
-  const char* absolute_model_path_env_var = std::getenv("DR_ABSOLUTE_MODEL_PATH");
-  ASSERT_NE(absolute_model_path_env_var, nullptr);
-  std::string absolute_model_path = std::string(absolute_model_path_env_var);
-
-  // Add a trailing slash if necessary.
-  if (absolute_model_path.back() != '/') absolute_model_path += '/';
-
   // Construct the robot plant.
   drake::systems::DiagramBuilder<double> builder;
   auto& robot_plant = *builder.AddSystem<drake::multibody::MultibodyPlant<double>>();
 
   // Add the robot models to the plant and finalize it.
-  ModelGenerator<double> model_generator;
-  std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
-  ASSERT_EQ(robots.front().name(), "chopstick_left");
-  ASSERT_EQ(robots.back().name(), "chopstick_right");
-  const drake::multibody::ModelInstanceIndex robot_left_instance =
-      model_generator.AddRobotToMBP(robots.front(), &robot_plant);
-  const drake::multibody::ModelInstanceIndex robot_right_instance =
-      model_generator.AddRobotToMBP(robots.back(), &robot_plant);
+  drake::multibody::ModelInstanceIndex robot_left_instance, robot_right_instance;
+  std::tie(robot_left_instance, robot_right_instance) = AddChopsticksToMBP(&robot_plant);
   robot_plant.Finalize();
 
   // Add the inverse dynamics controller using gains around the order of unity.

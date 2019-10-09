@@ -14,6 +14,7 @@
 #include <drake/systems/primitives/demultiplexer.h>
 
 #include <DR/common/actuator_demultiplexer.h>
+#include <DR/common/environment.h>
 #include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/drivers/chopstick/chopstick_impedance_controller.h>
 #include <DR/drivers/chopstick/chopstick_kinematics.h>
@@ -308,15 +309,6 @@ class WipingTest : public ::testing::Test {
 
  private:
   void SetUp() override {
-    // TODO(edrumwri) Turn the next block of code into a utility. It's going to be impossible to maintain as-is.
-    // Get the absolute model path from an environment variable.
-    const char* absolute_model_path_env_var = std::getenv("DR_ABSOLUTE_MODEL_PATH");
-    ASSERT_NE(absolute_model_path_env_var, nullptr);
-    std::string absolute_model_path = std::string(absolute_model_path_env_var);
-
-    // Add a trailing slash if necessary.
-    if (absolute_model_path.back() != '/') absolute_model_path += '/';
-
     // Construct the robot plant.
     robot_plant_ = std::make_unique<drake::multibody::MultibodyPlant<double>>();
 
@@ -325,15 +317,11 @@ class WipingTest : public ::testing::Test {
     auto scene_graph_plant = drake::multibody::AddMultibodyPlantSceneGraph(&builder);
     all_plant_ = &scene_graph_plant.plant;
 
+    drake::multibody::ModelInstanceIndex robot_right_instance, all_right_instance;
+
     // Add the robot models to the plants. We never use the right chopstick so we don't save its model instance.
-    ModelGenerator<double> model_generator;
-    std::vector<RobotInstanceConfig> robots = CreateChopstickRobotsConfig();
-    ASSERT_EQ(robots.front().name(), "chopstick_left");
-    ASSERT_EQ(robots.back().name(), "chopstick_right");
-    robot_left_instance_ = model_generator.AddRobotToMBP(robots.front(), robot_plant_.get());
-    model_generator.AddRobotToMBP(robots.back(), robot_plant_.get());
-    all_left_instance_ = model_generator.AddRobotToMBP(robots.front(), all_plant_);
-    drake::multibody::ModelInstanceIndex all_right_instance = model_generator.AddRobotToMBP(robots.back(), all_plant_);
+    std::tie(robot_left_instance_, robot_right_instance) = AddChopsticksToMBP(robot_plant_.get());
+    std::tie(all_left_instance_, all_right_instance) = AddChopsticksToMBP(all_plant_);
 
     // Finalize the plants.
     robot_plant_->Finalize();

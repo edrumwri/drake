@@ -63,6 +63,7 @@ file(
   SRC_FILES
   "common/*.cc"
   "drivers/chopstick/*.cc"
+  "drivers/*.cc"
   "primitives/*.cc"
   "simulation/*.cc"
   "tools/*.cc"
@@ -77,6 +78,7 @@ add_library(
 target_link_libraries(
   ${PROJECT_NAME}_core
   drake::drake
+  stdc++fs
 )
 
 # Create main entrypoint for running code (not a test).
@@ -98,7 +100,7 @@ add_test(
   WORKING_DIRECTORY 
   ${BIN_ROOT_DIR}
   COMMAND 
-  ${PROJECT_NAME}_main --model_directory=${SRC_ROOT_DIR}/models/ --max_simulation_time=1.0
+  ${PROJECT_NAME}_main
 )
 
 # Create and add test binaries to CTest.
@@ -107,6 +109,7 @@ file(
   TEST_SRC_FILES
   "common/test/*.cc"
   "drivers/chopstick/test/*.cc"
+  "drivers/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
   "tools/test/*.cc"
@@ -141,6 +144,6 @@ foreach(TEST_SRC ${TEST_SRC_FILES})
     WORKING_DIRECTORY
     ${BIN_ROOT_DIR}
     COMMAND 
-    ${PROJECT_NAME}_${TEST_EXE_NAME} --model_directory=${SRC_ROOT_DIR}/models/
+    ${PROJECT_NAME}_${TEST_EXE_NAME}
   )
 endforeach(TEST_SRC)
