@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include <drake/geometry/geometry_visualization.h>
+#include <drake/multibody/plant/contact_results_to_lcm.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/analysis/implicit_euler_integrator.h>
 #include <drake/systems/analysis/runge_kutta2_integrator.h>

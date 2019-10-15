@@ -20,11 +20,12 @@ eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
 67176bfe587331da98ed688261fc810b  include/DR/interfaces/inverse_kinematics.h
 92ad3c3733668e579639acdd3586a68e  include/DR/primitives/plan.h
 8bded23b5ef52511db0d305230b015f7  include/DR/primitives/primitive_behavior.h
+a4002d36359adf560b769a9decc50e88  include/DR/primitives/state_machine.h
 16144cc4b34a32ea905528848195ad63  include/DR/simulation/config.h
-848366e918625587ebc92c04c3b0f343  include/DR/simulation/controller_generator.h
+e9027ec59dbf5892f123493fb035c543  include/DR/simulation/controller_generator.h
 8762aaa0c7960511740c4d7a666a6871  include/DR/simulation/model_generator.h
 e07c08bac1ac1e2449374edd609a7cc9  include/DR/simulation/shape_to_unit_inertia.h
-f8224d375ffe63fabc0c8bba6b137ac5  include/DR/simulation/simulation_facade.h
+7f9b1bad941002705cb83210d5d6420b  include/DR/simulation/simulation_facade.h
 660ca8a7a5d2004a9c71909ee3ba2d7f  include/DR/simulation/state_setter.h
 47133d615f8e14d9f160bf5af9ef8c05  include/DR/tools/differential_inverse_kinematics.h
 433dfd35233caac7bf248dfbeeeae250  include/DR/tools/indexing.h
@@ -33,7 +34,10 @@ ef3c132d30fb81f7ee812670d05e71ad  include/DR/tools/output_stream_operators.h
 19153d446901ab7aae6cbc8ce9f0dcc7  include/DR/tools/sobol_sequence.h
 33f9fae6acd5d0b920fefc017e45ee13  interfaces/test/impedance_controller_test.cc
 c9503a6d9c349b331c0e71d71a971eef  primitives/primitive_behavior.cc
+936fd18aeec2910e13a61cb260cfa21a  primitives/state_machine.cc
 9e76f83a147632c2d5fde93a7c898ab3  primitives/test/primitive_behavior_test.cc
+7884eabe51f5f6bd46d3bce286525049  primitives/test/state_machine_controller_test.cc
+b01f90055bded621026fa8225378635b  primitives/test/state_machine_test.cc
 409d780fb70c72da1debfc96a8e560ca  simulation/controller_generator.cc
 ea07e691ef82d735afa699ded5c1bf1d  simulation/shape_to_unit_inertia.cc
 9644beaba4db50b155b4c776354a24fc  simulation/simulation_facade.cc
@@ -45,32 +49,36 @@ cc3349435d607b2c2f37495a9591e9d5  tools/sobol_sequence.cc
 bd0907226bf21d631a02753e50a5fb63  tools/test/optional_test.cc
 ac9623786e440e02dcae8a618cfc85b5  tools/test/sobol_sequence_test.cc
 Running tests...
-Test project /home/samzapo/Development/DR/build
+Test project /home/samzapo/Development/DR-build14
       Start  1: DR_main_test
- 1/12 Test  #1: DR_main_test ..............................   Passed    0.20 sec
+ 1/14 Test  #1: DR_main_test ..............................   Passed    0.04 sec
       Start  2: DR_actuator_demultiplexer_test
- 2/12 Test  #2: DR_actuator_demultiplexer_test ............   Passed    0.59 sec
+ 2/14 Test  #2: DR_actuator_demultiplexer_test ............   Passed    0.32 sec
       Start  3: DR_debug_test
- 3/12 Test  #3: DR_debug_test .............................   Passed    0.22 sec
+ 3/14 Test  #3: DR_debug_test .............................   Passed    0.07 sec
       Start  4: DR_release_test
- 4/12 Test  #4: DR_release_test ...........................   Passed    0.22 sec
+ 4/14 Test  #4: DR_release_test ...........................   Passed    0.06 sec
       Start  5: DR_chopstick_kinematics_test
- 5/12 Test  #5: DR_chopstick_kinematics_test ..............   Passed    6.45 sec
+ 5/14 Test  #5: DR_chopstick_kinematics_test ..............   Passed    0.37 sec
       Start  6: DR_chopstick_wiping_primitive_test
- 6/12 Test  #6: DR_chopstick_wiping_primitive_test ........   Passed   87.67 sec
+ 6/14 Test  #6: DR_chopstick_wiping_primitive_test ........   Passed    0.91 sec
       Start  7: DR_primitive_behavior_test
- 7/12 Test  #7: DR_primitive_behavior_test ................   Passed    3.25 sec
-      Start  8: DR_model_generator_test
- 8/12 Test  #8: DR_model_generator_test ...................   Passed    1.59 sec
-      Start  9: DR_simulation_facade_test
- 9/12 Test  #9: DR_simulation_facade_test .................   Passed    1.58 sec
-      Start 10: DR_differential_inverse_kinematics_test
-10/12 Test #10: DR_differential_inverse_kinematics_test ...   Passed    0.20 sec
-      Start 11: DR_optional_test
-11/12 Test #11: DR_optional_test ..........................   Passed    0.00 sec
-      Start 12: DR_sobol_sequence_test
-12/12 Test #12: DR_sobol_sequence_test ....................   Passed    0.19 sec
+ 7/14 Test  #7: DR_primitive_behavior_test ................   Passed    3.05 sec
+      Start  8: DR_state_machine_controller_test
+ 8/14 Test  #8: DR_state_machine_controller_test ..........   Passed    0.07 sec
+      Start  9: DR_state_machine_test
+ 9/14 Test  #9: DR_state_machine_test .....................   Passed    0.09 sec
+      Start 10: DR_model_generator_test
+10/14 Test #10: DR_model_generator_test ...................   Passed    0.47 sec
+      Start 11: DR_simulation_facade_test
+11/14 Test #11: DR_simulation_facade_test .................   Passed    0.06 sec
+      Start 12: DR_differential_inverse_kinematics_test
+12/14 Test #12: DR_differential_inverse_kinematics_test ...   Passed    0.04 sec
+      Start 13: DR_optional_test
+13/14 Test #13: DR_optional_test ..........................   Passed    0.00 sec
+      Start 14: DR_sobol_sequence_test
+14/14 Test #14: DR_sobol_sequence_test ....................   Passed    0.04 sec
 
-100% tests passed, 0 tests failed out of 12
+100% tests passed, 0 tests failed out of 14
 
-Total Test time (real) = 102.18 sec
+Total Test time (real) =   5.61 sec

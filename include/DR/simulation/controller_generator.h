@@ -8,9 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include <drake/geometry/geometry_visualization.h>
 #include <drake/geometry/scene_graph.h>
-#include <drake/multibody/plant/contact_results_to_lcm.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/controllers/inverse_dynamics_controller.h>
 #include <drake/systems/framework/context.h>
