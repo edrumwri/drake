@@ -224,7 +224,9 @@ class ChopstickKinematics : public InverseKinematics<T> {
     Jv_WG_.resize(6, plant_.num_velocities());
 
     // Form the Jacobian matrix.
-    plant_.CalcFrameGeometricJacobianExpressedInWorld(*plant_context_, F, p_FG, &Jv_WG_);
+    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
+    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
+                                       world_frame, &Jv_WG_);
 
     // Solve using least-squares QR factorization. We could perhaps do a full-rank pseudoinverse, but QR is likely
     // not as expensive and is robust to singularities.
@@ -251,7 +253,9 @@ class ChopstickKinematics : public InverseKinematics<T> {
 
     // TODO(edrumwri): Replace this with a call that only computes the needed components.
     // Form the Jacobian matrix.
-    plant_.CalcFrameGeometricJacobianExpressedInWorld(*plant_context_, F, p_FG, &Jv_WG_);
+    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
+    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
+                                       world_frame, &Jv_WG_);
 
     // Solve using least-squares QR factorization. We could perhaps do a full-rank pseudoinverse, but QR is likely
     // not as expensive and is robust to singularities.
@@ -268,7 +272,7 @@ class ChopstickKinematics : public InverseKinematics<T> {
                                                                 const drake::Vector3<T>& p_FG,
                                                                 drake::multibody::ModelInstanceIndex,
                                                                 const drake::VectorX<T>& q,
-                                                                const drake::VectorX<T>& xdot) const {
+                                                                const drake::Vector3<T>& xdot) const {
     // Set the generalized positions in the context.
     plant_.SetPositions(plant_context_.get(), q);
 
@@ -278,7 +282,9 @@ class ChopstickKinematics : public InverseKinematics<T> {
 
     // TODO(edrumwri): Replace this with a call that only computes the needed components.
     // Form the Jacobian matrix.
-    plant_.CalcFrameGeometricJacobianExpressedInWorld(*plant_context_, F, p_FG, &Jv_WG_);
+    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
+    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
+                                       world_frame, &Jv_WG_);
 
     // Solve using least-squares QR factorization. We could perhaps do a full-rank pseudoinverse, but QR is likely
     // not as expensive and is robust to singularities.
@@ -356,6 +362,28 @@ class ChopstickKinematics : public InverseKinematics<T> {
         plant_.EvalBodySpatialVelocityInWorld(*plant_context_, F.body());
     const drake::Vector3<T> p_FoGo_W = X_WF.rotation() * p_FG;
     return X_WFo_W.Shift(p_FoGo_W);
+  }
+
+  // TODO(edrumwri) This function needs to be unit tested.
+  /** Convenience function for computing the acceleration of a Frame G rigidly attached to Frame F.
+   @param q the configuration of the robot for which the frame acceleration should be computed.
+   @param v the velocity of the robot for which the frame acceleration should be computed.
+   @param vdot the acceleration of the robot for which the frame acceleration should be computed.
+   @param p_FG the vector offset from the origin of Frame F to Frame G, expressed in F's frame.
+   @param F the frame of interest.
+   */
+  drake::Vector6<T> CalcFrameAcceleration(const drake::VectorX<T>& q, const drake::VectorX<T>& v,
+                                          const drake::VectorX<T>& vdot, const drake::Vector3<T>& p_FG,
+                                          const drake::multibody::Frame<T>& F) const {
+    plant_.SetPositions(plant_context_.get(), q);
+    plant_.SetVelocities(plant_context_.get(), v);
+
+    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
+    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
+                                       world_frame, &J_);
+    const drake::Vector6<T> Jdot_v = plant_.CalcBiasForJacobianSpatialVelocity(
+        *plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame, world_frame);
+    return J_ * vdot + Jdot_v;
   }
 
  private:
