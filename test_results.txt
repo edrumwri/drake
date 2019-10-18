@@ -7,7 +7,7 @@ e57224907c2c34df48107ad1d99d5e67  common/test/debug_test.cc
 04fe62e72759a98eee7c61ccdc85ed3d  demo/main.cc
 03d125327cc777f6776936b67981ed96  drivers/chopstick/chopstick_impedance_controller.cc
 b5b594295f75d8c5af89c38407aa5d9d  drivers/chopstick/chopstick_kinematics.cc
-1381d50a292f35cd5791bd9eb856019d  drivers/chopstick/test/chopstick_kinematics_test.cc
+c569996898c7d053e3405114d4d13cfe  drivers/chopstick/test/chopstick_kinematics_test.cc
 3049e2d4c3338525434f2505a6e02ffa  drivers/chopstick/test/chopstick_wiping_primitive_test.cc
 532eb820be128edb8d4af76370891281  include/DR/common/actuator_demultiplexer.h
 eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
@@ -15,7 +15,7 @@ eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
 52239b73bb06606d073644ac11d459d7  include/DR/common/logging.h
 86b91e6df255b679f0d661309068d31d  include/DR/drivers/chopstick/chopstick_config.h
 85f4f7d8782f893afe4b75d96c92d5c7  include/DR/drivers/chopstick/chopstick_impedance_controller.h
-1c73dc794b7546adea1af71f0d5435d8  include/DR/drivers/chopstick/chopstick_kinematics.h
+9c529e3464f5d7b8efaec2eb98318522  include/DR/drivers/chopstick/chopstick_kinematics.h
 89b4d9bd31de409e7bdf5f2455aa4224  include/DR/interfaces/impedance_controller.h
 67176bfe587331da98ed688261fc810b  include/DR/interfaces/inverse_kinematics.h
 92ad3c3733668e579639acdd3586a68e  include/DR/primitives/plan.h
@@ -49,36 +49,36 @@ cc3349435d607b2c2f37495a9591e9d5  tools/sobol_sequence.cc
 bd0907226bf21d631a02753e50a5fb63  tools/test/optional_test.cc
 ac9623786e440e02dcae8a618cfc85b5  tools/test/sobol_sequence_test.cc
 Running tests...
-Test project /home/samzapo/Development/DR-build14
+Test project /home/drum/DR/build
       Start  1: DR_main_test
- 1/14 Test  #1: DR_main_test ..............................   Passed    0.04 sec
-      Start  2: DR_actuator_demultiplexer_test
- 2/14 Test  #2: DR_actuator_demultiplexer_test ............   Passed    0.32 sec
-      Start  3: DR_debug_test
- 3/14 Test  #3: DR_debug_test .............................   Passed    0.07 sec
-      Start  4: DR_release_test
- 4/14 Test  #4: DR_release_test ...........................   Passed    0.06 sec
-      Start  5: DR_chopstick_kinematics_test
- 5/14 Test  #5: DR_chopstick_kinematics_test ..............   Passed    0.37 sec
-      Start  6: DR_chopstick_wiping_primitive_test
- 6/14 Test  #6: DR_chopstick_wiping_primitive_test ........   Passed    0.91 sec
+ 1/14 Test  #1: DR_main_test ..............................   Passed    0.21 sec
+      Start  2: DR_release_test
+ 2/14 Test  #2: DR_release_test ...........................   Passed    0.57 sec
+      Start  3: DR_actuator_demultiplexer_test
+ 3/14 Test  #3: DR_actuator_demultiplexer_test ............   Passed    0.61 sec
+      Start  4: DR_debug_test
+ 4/14 Test  #4: DR_debug_test .............................   Passed    0.92 sec
+      Start  5: DR_chopstick_wiping_primitive_test
+ 5/14 Test  #5: DR_chopstick_wiping_primitive_test ........   Passed   91.29 sec
+      Start  6: DR_chopstick_kinematics_test
+ 6/14 Test  #6: DR_chopstick_kinematics_test ..............   Passed    7.38 sec
       Start  7: DR_primitive_behavior_test
- 7/14 Test  #7: DR_primitive_behavior_test ................   Passed    3.05 sec
-      Start  8: DR_state_machine_controller_test
- 8/14 Test  #8: DR_state_machine_controller_test ..........   Passed    0.07 sec
-      Start  9: DR_state_machine_test
- 9/14 Test  #9: DR_state_machine_test .....................   Passed    0.09 sec
-      Start 10: DR_model_generator_test
-10/14 Test #10: DR_model_generator_test ...................   Passed    0.47 sec
-      Start 11: DR_simulation_facade_test
-11/14 Test #11: DR_simulation_facade_test .................   Passed    0.06 sec
-      Start 12: DR_differential_inverse_kinematics_test
-12/14 Test #12: DR_differential_inverse_kinematics_test ...   Passed    0.04 sec
-      Start 13: DR_optional_test
-13/14 Test #13: DR_optional_test ..........................   Passed    0.00 sec
-      Start 14: DR_sobol_sequence_test
-14/14 Test #14: DR_sobol_sequence_test ....................   Passed    0.04 sec
+ 7/14 Test  #7: DR_primitive_behavior_test ................   Passed    3.32 sec
+      Start  8: DR_state_machine_test
+ 8/14 Test  #8: DR_state_machine_test .....................   Passed    1.87 sec
+      Start  9: DR_state_machine_controller_test
+ 9/14 Test  #9: DR_state_machine_controller_test ..........   Passed    3.25 sec
+      Start 10: DR_simulation_facade_test
+10/14 Test #10: DR_simulation_facade_test .................   Passed    1.74 sec
+      Start 11: DR_model_generator_test
+11/14 Test #11: DR_model_generator_test ...................   Passed    1.72 sec
+      Start 12: DR_optional_test
+12/14 Test #12: DR_optional_test ..........................   Passed    0.00 sec
+      Start 13: DR_sobol_sequence_test
+13/14 Test #13: DR_sobol_sequence_test ....................   Passed    0.27 sec
+      Start 14: DR_differential_inverse_kinematics_test
+14/14 Test #14: DR_differential_inverse_kinematics_test ...   Passed    0.27 sec
 
 100% tests passed, 0 tests failed out of 14
 
-Total Test time (real) =   5.61 sec
+Total Test time (real) = 113.46 sec

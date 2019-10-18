@@ -339,7 +339,6 @@ class ChopstickKinematics : public InverseKinematics<T> {
     return drake::math::RigidTransform<T>(X_WF.rotation(), X_WF * p_FG);
   }
 
-  // TODO(edrumwri) This function needs to be unit tested.
   /** Convenience function for computing the velocity of a Frame G rigidly attached to Frame F.
    @param q the configuration of the robot for which the frame velocity should be computed.
    @param v the velocity of the robot for which the frame velocity should be computed.
@@ -350,11 +349,13 @@ class ChopstickKinematics : public InverseKinematics<T> {
                                                          const drake::Vector3<T>& p_FG,
                                                          const drake::multibody::Frame<T>& F) const {
     plant_.SetPositions(plant_context_.get(), q);
+    plant_.SetVelocities(plant_context_.get(), v);
 
-    const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
-    plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
-                                       world_frame, &J_);
-    return drake::multibody::SpatialVelocity<T>(J_ * v);
+    const drake::math::RigidTransform<T>& X_WF = plant_.EvalBodyPoseInWorld(*plant_context_, F.body());
+    const drake::multibody::SpatialVelocity<T>& X_WFo_W =
+        plant_.EvalBodySpatialVelocityInWorld(*plant_context_, F.body());
+    const drake::Vector3<T> p_FoGo_W = X_WF.rotation() * p_FG;
+    return X_WFo_W.Shift(p_FoGo_W);
   }
 
  private:
