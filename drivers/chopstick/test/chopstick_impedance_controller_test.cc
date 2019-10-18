@@ -17,8 +17,8 @@
 #include <DR/common/actuator_demultiplexer.h>
 #include <DR/common/environment.h>
 #include <DR/drivers/chopstick/chopstick_config.h>
-#include <DR/drivers/chopstick/chopstick_impedance_controller.h>
 #include <DR/drivers/chopstick/chopstick_kinematics.h>
+#include <DR/interfaces/task_space_impedance_controller.h>
 #include <DR/primitives/primitive_behavior.h>
 #include <DR/simulation/model_generator.h>
 
@@ -35,7 +35,8 @@ namespace DR {
 
 using drake::multibody::ModelInstanceIndex;
 using Bodyd = drake::multibody::Body<double>;
-using ChopstickImpedanceControllerd = ChopstickImpedanceController<double>;
+// TODO(drum) Replace the TaskSpaceImpedanceController below iwth ChopstickImpedanceController.
+using ChopstickImpedanceControllerd = TaskSpaceImpedanceController<double>;
 using ChopstickKinematicsd = ChopstickKinematics<double>;
 using Contextd = drake::systems::Context<double>;
 using ContinuousStated = drake::systems::ContinuousState<double>;
@@ -112,12 +113,12 @@ class ChopstickImpedanceControllerTest : public ::testing::Test {
                     robot_plant_->get_actuation_input_port(robot_right_instance_));
 
     // Export outputs from the controller.
-    left_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NoSo_N_desired_input_port(*left_goal_));
-    left_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NoSo_N_desired_input_port(*left_goal_));
-    left_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NoSo_N_desired_input_port(*left_goal_));
-    right_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NoSo_N_desired_input_port(*right_goal_));
-    right_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NoSo_N_desired_input_port(*right_goal_));
-    right_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NoSo_N_desired_input_port(*right_goal_));
+    left_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*left_goal_));
+    left_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*left_goal_));
+    left_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*left_goal_));
+    right_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*right_goal_));
+    right_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*right_goal_));
+    right_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*right_goal_));
     left_kp_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*left_goal_));
     left_kd_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kd_gain_input_port(*left_goal_));
     right_kp_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*right_goal_));

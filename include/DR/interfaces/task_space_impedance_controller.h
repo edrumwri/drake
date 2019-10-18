@@ -183,16 +183,16 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
           goal->robot_frame_R().name() + "/" + goal->manipuland_frame_M().name() + std::to_string(index);
 
       // Declare kinematic goals.
-      x_NoSo_N_desired_input_port_index_[goal] =
-          this->DeclareVectorInputPort(base_name + "_x_NoSo_N_desired",
+      x_NS_N_desired_input_port_index_[goal] =
+          this->DeclareVectorInputPort(base_name + "_x_NS_N_desired",
                                        drake::systems::BasicVector<T>(goal->num_configuration_variables()))
               .get_index();
-      xd_NoSo_N_desired_input_port_index_[goal] =
-          this->DeclareVectorInputPort(base_name + "_xd_NoSo_N_desired",
+      xd_NS_N_desired_input_port_index_[goal] =
+          this->DeclareVectorInputPort(base_name + "_xd_NS_N_desired",
                                        drake::systems::BasicVector<T>(goal->num_velocity_variables()))
               .get_index();
-      xdd_NoSo_N_desired_input_port_index_[goal] =
-          this->DeclareVectorInputPort(base_name + "_xdd_NoSo_N_desired",
+      xdd_NS_N_desired_input_port_index_[goal] =
+          this->DeclareVectorInputPort(base_name + "_xdd_NS_N_desired",
                                        drake::systems::BasicVector<T>(goal->num_acceleration_variables()))
               .get_index();
 
@@ -269,34 +269,46 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     return drake::systems::System<T>::get_input_port(task_space_kd_gain_input_port_index_.at(&goal));
   }
 
-  /// Gets the input port for the desired task space positions. The size of this vector port will be dependent
-  /// by the task space type that corresponds to that goal. If this vector corresponds to a strictly Cartesian
-  /// goal, the format of this vector will be the three Cartesian space components. If this vector corresponds to
-  /// strictly an orientation goal, the format of this vector will be quaternion components qw, qx, qy, qz in order. If
-  /// this vector corresponds to Cartesian location and orientation, the format of this vector will be quaternion
-  /// components followed by Cartesian components.
-  const drake::systems::InputPort<T>& x_NoSo_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
-    return drake::systems::System<T>::get_input_port(x_NoSo_N_desired_input_port_index_.at(&goal));
+  /**
+   Gets the input port for the desired task space configurations. The size of this vector port will be dependent
+   by the task space type that corresponds to that goal. If this vector corresponds to a strictly Cartesian
+   goal, the format of this vector will be the three Cartesian space components. If this vector corresponds to
+   strictly an orientation goal, the format of this vector will be quaternion components qw, qx, qy, qz in order. If
+   this vector corresponds to Cartesian location and orientation, the format of this vector will be quaternion
+   components followed by Cartesian components.
+
+   In the case that the task space type is a strictly Cartesian goal, the inputs will correspond to a vector from
+   the origin of N's frame to the origin of S's frame, expressed in N's frame. In the case that the task space type
+   is a strictly orientation goal, the inputs will correspond to a ...
+  */
+  const drake::systems::InputPort<T>& x_NS_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
+    return drake::systems::System<T>::get_input_port(x_NS_N_desired_input_port_index_.at(&goal));
   }
 
-  /// Gets the input port for the desired task space velocities. The size of this vector port will be determined
-  /// by the task space type that corresponds to that goal. If this vector corresponds to a strictly Cartesian
-  /// goal, the format of this vector will be the time-derivative of the three Cartesian space components. If this
-  /// vector corresponds to strictly an orientation goal, the format of this vector will be angular velocity components
-  /// wx, wy, wz, in that order. If this vector corresponds to Cartesian location and orientation, the format of this
-  /// vector will be angular velocity components followed by Cartesian components.
-  const drake::systems::InputPort<T>& xd_NoSo_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
-    return drake::systems::System<T>::get_input_port(xd_NoSo_N_desired_input_port_index_.at(&goal));
+  /** Gets the input port for the desired task space velocities. The size of this vector port will be determined
+   by the task space type that corresponds to that goal. If this vector corresponds to a strictly Cartesian
+   goal, the format of this vector will be the time-derivative of the three Cartesian space components. If this
+   vector corresponds to strictly an orientation goal, the format of this vector will be angular velocity components
+   wx, wy, wz, in that order. If this vector corresponds to Cartesian location and orientation, the format of this
+   vector will be angular velocity components followed by Cartesian components.
+
+   See x_NS_N_desired_input_port() documentation for the interpretation of the input values.
+  */
+  const drake::systems::InputPort<T>& xd_NS_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
+    return drake::systems::System<T>::get_input_port(xd_NS_N_desired_input_port_index_.at(&goal));
   }
 
-  /// Gets the input port for the desired task space accelerations. The size of this vector port will be
-  /// determined by the task space type that corresponds to that goal.  If this vector corresponds to a strictly
-  /// Cartesian goal, the format of this vector will be the second time-derivative of the three Cartesian space
-  /// components. If this vector corresponds to strictly an orientation goal, the format of this vector will be angular
-  /// acceleration components ax, ay, az, in that order. If this vector corresponds to Cartesian location and
-  /// orientation, the format of this vector will be angular acceleration components followed by Cartesian components.
-  const drake::systems::InputPort<T>& xdd_NoSo_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
-    return drake::systems::System<T>::get_input_port(xdd_NoSo_N_desired_input_port_index_.at(&goal));
+  /** Gets the input port for the desired task space accelerations. The size of this vector port will be
+   determined by the task space type that corresponds to that goal.  If this vector corresponds to a strictly
+   Cartesian goal, the format of this vector will be the second time-derivative of the three Cartesian space
+   components. If this vector corresponds to strictly an orientation goal, the format of this vector will be angular
+   acceleration components ax, ay, az, in that order. If this vector corresponds to Cartesian location and
+   orientation, the format of this vector will be angular acceleration components followed by Cartesian components.
+
+   See x_NS_N_desired_input_port() documentation for the interpretation of the input values.
+  */
+  const drake::systems::InputPort<T>& xdd_NS_N_desired_input_port(const TaskSpaceGoal<T>& goal) const {
+    return drake::systems::System<T>::get_input_port(xdd_NS_N_desired_input_port_index_.at(&goal));
   }
 
   /// Gets the port that provides commands to the actuators. Note that these commands are in actuator space, so this
@@ -353,12 +365,12 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     int acceleration_goal_index = 0;
     for (const TaskSpaceGoal<T>* goal : task_space_goals_) {
       // Get the desireds.
-      Eigen::VectorBlock<const drake::VectorX<T>> x_NoSo_N_des = x_NoSo_N_desired_input_port(*goal).Eval(context);
-      Eigen::VectorBlock<const drake::VectorX<T>> xd_NoSo_N_des = xd_NoSo_N_desired_input_port(*goal).Eval(context);
-      Eigen::VectorBlock<const drake::VectorX<T>> xdd_NoSo_N_des = xdd_NoSo_N_desired_input_port(*goal).Eval(context);
+      Eigen::VectorBlock<const drake::VectorX<T>> x_NS_N_des = x_NS_N_desired_input_port(*goal).Eval(context);
+      Eigen::VectorBlock<const drake::VectorX<T>> xd_NS_N_des = xd_NS_N_desired_input_port(*goal).Eval(context);
+      Eigen::VectorBlock<const drake::VectorX<T>> xdd_NS_N_des = xdd_NS_N_desired_input_port(*goal).Eval(context);
 
       // Get the complete xddot*, the frame acceleration with error feedback components.
-      drake::VectorX<T> xddot_star = CalcXDDotStar(context, *goal, x_NoSo_N_des, xd_NoSo_N_des, xdd_NoSo_N_des);
+      drake::VectorX<T> xddot_star = CalcXDDotStar(context, *goal, x_NS_N_des, xd_NS_N_des, xdd_NS_N_des);
 
       // Set it in the greater vector.
       xddot_star_.segment(acceleration_goal_index, goal->num_acceleration_variables()) = xddot_star;
@@ -546,9 +558,9 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   drake::systems::InputPortIndex universal_v_estimated_input_port_index_{};
   std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> task_space_kp_gain_input_port_index_{};
   std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> task_space_kd_gain_input_port_index_{};
-  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> x_NoSo_N_desired_input_port_index_{};
-  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> xd_NoSo_N_desired_input_port_index_{};
-  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> xdd_NoSo_N_desired_input_port_index_{};
+  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> x_NS_N_desired_input_port_index_{};
+  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> xd_NS_N_desired_input_port_index_{};
+  std::unordered_map<const TaskSpaceGoal<T>*, drake::systems::InputPortIndex> xdd_NS_N_desired_input_port_index_{};
   drake::systems::OutputPortIndex actuation_output_port_index_{};
   drake::systems::OutputPortIndex residual_acceleration_output_port_index_{};
 
