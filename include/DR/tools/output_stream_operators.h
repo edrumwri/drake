@@ -5,7 +5,9 @@
 
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -31,6 +33,28 @@ std::ostream& operator<<(std::ostream& os, const std::map<K, V>& m) {
 /// Type `T` must provide an `ostream` overload.
 template <typename T>
 std::ostream& operator<<(std::ostream& os, const std::vector<T>& vec) {
+  os << "{";
+  for (const auto& v : vec) {
+    os << v << std::endl;
+  }
+  os << "};";
+  return os;
+}
+
+/// Type `T` must provide an `ostream` overload.
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const std::set<T>& vec) {
+  os << "{";
+  for (const auto& v : vec) {
+    os << v << std::endl;
+  }
+  os << "};";
+  return os;
+}
+
+/// Type `T` must provide an `ostream` overload.
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const std::unordered_set<T>& vec) {
   os << "{";
   for (const auto& v : vec) {
     os << v << std::endl;

@@ -23,10 +23,9 @@ cd ~/drake
 
 ### Building (cmake)
 ```
-cd ~/
-mkdir ~/drake-build
-cd ~/drake-build
-cmake -DWITH_PYTHON_VERSION="3.6" -DCMAKE_BUILD_TYPE="RelWithDebInfo" ~/drake
+mkdir drake-build
+cd drake-build
+cmake -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_FLAGS="-std=c++11" -DCMAKE_INSTALL_PREFIX=/opt/drake ../drake
 make -j
 ```
 
@@ -59,15 +58,15 @@ Make a private fork of `DR` to your personal github account, your fork of `DR` s
 ### Building (cmake, requires Drake cmake build)
 
 ```
-mkdir ~/DR/build
-cd ~/DR/build
-cmake -DCMAKE_BUILD_TYPE="RelWithDebInfo" -DCMAKE_PREFIX_PATH=$(realpath ${WORKDIR})/drake-build/install ../
+mkdir DR-build
+cd DR-build
+cmake -DCMAKE_BUILD_TYPE="RelWithDebInfo" -DCMAKE_PREFIX_PATH=/opt/drake ../DR
 make -j
 ```
 
 ### Running Test Code
 
 ```
-cd ~/DR/build
-../scripts/run_tests.sh ${PWD} && ../scripts/check_tests.sh
+cd DR-build
+../DR/scripts/run_tests.sh ${PWD} && ../DR/scripts/check_tests.sh
 ```
