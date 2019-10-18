@@ -338,10 +338,9 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     residual_acceleration->SetFromVector(J_full_ * vdot + J_bias_full_ - xddot_star_);
   }
 
-  // Computes the 6ng x nv-dimensional Jacobian matrix J_full_, 6ng x 1 "acceleration-bias" vector J_bias_full_, and 6ng
-  // x 1
-  // desired-task-space acceleration xdd*, where ng is the number of goals and nv is the number of generalized velocity
-  // variables in the universal plant.
+  // Computes the 6ng x nv-dimensional Jacobian matrix J_full_, 6ng x 1 "acceleration-bias" vector J_bias_full_, and
+  // 6ng x 1 desired-task-space acceleration xdd*, where ng is the number of goals and nv is the number of generalized
+  // velocity variables in the universal plant.
   // @pre universal plant positions and velocities have been set in the universal plant context.
   void FormJacobianAndTaskSpaceGoals(const drake::systems::Context<T>& context) const {
     // Loop through all goals.
