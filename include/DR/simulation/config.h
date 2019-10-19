@@ -210,6 +210,30 @@ class SingleBodyInstanceConfig final : public ModelInstanceConfig {
 
   bool has_visual_geometry() const { return (visual_geometry_.get() != nullptr); }
 
+  /**
+  Creates a configuration for a static box.
+  @param name Sets the name of the model instance (must be unique).
+  @param size the dimensions of the box.
+  @param pose Sets the pose of the box.
+  @param coulomb_friction (optional) sets the static and dynamic Coulomb friction coefficients of the box.
+  @param color (optional) RGBA color of the box's visual geometry.
+  */
+  static std::unique_ptr<SingleBodyInstanceConfig> CreateStaticBoxConfig(
+      const std::string& name, const drake::Vector3<double>& size, const drake::math::RigidTransform<double>& pose,
+      const drake::optional<drake::multibody::CoulombFriction<double>>& coulomb_friction,
+      const drake::optional<drake::Vector4<double>>& color) {
+    auto body = std::make_unique<SingleBodyInstanceConfig>();
+    body->set_name(name);
+    body->set_mass_and_possibly_make_static(0.0 /* static body */);
+    body->SetBoxGeometry(size[0], size[1], size[2]);
+    body->set_pose(pose);
+
+    if (coulomb_friction.has_value()) body->set_coulomb_friction(coulomb_friction.value());
+    if (color.has_value()) body->set_color(color.value());
+
+    return body;
+  }
+
  private:
   // see: drake/geometry/shape_specification.h for details
   std::shared_ptr<drake::geometry::Shape> visual_geometry_;

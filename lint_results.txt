@@ -21,7 +21,8 @@ eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
 92ad3c3733668e579639acdd3586a68e  include/DR/primitives/plan.h
 8bded23b5ef52511db0d305230b015f7  include/DR/primitives/primitive_behavior.h
 a4002d36359adf560b769a9decc50e88  include/DR/primitives/state_machine.h
-16144cc4b34a32ea905528848195ad63  include/DR/simulation/config.h
+12828b0b06158e98809d5c09d0e412cb  include/DR/simulation/config.h
+382471b0154a6d01803af88575a0df3b  include/DR/simulation/container_unloading/loading_dock_generator.h
 48743e334f6b41feb184fe0cf340bb6c  include/DR/simulation/container_unloading/parcel_stack_generator.h
 e9027ec59dbf5892f123493fb035c543  include/DR/simulation/controller_generator.h
 8762aaa0c7960511740c4d7a666a6871  include/DR/simulation/model_generator.h
@@ -41,6 +42,7 @@ c9503a6d9c349b331c0e71d71a971eef  primitives/primitive_behavior.cc
 9e76f83a147632c2d5fde93a7c898ab3  primitives/test/primitive_behavior_test.cc
 7884eabe51f5f6bd46d3bce286525049  primitives/test/state_machine_controller_test.cc
 b01f90055bded621026fa8225378635b  primitives/test/state_machine_test.cc
+1b078b505b1d82f97187f676607f18c5  simulation/container_unloading/test/loading_dock_generator_test.cc
 b892b9c03a807f71bfcdacba4522c2bd  simulation/container_unloading/test/parcel_stack_generator_test.cc
 409d780fb70c72da1debfc96a8e560ca  simulation/controller_generator.cc
 ea07e691ef82d735afa699ded5c1bf1d  simulation/shape_to_unit_inertia.cc
