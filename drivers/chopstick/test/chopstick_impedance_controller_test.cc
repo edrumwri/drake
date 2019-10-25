@@ -35,7 +35,7 @@ namespace DR {
 
 using drake::multibody::ModelInstanceIndex;
 using Bodyd = drake::multibody::Body<double>;
-// TODO(drum) Replace the TaskSpaceImpedanceController below iwth ChopstickImpedanceController.
+// TODO(drum) Replace the TaskSpaceImpedanceController below with ChopstickImpedanceController.
 using ChopstickImpedanceControllerd = TaskSpaceImpedanceController<double>;
 using ChopstickKinematicsd = ChopstickKinematics<double>;
 using Contextd = drake::systems::Context<double>;
@@ -48,31 +48,40 @@ using TaskSpaceGoald = TaskSpaceGoal<double>;
 namespace {
 
 // TODO(drum) The vector below needs to be set from some robot-specific configuration.
-// Set the vector from the origin of the left chopstick frame L to the origin of its tip (which we'll be using for
-// manipulation in these tests), expressed in L's frame (specific to the Chopsticks model).
-const Vector3d p_LM(1.0, 0.0, 0.0);
+// Set the vector from the origin of the left chopstick frame A to the origin of Frame B, which is rigidly attached to
+// (and aligned with) Frame A and located at the tip of the left chopstick.
+const Vector3d p_AB(1.0, 0.0, 0.0);
 
 // TODO(drum) The vector below needs to be set from some robot-specific configuration.
-// Set the vector from the origin of the right chopstick frame R to the origin of its tip (which we'll be using for
-// manipulation in these tests), expressed in R's frame (specific to the Chopsticks model).
-const Vector3d p_RS(1.0, 0.0, 0.0);
+// Set the vector from the origin of the left chopstick frame I to the origin of Frame J, which is rigidly attached to
+// (and aligned with) Frame I and located at the tip of the left chopstick.
+const Vector3d p_IJ(1.0, 0.0, 0.0);
 
 // Fixture for testing the task space impedance controller.
 class ChopstickImpedanceControllerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    drake::systems::DiagramBuilder<double> builder;
-    auto scene_graph_plant = drake::multibody::AddMultibodyPlantSceneGraph(&builder);
+    // Create an inner diagram for the MultibodyPlant and SceneGraph.
+    drake::systems::DiagramBuilder<double> inner_builder;
+    auto scene_graph_plant = drake::multibody::AddMultibodyPlantSceneGraph(&inner_builder);
     robot_plant_ = &scene_graph_plant.plant;
 
     // Add the robot models to the plants.
     std::tie(robot_left_instance_, robot_right_instance_) = AddChopsticksToMBP(robot_plant_);
 
-    // Finalize the plant.
+    // Finalize the plant and build the diagram, but not before exporting some useful ports.
     robot_plant_->Finalize();
+    drake::systems::DiagramBuilder<double> builder;
+    const drake::systems::InputPortIndex left_chopstick_actuation_input_port_index =
+        inner_builder.ExportInput(robot_plant_->get_actuation_input_port(robot_left_instance_));
+    const drake::systems::InputPortIndex right_chopstick_actuation_input_port_index =
+        inner_builder.ExportInput(robot_plant_->get_actuation_input_port(robot_right_instance_));
+    const drake::systems::OutputPortIndex robot_plant_state_output_port_index =
+        inner_builder.ExportOutput(robot_plant_->get_state_output_port());
+    const auto& universal_system = *builder.AddSystem(inner_builder.Build());
 
-    // Construct the kinematics system using an arbitrary seed to make any
-    // randomized operations deterministic.
+    // Construct the kinematics system using an arbitrary seed (NOTE: no kinematics operations in this
+    // controller use randomness or, by extension, a random seed).
     int seed = 0;
     kinematics_ = std::make_unique<ChopstickKinematicsd>(robot_plant_, seed);
 
@@ -82,25 +91,28 @@ class ChopstickImpedanceControllerTest : public ::testing::Test {
     const Bodyd& right_chopstick_body = robot_plant_->GetBodyByName("end_effector", robot_right_instance_);
     const Framed& left_chopstick_frame_L = left_chopstick_body.body_frame();
     const Framed& right_chopstick_frame_R = right_chopstick_body.body_frame();
-    left_goal_ = std::make_unique<TaskSpaceGoald>(TaskSpaceType::kCartesianOnly, &left_chopstick_frame_L, p_LM,
-                                                  &world_frame, Vector3d::Zero());
-    right_goal_ = std::make_unique<TaskSpaceGoald>(TaskSpaceType::kCartesianOnly, &right_chopstick_frame_R, p_RS,
-                                                   &world_frame, Vector3d::Zero());
+    auto left_goal = std::make_unique<TaskSpaceGoald>(TaskSpaceType::kCartesianOnly, &left_chopstick_frame_L, p_AB,
+                                                      &world_frame, Vector3d::Zero());
+    auto right_goal = std::make_unique<TaskSpaceGoald>(TaskSpaceType::kCartesianOnly, &right_chopstick_frame_R, p_IJ,
+                                                       &world_frame, Vector3d::Zero());
+    left_goal_pointer_ = left_goal.get();
+    right_goal_pointer_ = right_goal.get();
 
     // Construct the impedance controller.
-    std::vector<const TaskSpaceGoald*> goals = {left_goal_.get(), right_goal_.get()};
-    impedance_controller_ =
-        builder.AddSystem<ChopstickImpedanceControllerd>(robot_plant_, robot_plant_, std::move(goals));
+    std::vector<std::unique_ptr<TaskSpaceGoald>> goals;
+    goals.emplace_back(std::move(left_goal));
+    goals.emplace_back(std::move(right_goal));
+    impedance_controller_ = builder.AddSystem<ChopstickImpedanceControllerd>(robot_plant_, universal_system,
+                                                                             robot_plant_, std::move(goals));
 
-    // TODO(drum): Remove the next line.
-    impedance_controller_->set_contact_affects_control(false);
-
+    // TODO(drum): Replace the code below with a bespoke continuous state demultiplexer.
     // The demultiplexer converts a x vector into q and v vectors.
     std::vector<int> output_port_sizes = {robot_plant_->num_positions(), robot_plant_->num_velocities()};
     auto mbp_demuxer = builder.AddSystem<drake::systems::Demultiplexer<double>>(output_port_sizes);
 
     // "Estimated" states are true states for this test.
-    builder.Connect(robot_plant_->get_state_output_port(), mbp_demuxer->get_input_port(0));
+    builder.Connect(universal_system.get_output_port(robot_plant_state_output_port_index),
+                    mbp_demuxer->get_input_port(0));
     builder.Connect(mbp_demuxer->get_output_port(0), impedance_controller_->universal_q_estimated_input_port());
     builder.Connect(mbp_demuxer->get_output_port(1), impedance_controller_->universal_v_estimated_input_port());
 
@@ -108,26 +120,41 @@ class ChopstickImpedanceControllerTest : public ::testing::Test {
     auto actuator_demuxer = builder.AddSystem<ActuatorDemultiplexer<double>>(robot_plant_);
     builder.Connect(impedance_controller_->actuation_output_port(), actuator_demuxer->full_actuation_input_port());
     builder.Connect(actuator_demuxer->actuated_model_output_port(robot_left_instance_),
-                    robot_plant_->get_actuation_input_port(robot_left_instance_));
+                    universal_system.get_input_port(left_chopstick_actuation_input_port_index));
     builder.Connect(actuator_demuxer->actuated_model_output_port(robot_right_instance_),
-                    robot_plant_->get_actuation_input_port(robot_right_instance_));
+                    universal_system.get_input_port(right_chopstick_actuation_input_port_index));
 
     // Export outputs from the controller.
-    left_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*left_goal_));
-    left_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*left_goal_));
-    left_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*left_goal_));
-    right_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*right_goal_));
-    right_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*right_goal_));
-    right_xdd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*right_goal_));
-    left_kp_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*left_goal_));
-    left_kd_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kd_gain_input_port(*left_goal_));
-    right_kp_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*right_goal_));
-    right_kd_gain_input_ = builder.ExportInput(impedance_controller_->task_space_kd_gain_input_port(*right_goal_));
+    left_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*left_goal_pointer_));
+    left_xd_NoSo_N_input_ = builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*left_goal_pointer_));
+    left_xdd_NoSo_N_input_ =
+        builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*left_goal_pointer_));
+    right_x_NoSo_N_input_ = builder.ExportInput(impedance_controller_->x_NS_N_desired_input_port(*right_goal_pointer_));
+    right_xd_NoSo_N_input_ =
+        builder.ExportInput(impedance_controller_->xd_NS_N_desired_input_port(*right_goal_pointer_));
+    right_xdd_NoSo_N_input_ =
+        builder.ExportInput(impedance_controller_->xdd_NS_N_desired_input_port(*right_goal_pointer_));
+    left_kp_gain_input_ =
+        builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*left_goal_pointer_));
+    left_kd_gain_input_ =
+        builder.ExportInput(impedance_controller_->task_space_kd_gain_input_port(*left_goal_pointer_));
+    right_kp_gain_input_ =
+        builder.ExportInput(impedance_controller_->task_space_kp_gain_input_port(*right_goal_pointer_));
+    right_kd_gain_input_ =
+        builder.ExportInput(impedance_controller_->task_space_kd_gain_input_port(*right_goal_pointer_));
 
     diagram_ = builder.Build();
 
     // Create a context.
     context_ = diagram_->CreateDefaultContext();
+  }
+
+  // Sets the task space gains to "very compliant" with "low damping".
+  void SetConstantGains() {
+    context_->FixInputPort(left_kp_gain_input_, Vector3d::Ones() * 1);
+    context_->FixInputPort(left_kd_gain_input_, Vector3d::Ones() * 0.1);
+    context_->FixInputPort(right_kp_gain_input_, Vector3d::Ones() * 1);
+    context_->FixInputPort(right_kd_gain_input_, Vector3d::Ones() * 0.1);
   }
 
   drake::systems::InputPortIndex left_x_NoSo_N_input_, left_xd_NoSo_N_input_, left_xdd_NoSo_N_input_,
@@ -140,7 +167,8 @@ class ChopstickImpedanceControllerTest : public ::testing::Test {
   ChopstickImpedanceControllerd* impedance_controller_{nullptr};
   std::unique_ptr<ChopstickKinematicsd> kinematics_;
   std::unique_ptr<Contextd> context_;
-  std::unique_ptr<TaskSpaceGoald> left_goal_, right_goal_;
+  const TaskSpaceGoald* left_goal_pointer_;
+  const TaskSpaceGoald* right_goal_pointer_;
 };
 
 // Verifies that the impedance controller realizes the desired task space acceleration.
@@ -159,21 +187,27 @@ TEST_F(ChopstickImpedanceControllerTest, RealizesDesiredAccelerationWithoutConta
 
   // Compute the task space position that results from the arbitrary generalized position.
   const Vector3d x_left =
-      kinematics_->CalcForwardKinematics(q, left_goal_->p_RS(), left_goal_->robot_frame_R()).translation();
+      kinematics_->CalcForwardKinematics(q, left_goal_pointer_->p_RS(), left_goal_pointer_->robot_frame_R())
+          .translation();
   const Vector3d x_right =
-      kinematics_->CalcForwardKinematics(q, right_goal_->p_RS(), right_goal_->robot_frame_R()).translation();
+      kinematics_->CalcForwardKinematics(q, right_goal_pointer_->p_RS(), right_goal_pointer_->robot_frame_R())
+          .translation();
 
   // Compute the task space velocity that results from the arbitrary generalized velocity.
   const Vector3d xd_left =
-      kinematics_->CalcFrameVelocity(q, v, left_goal_->p_RS(), left_goal_->robot_frame_R()).translational();
+      kinematics_->CalcFrameVelocity(q, v, left_goal_pointer_->p_RS(), left_goal_pointer_->robot_frame_R())
+          .translational();
   const Vector3d xd_right =
-      kinematics_->CalcFrameVelocity(q, v, right_goal_->p_RS(), right_goal_->robot_frame_R()).translational();
+      kinematics_->CalcFrameVelocity(q, v, right_goal_pointer_->p_RS(), right_goal_pointer_->robot_frame_R())
+          .translational();
 
   // Compute the task space acceleration that results from the arbitrary generalized acceleration.
   const Vector3d xdd_left =
-      kinematics_->CalcFrameAcceleration(q, v, vdot, left_goal_->p_RS(), left_goal_->robot_frame_R()).tail<3>();
+      kinematics_->CalcFrameAcceleration(q, v, vdot, left_goal_pointer_->p_RS(), left_goal_pointer_->robot_frame_R())
+          .tail<3>();
   const Vector3d xdd_right =
-      kinematics_->CalcFrameAcceleration(q, v, vdot, right_goal_->p_RS(), right_goal_->robot_frame_R()).tail<3>();
+      kinematics_->CalcFrameAcceleration(q, v, vdot, right_goal_pointer_->p_RS(), right_goal_pointer_->robot_frame_R())
+          .tail<3>();
 
   // Wire the task space acceleration into the impedance controller.
   // Fix inputs.
@@ -183,10 +217,7 @@ TEST_F(ChopstickImpedanceControllerTest, RealizesDesiredAccelerationWithoutConta
   context_->FixInputPort(right_x_NoSo_N_input_, x_right);
   context_->FixInputPort(right_xd_NoSo_N_input_, xd_right);
   context_->FixInputPort(right_xdd_NoSo_N_input_, xdd_right);
-  context_->FixInputPort(left_kp_gain_input_, Vector3d::Zero() * 1);
-  context_->FixInputPort(left_kd_gain_input_, Vector3d::Zero() * 0.1);
-  context_->FixInputPort(right_kp_gain_input_, Vector3d::Zero() * 1);
-  context_->FixInputPort(right_kd_gain_input_, Vector3d::Zero() * 0.1);
+  SetConstantGains();
 
   // Calculate the generalized acceleration that results from the control inputs.
   std::unique_ptr<ContinuousStated> xdot = diagram_->AllocateTimeDerivatives();
@@ -197,9 +228,12 @@ TEST_F(ChopstickImpedanceControllerTest, RealizesDesiredAccelerationWithoutConta
   // acceleration that results from the control inputs may be different than the set generalized acceleration because
   // of kinematic redundancy.
   const Vector3d xdd_left_actual =
-      kinematics_->CalcFrameAcceleration(q, v, vdot_actual, left_goal_->p_RS(), left_goal_->robot_frame_R()).tail<3>();
+      kinematics_
+          ->CalcFrameAcceleration(q, v, vdot_actual, left_goal_pointer_->p_RS(), left_goal_pointer_->robot_frame_R())
+          .tail<3>();
   const Vector3d xdd_right_actual =
-      kinematics_->CalcFrameAcceleration(q, v, vdot_actual, right_goal_->p_RS(), right_goal_->robot_frame_R())
+      kinematics_
+          ->CalcFrameAcceleration(q, v, vdot_actual, right_goal_pointer_->p_RS(), right_goal_pointer_->robot_frame_R())
           .tail<3>();
 
   // This is approximately the tightest tolerance at which the test below passes (the slop seems due to the least

@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <Eigen/SVD>
@@ -129,12 +130,18 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
  public:
   /// Constructs the impedance controller and the given task space type.
   TaskSpaceImpedanceController(const drake::multibody::MultibodyPlant<T>* universal_plant,
+                               const drake::systems::Diagram<T>& universal_system,
                                const drake::multibody::MultibodyPlant<T>* robot_plant,
-                               std::vector<const TaskSpaceGoal<T>*>&& task_space_goals)
-      : universal_plant_(*universal_plant), robot_plant_(*robot_plant), task_space_goals_(task_space_goals) {
+                               std::vector<std::unique_ptr<TaskSpaceGoal<T>>>&& task_space_goals)
+      : universal_plant_(*universal_plant), robot_plant_(*robot_plant), task_space_goals_(std::move(task_space_goals)) {
     // Check the pointers.
     DR_DEMAND(universal_plant);
     DR_DEMAND(robot_plant);
+
+    // Construct the vector of pointers.
+    task_space_goals_pointers_.resize(task_space_goals_.size());
+    for (int i = 0; i < static_cast<int>(task_space_goals_.size()); ++i)
+      task_space_goals_pointers_[i] = task_space_goals_[i].get();
 
     // Create the actuation matrix.
     B_ = universal_plant->MakeActuationMatrix();
@@ -153,9 +160,12 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     // Initialize the forces used for computing inverse dynamics.
     external_forces_ = std::make_unique<drake::multibody::MultibodyForces<T>>(universal_plant_);
     contact_forces_ = drake::VectorX<T>(universal_plant->num_velocities());
+    accumulated_contact_forces_ = drake::VectorX<T>(universal_plant->num_velocities());
 
-    // Create a Context for the universal plant.
-    universal_plant_context_ = universal_plant->CreateDefaultContext();
+    // Create a Context for the universal system.
+    universal_system_context_ = universal_system.CreateDefaultContext();
+    auto* diagram_context = dynamic_cast<drake::systems::DiagramContext<T>*>(universal_system_context_.get());
+    universal_plant_context_ = &universal_system.GetMutableSubsystemContext(*universal_plant, diagram_context);
 
     // Initialize the generalized accelerations for the robot.
     vdot_robot_ = drake::VectorX<T>::Zero(robot_plant->num_velocities());
@@ -180,7 +190,7 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     // Declare desired ports, one set per goal.
     // TODO(drum) Replace 'index' with a model instance name.
     int index = 0;
-    for (const TaskSpaceGoal<T>* goal : task_space_goals_) {
+    for (const TaskSpaceGoal<T>* goal : task_space_goals_pointers_) {
       const std::string base_name =
           goal->robot_frame_R().name() + "/" + goal->manipuland_frame_M().name() + std::to_string(index);
 
@@ -213,7 +223,7 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
 
     // Compute the number of goal velocity variables.
     num_goal_velocity_variables_ = 0;
-    for (const TaskSpaceGoal<T>* goal : task_space_goals_)
+    for (const TaskSpaceGoal<T>* goal : task_space_goals_pointers_)
       num_goal_velocity_variables_ += goal->num_velocity_variables();
 
     // Initialize the full Jacobian matrix- used for computing the Jacobian matrix with respect to every goal- to
@@ -324,8 +334,8 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
         this->get_input_port(universal_v_estimated_input_port_index_).Eval(context);
 
     // Set the positions and velocities in the universal plant context.
-    universal_plant().SetPositions(universal_plant_context_.get(), q_universal);
-    universal_plant().SetVelocities(universal_plant_context_.get(), v_universal);
+    universal_plant().SetPositions(universal_plant_context_, q_universal);
+    universal_plant().SetVelocities(universal_plant_context_, v_universal);
 
     // Form the Jacobian matrix, bias term, and xddot*.
     FormJacobianAndTaskSpaceGoals(context);
@@ -345,7 +355,7 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   void FormJacobianAndTaskSpaceGoals(const drake::systems::Context<T>& context) const {
     // Loop through all goals.
     int acceleration_goal_index = 0;
-    for (const TaskSpaceGoal<T>* goal : task_space_goals_) {
+    for (const TaskSpaceGoal<T>* goal : task_space_goals_pointers_) {
       // Get the desireds.
       Eigen::VectorBlock<const drake::VectorX<T>> x_NS_N_des = x_NS_N_desired_input_port(*goal).Eval(context);
       Eigen::VectorBlock<const drake::VectorX<T>> xd_NS_N_des = xd_NS_N_desired_input_port(*goal).Eval(context);
@@ -377,8 +387,8 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
         this->get_input_port(universal_v_estimated_input_port_index_).Eval(context);
 
     // Set the positions and velocities in the universal plant context.
-    universal_plant().SetPositions(universal_plant_context_.get(), q_universal);
-    universal_plant().SetVelocities(universal_plant_context_.get(), v_universal);
+    universal_plant().SetPositions(universal_plant_context_, q_universal);
+    universal_plant().SetVelocities(universal_plant_context_, v_universal);
 
     // Form the Jacobian matrix, bias term, and xddot*.
     FormJacobianAndTaskSpaceGoals(context);
@@ -390,16 +400,20 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     DR_LOG_DEBUG(DR::log(), "J*vdot + dotJ*v - xddot*: {}", (J_full_ * vdot + J_bias_full_ - xddot_star_).transpose());
 
     // TODO(drum) Explore how we can turn off contacts between all but the robot and the manipuland (and all objects
-    // that those are touching).
+    // than those that are touching).
     // Get the contact forces acting on the plant, if desired.
-    contact_forces_.setZero();
+    accumulated_contact_forces_.setZero();
     if (contact_affects_control_) {
       // We can only compute the contact forces if the plant is continuous.
       DR_DEMAND(!universal_plant().is_discrete());
 
-      for (drake::multibody::ModelInstanceIndex i(0); i < universal_plant().num_model_instances(); ++i) {
-        contact_forces_ +=
-            universal_plant().get_generalized_contact_forces_output_port(i).Eval(*universal_plant_context_);
+      // Always start at index 2: the first two are reserved.
+      for (drake::multibody::ModelInstanceIndex i(2); i < universal_plant().num_model_instances(); ++i) {
+        contact_forces_.setZero();
+        universal_plant().SetVelocitiesInArray(
+            i, universal_plant().get_generalized_contact_forces_output_port(i).Eval(*universal_plant_context_),
+            &contact_forces_);
+        accumulated_contact_forces_ += contact_forces_;
       }
     }
 
@@ -410,7 +424,7 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     universal_plant_.CalcForceElementsContribution(*universal_plant_context_, external_forces_.get());
 
     // Update the external forces vector with the contact forces.
-    external_forces_->mutable_generalized_forces() += contact_forces_;
+    external_forces_->mutable_generalized_forces() += accumulated_contact_forces_;
 
     // Compute the generalized forces necessary to realize the desired generalized accelerations:
     // tau_u = M(q)v̇ + C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W
@@ -559,7 +573,10 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   const drake::multibody::MultibodyPlant<T>& robot_plant_;
 
   // This vector tells how to interpret each of the frame goals.
-  std::vector<const TaskSpaceGoal<T>*> task_space_goals_;
+  std::vector<std::unique_ptr<TaskSpaceGoal<T>>> task_space_goals_;
+
+  // Version of `task_space_goals_` that holds the raw pointers (for simplicity of accessing).
+  std::vector<const TaskSpaceGoal<T>*> task_space_goals_pointers_;
 
   // Temporary variables used to minimize heap allocations. Altering these variables does not change the result of any
   // computations.
@@ -569,7 +586,9 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   mutable Eigen::JacobiSVD<drake::MatrixX<T>> svd_;
   mutable drake::VectorX<T> xddot_star_;
   mutable drake::VectorX<T> vdot_robot_;
-  mutable std::unique_ptr<drake::systems::Context<T>> universal_plant_context_;
+  mutable std::unique_ptr<drake::systems::Context<T>> universal_system_context_;
+  mutable drake::systems::Context<T>* universal_plant_context_{nullptr};
+  mutable drake::VectorX<T> accumulated_contact_forces_;
   mutable drake::VectorX<T> contact_forces_;
 
   // Port indices.
