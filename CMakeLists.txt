@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.8.2)
 project(DR)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -112,6 +112,7 @@ file(
   "drivers/test/*.cc"
   "primitives/test/*.cc"
   "simulation/test/*.cc"
+  "simulation/container_unloading/test/*.cc"
   "tools/test/*.cc"
 )
 

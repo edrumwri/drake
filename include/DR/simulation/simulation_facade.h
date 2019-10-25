@@ -138,7 +138,7 @@ class SimulationFacade {
   }
 
  protected:
-  virtual void DoPopulateModelAndScenegraph() = 0;
+  virtual void DoPopulateModelAndSceneGraph() = 0;
   virtual void DoConstructAndConnectDiagram() = 0;
   virtual void DoSetState(drake::systems::Context<T>* context) = 0;
 
@@ -169,7 +169,7 @@ class SimulationFacade {
     DR_DEMAND(universal_plant_ != nullptr);
     DR_DEMAND(scene_graph_ != nullptr);
 
-    this->DoPopulateModelAndScenegraph();
+    this->DoPopulateModelAndSceneGraph();
 
     // Now the universal_plant is complete.
     universal_plant_->Finalize();
