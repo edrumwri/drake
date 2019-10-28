@@ -378,11 +378,18 @@ class ChopstickKinematics : public InverseKinematics<T> {
     plant_.SetPositions(plant_context_.get(), q);
     plant_.SetVelocities(plant_context_.get(), v);
 
+    // Per documentation of MultibodyPlant::CalcJacobianSpatialVelocity(), the velocity of Frame G rigidly attached to
+    // Frame F on the robot is: V_WG = J𝑠_V_WG_W⋅v, making the acceleration (after a differentiation)
+    // V̇_WG = J𝑠_V_WG_W⋅v̇ + J̇𝑠_V_WG_W⋅v. The code below represents this calculation.
+
     const drake::multibody::Frame<double>& world_frame = plant_.world_frame();
     plant_.CalcJacobianSpatialVelocity(*plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame,
                                        world_frame, &J_);
     const drake::Vector6<T> Jdot_v = plant_.CalcBiasForJacobianSpatialVelocity(
         *plant_context_, drake::multibody::JacobianWrtVariable::kV, F, p_FG, world_frame, world_frame);
+
+    // TODO(drum): Replace this with a faster calculation once a Jacobian multiplication operator has been implemented
+    // in MultibodyPlant.
     return J_ * vdot + Jdot_v;
   }
 
@@ -467,24 +474,25 @@ class ChopstickKinematics : public InverseKinematics<T> {
       if (std::abs(roll) > zero_tolerance) throw std::runtime_error("No solution exists for the desired target pose.");
 
       // Otherwise, compute the solution.
-      const double x = 0.03125 * (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                                      (r11 * r31 * r32 -
-                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
-                                  32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
-                                      (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                                       r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                                       r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
-                                       r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
-                                  32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
-                                  3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                                      (-r11 * r31 * r32 +
-                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
+      const double x = 0.03125 *
+                       (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                            (r11 * r31 * r32 -
+                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
+                        32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
+                            (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                             r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                             r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
+                             r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
+                        32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
+                        3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                            (-r11 * r31 * r32 +
+                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
                        pow(-r31 * r31 + 1.0, 7.0L / 2.0L);
       const double y =
           0.03125 *
@@ -524,24 +532,25 @@ class ChopstickKinematics : public InverseKinematics<T> {
       if (std::abs(roll) > zero_tolerance) throw std::runtime_error("No solution exists for the desired target pose.");
 
       // Otherwise, compute the solution.
-      const double x = 0.03125 * (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                                      (r11 * r31 * r32 -
-                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
-                                  32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
-                                      (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                                       r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
-                                       r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
-                                       r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
-                                  32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
-                                  3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
-                                      (r11 * r31 * r32 -
-                                       r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
-                                       sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
-                                           sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
+      const double x = 0.03125 *
+                       (32.0 * p_FG2 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                            (r11 * r31 * r32 -
+                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0))) -
+                        32.0 * p_FG3 * pow(r31 * r31 - 1.0, 2) *
+                            (r11 * r31 * r31 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                             r11 * r31 * sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) -
+                             r31 * r31 * r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) +
+                             r32 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0))) +
+                        32.0 * pow(-r31 * r31 + 1.0, 7.0L / 2.0L) * (-p_FG1 * r11 + x1) +
+                        3.0 * pow(-r31 * r31 + 1.0, 5.0L / 2.0L) *
+                            (r11 * r31 * r32 -
+                             r31 * r31 * sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)) +
+                             sqrt((r11 * r11 + r31 * r31 - 1.0) / (r31 * r31 - 1.0)) *
+                                 sqrt((r31 * r31 + r32 * r32 - 1.0) / (r31 * r31 - 1.0)))) /
                        pow(-r31 * r31 + 1.0, 7.0L / 2.0L);
       const double y =
           0.03125 *

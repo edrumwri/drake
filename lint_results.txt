@@ -16,7 +16,7 @@ eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
 52239b73bb06606d073644ac11d459d7  include/DR/common/logging.h
 86b91e6df255b679f0d661309068d31d  include/DR/drivers/chopstick/chopstick_config.h
 85f4f7d8782f893afe4b75d96c92d5c7  include/DR/drivers/chopstick/chopstick_impedance_controller.h
-0b73a170f699d5c0679ccff02c333b2d  include/DR/drivers/chopstick/chopstick_kinematics.h
+7a315f7dbdc60d5268d0a2d3f2b6b3b3  include/DR/drivers/chopstick/chopstick_kinematics.h
 89b4d9bd31de409e7bdf5f2455aa4224  include/DR/interfaces/impedance_controller.h
 67176bfe587331da98ed688261fc810b  include/DR/interfaces/inverse_kinematics.h
 83a98f1f1e2edfe35f8e13fe8dc70832  include/DR/interfaces/task_space_impedance_controller.h

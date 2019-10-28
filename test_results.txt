@@ -16,7 +16,7 @@ eca6e168fb8693c8228bf36593a429dc  include/DR/common/environment.h
 52239b73bb06606d073644ac11d459d7  include/DR/common/logging.h
 86b91e6df255b679f0d661309068d31d  include/DR/drivers/chopstick/chopstick_config.h
 85f4f7d8782f893afe4b75d96c92d5c7  include/DR/drivers/chopstick/chopstick_impedance_controller.h
-0b73a170f699d5c0679ccff02c333b2d  include/DR/drivers/chopstick/chopstick_kinematics.h
+7a315f7dbdc60d5268d0a2d3f2b6b3b3  include/DR/drivers/chopstick/chopstick_kinematics.h
 89b4d9bd31de409e7bdf5f2455aa4224  include/DR/interfaces/impedance_controller.h
 67176bfe587331da98ed688261fc810b  include/DR/interfaces/inverse_kinematics.h
 83a98f1f1e2edfe35f8e13fe8dc70832  include/DR/interfaces/task_space_impedance_controller.h
@@ -62,38 +62,38 @@ Test project /home/drum/DR/build
       Start  1: DR_main_test
  1/17 Test  #1: DR_main_test ..............................   Passed    0.04 sec
       Start  2: DR_actuator_demultiplexer_test
- 2/17 Test  #2: DR_actuator_demultiplexer_test ............   Passed    0.31 sec
+ 2/17 Test  #2: DR_actuator_demultiplexer_test ............   Passed    0.32 sec
       Start  3: DR_debug_test
- 3/17 Test  #3: DR_debug_test .............................   Passed    0.82 sec
+ 3/17 Test  #3: DR_debug_test .............................   Passed    0.85 sec
       Start  4: DR_release_test
- 4/17 Test  #4: DR_release_test ...........................   Passed    0.43 sec
+ 4/17 Test  #4: DR_release_test ...........................   Passed    0.45 sec
       Start  5: DR_chopstick_impedance_controller_test
  5/17 Test  #5: DR_chopstick_impedance_controller_test ....   Passed    0.42 sec
       Start  6: DR_chopstick_kinematics_test
- 6/17 Test  #6: DR_chopstick_kinematics_test ..............   Passed    3.81 sec
+ 6/17 Test  #6: DR_chopstick_kinematics_test ..............   Passed    3.83 sec
       Start  7: DR_chopstick_wiping_primitive_test
- 7/17 Test  #7: DR_chopstick_wiping_primitive_test ........   Passed   22.04 sec
+ 7/17 Test  #7: DR_chopstick_wiping_primitive_test ........   Passed   19.86 sec
       Start  8: DR_primitive_behavior_test
- 8/17 Test  #8: DR_primitive_behavior_test ................   Passed    3.06 sec
+ 8/17 Test  #8: DR_primitive_behavior_test ................   Passed    3.08 sec
       Start  9: DR_state_machine_controller_test
- 9/17 Test  #9: DR_state_machine_controller_test ..........   Passed    0.16 sec
+ 9/17 Test  #9: DR_state_machine_controller_test ..........   Passed    0.19 sec
       Start 10: DR_state_machine_test
-10/17 Test #10: DR_state_machine_test .....................   Passed    0.84 sec
+10/17 Test #10: DR_state_machine_test .....................   Passed    0.83 sec
       Start 11: DR_model_generator_test
-11/17 Test #11: DR_model_generator_test ...................   Passed    0.64 sec
+11/17 Test #11: DR_model_generator_test ...................   Passed    0.65 sec
       Start 12: DR_simulation_facade_test
-12/17 Test #12: DR_simulation_facade_test .................   Passed    0.22 sec
+12/17 Test #12: DR_simulation_facade_test .................   Passed    0.24 sec
       Start 13: DR_loading_dock_generator_test
-13/17 Test #13: DR_loading_dock_generator_test ............   Passed    0.41 sec
+13/17 Test #13: DR_loading_dock_generator_test ............   Passed    0.43 sec
       Start 14: DR_parcel_stack_generator_test
-14/17 Test #14: DR_parcel_stack_generator_test ............   Passed   18.48 sec
+14/17 Test #14: DR_parcel_stack_generator_test ............   Passed   18.29 sec
       Start 15: DR_differential_inverse_kinematics_test
 15/17 Test #15: DR_differential_inverse_kinematics_test ...   Passed    0.05 sec
       Start 16: DR_optional_test
-16/17 Test #16: DR_optional_test ..........................   Passed    0.05 sec
+16/17 Test #16: DR_optional_test ..........................   Passed    0.04 sec
       Start 17: DR_sobol_sequence_test
-17/17 Test #17: DR_sobol_sequence_test ....................   Passed    0.05 sec
+17/17 Test #17: DR_sobol_sequence_test ....................   Passed    0.04 sec
 
 100% tests passed, 0 tests failed out of 17
 
-Total Test time (real) =  51.83 sec
+Total Test time (real) =  49.63 sec
