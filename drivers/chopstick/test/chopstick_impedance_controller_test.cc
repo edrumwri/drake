@@ -2,7 +2,6 @@
 
 #include <Eigen/SVD>
 
-#include <drake/common/drake_optional.h>
 #include <drake/geometry/geometry_visualization.h>
 #include <drake/math/rigid_transform.h>
 #include <drake/math/roll_pitch_yaw.h>
@@ -102,7 +101,7 @@ class ChopstickImpedanceControllerTest : public ::testing::Test {
     std::vector<std::unique_ptr<TaskSpaceGoald>> goals;
     goals.emplace_back(std::move(left_goal));
     goals.emplace_back(std::move(right_goal));
-    impedance_controller_ = builder.AddSystem<ChopstickImpedanceControllerd>(robot_plant_, universal_system,
+    impedance_controller_ = builder.AddSystem<ChopstickImpedanceControllerd>(robot_plant_, &universal_system,
                                                                              robot_plant_, std::move(goals));
 
     // TODO(drum): Replace the code below with a bespoke continuous state demultiplexer.

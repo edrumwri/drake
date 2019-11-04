@@ -8,6 +8,7 @@
 
 #include <Eigen/SVD>
 
+#include <drake/common/copyable_unique_ptr.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/leaf_system.h>
 
@@ -127,16 +128,80 @@ class TaskSpaceGoal {
  */
 template <typename T>
 class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
+ private:
+  // Temporary variables used to minimize heap allocations in system computations. These variables are stored in the
+  // TaskSpaceImpedanceController's Context.
+  struct Temporaries {
+    Temporaries(const drake::multibody::MultibodyPlant<T>* universal_plant_in,
+                const drake::systems::Diagram<T>* universal_system_in)
+        : universal_plant(*universal_plant_in), universal_system(*universal_system_in) {}
+    Temporaries(const Temporaries& tmp) : universal_plant(tmp.universal_plant), universal_system(tmp.universal_system) {
+      operator=(tmp);
+    }
+    Temporaries(Temporaries&&) = default;
+    Temporaries& operator=(const Temporaries& tmp) {
+      DR_DEMAND(&universal_plant == &tmp.universal_plant);
+      DR_DEMAND(&universal_system == &tmp.universal_system);
+      J = tmp.J;
+      J_tmp = tmp.J_tmp;
+      J_full = tmp.J_full;
+      J_bias = tmp.J_bias;
+      J_bias_full = tmp.J_bias_full;
+      J_bias_tmp = tmp.J_bias_tmp;
+      svd = tmp.svd;
+      xddot_star = tmp.xddot_star;
+      vdot_robot = tmp.vdot_robot;
+      if (tmp.universal_system_context) {
+        universal_system_context = tmp.universal_system_context->Clone();
+        universal_plant_context =
+            &universal_system.GetMutableSubsystemContext(universal_plant, universal_system_context.get());
+      } else {
+        universal_system_context.reset();
+        universal_plant_context = nullptr;
+      }
+      accumulated_contact_forces = tmp.accumulated_contact_forces;
+      contact_forces = tmp.contact_forces;
+      if (tmp.external_forces) {
+        external_forces = std::make_unique<drake::multibody::MultibodyForces<T>>(*tmp.external_forces);
+      } else {
+        external_forces.reset();
+      }
+      return *this;
+    }
+    Temporaries& operator=(Temporaries&&) = default;
+    ~Temporaries() = default;
+
+    drake::MatrixX<T> J, J_tmp;
+    drake::MatrixX<T> J_full;
+    drake::VectorX<T> J_bias, J_bias_full, J_bias_tmp;
+    Eigen::JacobiSVD<drake::MatrixX<T>> svd;
+    drake::VectorX<T> xddot_star;
+    drake::VectorX<T> vdot_robot;
+    drake::systems::Context<T>* universal_plant_context{nullptr};
+    const drake::multibody::MultibodyPlant<T>& universal_plant;
+    std::unique_ptr<drake::systems::Context<T>> universal_system_context;
+    const drake::systems::Diagram<T>& universal_system;
+    drake::VectorX<T> accumulated_contact_forces;
+    drake::VectorX<T> contact_forces;
+    std::unique_ptr<drake::multibody::MultibodyForces<T>> external_forces;
+  };
+
  public:
   /// Constructs the impedance controller and the given task space type.
   TaskSpaceImpedanceController(const drake::multibody::MultibodyPlant<T>* universal_plant,
-                               const drake::systems::Diagram<T>& universal_system,
+                               const drake::systems::Diagram<T>* universal_system,
                                const drake::multibody::MultibodyPlant<T>* robot_plant,
                                std::vector<std::unique_ptr<TaskSpaceGoal<T>>>&& task_space_goals)
-      : universal_plant_(*universal_plant), robot_plant_(*robot_plant), task_space_goals_(std::move(task_space_goals)) {
+      : universal_plant_(*universal_plant),
+        universal_system_(*universal_system),
+        robot_plant_(*robot_plant),
+        task_space_goals_(std::move(task_space_goals)) {
     // Check the pointers.
     DR_DEMAND(universal_plant);
     DR_DEMAND(robot_plant);
+
+    // Declare abstract state (the temporaries).
+    this->DeclareAbstractState(drake::AbstractValue::Make(Temporaries(universal_plant, universal_system)));
 
     // Construct the vector of pointers.
     task_space_goals_pointers_.resize(task_space_goals_.size());
@@ -156,26 +221,6 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
         if (B_(i, j) != 0 && B_(i, j) != 1) throw std::logic_error("Actuation matrix is not binary!");
       }
     }
-
-    // Initialize the forces used for computing inverse dynamics.
-    external_forces_ = std::make_unique<drake::multibody::MultibodyForces<T>>(universal_plant_);
-    contact_forces_ = drake::VectorX<T>(universal_plant->num_velocities());
-    accumulated_contact_forces_ = drake::VectorX<T>(universal_plant->num_velocities());
-
-    // Create a Context for the universal system.
-    universal_system_context_ = universal_system.CreateDefaultContext();
-    auto* diagram_context = dynamic_cast<drake::systems::DiagramContext<T>*>(universal_system_context_.get());
-    universal_plant_context_ = &universal_system.GetMutableSubsystemContext(*universal_plant, diagram_context);
-
-    // Initialize the generalized accelerations for the robot.
-    vdot_robot_ = drake::VectorX<T>::Zero(robot_plant->num_velocities());
-
-    // Initialize Jacobian matrices used to avoid heap allocations. These Jacobians are in the size of the number of
-    // velocity space variables of "the universe", because we typically need to control objects through contact.
-    J_ = drake::MatrixX<T>(6, universal_plant->num_velocities());
-    J_tmp_ = drake::MatrixX<T>(6, universal_plant->num_velocities());
-    J_bias_ = drake::VectorX<T>(6);
-    J_bias_tmp_ = drake::VectorX<T>(6);
 
     // Declare ports.
     universal_q_estimated_input_port_index_ =
@@ -226,15 +271,6 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     for (const TaskSpaceGoal<T>* goal : task_space_goals_pointers_)
       num_goal_velocity_variables_ += goal->num_velocity_variables();
 
-    // Initialize the full Jacobian matrix- used for computing the Jacobian matrix with respect to every goal- to
-    // avoid heap allocations. This matrix will comprise multiple stacked "universal" Jacobian matrices (i.e., J_).
-    // The bias vector (J_bias_) will be formed the same way.
-    J_full_ = drake::MatrixX<T>(num_goal_velocity_variables_, universal_plant->num_velocities());
-    J_bias_full_ = drake::VectorX<T>(num_goal_velocity_variables_);
-
-    // Do the same thing for the vector of goal accelerations.
-    xddot_star_ = drake::VectorX<T>(num_goal_velocity_variables_);
-
     // Declare the output ports.
     actuation_output_port_index_ =
         this->DeclareVectorOutputPort("actuation", drake::systems::BasicVector<T>(robot_plant->num_actuators()),
@@ -245,6 +281,39 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
                                       drake::systems::BasicVector<T>(num_goal_velocity_variables_),
                                       &TaskSpaceImpedanceController<T>::CalcResidualAcceleration)
             .get_index();
+  }
+
+  void SetDefaultState(const drake::systems::Context<T>&, drake::systems::State<T>* state) const final {
+    Temporaries& tmp = mutable_temporaries(state);
+
+    // Create a Context for the universal system.
+    tmp.universal_system_context = universal_system_.CreateDefaultContext();
+    auto* diagram_context = dynamic_cast<drake::systems::DiagramContext<T>*>(tmp.universal_system_context.get());
+    tmp.universal_plant_context = &universal_system_.GetMutableSubsystemContext(universal_plant_, diagram_context);
+
+     // Initialize the forces used for computing inverse dynamics.
+    tmp.external_forces = std::make_unique<drake::multibody::MultibodyForces<T>>(universal_plant_);
+    tmp.contact_forces = drake::VectorX<T>(universal_plant_.num_velocities());
+    tmp.accumulated_contact_forces = drake::VectorX<T>(universal_plant_.num_velocities());
+
+    // Initialize the generalized accelerations for the robot.
+    tmp.vdot_robot = drake::VectorX<T>::Zero(robot_plant_.num_velocities());
+
+    // Initialize Jacobian matrices used to avoid heap allocations. These Jacobians are in the size of the number of
+    // velocity space variables of "the universe", because we typically need to control objects through contact.
+    tmp.J = drake::MatrixX<T>(6, universal_plant_.num_velocities());
+    tmp.J_tmp = drake::MatrixX<T>(6, universal_plant_.num_velocities());
+    tmp.J_bias = drake::VectorX<T>(6);
+    tmp.J_bias_tmp = drake::VectorX<T>(6);
+
+    // Initialize the full Jacobian matrix- used for computing the Jacobian matrix with respect to every goal- to
+    // avoid heap allocations. This matrix will comprise multiple stacked "universal" Jacobian matrices (i.e., J).
+    // The bias vector (J_bias) will be formed the same way.
+    tmp.J_full = drake::MatrixX<T>(num_goal_velocity_variables_, universal_plant_.num_velocities());
+    tmp.J_bias_full = drake::VectorX<T>(num_goal_velocity_variables_);
+
+    // Do the same thing for the vector of goal accelerations.
+    tmp.xddot_star = drake::VectorX<T>(num_goal_velocity_variables_);
   }
 
   /// Gets whether estimated contacts factor into the control output.
@@ -320,6 +389,22 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   }
 
  private:
+  // Gets the data structure of temporaries from the State.
+  Temporaries& mutable_temporaries(drake::systems::State<T>* state) const {
+    return state->template get_mutable_abstract_state<Temporaries>(0);
+  }
+
+  // Gets the data structure of temporaries from a constant State. Note: this could blow up if State is in read only
+  // memory (e.g., the compiler knows the State is *never* written).
+  Temporaries& mutable_temporaries(const drake::systems::State<T>& state) const {
+    return mutable_temporaries(const_cast<drake::systems::State<T>*>(&state));
+  }
+
+  // Gets the data structure of temporaries from the State.
+  const Temporaries& temporaries(const drake::systems::State<T>& state) const {
+    return state.template get_abstract_state<Temporaries>(0);
+  }
+
   // Computes the residual acceleration from solving the least-squares problem Jv̇ = ẍ* - J̇v for generalized
   // velocities v̇, given desired task space accelerations ̈x* and Jacobian matrix J (and its time
   // derivative, J̇). If this residual error is not effectively zero, then the robotic system is unable to
@@ -327,6 +412,8 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   // the system does not have full control authority.
   void CalcResidualAcceleration(const drake::systems::Context<T>& context,
                                 drake::systems::BasicVector<T>* residual_acceleration) const {
+    Temporaries& tmp = mutable_temporaries(context.get_state());
+
     // Get the q and v for the universe.
     Eigen::VectorBlock<const drake::VectorX<T>> q_universal =
         this->get_input_port(universal_q_estimated_input_port_index_).Eval(context);
@@ -334,25 +421,27 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
         this->get_input_port(universal_v_estimated_input_port_index_).Eval(context);
 
     // Set the positions and velocities in the universal plant context.
-    universal_plant().SetPositions(universal_plant_context_, q_universal);
-    universal_plant().SetVelocities(universal_plant_context_, v_universal);
+    universal_plant().SetPositions(tmp.universal_plant_context, q_universal);
+    universal_plant().SetVelocities(tmp.universal_plant_context, v_universal);
 
     // Form the Jacobian matrix, bias term, and xddot*.
     FormJacobianAndTaskSpaceGoals(context);
 
     // Compute the desired acceleration for the universal plant.
-    svd_.compute(J_full_, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    const drake::VectorX<T> vdot = svd_.solve(xddot_star_ - J_bias_full_);
+    tmp.svd.compute(tmp.J_full, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const drake::VectorX<T> vdot = tmp.svd.solve(tmp.xddot_star - tmp.J_bias_full);
 
     // Compute the residual acceleration.
-    residual_acceleration->SetFromVector(J_full_ * vdot + J_bias_full_ - xddot_star_);
+    residual_acceleration->SetFromVector(tmp.J_full * vdot + tmp.J_bias_full - tmp.xddot_star);
   }
 
-  // Computes the 6ng x nv-dimensional Jacobian matrix J_full_, 6ng x 1 "acceleration-bias" vector J_bias_full_, and
+  // Computes the 6ng x nv-dimensional Jacobian matrix J_full, 6ng x 1 "acceleration-bias" vector J_bias_full, and
   // 6ng x 1 desired-task-space acceleration xdd*, where ng is the number of goals and nv is the number of generalized
   // velocity variables in the universal plant.
   // @pre universal plant positions and velocities have been set in the universal plant context.
   void FormJacobianAndTaskSpaceGoals(const drake::systems::Context<T>& context) const {
+    Temporaries& tmp = mutable_temporaries(context.get_state());
+
     // Loop through all goals.
     int acceleration_goal_index = 0;
     for (const TaskSpaceGoal<T>* goal : task_space_goals_pointers_) {
@@ -365,14 +454,14 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
       drake::VectorX<T> xddot_star = CalcXDDotStar(context, *goal, x_NS_N_des, xd_NS_N_des, xdd_NS_N_des);
 
       // Set it in the greater vector.
-      xddot_star_.segment(acceleration_goal_index, goal->num_acceleration_variables()) = xddot_star;
+      tmp.xddot_star.segment(acceleration_goal_index, goal->num_acceleration_variables()) = xddot_star;
 
       // Compute the Jacobian and the bias term.
-      CalcJacobianAndBias(*goal, &J_, &J_bias_);
+      CalcJacobianAndBias(*goal, &tmp.J, &tmp.J_bias, const_cast<drake::systems::State<T>*>(&context.get_state()));
 
       // Set these terms in the greater matrix / vector.
-      J_full_.block(acceleration_goal_index, 0, goal->num_acceleration_variables(), J_.cols()) = J_;
-      J_bias_full_.segment(acceleration_goal_index, goal->num_acceleration_variables()) = J_bias_;
+      tmp.J_full.block(acceleration_goal_index, 0, goal->num_acceleration_variables(), tmp.J.cols()) = tmp.J;
+      tmp.J_bias_full.segment(acceleration_goal_index, goal->num_acceleration_variables()) = tmp.J_bias;
 
       // Update the index.
       acceleration_goal_index += goal->num_acceleration_variables();
@@ -380,6 +469,8 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   }
 
   void CalcControlOutput(const drake::systems::Context<T>& context, drake::systems::BasicVector<T>* output) const {
+    Temporaries& tmp = mutable_temporaries(context.get_state());
+
     // Get the q and v for the universe.
     Eigen::VectorBlock<const drake::VectorX<T>> q_universal =
         this->get_input_port(universal_q_estimated_input_port_index_).Eval(context);
@@ -387,33 +478,34 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
         this->get_input_port(universal_v_estimated_input_port_index_).Eval(context);
 
     // Set the positions and velocities in the universal plant context.
-    universal_plant().SetPositions(universal_plant_context_, q_universal);
-    universal_plant().SetVelocities(universal_plant_context_, v_universal);
+    universal_plant().SetPositions(tmp.universal_plant_context, q_universal);
+    universal_plant().SetVelocities(tmp.universal_plant_context, v_universal);
 
     // Form the Jacobian matrix, bias term, and xddot*.
     FormJacobianAndTaskSpaceGoals(context);
 
     // Compute the desired acceleration for the universal plant.
-    svd_.compute(J_full_, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    const drake::VectorX<T> vdot = svd_.solve(xddot_star_ - J_bias_full_);
+    tmp.svd.compute(tmp.J_full, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const drake::VectorX<T> vdot = tmp.svd.solve(tmp.xddot_star - tmp.J_bias_full);
     DR_LOG_DEBUG(DR::log(), "vdot: {}", vdot.transpose());
-    DR_LOG_DEBUG(DR::log(), "J*vdot + dotJ*v - xddot*: {}", (J_full_ * vdot + J_bias_full_ - xddot_star_).transpose());
+    DR_LOG_DEBUG(DR::log(), "J*vdot + dotJ*v - xddot*: {}",
+                 (tmp.J_full * vdot + tmp.J_bias_full - tmp.xddot_star).transpose());
 
     // TODO(drum) Explore how we can turn off contacts between all but the robot and the manipuland (and all objects
-    // than those that are touching).
+    // other than those touching the robot and manipuland).
     // Get the contact forces acting on the plant, if desired.
-    accumulated_contact_forces_.setZero();
+    tmp.accumulated_contact_forces.setZero();
     if (contact_affects_control_) {
       // We can only compute the contact forces if the plant is continuous.
       DR_DEMAND(!universal_plant().is_discrete());
 
-      // Always start at index 2: the first two are reserved.
+      // Always start at index 2: the first two are reserved (see MultibodyPlant class documentation).
       for (drake::multibody::ModelInstanceIndex i(2); i < universal_plant().num_model_instances(); ++i) {
-        contact_forces_.setZero();
+        tmp.contact_forces.setZero();
         universal_plant().SetVelocitiesInArray(
-            i, universal_plant().get_generalized_contact_forces_output_port(i).Eval(*universal_plant_context_),
-            &contact_forces_);
-        accumulated_contact_forces_ += contact_forces_;
+            i, universal_plant().get_generalized_contact_forces_output_port(i).Eval(*tmp.universal_plant_context),
+            &tmp.contact_forces);
+        tmp.accumulated_contact_forces += tmp.contact_forces;
       }
     }
 
@@ -421,15 +513,15 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     //            Optimize.
 
     // Compute the force elements contribution (e.g., gravitational forces) to the external forces.
-    universal_plant_.CalcForceElementsContribution(*universal_plant_context_, external_forces_.get());
+    universal_plant_.CalcForceElementsContribution(*tmp.universal_plant_context, tmp.external_forces.get());
 
     // Update the external forces vector with the contact forces.
-    external_forces_->mutable_generalized_forces() += accumulated_contact_forces_;
+    tmp.external_forces->mutable_generalized_forces() += tmp.accumulated_contact_forces;
 
     // Compute the generalized forces necessary to realize the desired generalized accelerations:
     // tau_u = M(q)v̇ + C(q, v)v - tau_app - ∑ J_WBᵀ(q) Fapp_Bo_W
     const drake::VectorX<T> tau_u =
-        universal_plant_.CalcInverseDynamics(*universal_plant_context_, vdot, *external_forces_);
+        universal_plant_.CalcInverseDynamics(*tmp.universal_plant_context, vdot, *tmp.external_forces);
 
     // Compute the actuation forces.
     output->SetFromVector(B_.transpose() * tau_u);
@@ -452,12 +544,14 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
                                                Eigen::VectorBlock<const drake::VectorX<T>> x_NoSo_N_des,
                                                Eigen::VectorBlock<const drake::VectorX<T>> xd_NoSo_N_des,
                                                Eigen::VectorBlock<const drake::VectorX<T>> xdd_NoSo_N_des) const {
+    Temporaries& tmp = mutable_temporaries(context.get_state());
+
     // Get the pose of Frame S in the world.
-    const drake::math::RigidTransform<T> X_WR = goal.robot_frame_R().CalcPoseInWorld(*universal_plant_context_);
+    const drake::math::RigidTransform<T> X_WR = goal.robot_frame_R().CalcPoseInWorld(*tmp.universal_plant_context);
     const drake::math::RigidTransform<T> X_WS(X_WR.rotation(), X_WR * goal.p_RS());
 
     // Get the pose of Frame N in the world.
-    const drake::math::RigidTransform<T> X_WM = goal.manipuland_frame_M().CalcPoseInWorld(*universal_plant_context_);
+    const drake::math::RigidTransform<T> X_WM = goal.manipuland_frame_M().CalcPoseInWorld(*tmp.universal_plant_context);
     const drake::math::RigidTransform<T> X_WN(X_WM.rotation(), X_WM * goal.p_MN());
 
     // The controller seeks for Frame N to be located at x_NoSo_N_des with respect to Frame S, expressed in Frame N.
@@ -474,14 +568,14 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     // Note: this code block assumes that Frame R *is* a body frame. This assumption might need to be relaxed.
     DR_DEMAND(&goal.robot_frame_R().body().body_frame() == &goal.robot_frame_R());
     const drake::multibody::SpatialVelocity<T>& V_WR =
-        universal_plant().EvalBodySpatialVelocityInWorld(*universal_plant_context_, goal.robot_frame_R().body());
+        universal_plant().EvalBodySpatialVelocityInWorld(*tmp.universal_plant_context, goal.robot_frame_R().body());
     const drake::multibody::SpatialVelocity<T> V_WS = V_WR.Shift(X_WR.rotation() * goal.p_RS());
 
     // Compute the velocity of Frame M in the world.
     // Note: this code block assumes that Frame M *is* a body frame. This assumption might need to be relaxed.
     DR_DEMAND(&goal.manipuland_frame_M().body().body_frame() == &goal.manipuland_frame_M());
-    const drake::multibody::SpatialVelocity<T>& V_WM =
-        universal_plant().EvalBodySpatialVelocityInWorld(*universal_plant_context_, goal.manipuland_frame_M().body());
+    const drake::multibody::SpatialVelocity<T>& V_WM = universal_plant().EvalBodySpatialVelocityInWorld(
+        *tmp.universal_plant_context, goal.manipuland_frame_M().body());
     const drake::multibody::SpatialVelocity<T> V_WN = V_WM.Shift(X_WM.rotation() * goal.p_MN());
 
     // Compute the current translational velocity of Frame N, measured from Frame S, and expressed in Frame N.
@@ -513,9 +607,11 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   // Computes the Jacobian matrix and acceleration bias term that corresponds to a single task space goal. Since the
   // single task space goal is specified as x_NoSo_N_des, where S is a frame attached to the robot and N is a frame
   // attached to the manipuland, we have to perform these calculations.
-  void CalcJacobianAndBias(const TaskSpaceGoal<T>& goal, drake::MatrixX<T>* J, drake::VectorX<T>* J_bias) const {
-    drake::MatrixX<T>& J_tmp = (goal.type() == TaskSpaceType::kFull) ? *J : J_tmp_;
-    drake::VectorX<T>& J_bias_tmp = (goal.type() == TaskSpaceType::kFull) ? *J_bias : J_bias_tmp_;
+  void CalcJacobianAndBias(const TaskSpaceGoal<T>& goal, drake::MatrixX<T>* J, drake::VectorX<T>* J_bias,
+                           drake::systems::State<T>* state) const {
+    Temporaries& tmp = mutable_temporaries(state);
+    drake::MatrixX<T>& J_tmp = (goal.type() == TaskSpaceType::kFull) ? *J : tmp.J_tmp;
+    drake::VectorX<T>& J_bias_tmp = (goal.type() == TaskSpaceType::kFull) ? *J_bias : tmp.J_bias_tmp;
 
     // TODO(drum) Optimize this by computing Jacobian and acceleration bias only for things we care about (the robot +
     // manipuland?).
@@ -523,13 +619,13 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
     // measured and expressed in Frame M. Per Drake documentation, measuring and expressing in Frame N is equivalent to
     // measuring and expressing in Frame M.
     J_tmp.resize(6, universal_plant_.num_velocities());
-    universal_plant().CalcJacobianSpatialVelocity(*universal_plant_context_, drake::multibody::JacobianWrtVariable::kV,
-                                                  goal.robot_frame_R(), goal.p_RS(), goal.manipuland_frame_M(),
-                                                  goal.manipuland_frame_M(), &J_tmp);
+    universal_plant().CalcJacobianSpatialVelocity(
+        *tmp.universal_plant_context, drake::multibody::JacobianWrtVariable::kV, goal.robot_frame_R(), goal.p_RS(),
+        goal.manipuland_frame_M(), goal.manipuland_frame_M(), &J_tmp);
 
     // Perform the same computation for the "acceleration bias" vector.
     J_bias_tmp = universal_plant().CalcBiasForJacobianSpatialVelocity(
-        *universal_plant_context_, drake::multibody::JacobianWrtVariable::kV, goal.robot_frame_R(), goal.p_RS(),
+        *tmp.universal_plant_context, drake::multibody::JacobianWrtVariable::kV, goal.robot_frame_R(), goal.p_RS(),
         goal.manipuland_frame_M(), goal.manipuland_frame_M());
 
     // Pick the right part of this matrix and vector, if necessary.
@@ -560,14 +656,14 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
   drake::systems::OutputPortIndex actuation_output_port_index_{};
   drake::systems::OutputPortIndex residual_acceleration_output_port_index_{};
 
-  // Multibody forces used for computing inverse dynamics.
-  std::unique_ptr<drake::multibody::MultibodyForces<T>> external_forces_;
-
   // The actuation matrix for the universal plant.
   drake::MatrixX<T> B_;
 
   // The "universal" plant, containing all objects in the environment.
   const drake::multibody::MultibodyPlant<T>& universal_plant_;
+
+  // The "universal" system, containing both the universal plant and a scene graph containing all objects in the plant.
+  const drake::systems::Diagram<T>& universal_system_;
 
   // The plant for just the robot.
   const drake::multibody::MultibodyPlant<T>& robot_plant_;
@@ -577,19 +673,6 @@ class TaskSpaceImpedanceController : public drake::systems::LeafSystem<T> {
 
   // Version of `task_space_goals_` that holds the raw pointers (for simplicity of accessing).
   std::vector<const TaskSpaceGoal<T>*> task_space_goals_pointers_;
-
-  // Temporary variables used to minimize heap allocations. Altering these variables does not change the result of any
-  // computations.
-  mutable drake::MatrixX<T> J_, J_tmp_;
-  mutable drake::MatrixX<T> J_full_;
-  mutable drake::VectorX<T> J_bias_, J_bias_full_, J_bias_tmp_;
-  mutable Eigen::JacobiSVD<drake::MatrixX<T>> svd_;
-  mutable drake::VectorX<T> xddot_star_;
-  mutable drake::VectorX<T> vdot_robot_;
-  mutable std::unique_ptr<drake::systems::Context<T>> universal_system_context_;
-  mutable drake::systems::Context<T>* universal_plant_context_{nullptr};
-  mutable drake::VectorX<T> accumulated_contact_forces_;
-  mutable drake::VectorX<T> contact_forces_;
 
   // Port indices.
   drake::systems::InputPortIndex universal_vdot_desired_input_port_index_{};

@@ -220,8 +220,8 @@ class SingleBodyInstanceConfig final : public ModelInstanceConfig {
   */
   static std::unique_ptr<SingleBodyInstanceConfig> CreateStaticBoxConfig(
       const std::string& name, const drake::Vector3<double>& size, const drake::math::RigidTransform<double>& pose,
-      const drake::optional<drake::multibody::CoulombFriction<double>>& coulomb_friction,
-      const drake::optional<drake::Vector4<double>>& color) {
+      const std::optional<drake::multibody::CoulombFriction<double>>& coulomb_friction,
+      const std::optional<drake::Vector4<double>>& color) {
     auto body = std::make_unique<SingleBodyInstanceConfig>();
     body->set_name(name);
     body->set_mass_and_possibly_make_static(0.0 /* static body */);
@@ -285,8 +285,8 @@ class JointInstanceConfig final : public ConfigBase {
     DR_DEMAND(type != JointType::kUnknownJointType);
   }
 
-  JointInstanceConfig(const std::string& name, JointType type, drake::optional<double> position,
-                      drake::optional<double> velocity, drake::optional<double> kp)
+  JointInstanceConfig(const std::string& name, JointType type, std::optional<double> position,
+                      std::optional<double> velocity, std::optional<double> kp)
       : JointInstanceConfig(type) {
     this->set_name(name);
     if (position.has_value()) this->set_position(position.value());

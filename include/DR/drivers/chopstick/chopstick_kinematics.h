@@ -193,7 +193,7 @@ class ChopstickKinematics : public InverseKinematics<T> {
    search for a good seed.
    @note only relevant when `use_numerical_ik()` is `true`.
   */
-  void set_numerical_inverse_kinematics_seed(drake::optional<drake::VectorX<T>> q_seed = {}) {
+  void set_numerical_inverse_kinematics_seed(std::optional<drake::VectorX<T>> q_seed = {}) {
     if (q_seed.has_value()) {
       q_ik_seed_ = q_seed.value();
     } else {
@@ -717,7 +717,7 @@ class ChopstickKinematics : public InverseKinematics<T> {
   drake::VectorX<T> SolveOrientationalInverseKinematics(const drake::math::RigidTransform<T>& X_WG_target,
                                                         const drake::Vector3<T>& p_FG,
                                                         const drake::multibody::Frame<T>& F,
-                                                        const drake::optional<drake::VectorX<T>>& q_seed) const {
+                                                        const std::optional<drake::VectorX<T>>& q_seed) const {
     q_ = drake::VectorX<T>::Zero(plant_.num_positions());
 
     // Define the orientational space differential function.
@@ -835,7 +835,7 @@ class ChopstickKinematics : public InverseKinematics<T> {
   mutable drake::VectorX<T> delta_x_;
   mutable DifferentialInverseKinematics<T> differential_ik_;
   mutable unsigned seed_;
-  mutable drake::optional<drake::VectorX<T>> q_ik_seed_;
+  mutable std::optional<drake::VectorX<T>> q_ik_seed_;
 
   // Whether an IK solution is computed using a numerical approach.
   bool use_numerical_ik_;
@@ -863,7 +863,7 @@ class ChopstickKinematics : public InverseKinematics<T> {
   drake::multibody::ModelInstanceIndex left_chopstick_model_, right_chopstick_model_;
 
   // Relative poses between the robot bases and the world.
-  std::vector<drake::optional<drake::math::RigidTransform<T>>> X_WB_;
+  std::vector<std::optional<drake::math::RigidTransform<T>>> X_WB_;
 
   // The type of numerical inverse kinematics that is used.
   InverseKinematicsType ik_type_{InverseKinematicsType::kPositionAndOrientation};

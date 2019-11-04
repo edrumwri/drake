@@ -8,7 +8,7 @@ namespace DR {
 TEST(OptionalTest, MapWithDefault) {
   // Init optional map.
   std::map<std::string, int> test_map{{"one", 1}, {"two", 2}};
-  drake::optional<std::map<std::string, int>> optional_map = test_map;
+  std::optional<std::map<std::string, int>> optional_map = test_map;
 
   // Set default value.
   int default_value = 0;
@@ -26,7 +26,7 @@ TEST(OptionalTest, MapWithDefault) {
 // Tests GetOptionalValueOrDefault for optional values.
 TEST(OptionalTest, ValueWithDefault) {
   // Init optional value.
-  drake::optional<int> optional_value{1};
+  std::optional<int> optional_value{1};
 
   // Set default value.
   int default_value = 0;

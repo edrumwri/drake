@@ -26,20 +26,31 @@
 
 #include <gflags/gflags.h>
 
-#include <drake/common/text_logging_gflags.h>
-
 #include <DR/drivers/chopstick/chopstick_config.h>
 #include <DR/simulation/config.h>
 
 // Duration virtual time before program exits.
 DEFINE_double(max_simulation_time, 0.1, "Number of seconds (virtual time) to simulate.");
 
+// SPDLOG flags.
+DEFINE_string(spdlog_level, drake::logging::kSetLogLevelUnchanged,
+              drake::logging::kSetLogLevelHelpMessage);
+
 namespace DR {
 namespace {
 using T = double;
 
 int do_main() { return 0; }
+
+// Validate --spdlog_level and update Drake's configuration to match the flag.
+bool ValidateSpdlogLevel(const char* name, const std::string& value) {
+  drake::unused(name);
+  drake::logging::set_log_level(value);
+  return true;
+}
+
 }  // namespace
+DEFINE_validator(spdlog_level, &ValidateSpdlogLevel);
 }  // namespace DR
 
 int main(int argc, char* argv[]) {
@@ -52,6 +63,5 @@ int main(int argc, char* argv[]) {
       "geometry::SceneGraph visualization. "
       "Launch drake-visualizer before running this example.");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  drake::logging::HandleSpdlogGflags();
   return DR::do_main();
 }

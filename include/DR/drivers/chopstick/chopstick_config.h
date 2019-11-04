@@ -40,11 +40,11 @@ const double kDefaultChopsticksSeparationWidth = 2.54;
  */
 std::unique_ptr<RobotInstanceConfig> CreateSingleChopstickRobotConfig(
     const std::string& name, const std::string& model_file_path,
-    const drake::optional<drake::math::RigidTransform<double>>& base_pose = {},
-    const drake::optional<drake::multibody::SpatialVelocity<double>>& base_spatial_velocity = {},
-    const drake::optional<std::map<std::string, double>>& joint_positions = {},
-    const drake::optional<std::map<std::string, double>>& joint_velocities = {},
-    const drake::optional<std::map<std::string, double>>& joint_kps = {}) {
+    const std::optional<drake::math::RigidTransform<double>>& base_pose = {},
+    const std::optional<drake::multibody::SpatialVelocity<double>>& base_spatial_velocity = {},
+    const std::optional<std::map<std::string, double>>& joint_positions = {},
+    const std::optional<std::map<std::string, double>>& joint_velocities = {},
+    const std::optional<std::map<std::string, double>>& joint_kps = {}) {
   // Set fixed valued specific to Chopstick robot.
   std::vector<std::string> joint_names{"joint_1", "joint_2", "joint_3", "joint_4", "joint_5"};
 
