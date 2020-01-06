@@ -249,21 +249,25 @@ class TestSystem : public System<double> {
 
 class SystemTest : public ::testing::Test {
  protected:
+  void SetUp() {
+    context_ = system_.CreateDefaultContext();
+  }
+
   TestSystem system_;
-  LeafContext<double> context_;
+  std::unique_ptr<Context<double>> context_;
 };
 
 TEST_F(SystemTest, MapVelocityToConfigurationDerivatives) {
   auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
   BasicVector<double> state_vec2(kSize);
 
-  system_.MapVelocityToQDot(context_, *state_vec1, &state_vec2);
+  system_.MapVelocityToQDot(*context_, *state_vec1, &state_vec2);
   EXPECT_EQ(1.0, state_vec2[0]);
   EXPECT_EQ(2.0, state_vec2[1]);
   EXPECT_EQ(3.0, state_vec2[2]);
 
   // Test Eigen specialized function specially.
-  system_.MapVelocityToQDot(context_, state_vec1->CopyToVector(), &state_vec2);
+  system_.MapVelocityToQDot(*context_, state_vec1->CopyToVector(), &state_vec2);
   EXPECT_EQ(1.0, state_vec2[0]);
   EXPECT_EQ(2.0, state_vec2[1]);
   EXPECT_EQ(3.0, state_vec2[2]);
@@ -273,13 +277,13 @@ TEST_F(SystemTest, MapConfigurationDerivativesToVelocity) {
   auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
   BasicVector<double> state_vec2(kSize);
 
-  system_.MapQDotToVelocity(context_, *state_vec1, &state_vec2);
+  system_.MapQDotToVelocity(*context_, *state_vec1, &state_vec2);
   EXPECT_EQ(1.0, state_vec2[0]);
   EXPECT_EQ(2.0, state_vec2[1]);
   EXPECT_EQ(3.0, state_vec2[2]);
 
   // Test Eigen specialized function specially.
-  system_.MapQDotToVelocity(context_, state_vec1->CopyToVector(), &state_vec2);
+  system_.MapQDotToVelocity(*context_, state_vec1->CopyToVector(), &state_vec2);
   EXPECT_EQ(1.0, state_vec2[0]);
   EXPECT_EQ(2.0, state_vec2[1]);
   EXPECT_EQ(3.0, state_vec2[2]);
@@ -289,7 +293,7 @@ TEST_F(SystemTest, ConfigurationDerivativeVelocitySizeMismatch) {
   auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
   BasicVector<double> state_vec2(kSize + 1);
 
-  EXPECT_THROW(system_.MapQDotToVelocity(context_, *state_vec1, &state_vec2),
+  EXPECT_THROW(system_.MapQDotToVelocity(*context_, *state_vec1, &state_vec2),
                std::runtime_error);
 }
 
@@ -297,16 +301,16 @@ TEST_F(SystemTest, VelocityConfigurationDerivativeSizeMismatch) {
   auto state_vec1 = BasicVector<double>::Make({1.0, 2.0, 3.0});
   BasicVector<double> state_vec2(kSize + 1);
 
-  EXPECT_THROW(system_.MapVelocityToQDot(context_, *state_vec1, &state_vec2),
+  EXPECT_THROW(system_.MapVelocityToQDot(*context_, *state_vec1, &state_vec2),
                std::runtime_error);
 }
 
 // Tests that the default DoPublish is invoked when no other handler is
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscretePublish) {
-  context_.SetTime(5.0);
+  context_->SetTime(5.0);
   auto event_info = system_.AllocateCompositeEventCollection();
-  system_.CalcNextUpdateTime(context_, event_info.get());
+  system_.CalcNextUpdateTime(*context_, event_info.get());
   const auto& events =
       dynamic_cast<const LeafCompositeEventCollection<double>*>(
           event_info.get())->get_publish_events().get_events();
@@ -314,7 +318,7 @@ TEST_F(SystemTest, DiscretePublish) {
   EXPECT_EQ(events.front()->get_trigger_type(),
             TriggerType::kPeriodic);
 
-  system_.Publish(context_, event_info->get_publish_events());
+  system_.Publish(*context_, event_info->get_publish_events());
   EXPECT_EQ(1, system_.get_publish_count());
 }
 
@@ -322,15 +326,15 @@ TEST_F(SystemTest, DiscretePublish) {
 // handler is
 // registered in DoCalcNextUpdateTime.
 TEST_F(SystemTest, DiscreteUpdate) {
-  context_.SetTime(15.0);
+  context_->SetTime(15.0);
 
   auto event_info = system_.AllocateCompositeEventCollection();
-  system_.CalcNextUpdateTime(context_, event_info.get());
+  system_.CalcNextUpdateTime(*context_, event_info.get());
 
   std::unique_ptr<DiscreteValues<double>> update =
       system_.AllocateDiscreteVariables();
   system_.CalcDiscreteVariableUpdates(
-      context_, event_info->get_discrete_update_events(), update.get());
+      *context_, event_info->get_discrete_update_events(), update.get());
   EXPECT_EQ(1, system_.get_update_count());
 }
 
@@ -445,7 +449,7 @@ TEST_F(SystemTest, SystemConstraintTest) {
   EXPECT_EQ(system_.get_constraint(test_constraint).description(), "test");
 
   const double tol = 1e-6;
-  EXPECT_TRUE(system_.CheckSystemConstraintsSatisfied(context_, tol));
+  EXPECT_TRUE(system_.CheckSystemConstraintsSatisfied(*context_, tol));
   ContextConstraintCalc<double> calc_false = [](
       const Context<double>& context, Eigen::VectorXd* value) {
     unused(context);
@@ -454,7 +458,7 @@ TEST_F(SystemTest, SystemConstraintTest) {
   system_.AddConstraint(std::make_unique<SystemConstraint<double>>(
       &system_, calc_false, SystemConstraintBounds(Vector1d(0), Vector1d(kInf)),
       "bad constraint"));
-  EXPECT_FALSE(system_.CheckSystemConstraintsSatisfied(context_, tol));
+  EXPECT_FALSE(system_.CheckSystemConstraintsSatisfied(*context_, tol));
 }
 
 // Tests GetMemoryObjectName.

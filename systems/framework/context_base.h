@@ -116,6 +116,14 @@ class ContextBase : public internal::ContextMessageInterface {
     return get_cache().is_cache_frozen();
   }
 
+  /** Returns the unique identifier of the subsystem for which this is the Context.
+   This identifier serves to determine whether the Context belongs with a
+   System that is trying to operate upon it.
+   */
+  int64_t get_system_id() const {
+    return system_id_;
+  }
+
   /** Returns the local name of the subsystem for which this is the Context.
   This is intended primarily for error messages and logging.
   @see SystemBase::GetSystemName() for details.
@@ -587,6 +595,12 @@ class ContextBase : public internal::ContextMessageInterface {
   // Returns the parent Context or `nullptr` if this is the root Context.
   const ContextBase* get_parent_base() const { return parent_; }
 
+  // Records the unique identifier of the system whose context this is.
+  void set_system_id(int64_t id) {
+    DRAKE_DEMAND(id > 0);  // Ensure that the ID is valid.
+    system_id_ = id;
+  }
+
   // Records the name of the system whose context this is.
   void set_system_name(const std::string& name) { system_name_ = name; }
 
@@ -652,6 +666,10 @@ class ContextBase : public internal::ContextMessageInterface {
   // context.
   reset_on_copy<ContextBase*> parent_;
 
+  // The unique ID of the subsystem whose subcontext this is. Only positive
+  // identifiers are valid.
+  int64_t system_id_{0};
+
   // Name of the subsystem whose subcontext this is.
   std::string system_name_;
 
@@ -673,6 +691,11 @@ class SystemBaseContextBaseAttorney {
 
  private:
   friend class drake::systems::SystemBase;
+
+  static void set_system_id(ContextBase* context, int64_t id) {
+    DRAKE_DEMAND(context != nullptr);
+    context->set_system_id(id);
+  }
 
   static void set_system_name(ContextBase* context, const std::string& name) {
     DRAKE_DEMAND(context != nullptr);

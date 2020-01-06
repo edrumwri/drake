@@ -31,8 +31,10 @@ the numbering must be identical. */
 class SystemBase : public internal::SystemMessageInterface {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SystemBase)
-
   ~SystemBase() override;
+
+  /** Gets the unique identifier of this system. */
+  int64_t get_system_id() const { return id_; }
 
   /** Sets the name of the system. Do not use the path delimiter character ':'
   in the name. When creating a Diagram, names of sibling subsystems should be
@@ -770,8 +772,10 @@ class SystemBase : public internal::SystemMessageInterface {
   //@}
 
  protected:
-  /** (Internal use only) Default constructor. */
-  SystemBase() = default;
+  /** (Internal use only). */
+  SystemBase() {
+    id_ = reinterpret_cast<int64_t>(this);
+  }
 
   /** (Internal use only) Adds an already-constructed input port to this System.
   Insists that the port already contains a reference to this System, and that
@@ -1108,6 +1112,9 @@ class SystemBase : public internal::SystemMessageInterface {
 
   // Name of this system.
   std::string name_;
+
+  // Unique identifier of this system. Only positive numbers are valid.
+  int64_t id_{0};
 };
 
 // Implementations of templatized DeclareCacheEntry() methods.

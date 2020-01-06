@@ -173,6 +173,8 @@ class System : public SystemBase {
   // Sets Context fields to their default values.  User code should not
   // override.
   void SetDefaultContext(Context<T>* context) const {
+    ValidateContextBelongsWithThisSystem(context);
+
     // Set the default state, checking that the number of state variables does
     // not change.
     const int n_xc = context->num_continuous_states();
@@ -205,6 +207,7 @@ class System : public SystemBase {
   /// @see @ref stochastic_systems
   virtual void SetRandomState(const Context<T>& context, State<T>* state,
                               RandomGenerator* generator) const {
+    ValidateContextBelongsWithThisSystem(context);
     unused(generator);
     SetDefaultState(context, state);
   }
@@ -223,6 +226,7 @@ class System : public SystemBase {
   virtual void SetRandomParameters(const Context<T>& context,
                                    Parameters<T>* parameters,
                                    RandomGenerator* generator) const {
+    ValidateContextBelongsWithThisSystem(context);
     unused(generator);
     SetDefaultParameters(context, parameters);
   }
@@ -230,6 +234,8 @@ class System : public SystemBase {
   // Sets Context fields to random values.  User code should not
   // override.
   void SetRandomContext(Context<T>* context, RandomGenerator* generator) const {
+    ValidateContextBelongsWithThisSystem(context);
+
     // Set the default state, checking that the number of state variables does
     // not change.
     const int n_xc = context->num_continuous_states();
@@ -254,6 +260,7 @@ class System : public SystemBase {
   /// that this System requires, and binds it to the port, disconnecting any
   /// prior input. Does not assign any values to the fixed inputs.
   void AllocateFixedInputs(Context<T>* context) const {
+    ValidateContextBelongsWithThisSystem(context);
     for (InputPortIndex i(0); i < num_input_ports(); ++i) {
       const InputPort<T>& port = get_input_port(i);
       if (port.get_data_type() == kVectorValued) {
@@ -318,7 +325,7 @@ class System : public SystemBase {
   /// since a smaller integrator step produces a more accurate solution.
   void Publish(const Context<T>& context,
                const EventCollection<PublishEvent<T>>& events) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DispatchPublishHandler(context, events);
   }
 
@@ -373,6 +380,7 @@ class System : public SystemBase {
   /// @see CalcTimeDerivatives(), get_time_derivatives_cache_entry()
   const ContinuousState<T>& EvalTimeDerivatives(
       const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     const CacheEntry& entry = get_time_derivatives_cache_entry();
     return entry.Eval<ContinuousState<T>>(context);
   }
@@ -402,6 +410,7 @@ class System : public SystemBase {
   ///            configuration given in `context`.
   /// @see CalcPotentialEnergy()
   const T& EvalPotentialEnergy(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     const CacheEntry& entry =
         this->get_cache_entry(potential_energy_cache_index_);
     return entry.Eval<T>(context);
@@ -425,6 +434,7 @@ class System : public SystemBase {
   ///            configuration and velocity given in `context`.
   /// @see CalcKineticEnergy()
   const T& EvalKineticEnergy(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     const CacheEntry& entry =
         this->get_cache_entry(kinetic_energy_cache_index_);
     return entry.Eval<T>(context);
@@ -456,6 +466,7 @@ class System : public SystemBase {
   /// @see CalcConservativePower(), EvalNonConservativePower(),
   ///      EvalPotentialEnergy(), EvalKineticEnergy()
   const T& EvalConservativePower(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     const CacheEntry& entry =
         this->get_cache_entry(conservative_power_cache_index_);
     return entry.Eval<T>(context);
@@ -482,6 +493,7 @@ class System : public SystemBase {
   ///             the contents of the given `context`.
   /// @see CalcNonConservativePower(), EvalConservativePower()
   const T& EvalNonConservativePower(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     const CacheEntry& entry =
         this->get_cache_entry(nonconservative_power_cache_index_);
     return entry.Eval<T>(context);
@@ -505,6 +517,8 @@ class System : public SystemBase {
   template <template <typename> class Vec = BasicVector>
   const Vec<T>* EvalVectorInput(const Context<T>& context,
                                 int port_index) const {
+    ValidateContextBelongsWithThisSystem(context);
+
     static_assert(
         std::is_base_of<BasicVector<T>, Vec<T>>::value,
         "In EvalVectorInput<Vec>, Vec must be a subclass of BasicVector.");
@@ -542,6 +556,8 @@ class System : public SystemBase {
   /// @see EvalVectorInput()
   Eigen::VectorBlock<const VectorX<T>> EvalEigenVectorInput(
       const Context<T>& context, int port_index) const {
+    ValidateContextBelongsWithThisSystem(context);
+
     if (port_index < 0)
       ThrowNegativePortIndex(__func__, port_index);
     const InputPortIndex port(port_index);
@@ -564,6 +580,7 @@ class System : public SystemBase {
   /// current state (as might be the case with a system modeled using piecewise
   /// differential algebraic equations).
   int num_constraint_equations(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     return do_get_num_constraint_equations(context);
   }
 
@@ -576,6 +593,7 @@ class System : public SystemBase {
   ///          zero vector indicates that the algebraic constraints are all
   ///          satisfied.
   Eigen::VectorXd EvalConstraintEquations(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     return DoEvalConstraintEquations(context);
   }
 
@@ -586,6 +604,7 @@ class System : public SystemBase {
   /// piecewise differential algebraic equations).
   /// @returns a vector of dimension num_constraint_equations().
   Eigen::VectorXd EvalConstraintEquationsDot(const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     return DoEvalConstraintEquationsDot(context);
   }
 
@@ -613,6 +632,7 @@ class System : public SystemBase {
   Eigen::VectorXd CalcVelocityChangeFromConstraintImpulses(
       const Context<T>& context, const Eigen::MatrixXd& J,
       const Eigen::VectorXd& lambda) const {
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_ASSERT(lambda.size() == num_constraint_equations(context));
     DRAKE_ASSERT(J.rows() == num_constraint_equations(context));
     DRAKE_ASSERT(
@@ -629,6 +649,7 @@ class System : public SystemBase {
   ///         the output of num_constraint_equations().
   double CalcConstraintErrorNorm(const Context<T>& context,
                                  const Eigen::VectorXd& error) const {
+    ValidateContextBelongsWithThisSystem(context);
     if (error.size() != num_constraint_equations(context))
       throw std::logic_error("Error vector is mis-sized.");
     return DoCalcConstraintErrorNorm(context, error);
@@ -691,7 +712,7 @@ class System : public SystemBase {
   void CalcTimeDerivatives(const Context<T>& context,
                            ContinuousState<T>* derivatives) const {
     DRAKE_DEMAND(derivatives != nullptr);
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DoCalcTimeDerivatives(context, derivatives);
   }
 
@@ -705,7 +726,7 @@ class System : public SystemBase {
       const Context<T>& context,
       const EventCollection<DiscreteUpdateEvent<T>>& events,
       DiscreteValues<T>* discrete_state) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
 
     DispatchDiscreteVariableUpdateHandler(context, events, discrete_state);
   }
@@ -730,6 +751,7 @@ class System : public SystemBase {
   void ApplyDiscreteVariableUpdate(
       const EventCollection<DiscreteUpdateEvent<T>>& events,
       DiscreteValues<T>* discrete_state, Context<T>* context) const {
+    ValidateContextBelongsWithThisSystem(context);
     DoApplyDiscreteVariableUpdate(events, discrete_state, context);
   }
 
@@ -739,6 +761,7 @@ class System : public SystemBase {
   /// attribute or custom callback.
   void CalcDiscreteVariableUpdates(const Context<T>& context,
                                    DiscreteValues<T>* discrete_state) const {
+    ValidateContextBelongsWithThisSystem(context);
     CalcDiscreteVariableUpdates(
         context, this->get_forced_discrete_update_events(), discrete_state);
   }
@@ -756,7 +779,7 @@ class System : public SystemBase {
       const Context<T>& context,
       const EventCollection<UnrestrictedUpdateEvent<T>>& events,
       State<T>* state) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     const int continuous_state_dim = state->get_continuous_state().size();
     const int discrete_state_dim = state->get_discrete_state().num_groups();
     const int abstract_state_dim = state->get_abstract_state().size();
@@ -819,7 +842,7 @@ class System : public SystemBase {
   /// @p events cannot be null. @p events will be cleared on entry.
   T CalcNextUpdateTime(const Context<T>& context,
                        CompositeEventCollection<T>* events) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_DEMAND(events != nullptr);
     events->Clear();
     T time{NAN};
@@ -843,7 +866,7 @@ class System : public SystemBase {
   /// @p events cannot be null. @p events will be cleared on entry.
   void GetPerStepEvents(const Context<T>& context,
                         CompositeEventCollection<T>* events) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_DEMAND(events != nullptr);
     events->Clear();
     DoGetPerStepEvents(context, events);
@@ -856,7 +879,7 @@ class System : public SystemBase {
   /// @p events cannot be null. @p events will be cleared on entry.
   void GetInitializationEvents(const Context<T>& context,
                                CompositeEventCollection<T>* events) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_DEMAND(events != nullptr);
     events->Clear();
     DoGetInitializationEvents(context, events);
@@ -906,7 +929,7 @@ class System : public SystemBase {
   /// of entries of the right types.
   void CalcOutput(const Context<T>& context, SystemOutput<T>* outputs) const {
     DRAKE_DEMAND(outputs != nullptr);
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_ASSERT_VOID(CheckValidOutput(outputs));
     for (OutputPortIndex i(0); i < num_output_ports(); ++i) {
       // TODO(sherm1) Would be better to use Eval() here but we don't have
@@ -923,7 +946,7 @@ class System : public SystemBase {
   ///
   /// @see EvalPotentialEnergy() for more information.
   T CalcPotentialEnergy(const Context<T>& context) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     return DoCalcPotentialEnergy(context);
   }
 
@@ -933,7 +956,7 @@ class System : public SystemBase {
   ///
   /// @see EvalKineticEnergy() for more information.
   T CalcKineticEnergy(const Context<T>& context) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     return DoCalcKineticEnergy(context);
   }
 
@@ -943,7 +966,7 @@ class System : public SystemBase {
   ///
   /// @see EvalConservativePower() for more information.
   T CalcConservativePower(const Context<T>& context) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     return DoCalcConservativePower(context);
   }
 
@@ -953,7 +976,7 @@ class System : public SystemBase {
   ///
   /// @see EvalNonConservativePower() for more information.
   T CalcNonConservativePower(const Context<T>& context) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     return DoCalcNonConservativePower(context);
   }
 
@@ -972,6 +995,7 @@ class System : public SystemBase {
   void MapVelocityToQDot(const Context<T>& context,
                          const VectorBase<T>& generalized_velocity,
                          VectorBase<T>* qdot) const {
+    ValidateContextBelongsWithThisSystem(context);
     MapVelocityToQDot(context, generalized_velocity.CopyToVector(), qdot);
   }
 
@@ -982,6 +1006,7 @@ class System : public SystemBase {
       const Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& generalized_velocity,
       VectorBase<T>* qdot) const {
+    ValidateContextBelongsWithThisSystem(context);
     DoMapVelocityToQDot(context, generalized_velocity, qdot);
   }
 
@@ -1004,6 +1029,7 @@ class System : public SystemBase {
   /// @see MapVelocityToQDot()
   void MapQDotToVelocity(const Context<T>& context, const VectorBase<T>& qdot,
                          VectorBase<T>* generalized_velocity) const {
+    ValidateContextBelongsWithThisSystem(context);
     MapQDotToVelocity(context, qdot.CopyToVector(), generalized_velocity);
   }
 
@@ -1014,6 +1040,7 @@ class System : public SystemBase {
   void MapQDotToVelocity(const Context<T>& context,
                          const Eigen::Ref<const VectorX<T>>& qdot,
                          VectorBase<T>* generalized_velocity) const {
+    ValidateContextBelongsWithThisSystem(context);
     DoMapQDotToVelocity(context, qdot, generalized_velocity);
   }
 
@@ -1046,6 +1073,7 @@ class System : public SystemBase {
   /// @pre The given `context` is valid for use with `this` %System.
   const Context<T>& GetSubsystemContext(const System<T>& subsystem,
                                         const Context<T>& context) const {
+    ValidateContextBelongsWithThisSystem(context);
     auto ret = DoGetTargetSystemContext(subsystem, &context);
     if (ret != nullptr) return *ret;
 
@@ -1062,7 +1090,7 @@ class System : public SystemBase {
   /// @pre The given `context` is valid for use with `this` %System.
   Context<T>& GetMutableSubsystemContext(const System<T>& subsystem,
                                          Context<T>* context) const {
-    DRAKE_ASSERT(context != nullptr);
+    ValidateContextBelongsWithThisSystem(context);
     // Make use of the const method to avoid code duplication.
     const Context<T>& subcontext = GetSubsystemContext(subsystem, *context);
     return const_cast<Context<T>&>(subcontext);
@@ -1317,6 +1345,7 @@ class System : public SystemBase {
   /// SystemConstraint::CheckSatisfied.
   boolean<T> CheckSystemConstraintsSatisfied(
       const Context<T>& context, double tol) const {
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_DEMAND(tol >= 0.0);
     boolean<T> result{true};
     for (const auto& constraint : constraints_) {
@@ -1646,16 +1675,16 @@ class System : public SystemBase {
   ///             state. The method aborts if witnesses is null or non-empty.
   void GetWitnessFunctions(const Context<T>& context,
                            std::vector<const WitnessFunction<T>*>* w) const {
+    ValidateContextBelongsWithThisSystem(context);
     DRAKE_DEMAND(w);
     DRAKE_DEMAND(w->empty());
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
     DoGetWitnessFunctions(context, w);
   }
 
   /// Evaluates a witness function at the given context.
   T CalcWitnessValue(const Context<T>& context,
                      const WitnessFunction<T>& witness_func) const {
-    DRAKE_ASSERT_VOID(CheckValidContext(context));
+    ValidateContextBelongsWithThisSystem(context);
     return DoCalcWitnessValue(context, witness_func);
   }
 
@@ -1706,6 +1735,21 @@ class System : public SystemBase {
   // Don't promote output_port_ticket() since it is for internal use only.
 
  protected:
+  /// Method throws if Context does not belong to this.
+  void ValidateContextBelongsWithThisSystem(const Context<T>& context) const {
+    if (context.get_system_id() != get_system_id())
+      throw std::logic_error(fmt::format("Context has not been created by {}",
+                                         context.GetSystemName()));
+  }
+
+  /// Method throws if Context does not belong to this.
+  void ValidateContextBelongsWithThisSystem(Context<T>* context) const {
+    DRAKE_DEMAND(context);
+    if (context->get_system_id() != get_system_id())
+      throw std::logic_error(fmt::format("Context has not been created by {}",
+                                         context->GetSystemName()));
+  }
+
   /// Derived classes will implement this method to evaluate a witness function
   /// at the given context.
   virtual T DoCalcWitnessValue(
