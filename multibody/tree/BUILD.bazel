@@ -166,6 +166,7 @@ drake_cc_library(
         ":multibody_tree_indexes",
         ":spatial_inertia",
         "//common:autodiff",
+        "//common:const_char_maps",
         "//common:nice_type_name",
         "//common:symbolic",
         "//math:geometric_transform",
