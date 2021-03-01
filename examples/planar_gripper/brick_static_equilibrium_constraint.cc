@@ -26,7 +26,7 @@ BrickStaticEquilibriumNonlinearConstraint::
       finger_face_contacts_(std::move(finger_face_contacts)),
       plant_mutable_context_(plant_mutable_context) {
   brick_mass_ = gripper_brick_system_.plant()
-                    .GetBodyByName("brick_link")
+                    .GetBodyByName(std::string_view("brick_link"))
                     .get_default_mass();
 }
 

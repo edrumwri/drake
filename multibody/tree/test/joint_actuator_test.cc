@@ -40,7 +40,7 @@ GTEST_TEST(JointActuatorTest, JointAcutatorLimitTest) {
 
   tree.AddJointActuator("act1", body1_world, kPostiveEffortLimit);
   // Validate the actuator effort limit has been setup correctly.
-  const auto& actuator1 = tree.GetJointActuatorByName("act1");
+  const auto& actuator1 = tree.GetJointActuatorByName(std::string_view("act1"));
   EXPECT_EQ(actuator1.effort_limit(), kPostiveEffortLimit);
 
   // Throw is the effort limit is set to 0.

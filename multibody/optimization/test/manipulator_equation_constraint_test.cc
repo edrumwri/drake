@@ -321,10 +321,10 @@ TEST_F(TwoFreeSpheresTest, Eval) {
       result.GetSolution(v_next_vars_));
   X_WS0 = spheres_double_->plant().GetFreeBodyPose(
       spheres_double_->plant_context(),
-      spheres_double_->plant().GetBodyByName("sphere0"));
+      spheres_double_->plant().GetBodyByName(std::string_view("sphere0")));
   X_WS1 = spheres_double_->plant().GetFreeBodyPose(
       spheres_double_->plant_context(),
-      spheres_double_->plant().GetBodyByName("sphere1"));
+      spheres_double_->plant().GetBodyByName(std::string_view("sphere1")));
 
   // Compute the total wrench applied on each sphere, expressed in the world
   // frame.

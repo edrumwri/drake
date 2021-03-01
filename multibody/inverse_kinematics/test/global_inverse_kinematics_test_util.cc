@@ -25,7 +25,8 @@ std::unique_ptr<multibody::MultibodyPlant<double>> ConstructKuka() {
   auto plant = std::make_unique<MultibodyPlant<double>>(0.1);
   multibody::Parser parser{plant.get()};
   parser.AddModelFromFile(iiwa_path, "iiwa");
-  plant->WeldFrames(plant->world_frame(), plant->GetFrameByName("iiwa_link_0"));
+  plant->WeldFrames(plant->world_frame(),
+                    plant->GetFrameByName(std::string_view("iiwa_link_0")));
   plant->Finalize();
 
   return plant;
@@ -47,7 +48,7 @@ KukaTest::KukaTest()
     : plant_(ConstructKuka()),
       global_ik_(*plant_),  // Test with default options.
                             // half axis.
-      ee_idx_(plant_->GetBodyByName("iiwa_link_7").index()) {}
+      ee_idx_(plant_->GetBodyByName(std::string_view("iiwa_link_7")).index()) {}
 
 void KukaTest::CheckGlobalIKSolution(
     const solvers::MathematicalProgramResult& result, double pos_tol,

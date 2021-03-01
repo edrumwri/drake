@@ -71,9 +71,12 @@ class MultibodyPlantReflectedInertiaTests : public ::testing::Test {
     // Add the gripper.
     gripper_model = parser.AddModelFromFile(FindResourceOrThrow(kWsg50SdfPath));
 
-    const auto& base_body = plant->GetBodyByName("iiwa_link_0", arm_model);
-    const auto& end_effector = plant->GetBodyByName("iiwa_link_7", arm_model);
-    const auto& gripper_body = plant->GetBodyByName("body", gripper_model);
+    const auto& base_body =
+        plant->GetBodyByName(std::string_view("iiwa_link_0"), arm_model);
+    const auto& end_effector =
+        plant->GetBodyByName(std::string_view("iiwa_link_7"), arm_model);
+    const auto& gripper_body =
+        plant->GetBodyByName(std::string_view("body"), gripper_model);
     plant->WeldFrames(plant->world_frame(), base_body.body_frame());
     plant->WeldFrames(end_effector.body_frame(), gripper_body.body_frame());
   }

@@ -155,7 +155,8 @@ void ProcessModelDirectivesImpl(
       if (!parsed.instance_name.empty()) {
         parsed.instance_name = PrefixName(
             model_namespace, parsed.instance_name);
-        instance = plant->GetModelInstanceByName(parsed.instance_name);
+        instance = plant->GetModelInstanceByName(std::string_view(
+            (parsed.instance_name)));
       }
       auto& added = plant->AddFrame(make_unique<FixedOffsetFrame<double>>(
           parsed.name, get_scoped_frame(*frame.X_PF.base_frame),
@@ -179,7 +180,8 @@ void ProcessModelDirectivesImpl(
       drake::log()->debug("  add_directives: {}", sub.file);
       drake::log()->debug("    new_model_namespace: {}", new_model_namespace);
       if (!new_model_namespace.empty() &&
-          !plant->HasModelInstanceNamed(new_model_namespace)) {
+          !plant->HasModelInstanceNamed(
+              std::string_view(new_model_namespace))) {
         throw std::runtime_error(fmt::format(
             "Namespace '{}' does not exist as model instance",
             new_model_namespace));

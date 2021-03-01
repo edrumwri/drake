@@ -46,7 +46,8 @@ class KukaIiwaModelTests : public ::testing::Test {
     Parser parser(plant_.get());
     parser.AddModelFromFile(kArmSdfPath);
     // Add a frame H with a fixed pose X_EH in the end effector frame E.
-    end_effector_link_ = &plant_->GetBodyByName("iiwa_link_7");
+    end_effector_link_ =
+        &plant_->GetBodyByName(std::string_view("iiwa_link_7"));
     frame_H_ = &plant_->AddFrame(std::make_unique<FixedOffsetFrame<double>>(
         "H", *end_effector_link_, X_EH_));
     plant_->Finalize();
@@ -97,7 +98,8 @@ class KukaIiwaModelTests : public ::testing::Test {
     }
 
     // Set an arbitrary (though non-identity) pose of the floating base link.
-    const auto& base_body = plant_->GetBodyByName("iiwa_link_0");
+    const auto& base_body =
+        plant_->GetBodyByName(std::string_view("iiwa_link_0"));
     const RigidTransform<double> X_WB(
         RollPitchYaw<double>(M_PI / 3, -M_PI / 2, M_PI / 8),
         Vector3<double>(0.05, -0.2, 0.05));

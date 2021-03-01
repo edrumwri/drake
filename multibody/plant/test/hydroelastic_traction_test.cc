@@ -85,7 +85,7 @@ std::unique_ptr<SurfaceMesh<double>> CreateSurfaceMesh() {
 GeometryId FindGeometry(
     const MultibodyPlant<double>& plant, const std::string body_name) {
   const auto& geometries = plant.GetCollisionGeometriesForBody(
-      plant.GetBodyByName(body_name));
+      plant.GetBodyByName(std::string_view(body_name)));
   DRAKE_DEMAND(geometries.size() == 1);
   return geometries[0];
 }
@@ -199,7 +199,7 @@ public ::testing::TestWithParam<RigidTransform<double>> {
 
   void SetBoxTranslationalVelocity(const Vector3<double>& v) {
     plant_->SetFreeBodySpatialVelocity(plant_context_,
-        plant_->GetBodyByName("box"),
+        plant_->GetBodyByName(std::string_view("box")),
         SpatialVelocity<double>(Vector3<double>::Zero(), v));
   }
 
@@ -274,8 +274,10 @@ public ::testing::TestWithParam<RigidTransform<double>> {
     const auto& X_YB = RigidTransform<double>::Identity();
     const RigidTransform<double> X_WH = X_WY * X_YH;
     const RigidTransform<double> X_WB = X_WY * X_YB;
-    plant.SetFreeBodyPose(plant_context_, plant.GetBodyByName("ground"), X_WH);
-    plant.SetFreeBodyPose(plant_context_, plant.GetBodyByName("box"), X_WB);
+    plant.SetFreeBodyPose(
+        plant_context_, plant.GetBodyByName(std::string_view("ground")), X_WH);
+    plant.SetFreeBodyPose(plant_context_,
+                          plant.GetBodyByName(std::string_view("box")), X_WB);
 
     GeometryId halfspace_id = internal::FindGeometry(plant, "ground");
     GeometryId block_id = internal::FindGeometry(plant, "box");

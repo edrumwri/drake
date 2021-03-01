@@ -22,8 +22,9 @@ MoveIkDemoBase::MoveIkDemoBase(std::string robot_description,
       plant_(0.0),
       constraint_relaxing_ik_(robot_description_, ik_link_) {
   multibody::Parser(&plant_).AddModelFromFile(robot_description_);
-  plant_.WeldFrames(plant_.world_frame(),
-                    plant_.GetBodyByName(base_link).body_frame());
+  plant_.WeldFrames(
+      plant_.world_frame(),
+      plant_.GetBodyByName(std::string_view(base_link)).body_frame());
   plant_.Finalize();
   context_ = plant_.CreateDefaultContext();
   joint_names_ = GetJointNames(plant_);
@@ -47,7 +48,7 @@ void MoveIkDemoBase::HandleStatus(
   if (status_count_ % print_interval_ == 1) {
     const math::RigidTransform<double> current_link_pose =
         plant_.EvalBodyPoseInWorld(
-            *context_, plant_.GetBodyByName(ik_link_));
+            *context_, plant_.GetBodyByName(std::string_view(ik_link_)));
     const math::RollPitchYaw<double> rpy(current_link_pose.rotation());
     drake::log()->info("{} at: {} {}",
                        ik_link_,

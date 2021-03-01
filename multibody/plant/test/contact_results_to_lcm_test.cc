@@ -82,13 +82,14 @@ GTEST_TEST(ContactResultsToLcmSystem, NonEmptyMultibodyPlantEmptyContact) {
   // So, only that value is set; all other values are left as default.
   PenetrationAsPointPair<double> penetration_data;
   penetration_data.nhat_BA_W << 1, 2, 3;
-  const auto& link1 = plant->GetBodyByName(parameters.link1_name());
+  const auto& link1 =
+      plant->GetBodyByName(std::string_view(parameters.link1_name()));
   const BodyIndex index1 = link1.index();
   const ModelInstanceIndex model_instance = link1.model_instance();
   const std::string name1 =
       parameters.link1_name() + "(" + to_string(model_instance) + ")";
   const BodyIndex index2 =
-      plant->GetBodyByName(parameters.link2_name()).index();
+      plant->GetBodyByName(std::string_view(parameters.link2_name())).index();
   // Assume that link1 and link2 belong to the same model instance.
   const std::string name2 =
       parameters.link2_name() + "(" + to_string(model_instance) + ")";
@@ -260,7 +261,8 @@ ContactResults<double> GenerateHydroelasticContactResults(
   // Get the geometries for the two bodies.
   DRAKE_DEMAND(plant.num_bodies() == 2);
   const Body<double>& world_body = plant.world_body();
-  const Body<double>& block_body = plant.GetBodyByName("BodyB");
+  const Body<double>& block_body =
+      plant.GetBodyByName(std::string_view("BodyB"));
   const std::vector<geometry::GeometryId>& world_geoms =
       plant.GetCollisionGeometriesForBody(world_body);
   const std::vector<geometry::GeometryId>& block_geoms =

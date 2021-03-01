@@ -218,7 +218,7 @@ GTEST_TEST(MultibodyTree, VerifyModelBasics) {
       model->AddJoint<RevoluteJoint>(
           "iiwa_joint_4",
           model->world_body(), std::nullopt,
-          model->GetBodyByName("iiwa_link_5"), std::nullopt,
+          model->GetBodyByName(std::string_view("iiwa_link_5")), std::nullopt,
           Vector3<double>::UnitZ()),
       std::logic_error,
       /* Verify this method is throwing for the right reasons. */
@@ -230,7 +230,7 @@ GTEST_TEST(MultibodyTree, VerifyModelBasics) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       model->AddJointActuator(
           "iiwa_actuator_4",
-          model->GetJointByName("iiwa_joint_4")),
+          model->GetJointByName(std::string_view("iiwa_joint_4"))),
       std::logic_error,
       /* Verify this method is throwing for the right reasons. */
       ".* already contains a joint actuator named 'iiwa_actuator_4'. "
@@ -304,14 +304,22 @@ class KukaIiwaModelTests : public ::testing::Test {
           false /* do not finalize model yet */, gravity_);
 
       // Keep pointers to the modeling elements.
-      end_effector_link_ = &tree->GetBodyByName("iiwa_link_7");
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_1"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_2"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_3"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_4"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_5"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_6"));
-      joints_.push_back(&tree->GetJointByName<RevoluteJoint>("iiwa_joint_7"));
+      end_effector_link_ =
+          &tree->GetBodyByName(std::string_view("iiwa_link_7"));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_1")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_2")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_3")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_4")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_5")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_6")));
+      joints_.push_back(&tree->GetJointByName<RevoluteJoint>(
+          std::string_view("iiwa_joint_7")));
 
       // Add a frame H with a fixed pose X_GH in the end effector frame G.
       // Note: frame names are documented in MakeKukaIiwaModel().
@@ -1270,9 +1278,12 @@ TEST_F(KukaIiwaModelTests, CalcJacobianSpatialVelocityC) {
   }
 
   // Three arbitrary frames on the robot.
-  const Body<double>& link3 = tree().GetBodyByName("iiwa_link_3");
-  const Body<double>& link5 = tree().GetBodyByName("iiwa_link_5");
-  const Body<double>& link7 = tree().GetBodyByName("iiwa_link_7");
+  const Body<double>& link3 = tree().GetBodyByName(
+      std::string_view("iiwa_link_3"));
+  const Body<double>& link5 = tree().GetBodyByName(
+      std::string_view("iiwa_link_5"));
+  const Body<double>& link7 = tree().GetBodyByName(
+      std::string_view("iiwa_link_7"));
 
   // An arbitrary point Q in the end effector link 7.
   const Vector3d p_L7Q = Vector3d(0.2, -0.1, 0.5);

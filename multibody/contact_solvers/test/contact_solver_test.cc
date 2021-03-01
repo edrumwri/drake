@@ -141,7 +141,8 @@ class ParticleTest : public ::testing::Test {
         "particle_with_infinite_inertia.sdf";
     driver_.BuildModel(dt_, model_file);
     const auto& plant = driver_.plant();
-    const auto& particle = plant.GetBodyByName("particle");
+    const auto& particle =
+        driver_.plant().GetBodyByName(std::string_view("particle"));
     // Add the ground, with the same friction as specified in the SDF file for
     // the particle.
     const double mu = driver_.GetDynamicFrictionCoefficients(particle)[0];
@@ -166,7 +167,8 @@ class ParticleTest : public ::testing::Test {
   // Set the particle to be in contact with the ground.
   void SetInitialState() {
     const auto& plant = driver_.plant();
-    const auto& particle = plant.GetBodyByName("particle");
+    const auto& particle =
+        driver_.plant().GetBodyByName(std::string_view("particle"));
     auto& context = driver_.mutable_plant_context();
     const Vector3d p_WB(0, 0, -kPenetrationDistance_);
     plant.SetFreeBodyPose(&context, particle, math::RigidTransformd(p_WB));
@@ -196,7 +198,8 @@ class ParticleTest : public ::testing::Test {
   // @param slip_expected The expected slip velocity.
   void VerifyContactInfo(const Vector3d& f_Pc_W_expected,
                          double slip_expected) const {
-    const auto& particle = driver_.plant().GetBodyByName("particle");
+    const auto& particle =
+        driver_.plant().GetBodyByName(std::string_view("particle"));
     // We'll verify the expected results and therefore that MultibodyPlant was
     // able to properly load the contact results.
     const PointPairContactInfo<double>& info = EvalPointPairInfo();
@@ -216,7 +219,8 @@ class ParticleTest : public ::testing::Test {
   // @param f_Pc_W_expected expected contact force on the particle P at the
   // contact point C, expressed in world frame W.
   void VerifyGeneralizedContactForces(const Vector3d& f_Pc_W_expected) const {
-    const auto& particle = driver_.plant().GetBodyByName("particle");
+    const auto& particle =
+        driver_.plant().GetBodyByName(std::string_view("particle"));
     const auto tau_c = driver_.plant()
                            .get_generalized_contact_forces_output_port(
                                particle.model_instance())
@@ -247,7 +251,8 @@ class ParticleTest : public ::testing::Test {
 TEST_F(ParticleTest, Stiction) {
   // Apply an in plane force:
   const Vector3d fapplied_P_W(2.0, 0.0, 0.0);
-  const auto& particle = driver_.plant().GetBodyByName("particle");
+  const auto& particle =
+      driver_.plant().GetBodyByName(std::string_view("particle"));
   driver_.FixAppliedForce(particle, fapplied_P_W);
 
   // In stiction we expect the contact force to exactly balance the external
@@ -261,7 +266,8 @@ TEST_F(ParticleTest, Stiction) {
 
 TEST_F(ParticleTest, Sliding) {
   const Vector3d fapplied_P_W(3.0, 0.0, 0.0);
-  const auto& particle = driver_.plant().GetBodyByName("particle");
+  const auto& particle =
+      driver_.plant().GetBodyByName(std::string_view("particle"));
   driver_.FixAppliedForce(particle, fapplied_P_W);
 
   // The maximum friction force is mu * Weight = 2.5 N.

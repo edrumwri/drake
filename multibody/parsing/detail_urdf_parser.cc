@@ -190,7 +190,8 @@ void RegisterCollisionFilterGroup(
                       "member tag without specifying the \"link\" attribute.",
                       __FILE__, __func__, node->GetLineNum(), group_name));
     }
-    const auto& body = plant.GetBodyByName(body_name, model_instance);
+    const auto& body =
+        plant.GetBodyByName(std::string_view(body_name), model_instance);
     collision_filter_geometry_set.Add(
         plant.GetBodyFrameIdOrThrow(body.index()));
   }
@@ -342,13 +343,13 @@ const Body<double>& GetBodyForElement(
     return plant->world_body();
   }
 
-  if (!plant->HasBodyNamed(link_name, model_instance)) {
+  if (!plant->HasBodyNamed(std::string_view(link_name), model_instance)) {
     throw std::runtime_error(
         "ERROR: Could not find link named\"" +
         link_name + "\" with model instance ID " +
         std::to_string(model_instance) + " for element " + element_name + ".");
   }
-  return plant->GetBodyByName(link_name, model_instance);
+  return plant->GetBodyByName(std::string_view(link_name), model_instance);
 }
 
 void ParseJoint(ModelInstanceIndex model_instance,
@@ -528,13 +529,13 @@ void ParseTransmission(
         "ERROR: Transmission is missing a joint name.");
   }
 
-  if (!plant->HasJointNamed(joint_name, model_instance)) {
+  if (!plant->HasJointNamed(std::string_view(joint_name), model_instance)) {
     throw std::runtime_error(
         "ERROR: Transmission specifies joint " + joint_name +
         " which does not exist.");
   }
   const Joint<double>& joint = plant->GetJointByName(
-      joint_name, model_instance);
+      std::string_view(joint_name), model_instance);
 
   // Checks if the actuator is attached to a fixed joint. If so, abort this
   // method call.
@@ -649,12 +650,12 @@ void ParseBushing(XMLElement* node, MultibodyPlant<double>* plant) {
     if (value_node != nullptr) {
       std::string frame_name;
       if (ParseStringAttribute(value_node, "name", &frame_name)) {
-        if (!plant->HasFrameNamed(frame_name)) {
+        if (!plant->HasFrameNamed(std::string_view(frame_name))) {
           throw std::runtime_error(fmt::format(
               "Frame: {} specified for <{}> does not exist in the model.",
               frame_name, element_name));
         }
-        return plant->GetFrameByName(frame_name);
+        return plant->GetFrameByName(std::string_view(frame_name));
 
       } else {
         throw std::runtime_error(

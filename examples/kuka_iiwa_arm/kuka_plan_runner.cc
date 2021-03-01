@@ -128,11 +128,11 @@ class RobotPlanRunner {
     for (int i = 0; i < plan->num_states; ++i) {
       const auto& state = plan->plan[i];
       for (int j = 0; j < state.num_joints; ++j) {
-        if (!plant_.HasJointNamed(state.joint_name[j])) {
+        if (!plant_.HasJointNamed(std::string_view(state.joint_name[j]))) {
           continue;
         }
         const multibody::Joint<double>& joint =
-            plant_.GetJointByName(state.joint_name[j]);
+            plant_.GetJointByName(std::string_view(state.joint_name[j]));
         DRAKE_DEMAND(joint.num_positions() == 1);
         const int idx = joint.position_start();
         DRAKE_DEMAND(idx < kNumJoints);
@@ -184,7 +184,7 @@ int do_main() {
       FindResourceOrThrow("drake/manipulation/models/iiwa_description/urdf/"
                           "iiwa14_no_collision.urdf"));
   plant.WeldFrames(plant.world_frame(),
-                   plant.GetBodyByName("base").body_frame());
+                   plant.GetBodyByName(std::string_view("base")).body_frame());
   plant.Finalize();
 
   RobotPlanRunner runner(plant);

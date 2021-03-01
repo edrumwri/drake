@@ -52,10 +52,11 @@ GTEST_TEST(ManipulationStationTest, CheckPlantBasics) {
                                      .Eval<BasicVector<double>>(*context)
                                      .get_value()));
   for (int i = 0; i < 7; i++) {
-    EXPECT_EQ(q(i), plant
-                        .template GetJointByName<RevoluteJoint>(
-                            "iiwa_joint_" + std::to_string(i + 1))
-                        .get_angle(plant_context));
+    EXPECT_EQ(q(i),
+              plant
+                  .template GetJointByName<RevoluteJoint>(
+                      std::string_view("iiwa_joint_" + std::to_string(i + 1)))
+                  .get_angle(plant_context));
   }
 
   // Set velocities and read them back out, multiple ways.
@@ -66,10 +67,11 @@ GTEST_TEST(ManipulationStationTest, CheckPlantBasics) {
                              .Eval<BasicVector<double>>(*context)
                              .get_value()));
   for (int i = 0; i < 7; i++) {
-    EXPECT_EQ(v(i), plant
-                        .template GetJointByName<RevoluteJoint>(
-                            "iiwa_joint_" + std::to_string(i + 1))
-                        .get_angular_rate(plant_context));
+    EXPECT_EQ(v(i),
+              plant
+                  .template GetJointByName<RevoluteJoint>(
+                      std::string_view("iiwa_joint_" + std::to_string(i + 1)))
+                  .get_angular_rate(plant_context));
   }
 
   // Check position command pass through.
@@ -173,8 +175,8 @@ GTEST_TEST(ManipulationStationTest, CheckDynamics) {
   station.CalcDiscreteVariableUpdates(*context, next_state.get());
 
   // Check that vdot ≈ 0 by checking that next velocity ≈ velocity.
-  const auto& base_joint =
-      plant.GetJointByName<multibody::RevoluteJoint>("iiwa_joint_1");
+  const auto& base_joint = plant.GetJointByName<multibody::RevoluteJoint>(
+      std::string_view("iiwa_joint_1"));
   const int iiwa_velocity_start =
       plant.num_positions() + base_joint.velocity_start();
   VectorXd next_velocity =

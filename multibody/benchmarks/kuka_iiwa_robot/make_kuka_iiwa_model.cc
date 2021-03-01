@@ -143,7 +143,7 @@ KukaIiwaModelBuilder<T>::Build() const {
 
   // Add arbitrary tool frame.
   model->template AddFrame<FixedOffsetFrame>(
-      "tool_arbitrary", model->GetFrameByName("iiwa_link_7"),
+      "tool_arbitrary", model->GetFrameByName(std::string_view("iiwa_link_7")),
       math::RigidTransformd(Eigen::Vector3d(0.1, 0.2, 0.3)));
 
   // Add force element for a constant gravity pointing downwards, that is, in

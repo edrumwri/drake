@@ -55,8 +55,9 @@ GTEST_TEST(ProcessModelDirectivesTest, BasicSmokeTest) {
 
   // A great many frames are added in model directives processing, but we
   // should at least expect that our named ones are present.
-  EXPECT_TRUE(plant.HasFrameNamed("sub_added_frame"));
-  EXPECT_TRUE(plant.HasFrameNamed("sub_added_frame_explicit"));
+  EXPECT_TRUE(plant.HasFrameNamed(std::string_view("sub_added_frame")));
+  EXPECT_TRUE(
+      plant.HasFrameNamed(std::string_view("sub_added_frame_explicit")));
 }
 
 // Acceptance tests for the ModelDirectives name scoping, including acceptance
@@ -76,18 +77,19 @@ GTEST_TEST(ProcessModelDirectivesTest, AddScopedSmokeTest) {
 
   // Query information and ensure we have expected results.
   // - Manually spell out one example.
-  ASSERT_EQ(
-      &GetScopedFrameByName(plant, "left::simple_model::frame"),
-      &plant.GetFrameByName(
-          "frame", plant.GetModelInstanceByName("left::simple_model")));
+  ASSERT_EQ(&GetScopedFrameByName(plant, "left::simple_model::frame"),
+            &plant.GetFrameByName(std::string_view("frame"),
+                                  plant.GetModelInstanceByName(
+                                      std::string_view("left::simple_model"))));
   // - Automate other stuff.
   auto check_frame = [&plant](
       const std::string instance, const std::string frame) {
     const std::string scoped_frame = instance + "::" + frame;
     drake::log()->debug("Check: {}", scoped_frame);
-    ASSERT_EQ(
-        &GetScopedFrameByName(plant, scoped_frame),
-        &plant.GetFrameByName(frame, plant.GetModelInstanceByName(instance)));
+    ASSERT_EQ(&GetScopedFrameByName(plant, scoped_frame),
+              &plant.GetFrameByName(
+                  std::string_view(frame),
+                  plant.GetModelInstanceByName(std::string_view(instance))));
   };
   for (const std::string prefix : {"", "left::", "right::", "mid::nested::"}) {
     const std::string simple_model = prefix + "simple_model";
@@ -126,16 +128,18 @@ GTEST_TEST(ProcessModelDirectivesTest, SmokeTestInjectWeldError) {
   plant.Finalize();
 
   // This should have created an error frame for the relevant weld.
-  const std::string expected_error_frame_name = "frame_weld_error_to_base";
+  const std::string_view expected_error_frame_name = "frame_weld_error_to_base";
   EXPECT_TRUE(plant.HasFrameNamed(expected_error_frame_name));
   const auto& frame = plant.GetFrameByName(expected_error_frame_name);
   EXPECT_TRUE(
       dynamic_cast<const drake::multibody::FixedOffsetFrame<double>*>(&frame));
   const RigidTransformd expected_error =
       (plant
-       .GetFrameByName("frame", plant.GetModelInstanceByName("simple_model"))
-       .GetFixedPoseInBodyFrame())
-      * error_transform;
+           .GetFrameByName(
+               std::string_view("frame"),
+               plant.GetModelInstanceByName(std::string_view("simple_model")))
+           .GetFixedPoseInBodyFrame()) *
+      error_transform;
 
   EXPECT_TRUE(
       frame.GetFixedPoseInBodyFrame().IsExactlyEqualTo(expected_error));

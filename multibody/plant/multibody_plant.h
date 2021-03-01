@@ -3294,13 +3294,24 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().get_topology().IsBodyAnchored(body.index());
   }
 
+  DRAKE_DEPRECATED("2021-08-26", "Use HasBodyNamed(string_view) instead")
+  bool HasBodyNamed(const std::string& name) const {
+    return HasBodyNamed(std::string_view(name));
+  }
+
   /// @returns `true` if a body named `name` was added to the %MultibodyPlant.
   /// @see AddRigidBody().
   ///
   /// @throws std::logic_error if the body name occurs in multiple model
   /// instances.
-  bool HasBodyNamed(const std::string& name) const {
+  bool HasBodyNamed(const std::string_view& name) const {
     return internal_tree().HasBodyNamed(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use HasBodyNamed(string_view) instead")
+  bool HasBodyNamed(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().HasBodyNamed(std::string_view(name), model_instance);
   }
 
   /// @returns `true` if a body named `name` was added to the %MultibodyPlant
@@ -3309,8 +3320,13 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   ///
   /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasBodyNamed(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().HasBodyNamed(name, model_instance);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetBodyByName(string_view) instead")
+  const Body<T>& GetBodyByName(const std::string& name) const {
+    return internal_tree().GetBodyByName(std::string_view(name));
   }
 
   /// Returns a constant reference to a body that is identified
@@ -3320,8 +3336,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// instances.
   /// @see HasBodyNamed() to query if there exists a body in `this`
   /// %MultibodyPlant with a given specified name.
-  const Body<T>& GetBodyByName(const std::string& name) const {
+  const Body<T>& GetBodyByName(const std::string_view& name) const {
     return internal_tree().GetBodyByName(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetBodyByName(string_view) instead")
+  const Body<T>& GetBodyByName(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().GetBodyByName(std::string_view(name),
+                                         model_instance);
   }
 
   /// Returns a constant reference to the body that is uniquely identified
@@ -3330,7 +3353,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see HasBodyNamed() to query if there exists a body in `this`
   /// %MultibodyPlant with a given specified name.
   const Body<T>& GetBodyByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().GetBodyByName(name, model_instance);
   }
 
@@ -3338,6 +3361,11 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   std::vector<BodyIndex> GetBodyIndices(ModelInstanceIndex model_instance)
   const {
     return internal_tree().GetBodyIndices(model_instance);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetRigidBodyByName(string_view) instead")
+  const RigidBody<T>& GetRigidBodyByName(const std::string& name) const {
+    return internal_tree().GetRigidBodyByName(std::string_view(name));
   }
 
   /// Returns a constant reference to a rigid body that is identified
@@ -3348,8 +3376,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @throws std::logic_error if the requested body is not a RigidBody.
   /// @see HasBodyNamed() to query if there exists a body in `this` model with a
   /// given specified name.
-  const RigidBody<T>& GetRigidBodyByName(const std::string& name) const {
+  const RigidBody<T>& GetRigidBodyByName(const std::string_view& name) const {
     return internal_tree().GetRigidBodyByName(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetRigidBodyByName(string_view) instead")
+  const RigidBody<T>& GetRigidBodyByName(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().GetRigidBodyByName(std::string_view(name),
+                                              model_instance);
   }
 
   /// Returns a constant reference to the rigid body that is uniquely identified
@@ -3361,7 +3396,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see HasBodyNamed() to query if there exists a body in `this` model with a
   /// given specified name.
   const RigidBody<T>& GetRigidBodyByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().GetRigidBodyByName(name, model_instance);
   }
 
@@ -3410,19 +3445,30 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().get_joint(joint_index);
   }
 
+  DRAKE_DEPRECATED("2021-08-26", "Use HasJointNamed(string_view) instead")
+  bool HasJointNamed(const std::string& name) const {
+    return internal_tree().HasJointNamed(std::string_view(name));
+  }
+
   /// @returns `true` if a joint named `name` was added to this model.
   /// @see AddJoint().
   /// @throws std::logic_error if the joint name occurs in multiple model
   /// instances.
-  bool HasJointNamed(const std::string& name) const {
+  bool HasJointNamed(const std::string_view& name) const {
     return internal_tree().HasJointNamed(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use HasJointNamed(string_view) instead")
+  bool HasJointNamed(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().HasJointNamed(std::string_view(name), model_instance);
   }
 
   /// @returns `true` if a joint named `name` was added to @p model_instance.
   /// @see AddJoint().
   /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasJointNamed(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().HasJointNamed(name, model_instance);
   }
 
@@ -3439,6 +3485,14 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().GetJointIndices(model_instance);
   }
 
+  template <template <typename> class JointType = Joint>
+  DRAKE_DEPRECATED("2021-08-26", "Use GetJointByName(string_view) instead")
+  const JointType<T>& GetJointByName(
+      const std::string& name,
+      std::optional<ModelInstanceIndex> model_instance = std::nullopt) const {
+    return GetJointByName<JointType>(std::string_view(name), model_instance);
+  }
+
   /// Returns a constant reference to a joint that is identified
   /// by the string `name` in `this` %MultibodyPlant.  If the optional
   /// template argument is supplied, then the returned value is downcast to
@@ -3452,9 +3506,19 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// %MultibodyPlant with a given specified name.
   template <template <typename> class JointType = Joint>
   const JointType<T>& GetJointByName(
-      const std::string& name,
+      const std::string_view& name,
       std::optional<ModelInstanceIndex> model_instance = std::nullopt) const {
     return internal_tree().template GetJointByName<JointType>(
+        name, model_instance);
+  }
+
+  template <template <typename> class JointType = Joint>
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use GetMutableJointByName(string_view) instead")
+  JointType<T>& GetMutableJointByName(
+      const std::string& name,
+      std::optional<ModelInstanceIndex> model_instance = std::nullopt) {
+    return this->mutable_tree().template GetMutableJointByName<JointType>(
         name, model_instance);
   }
 
@@ -3462,7 +3526,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see GetJointByName.
   template <template <typename> class JointType = Joint>
   JointType<T>& GetMutableJointByName(
-      const std::string& name,
+      const std::string_view& name,
       std::optional<ModelInstanceIndex> model_instance = std::nullopt) {
     return this->mutable_tree().template GetMutableJointByName<JointType>(
         name, model_instance);
@@ -3483,20 +3547,36 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().get_frame(frame_index);
   }
 
+  DRAKE_DEPRECATED("2021-08-26", "Use HasFrameNamed(string_view) instead")
+  bool HasFrameNamed(const std::string& name) const {
+    return internal_tree().HasFrameNamed(std::string_view(name));
+  }
+
   /// @returns `true` if a frame named `name` was added to the model.
   /// @see AddFrame().
   /// @throws std::logic_error if the frame name occurs in multiple model
   /// instances.
-  bool HasFrameNamed(const std::string& name) const {
+  bool HasFrameNamed(const std::string_view& name) const {
     return internal_tree().HasFrameNamed(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use HasFrameNamed(string_view) instead")
+  bool HasFrameNamed(const std::string& name,
+                     ModelInstanceIndex model_instance) const {
+    return internal_tree().HasFrameNamed(std::string_view(name), model_instance);
   }
 
   /// @returns `true` if a frame named `name` was added to @p model_instance.
   /// @see AddFrame().
   /// @throws std::exception if @p model_instance is not valid for this model.
-  bool HasFrameNamed(const std::string& name,
+  bool HasFrameNamed(const std::string_view& name,
                      ModelInstanceIndex model_instance) const {
     return internal_tree().HasFrameNamed(name, model_instance);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetFrameByName(string_view) instead")
+  const Frame<T>& GetFrameByName(const std::string& name) const {
+    return internal_tree().GetFrameByName(std::string_view(name));
   }
 
   /// Returns a constant reference to a frame that is identified by the
@@ -3506,8 +3586,14 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// instances.
   /// @see HasFrameNamed() to query if there exists a frame in `this` model with
   /// a given specified name.
-  const Frame<T>& GetFrameByName(const std::string& name) const {
+  const Frame<T>& GetFrameByName(const std::string_view& name) const {
     return internal_tree().GetFrameByName(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26", "Use GetFrameByName(string_view) instead")
+  const Frame<T>& GetFrameByName(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().GetFrameByName(std::string_view(name), model_instance);
   }
 
   /// Returns a constant reference to the frame that is uniquely identified
@@ -3518,7 +3604,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see HasFrameNamed() to query if there exists a frame in `this` model with
   /// a given specified name.
   const Frame<T>& GetFrameByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().GetFrameByName(name, model_instance);
   }
 
@@ -3558,12 +3644,26 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().get_mutable_joint_actuator(actuator_index);
   }
 
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use HasJointActuatorNamed(string_view) instead")
+  bool HasJointActuatorNamed(const std::string& name) const {
+    return internal_tree().HasJointActuatorNamed(std::string_view(name));
+  }
+
   /// @returns `true` if an actuator named `name` was added to this model.
   /// @see AddJointActuator().
   /// @throws std::logic_error if the actuator name occurs in multiple model
   /// instances.
-  bool HasJointActuatorNamed(const std::string& name) const {
+  bool HasJointActuatorNamed(const std::string_view& name) const {
     return internal_tree().HasJointActuatorNamed(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use HasJointActuatorNamed(string_view) instead")
+  bool HasJointActuatorNamed(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().HasJointActuatorNamed(std::string_view(name),
+                                                 model_instance);
   }
 
   /// @returns `true` if an actuator named `name` was added to
@@ -3571,8 +3671,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see AddJointActuator().
   /// @throws std::exception if @p model_instance is not valid for this model.
   bool HasJointActuatorNamed(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().HasJointActuatorNamed(name, model_instance);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use GetJointActuatorByName(string_view) instead")
+  const JointActuator<T>& GetJointActuatorByName(
+      const std::string& name) const {
+    return internal_tree().GetJointActuatorByName(std::string_view(name));
   }
 
   /// Returns a constant reference to an actuator that is identified
@@ -3583,8 +3690,16 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see HasJointActuatorNamed() to query if there exists an actuator in
   /// `this` %MultibodyPlant with a given specified name.
   const JointActuator<T>& GetJointActuatorByName(
-      const std::string& name) const {
+      const std::string_view& name) const {
     return internal_tree().GetJointActuatorByName(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use GetJointActuatorByName(string_view) instead")
+  const JointActuator<T>& GetJointActuatorByName(
+      const std::string& name, ModelInstanceIndex model_instance) const {
+    return internal_tree().GetJointActuatorByName(std::string_view(name),
+                                                  model_instance);
   }
 
   /// Returns a constant reference to the actuator that is uniquely identified
@@ -3594,7 +3709,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @see HasJointActuatorNamed() to query if there exists an actuator in
   /// `this` %MultibodyPlant with a given specified name.
   const JointActuator<T>& GetJointActuatorByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     return internal_tree().GetJointActuatorByName(name, model_instance);
   }
 
@@ -3652,10 +3767,22 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return internal_tree().GetModelInstanceName(model_instance);
   }
 
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use HasModelInstanceNamed(string_view) instead")
+  bool HasModelInstanceNamed(const std::string& name) const {
+    return internal_tree().HasModelInstanceNamed(std::string_view(name));
+  }
+
   /// @returns `true` if a model instance named `name` was added to this model.
   /// @see AddModelInstance().
-  bool HasModelInstanceNamed(const std::string& name) const {
+  bool HasModelInstanceNamed(const std::string_view& name) const {
     return internal_tree().HasModelInstanceNamed(name);
+  }
+
+  DRAKE_DEPRECATED("2021-08-26",
+                   "Use GetModelInstanceByName(string_view) instead")
+  ModelInstanceIndex GetModelInstanceByName(const std::string& name) const {
+    return internal_tree().GetModelInstanceByName(std::string_view(name));
   }
 
   /// Returns the index to the model instance that is uniquely identified
@@ -3663,7 +3790,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @throws std::logic_error if there is no instance with the requested name.
   /// @see HasModelInstanceNamed() to query if there exists an instance in
   /// `this` %MultibodyPlant with a given specified name.
-  ModelInstanceIndex GetModelInstanceByName(const std::string& name) const {
+  ModelInstanceIndex GetModelInstanceByName(const std::string_view& name) const {
     return internal_tree().GetModelInstanceByName(name);
   }
 

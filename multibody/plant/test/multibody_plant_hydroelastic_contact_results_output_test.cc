@@ -74,15 +74,15 @@ class HydroelasticContactResultsOutputTester : public ::testing::Test {
 
     // Set the sphere's pose.
     math::RigidTransformd X_WB(Vector3d(0.0, 0.0, z0));
-    plant_->SetFreeBodyPose(plant_context_, plant_->GetBodyByName("Ball"),
-                            X_WB);
+    plant_->SetFreeBodyPose(
+        plant_context_, plant_->GetBodyByName(std::string_view("Ball")), X_WB);
 
     // Set the sphere's velocity.
     const Vector3d w(0, 0, 0);  // angular velocity.
     const Vector3d v(1, 0, 0);  // linear velocity, for testing the field.
     const SpatialVelocity<double> V_WB(w, v);
-    plant_->SetFreeBodySpatialVelocity(plant_context_,
-                                       plant_->GetBodyByName("Ball"), V_WB);
+    plant_->SetFreeBodySpatialVelocity(
+        plant_context_, plant_->GetBodyByName(std::string_view("Ball")), V_WB);
   }
 
   const HydroelasticContactInfo<double>& contact_results() const {
@@ -138,7 +138,7 @@ TEST_F(HydroelasticContactResultsOutputTester, SpatialForceAtCentroid) {
   // we expect it to be negative.
   const std::vector<geometry::GeometryId> ball_collision_geometries =
       plant_->GetCollisionGeometriesForBody(
-          plant_->GetBodyByName("Ball"));
+          plant_->GetBodyByName(std::string_view("Ball")));
   const bool body_A_is_ball = (std::find(
       ball_collision_geometries.begin(), ball_collision_geometries.end(),
       results.contact_surface().id_M()) != ball_collision_geometries.end());
@@ -180,7 +180,7 @@ TEST_F(HydroelasticContactResultsOutputTester, SlipVelocity) {
   const Vector3d x(1, 0, 0);
   const std::vector<geometry::GeometryId> ball_collision_geometries =
       plant_->GetCollisionGeometriesForBody(
-          plant_->GetBodyByName("Ball"));
+          plant_->GetBodyByName(std::string_view("Ball")));
   const bool body_A_is_ball = (std::find(
       ball_collision_geometries.begin(), ball_collision_geometries.end(),
       results.contact_surface().id_M()) != ball_collision_geometries.end());
@@ -204,7 +204,8 @@ TEST_F(HydroelasticContactResultsOutputTester, Traction) {
   // should point along -z.
   const Vector3d z(0, 0, 1);
   const std::vector<geometry::GeometryId> ball_collision_geometries =
-      plant_->GetCollisionGeometriesForBody(plant_->GetBodyByName("Ball"));
+      plant_->GetCollisionGeometriesForBody(
+          plant_->GetBodyByName(std::string_view("Ball")));
   const bool body_A_is_ball = (std::find(
       ball_collision_geometries.begin(), ball_collision_geometries.end(),
       results.contact_surface().id_M()) != ball_collision_geometries.end());

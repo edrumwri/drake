@@ -175,7 +175,7 @@ int do_main() {
   // below on how we apply these motions. A better strategy would be using
   // constraints but we keep it simple for this demo.
   const PrismaticJoint<double>& translate_joint =
-      plant.GetJointByName<PrismaticJoint>("translate_joint");
+      plant.GetJointByName<PrismaticJoint>(std::string_view("translate_joint"));
   const Vector3d axis = translate_joint.translation_axis();
   if (axis.isApprox(Vector3d::UnitZ())) {
     fmt::print("Gripper motions forced in the vertical direction.\n");
@@ -190,8 +190,10 @@ int do_main() {
   }
 
   // Add the pads.
-  const Body<double>& left_finger = plant.GetBodyByName("left_finger");
-  const Body<double>& right_finger = plant.GetBodyByName("right_finger");
+  const Body<double>& left_finger =
+      plant.GetBodyByName(std::string_view("left_finger"));
+  const Body<double>& right_finger =
+      plant.GetBodyByName(std::string_view("right_finger"));
 
   // Pads offset from the center of a finger. pad_offset = 0 means the center of
   // the spheres is located right at the center of the finger.
@@ -298,7 +300,8 @@ int do_main() {
 
   // Get joints so that we can set initial conditions.
   const PrismaticJoint<double>& finger_slider =
-      plant.GetJointByName<PrismaticJoint>("finger_sliding_joint");
+      plant.GetJointByName<PrismaticJoint>(
+          std::string_view("finger_sliding_joint"));
 
   // Set initial position of the left finger.
   finger_slider.set_translation(&plant_context, -FLAGS_grip_width);

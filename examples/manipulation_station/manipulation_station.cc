@@ -59,12 +59,18 @@ SpatialInertia<double> MakeCompositeGripperInertia(
   multibody::Parser parser(&plant);
   parser.AddModelFromFile(wsg_sdf_path);
   plant.Finalize();
-  const auto& frame = plant.GetFrameByName(gripper_body_frame_name);
-  const auto& gripper_body = plant.GetRigidBodyByName(frame.body().name());
-  const auto& left_finger = plant.GetRigidBodyByName("left_finger");
-  const auto& right_finger = plant.GetRigidBodyByName("right_finger");
-  const auto& left_slider = plant.GetJointByName("left_finger_sliding_joint");
-  const auto& right_slider = plant.GetJointByName("right_finger_sliding_joint");
+  const auto& frame =
+      plant.GetFrameByName(std::string_view(gripper_body_frame_name));
+  const auto& gripper_body =
+      plant.GetRigidBodyByName(std::string_view(frame.body().name()));
+  const auto& left_finger =
+      plant.GetRigidBodyByName(std::string_view("left_finger"));
+  const auto& right_finger =
+      plant.GetRigidBodyByName(std::string_view("right_finger"));
+  const auto& left_slider =
+      plant.GetJointByName(std::string_view("left_finger_sliding_joint"));
+  const auto& right_slider =
+      plant.GetJointByName(std::string_view("right_finger_sliding_joint"));
   const SpatialInertia<double>& M_GGo_G =
       gripper_body.default_spatial_inertia();
   const SpatialInertia<double>& M_LLo_L = left_finger.default_spatial_inertia();
@@ -141,12 +147,14 @@ multibody::ModelInstanceIndex AddAndWeldModelFrom(
     const std::string& model_path, const std::string& model_name,
     const multibody::Frame<T>& parent, const std::string& child_frame_name,
     const RigidTransform<double>& X_PC, MultibodyPlant<T>* plant) {
-  DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
+  DRAKE_THROW_UNLESS(
+      !plant->HasModelInstanceNamed(std::string_view(model_name)));
 
   multibody::Parser parser(plant);
   const multibody::ModelInstanceIndex new_model =
       parser.AddModelFromFile(model_path, model_name);
-  const auto& child_frame = plant->GetFrameByName(child_frame_name, new_model);
+  const auto& child_frame =
+      plant->GetFrameByName(std::string_view(child_frame_name), new_model);
   plant->WeldFrames(parent, child_frame, X_PC);
   return new_model;
 }
@@ -352,7 +360,8 @@ void ManipulationStation<T>::SetupPlanarIiwaStation(
         sdf_path, "iiwa", plant_->world_frame(), "iiwa_link_0", X_WI, plant_);
     RegisterIiwaControllerModel(
         sdf_path, iiwa_instance, plant_->world_frame(),
-        plant_->GetFrameByName("iiwa_link_0", iiwa_instance), X_WI);
+        plant_->GetFrameByName(std::string_view("iiwa_link_0"), iiwa_instance),
+        X_WI);
   }
 
   // Add the default wsg model.
@@ -438,8 +447,9 @@ void ManipulationStation<T>::MakeIiwaControllerModel() {
 
   owned_controller_plant_->WeldFrames(
       owned_controller_plant_->world_frame(),
-      owned_controller_plant_->GetFrameByName(iiwa_model_.child_frame->name(),
-                                              controller_iiwa_model),
+      owned_controller_plant_->GetFrameByName(
+          std::string_view(iiwa_model_.child_frame->name()),
+          controller_iiwa_model),
       iiwa_model_.X_PC);
   // Add a single body to represent the IIWA pendant's calibration of the
   // gripper.  The body of the WSG accounts for >90% of the total mass
@@ -455,8 +465,9 @@ void ManipulationStation<T>::MakeIiwaControllerModel() {
   // TODO(siyuan.feng@tri.global): when we handle multiple IIWA and WSG, this
   // part need to deal with the parent's (iiwa's) model instance id.
   owned_controller_plant_->WeldFrames(
-      owned_controller_plant_->GetFrameByName(wsg_model_.parent_frame->name(),
-                                              controller_iiwa_model),
+      owned_controller_plant_->GetFrameByName(
+          std::string_view(wsg_model_.parent_frame->name()),
+          controller_iiwa_model),
       wsg_equivalent.body_frame(), wsg_model_.X_PC);
   owned_controller_plant_->set_name("controller_plant");
 }
@@ -975,7 +986,8 @@ void ManipulationStation<T>::AddDefaultIiwa(
       sdf_path, "iiwa", plant_->world_frame(), "iiwa_link_0", X_WI, plant_);
   RegisterIiwaControllerModel(
       sdf_path, iiwa_instance, plant_->world_frame(),
-      plant_->GetFrameByName("iiwa_link_0", iiwa_instance), X_WI);
+      plant_->GetFrameByName(std::string_view("iiwa_link_0"), iiwa_instance),
+      X_WI);
 }
 
 // Add default wsg.
@@ -995,15 +1007,15 @@ void ManipulationStation<T>::AddDefaultWsg(
           "/schunk_wsg_50_with_tip.sdf");
       break;
   }
-  const multibody::Frame<T>& link7 =
-      plant_->GetFrameByName("iiwa_link_7", iiwa_model_.model_instance);
+  const multibody::Frame<T>& link7 = plant_->GetFrameByName(
+      std::string_view("iiwa_link_7"), iiwa_model_.model_instance);
   const RigidTransform<double> X_7G(RollPitchYaw<double>(M_PI_2, 0, M_PI_2),
                                     Vector3d(0, 0, 0.114));
   auto wsg_instance = internal::AddAndWeldModelFrom(sdf_path, "gripper", link7,
                                                     "body", X_7G, plant_);
-  RegisterWsgControllerModel(sdf_path, wsg_instance, link7,
-                             plant_->GetFrameByName("body", wsg_instance),
-                             X_7G);
+  RegisterWsgControllerModel(
+      sdf_path, wsg_instance, link7,
+      plant_->GetFrameByName(std::string_view("body"), wsg_instance), X_7G);
 }
 
 }  // namespace manipulation_station

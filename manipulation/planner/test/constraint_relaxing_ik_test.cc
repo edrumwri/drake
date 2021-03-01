@@ -23,12 +23,12 @@ GTEST_TEST(ConstraintRelaxingIkTest, SolveIkFromFk) {
   multibody::MultibodyPlant<double> iiwa(0);
   multibody::Parser(&iiwa).AddModelFromFile(kModelPath);
   iiwa.WeldFrames(iiwa.world_frame(),
-                  iiwa.GetBodyByName("base").body_frame());
+                  iiwa.GetBodyByName(std::string_view("base")).body_frame());
   iiwa.Finalize();
 
   const std::string kEndEffectorLinkName = "iiwa_link_ee";
   const multibody::Body<double>& end_effector =
-      iiwa.GetBodyByName(kEndEffectorLinkName);
+      iiwa.GetBodyByName(std::string_view(kEndEffectorLinkName));
 
   ConstraintRelaxingIk ik_planner(kModelPath, kEndEffectorLinkName);
 

@@ -19,7 +19,7 @@ GTEST_TEST(RobotPlanUtilsTest, GetJointNamesTest) {
   multibody::MultibodyPlant<double> plant(0.001);
   multibody::Parser(&plant).AddModelFromFile(FindResourceOrThrow(kIiwaUrdf));
   plant.WeldFrames(plant.world_frame(),
-                   plant.GetBodyByName("base").body_frame());
+                   plant.GetBodyByName(std::string_view("base")).body_frame());
   plant.Finalize();
 
   std::vector<std::string> joint_names = GetJointNames(plant);
@@ -48,7 +48,7 @@ GTEST_TEST(RobotPlanUtilsTest, EncodeKeyFramesTest) {
   multibody::MultibodyPlant<double> plant(0.001);
   multibody::Parser(&plant).AddModelFromFile(FindResourceOrThrow(kIiwaUrdf));
   plant.WeldFrames(plant.world_frame(),
-                   plant.GetBodyByName("base").body_frame());
+                   plant.GetBodyByName(std::string_view("base")).body_frame());
   plant.Finalize();
 
   std::vector<std::string> joint_names = GetJointNames(plant);

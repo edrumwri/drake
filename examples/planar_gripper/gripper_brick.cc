@@ -65,7 +65,7 @@ std::unique_ptr<systems::Diagram<T>> ConstructDiagram(
       FindResourceOrThrow("drake/examples/planar_gripper/planar_brick.sdf");
   parser.AddModelFromFile(brick_path, "brick");
   (*plant)->WeldFrames((*plant)->world_frame(),
-                       (*plant)->GetFrameByName("brick_base"),
+                       (*plant)->GetFrameByName(std::string_view("brick_base")),
                        math::RigidTransformd());
 
   (*plant)->Finalize();
@@ -85,7 +85,8 @@ GripperBrickHelper<T>::GripperBrickHelper() {
     finger_tip_sphere_geometry_ids_[i] = inspector.GetGeometryIdByName(
         plant_->GetBodyFrameIdOrThrow(
             plant_
-                ->GetBodyByName("finger" + std::to_string(i + 1) + "_tip_link")
+                ->GetBodyByName(std::string_view(
+                    "finger" + std::to_string(i + 1) + "_tip_link"))
                 .index()),
         geometry::Role::kProximity, "gripper::tip_sphere_collision");
   }
@@ -94,9 +95,9 @@ GripperBrickHelper<T>::GripperBrickHelper() {
   finger_tip_radius_ =
       dynamic_cast<const geometry::Sphere&>(fingertip_shape).radius();
   const multibody::Frame<double>& l2_frame =
-      plant_->GetBodyByName("finger1_link2").body_frame();
+      plant_->GetBodyByName(std::string_view("finger1_link2")).body_frame();
   const multibody::Frame<double>& tip_frame =
-      plant_->GetBodyByName("finger1_tip_link").body_frame();
+      plant_->GetBodyByName(std::string_view("finger1_tip_link")).body_frame();
   math::RigidTransform<double> X_L2LTip = plant_->CalcRelativeTransform(
       *(plant_->CreateDefaultContext()), l2_frame, tip_frame);
   p_L2Fingertip_ =
@@ -105,27 +106,34 @@ GripperBrickHelper<T>::GripperBrickHelper() {
   const geometry::Shape& brick_shape =
       inspector.GetShape(inspector.GetGeometryIdByName(
           plant_->GetBodyFrameIdOrThrow(
-              plant_->GetBodyByName("brick_link").index()),
+              plant_->GetBodyByName(std::string_view("brick_link")).index()),
           geometry::Role::kProximity, "brick::box_collision"));
   brick_size_ = dynamic_cast<const geometry::Box&>(brick_shape).size();
 
   for (int i = 0; i < 3; ++i) {
     finger_base_position_indices_[i] =
-        plant_->GetJointByName("finger" + std::to_string(i + 1) + "_BaseJoint")
+        plant_
+            ->GetJointByName(std::string_view("finger" + std::to_string(i + 1) +
+                                              "_BaseJoint"))
             .position_start();
     finger_mid_position_indices_[i] =
-        plant_->GetJointByName("finger" + std::to_string(i + 1) + "_MidJoint")
+        plant_
+            ->GetJointByName(std::string_view("finger" + std::to_string(i + 1) +
+                                              "_MidJoint"))
             .position_start();
-    finger_link2_frames_[i] =
-        &(plant_->GetFrameByName("finger" + std::to_string(i + 1) + "_link2"));
+    finger_link2_frames_[i] = &(plant_->GetFrameByName(
+        std::string_view("finger" + std::to_string(i + 1) + "_link2")));
   }
   brick_translate_y_position_index_ =
-      plant_->GetJointByName("brick_translate_y_joint").position_start();
+      plant_->GetJointByName(std::string_view("brick_translate_y_joint"))
+          .position_start();
   brick_translate_z_position_index_ =
-      plant_->GetJointByName("brick_translate_z_joint").position_start();
+      plant_->GetJointByName(std::string_view("brick_translate_z_joint"))
+          .position_start();
   brick_revolute_x_position_index_ =
-      plant_->GetJointByName("brick_revolute_x_joint").position_start();
-  brick_frame_ = &(plant_->GetFrameByName("brick_link"));
+      plant_->GetJointByName(std::string_view("brick_revolute_x_joint"))
+          .position_start();
+  brick_frame_ = &(plant_->GetFrameByName(std::string_view("brick_link")));
 }
 
 template <typename T>

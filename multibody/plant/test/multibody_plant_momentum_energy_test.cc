@@ -212,9 +212,9 @@ TEST_F(TwoDofPlanarPendulumTest, CalcBodyBSpatialMomentumInWorldAboutPoint) {
 TEST_F(TwoDofPlanarPendulumTest, CalcSystemSpatialMomentumInWorldAboutWo) {
   // Assemble model instances using methods typically employed by end-users.
   const ModelInstanceIndex bodyA_model_instance =
-      plant_.GetModelInstanceByName("bodyA_model_instance");
+      plant_.GetModelInstanceByName(std::string_view("bodyA_model_instance"));
   const ModelInstanceIndex bodyB_model_instance =
-      plant_.GetBodyByName("BodyB").model_instance();
+      plant_.GetBodyByName(std::string_view("BodyB")).model_instance();
   const std::vector<ModelInstanceIndex> model_instances{bodyA_model_instance,
                                                         bodyB_model_instance};
 

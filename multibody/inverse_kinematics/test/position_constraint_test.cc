@@ -23,8 +23,10 @@ TEST_F(IiwaKinematicConstraintTest, PositionConstraint) {
   const Eigen::Vector3d p_BQ(0.1, 0.2, 0.3);
   const Eigen::Vector3d p_AQ_lower(-0.2, -0.3, -0.4);
   const Eigen::Vector3d p_AQ_upper(0.2, 0.3, 0.4);
-  const auto frameA_index = plant_->GetFrameByName("iiwa_link_7").index();
-  const auto frameB_index = plant_->GetFrameByName("iiwa_link_3").index();
+  const auto frameA_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_7")).index();
+  const auto frameB_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_3")).index();
   const Frame<double>& frameA = plant_->get_frame(frameA_index);
   const Frame<double>& frameB = plant_->get_frame(frameB_index);
   PositionConstraint constraint(plant_, frameA, p_AQ_lower, p_AQ_upper, frameB,
@@ -56,8 +58,8 @@ TEST_F(IiwaKinematicConstraintTest, PositionConstraint) {
       q_autodiff;
   Vector3<AutoDiffXd> y_autodiff_expected = EvalPositionConstraintAutoDiff(
       *plant_context_autodiff_, *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameA.name()),
-      plant_autodiff_->GetFrameByName(frameB.name()), p_BQ);
+      plant_autodiff_->GetFrameByName(std::string_view(frameA.name())),
+      plant_autodiff_->GetFrameByName(std::string_view(frameB.name())), p_BQ);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, tol);
 
   // Test with non-identity gradient for q_autodiff.
@@ -68,8 +70,8 @@ TEST_F(IiwaKinematicConstraintTest, PositionConstraint) {
   constraint.Eval(q_autodiff, &y_autodiff);
   y_autodiff_expected = EvalPositionConstraintAutoDiff(
       *plant_context_autodiff_, *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameA.name()),
-      plant_autodiff_->GetFrameByName(frameB.name()), p_BQ);
+      plant_autodiff_->GetFrameByName(std::string_view(frameA.name())),
+      plant_autodiff_->GetFrameByName(std::string_view(frameB.name())), p_BQ);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, 1E-12);
 
   // Checks if the constraint constructed from MBP<ADS> gives the same result

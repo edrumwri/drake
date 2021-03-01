@@ -25,7 +25,6 @@ drake_cc_package_library(
         ":autodiff",
         ":autodiffxd_make_coherent",
         ":cond",
-        ":const_char_maps",
         ":copyable_unique_ptr",
         ":default_scalars",
         ":double",
@@ -93,15 +92,6 @@ drake_cc_library(
     name = "cond",
     srcs = ["cond.cc"],
     hdrs = ["cond.h"],
-    deps = [
-        ":double",
-    ],
-)
-
-drake_cc_library(
-    name = "const_char_maps",
-    hdrs = ["const_char_key_unordered_map.h",
-            "const_char_key_unordered_multimap.h"],
     deps = [
         ":double",
     ],

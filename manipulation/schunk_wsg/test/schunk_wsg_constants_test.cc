@@ -18,14 +18,16 @@ GTEST_TEST(SchunkWsgConstantTest, ConstantTest) {
   multibody::Parser parser(&plant);
   parser.AddModelFromFile(FindResourceOrThrow(
       "drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50.sdf"));
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("body"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName(std::string_view("body")));
   plant.Finalize();
 
   EXPECT_EQ(plant.num_actuators(), kSchunkWsgNumActuators);
   EXPECT_EQ(plant.num_positions(), kSchunkWsgNumPositions);
   EXPECT_EQ(plant.num_velocities(), kSchunkWsgNumVelocities);
 
-  const auto& joint = plant.GetJointByName("left_finger_sliding_joint");
+  const auto& joint =
+      plant.GetJointByName(std::string_view("left_finger_sliding_joint"));
   const auto& matrix = plant.MakeStateSelectorMatrix({joint.index()});
   EXPECT_EQ(matrix(0, kSchunkWsgPositionIndex), 1.0);
 }

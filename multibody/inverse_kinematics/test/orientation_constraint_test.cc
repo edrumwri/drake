@@ -27,8 +27,10 @@ AutoDiffVecXd EvalOrientationConstraintAutoDiff(
 
 TEST_F(IiwaKinematicConstraintTest, OrientationConstraint) {
   const double angle_bound{0.1 * M_PI};
-  const auto frameAbar_index = plant_->GetFrameByName("iiwa_link_7").index();
-  const auto frameBbar_index = plant_->GetFrameByName("iiwa_link_3").index();
+  const auto frameAbar_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_7")).index();
+  const auto frameBbar_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_3")).index();
   const Frame<double>& frameAbar = plant_->get_frame(frameAbar_index);
   const Frame<double>& frameBbar = plant_->get_frame(frameBbar_index);
   const math::RotationMatrix<double> R_AbarA(Eigen::AngleAxisd(
@@ -63,8 +65,12 @@ TEST_F(IiwaKinematicConstraintTest, OrientationConstraint) {
       q_autodiff;
   AutoDiffVecXd y_autodiff_expected = EvalOrientationConstraintAutoDiff(
       *plant_context_autodiff_, *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameAbar.name()), R_AbarA,
-      plant_autodiff_->GetFrameByName(frameBbar.name()), R_BbarB);
+      plant_autodiff_->GetFrameByName(std::string_view(frameAbar.name())),
+
+      R_AbarA,
+      plant_autodiff_->GetFrameByName(std::string_view(frameBbar.name())),
+
+      R_BbarB);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, 1E-12);
 
   // Test with non-identity gradient for q_autodiff.
@@ -75,8 +81,12 @@ TEST_F(IiwaKinematicConstraintTest, OrientationConstraint) {
   constraint->Eval(q_autodiff, &y_autodiff);
   y_autodiff_expected = EvalOrientationConstraintAutoDiff(
       *plant_context_autodiff_, *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameAbar.name()), R_AbarA,
-      plant_autodiff_->GetFrameByName(frameBbar.name()), R_BbarB);
+      plant_autodiff_->GetFrameByName(std::string_view(frameAbar.name())),
+
+      R_AbarA,
+      plant_autodiff_->GetFrameByName(std::string_view(frameBbar.name())),
+
+      R_BbarB);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, 1E-12);
 
   // Checks if the constraint constructed from MBP<ADS> gives the same result
@@ -134,11 +144,11 @@ TEST_F(TwoFreeBodiesConstraintTest, OrientationConstraint) {
 TEST_F(IiwaKinematicConstraintTest, OrientationConstraintConstructionError) {
   // Throws a logic error for negative angle bound.
   EXPECT_THROW(
-      OrientationConstraint(plant_, plant_->GetFrameByName("iiwa_link_7"),
-                            math::RotationMatrix<double>::Identity(),
-                            plant_->GetFrameByName("iiwa_link_3"),
-                            math::RotationMatrix<double>::Identity(), -0.01,
-                            plant_context_),
+      OrientationConstraint(
+          plant_, plant_->GetFrameByName(std::string_view("iiwa_link_7")),
+          math::RotationMatrix<double>::Identity(),
+          plant_->GetFrameByName(std::string_view("iiwa_link_3")),
+          math::RotationMatrix<double>::Identity(), -0.01, plant_context_),
       std::invalid_argument);
 }
 

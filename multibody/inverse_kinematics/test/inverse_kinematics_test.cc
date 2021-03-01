@@ -26,8 +26,10 @@ class TwoFreeBodiesTest : public ::testing::Test {
   TwoFreeBodiesTest()
       : two_bodies_plant_(ConstructTwoFreeBodiesPlant<double>()),
         // TODO(hongkai.dai) call GetFrameByName()
-        body1_frame_(two_bodies_plant_->GetFrameByName("body1")),
-        body2_frame_(two_bodies_plant_->GetFrameByName("body2")),
+        body1_frame_(
+            two_bodies_plant_->GetFrameByName(std::string_view("body1"))),
+        body2_frame_(
+            two_bodies_plant_->GetFrameByName(std::string_view("body2"))),
         ik_(*two_bodies_plant_) {}
 
   ~TwoFreeBodiesTest() override {}

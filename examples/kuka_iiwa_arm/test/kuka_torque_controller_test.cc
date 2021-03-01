@@ -44,7 +44,8 @@ GTEST_TEST(KukaTorqueControllerTest, GravityCompensationTest) {
     "iiwa14_polytope_collision.urdf";
   multibody::MultibodyPlant<double> plant(0.0);
   multibody::Parser(&plant).AddModelFromFile(kIiwaUrdf);
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName(std::string_view("base")));
   plant.Finalize();
 
   // Set stiffness and damping to zero.
@@ -105,7 +106,8 @@ GTEST_TEST(KukaTorqueControllerTest, SpringTorqueTest) {
     "iiwa14_polytope_collision.urdf";
   multibody::MultibodyPlant<double> plant(0.0);
   multibody::Parser(&plant).AddModelFromFile(kIiwaUrdf);
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName(std::string_view("base")));
   plant.Finalize();
 
   // Set nonzero stiffness and zero damping.
@@ -170,7 +172,8 @@ GTEST_TEST(KukaTorqueControllerTest, DampingTorqueTest) {
     "iiwa14_polytope_collision.urdf";
   multibody::MultibodyPlant<double> plant(0.0);
   multibody::Parser(&plant).AddModelFromFile(kIiwaUrdf);
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName(std::string_view("base")));
   plant.Finalize();
 
   // Set arbitrary stiffness and damping.

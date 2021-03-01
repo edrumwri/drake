@@ -87,15 +87,16 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, DoublePendulum) {
   EXPECT_EQ(plant.num_bodies(), 4);
   EXPECT_EQ(plant.num_frames(), 10);
 
-  ASSERT_TRUE(plant.HasFrameNamed("frame_on_link1"));
-  ASSERT_TRUE(plant.HasFrameNamed("frame_on_link2"));
-  ASSERT_TRUE(plant.HasFrameNamed("link1_com"));
-  ASSERT_TRUE(plant.HasFrameNamed("link2_com"));
+  ASSERT_TRUE(plant.HasFrameNamed(std::string_view("frame_on_link1")));
+  ASSERT_TRUE(plant.HasFrameNamed(std::string_view("frame_on_link2")));
+  ASSERT_TRUE(plant.HasFrameNamed(std::string_view("link1_com")));
+  ASSERT_TRUE(plant.HasFrameNamed(std::string_view("link2_com")));
 
   // Sample a couple of frames.
-  const Frame<double>& frame_on_link1 = plant.GetFrameByName("frame_on_link1");
+  const Frame<double>& frame_on_link1 =
+      plant.GetFrameByName(std::string_view("frame_on_link1"));
   EXPECT_EQ(frame_on_link1.body().index(),
-            plant.GetBodyByName("link1").index());
+            plant.GetBodyByName(std::string_view("link1")).index());
 
   math::RollPitchYaw<double> rpy_expected(-1, 0.1, 0.2);
   Vector3d xyz_expected(0.8, -0.2, 0.3);
@@ -106,8 +107,10 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, DoublePendulum) {
       frame_on_link1.GetFixedPoseInBodyFrame().GetAsMatrix4(),
       X_BF_expected.GetAsMatrix4(), 1e-10));
 
-  const Frame<double>& link2_com = plant.GetFrameByName("link2_com");
-  EXPECT_EQ(link2_com.body().index(), plant.GetBodyByName("link2").index());
+  const Frame<double>& link2_com =
+      plant.GetFrameByName(std::string_view("link2_com"));
+  EXPECT_EQ(link2_com.body().index(),
+            plant.GetBodyByName(std::string_view("link2")).index());
 }
 
 // This test verifies that we're able to successfully look up meshes using the
@@ -128,9 +131,9 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, TestAtlasMinimalContact) {
   EXPECT_EQ(plant.num_velocities(), 36);
 
   // Verify that joint actuator limits are set correctly.
-  ASSERT_TRUE(plant.HasJointActuatorNamed("back_bkz_motor"));
+  ASSERT_TRUE(plant.HasJointActuatorNamed(std::string_view("back_bkz_motor")));
   const JointActuator<double>& actuator =
-      plant.GetJointActuatorByName("back_bkz_motor");
+      plant.GetJointActuatorByName(std::string_view("back_bkz_motor"));
   EXPECT_EQ(actuator.effort_limit(), 106);
 }
 
@@ -191,9 +194,9 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
 
   // Revolute joint
   DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<RevoluteJoint>("revolute_joint"));
+      plant.GetJointByName<RevoluteJoint>(std::string_view("revolute_joint")));
   const RevoluteJoint<double>& revolute_joint =
-      plant.GetJointByName<RevoluteJoint>("revolute_joint");
+      plant.GetJointByName<RevoluteJoint>(std::string_view("revolute_joint"));
   EXPECT_EQ(revolute_joint.name(), "revolute_joint");
   EXPECT_EQ(revolute_joint.parent_body().name(), "link1");
   EXPECT_EQ(revolute_joint.child_body().name(), "link2");
@@ -210,14 +213,14 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
 
   // Revolute actuator
   const JointActuator<double>& revolute_actuator =
-      plant.GetJointActuatorByName("revolute_actuator");
+      plant.GetJointActuatorByName(std::string_view("revolute_actuator"));
   EXPECT_EQ(revolute_actuator.effort_limit(), 100);
 
   // Prismatic joint
-  DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<PrismaticJoint>("prismatic_joint"));
+  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<PrismaticJoint>(
+      std::string_view("prismatic_joint")));
   const PrismaticJoint<double>& prismatic_joint =
-      plant.GetJointByName<PrismaticJoint>("prismatic_joint");
+      plant.GetJointByName<PrismaticJoint>(std::string_view("prismatic_joint"));
   EXPECT_EQ(prismatic_joint.name(), "prismatic_joint");
   EXPECT_EQ(prismatic_joint.parent_body().name(), "link2");
   EXPECT_EQ(prismatic_joint.child_body().name(), "link3");
@@ -231,13 +234,14 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
       CompareMatrices(prismatic_joint.velocity_lower_limits(), Vector1d(-5)));
   EXPECT_TRUE(
       CompareMatrices(prismatic_joint.velocity_upper_limits(), Vector1d(5)));
-  EXPECT_FALSE(plant.HasJointActuatorNamed("prismatic_actuator"));
+  EXPECT_FALSE(
+      plant.HasJointActuatorNamed(std::string_view("prismatic_actuator")));
 
   // Ball joint
   DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<BallRpyJoint>("ball_joint"));
+      plant.GetJointByName<BallRpyJoint>(std::string_view("ball_joint")));
   const BallRpyJoint<double>& ball_joint =
-      plant.GetJointByName<BallRpyJoint>("ball_joint");
+      plant.GetJointByName<BallRpyJoint>(std::string_view("ball_joint"));
   EXPECT_EQ(ball_joint.name(), "ball_joint");
   EXPECT_EQ(ball_joint.parent_body().name(), "link3");
   EXPECT_EQ(ball_joint.child_body().name(), "link4");
@@ -256,7 +260,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
 
   // Limitless revolute joint
   const Joint<double>& no_limit_joint =
-      plant.GetJointByName("revolute_joint_no_limits");
+      plant.GetJointByName(std::string_view("revolute_joint_no_limits"));
   const Vector1d inf(std::numeric_limits<double>::infinity());
   const Vector1d neg_inf(-std::numeric_limits<double>::infinity());
 
@@ -268,14 +272,15 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
 
   // Limitless revolute actuator
   const JointActuator<double>& revolute_actuator_no_limits =
-      plant.GetJointActuatorByName("revolute_actuator_no_limits");
+      plant.GetJointActuatorByName(
+          std::string_view("revolute_actuator_no_limits"));
   EXPECT_EQ(revolute_actuator_no_limits.effort_limit(), inf(0));
 
   // Universal joint
-  DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<UniversalJoint>("universal_joint"));
+  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<UniversalJoint>(
+      std::string_view("universal_joint")));
   const UniversalJoint<double>& universal_joint =
-      plant.GetJointByName<UniversalJoint>("universal_joint");
+      plant.GetJointByName<UniversalJoint>(std::string_view("universal_joint"));
   EXPECT_EQ(universal_joint.name(), "universal_joint");
   EXPECT_EQ(universal_joint.parent_body().name(), "link5");
   EXPECT_EQ(universal_joint.child_body().name(), "link6");
@@ -292,9 +297,10 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, JointParsingTest) {
   EXPECT_TRUE(CompareMatrices(universal_joint.velocity_upper_limits(), inf2));
 
   // Planar joint
-  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<PlanarJoint>("planar_joint"));
+  DRAKE_EXPECT_NO_THROW(
+      plant.GetJointByName<PlanarJoint>(std::string_view("planar_joint")));
   const PlanarJoint<double>& planar_joint =
-      plant.GetJointByName<PlanarJoint>("planar_joint");
+      plant.GetJointByName<PlanarJoint>(std::string_view("planar_joint"));
   EXPECT_EQ(planar_joint.name(), "planar_joint");
   EXPECT_EQ(planar_joint.parent_body().name(), "link6");
   EXPECT_EQ(planar_joint.child_body().name(), "link7");
@@ -347,19 +353,23 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, CollisionFilterGroupParsingTest) {
   const geometry::SceneGraphInspector<double>& inspector =
       scene_graph.model_inspector();
   const auto geometry_id_link1 = inspector.GetGeometryIdByName(
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link1").index()),
+      plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(std::string_view("link1")).index()),
       geometry::Role::kProximity,
       "collision_filter_group_parsing_test::link1_sphere");
   const auto geometry_id_link2 = inspector.GetGeometryIdByName(
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link2").index()),
+      plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(std::string_view("link2")).index()),
       geometry::Role::kProximity,
       "collision_filter_group_parsing_test::link2_sphere");
   const auto geometry_id_link3 = inspector.GetGeometryIdByName(
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link3").index()),
+      plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(std::string_view("link3")).index()),
       geometry::Role::kProximity,
       "collision_filter_group_parsing_test::link3_sphere");
   const auto geometry_id_link4 = inspector.GetGeometryIdByName(
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link4").index()),
+      plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(std::string_view("link4")).index()),
       geometry::Role::kProximity,
       "collision_filter_group_parsing_test::link4_sphere");
 
@@ -439,8 +449,8 @@ void TestForParsedGeometry(const char* sdf_name, geometry::Role role) {
   AddModelFromUrdfFile(full_name, "", package_map, &plant, &scene_graph);
   plant.Finalize();
 
-  const auto frame_id =
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link1").index());
+  const auto frame_id = plant.GetBodyFrameIdOrThrow(
+      plant.GetBodyByName(std::string_view("link1")).index());
 
   const std::string mesh_uri = "drake/multibody/parsing/test/tri_cube.obj";
 
@@ -503,8 +513,9 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, EntireInertialTagOmitted) {
 <robot name='entire_inertial_tag_omitted'>
   <link name='entire_inertial_tag_omitted'/>
 </robot>)""");
-  const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("entire_inertial_tag_omitted"));
+  const RigidBody<double>* body =
+      dynamic_cast<const RigidBody<double>*>(&pair.plant->GetBodyByName(
+          std::string_view("entire_inertial_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 0.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -522,7 +533,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, InertiaTagOmitted) {
   </link>
 </robot>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("inertia_tag_omitted"));
+    &pair.plant->GetBodyByName(std::string_view("inertia_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 2.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -542,7 +553,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, MassTagOmitted) {
   </link>
 </robot>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("mass_tag_omitted"));
+    &pair.plant->GetBodyByName(std::string_view("mass_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 0.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -560,7 +571,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, MasslessBody) {
   </link>
 </robot>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("massless_link"));
+    &pair.plant->GetBodyByName(std::string_view("massless_link")));
   EXPECT_EQ(body->get_default_mass(), 0.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -578,7 +589,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, PointMass) {
   </link>
 </robot>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("point_mass"));
+    &pair.plant->GetBodyByName(std::string_view("point_mass")));
   EXPECT_EQ(body->get_default_mass(), 1.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -766,7 +777,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, ReflectedInertiaParametersParsing) {
                     "<drake:gear_ratio value='300.0' />"));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 1.5);
     EXPECT_EQ(actuator.default_gear_ratio(), 300.0);
@@ -780,7 +791,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, ReflectedInertiaParametersParsing) {
         ""));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 1.5);
     EXPECT_EQ(actuator.default_gear_ratio(), 1.0);
@@ -793,7 +804,7 @@ GTEST_TEST(MultibodyPlantUrdfParserTest, ReflectedInertiaParametersParsing) {
         fmt::format(test_string, "", "<drake:gear_ratio value='300.0' />"));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 0.0);
     EXPECT_EQ(actuator.default_gear_ratio(), 300.0);

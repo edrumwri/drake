@@ -132,14 +132,14 @@ void AddFloor(MultibodyPlant<double>* plant,
   const geometry::Shape& sphere_shape =
       inspector.GetShape(inspector.GetGeometryIdByName(
           plant->GetBodyFrameIdOrThrow(
-              plant->GetBodyByName("brick_link").index()),
+              plant->GetBodyByName(std::string_view("brick_link")).index()),
           geometry::Role::kProximity, "brick::sphere1_collision"));
   const double sphere_radius =
       dynamic_cast<const geometry::Sphere&>(sphere_shape).radius();
   const math::RigidTransformd X_WS =
       inspector.GetPoseInFrame(inspector.GetGeometryIdByName(
           plant->GetBodyFrameIdOrThrow(
-              plant->GetBodyByName("brick_link").index()),
+              plant->GetBodyByName(std::string_view("brick_link")).index()),
           geometry::Role::kProximity, "brick::sphere1_collision"));
 
   const double kFloorHeight = 0.001;
@@ -201,8 +201,10 @@ class ForceSensorEvaluator : public systems::LeafSystem<double> {
     for (int i = 1; i <= num_sensors; i++) {
       std::string joint_name =
           "finger" + std::to_string(i) + "_sensor_weldjoint";
-      sensor_joint_indices_.push_back(
-          plant.GetJointByName<multibody::WeldJoint>(joint_name).index());
+      sensor_joint_indices_.push_back(plant
+                                          .GetJointByName<multibody::WeldJoint>(
+                                              std::string_view(joint_name))
+                                          .index());
     }
     this->DeclareAbstractInputPort(
             "spatial_forces_in",
@@ -261,7 +263,7 @@ int DoMain() {
   // -Z axis (vertical case), or world -X axis (horizontal case).
   if (FLAGS_orientation == "vertical") {
     const multibody::Frame<double>& brick_base_frame =
-        plant.GetFrameByName("brick_base", brick_index);
+        plant.GetFrameByName(std::string_view("brick_base"), brick_index);
     plant.WeldFrames(plant.world_frame(), brick_base_frame);
     gravity = Vector3d(
         0, 0, -multibody::UniformGravityFieldElement<double>::kDefaultStrength);
@@ -269,7 +271,7 @@ int DoMain() {
     plant.AddJoint<PrismaticJoint>(
         "brick_translate_x_joint",
         plant.world_body(), std::nullopt,
-        plant.GetBodyByName("brick_base"), std::nullopt,
+        plant.GetBodyByName(std::string_view("brick_base")), std::nullopt,
         Vector3d::UnitX());
     gravity = Vector3d(
         -multibody::UniformGravityFieldElement<double>::kDefaultStrength, 0, 0);
@@ -408,10 +410,10 @@ int DoMain() {
   // Set the initial finger joint positions.
   for (int i = 0; i < kNumFingers; i++) {
     std::string finger = "finger" + std::to_string(i + 1);
-    const RevoluteJoint<double>& base_pin =
-        plant.GetJointByName<RevoluteJoint>(finger + "_BaseJoint");
-    const RevoluteJoint<double>& mid_pin =
-        plant.GetJointByName<RevoluteJoint>(finger + "_MidJoint");
+    const RevoluteJoint<double>& base_pin = plant.GetJointByName<RevoluteJoint>(
+        std::string_view(finger + "_BaseJoint"));
+    const RevoluteJoint<double>& mid_pin = plant.GetJointByName<RevoluteJoint>(
+        std::string_view(finger + "_MidJoint"));
     int base_index = finger_joint_name_to_row_index_map[finger + "_BaseJoint"];
     int mid_index = finger_joint_name_to_row_index_map[finger + "_MidJoint"];
     base_pin.set_angle(&plant_context, gripper_initial_conditions(base_index));
@@ -420,11 +422,13 @@ int DoMain() {
 
   // Set the brick's initial conditions.
   const PrismaticJoint<double>& y_translate =
-      plant.GetJointByName<PrismaticJoint>("brick_translate_y_joint");
+      plant.GetJointByName<PrismaticJoint>(
+          std::string_view("brick_translate_y_joint"));
   const PrismaticJoint<double>& z_translate =
-      plant.GetJointByName<PrismaticJoint>("brick_translate_z_joint");
-  const RevoluteJoint<double>& x_revolute =
-      plant.GetJointByName<RevoluteJoint>("brick_revolute_x_joint");
+      plant.GetJointByName<PrismaticJoint>(
+          std::string_view("brick_translate_z_joint"));
+  const RevoluteJoint<double>& x_revolute = plant.GetJointByName<RevoluteJoint>(
+      std::string_view("brick_revolute_x_joint"));
   y_translate.set_translation(&plant_context, brick_initial_2D_pose_G(0));
   z_translate.set_translation(&plant_context, brick_initial_2D_pose_G(1));
   x_revolute.set_angle(&plant_context, brick_initial_2D_pose_G(2));

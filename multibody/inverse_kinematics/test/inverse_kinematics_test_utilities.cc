@@ -28,7 +28,7 @@ IiwaKinematicConstraintTest::IiwaKinematicConstraintTest() {
   multibody::Parser parser{plant_};
   parser.AddModelFromFile(iiwa_path, "iiwa");
   plant_->WeldFrames(plant_->world_frame(),
-                     plant_->GetFrameByName("iiwa_link_0"));
+                     plant_->GetFrameByName(std::string_view("iiwa_link_0")));
   plant_->Finalize();
 
   diagram_ = builder.Build();
@@ -48,8 +48,10 @@ TwoFreeBodiesConstraintTest::TwoFreeBodiesConstraintTest() {
   diagram_context_ = diagram_->CreateDefaultContext();
   plant_context_ =
       &diagram_->GetMutableSubsystemContext(*plant_, diagram_context_.get());
-  body1_index_ = plant_->GetBodyByName("body1").body_frame().index();
-  body2_index_ = plant_->GetBodyByName("body2").body_frame().index();
+  body1_index_ =
+      plant_->GetBodyByName(std::string_view("body1")).body_frame().index();
+  body2_index_ =
+      plant_->GetBodyByName(std::string_view("body2")).body_frame().index();
 
   plant_autodiff_ = ConstructTwoFreeBodiesPlant<AutoDiffXd>();
   plant_context_autodiff_ = plant_autodiff_->CreateDefaultContext();
@@ -79,7 +81,8 @@ std::unique_ptr<MultibodyPlant<double>> ConstructIiwaPlant(
     const std::string& file_path, double time_step) {
   auto plant = std::make_unique<MultibodyPlant<double>>(time_step);
   Parser(plant.get()).AddModelFromFile(file_path);
-  plant->WeldFrames(plant->world_frame(), plant->GetFrameByName("iiwa_link_0"));
+  plant->WeldFrames(plant->world_frame(),
+                    plant->GetFrameByName(std::string_view("iiwa_link_0")));
   plant->Finalize();
   return plant;
 }
@@ -98,8 +101,8 @@ std::unique_ptr<systems::Diagram<T>> BuildTwoFreeSpheresDiagram(
   systems::DiagramBuilder<T> builder;
   std::tie(*plant, *scene_graph) = AddMultibodyPlantSceneGraph(&builder, 0.0);
   AddTwoFreeBodiesToPlant(*plant);
-  const auto& sphere1 = (*plant)->GetBodyByName("body1");
-  const auto& sphere2 = (*plant)->GetBodyByName("body2");
+  const auto& sphere1 = (*plant)->GetBodyByName(std::string_view("body1"));
+  const auto& sphere2 = (*plant)->GetBodyByName(std::string_view("body2"));
   (*plant)->RegisterCollisionGeometry(
       sphere1, RigidTransformd(X_B1S1), geometry::Sphere(radius1),
       "sphere1_collision", multibody::CoulombFriction<double>());

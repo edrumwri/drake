@@ -110,10 +110,12 @@ class DoorHingeTest : public ::testing::Test {
       return ret;
     };
 
-    const double target_angle = plant_->GetJointByName(kRevoluteJointName)
-                                    .GetOnePosition(*plant_context_);
-    const double angular_rate = plant_->GetJointByName(kRevoluteJointName)
-                                    .GetOneVelocity(*plant_context_);
+    const double target_angle =
+        plant_->GetJointByName(std::string_view(kRevoluteJointName))
+            .GetOnePosition(*plant_context_);
+    const double angular_rate =
+        plant_->GetJointByName(std::string_view(kRevoluteJointName))
+            .GetOneVelocity(*plant_context_);
 
     // Set initial value and default parameters of the problem.
     const double kInitialTime = 0.0;

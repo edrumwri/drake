@@ -16,8 +16,10 @@ void TestIiwa(const MultibodyPlant<T>* plant,
               systems::Context<AutoDiffXd>* plant_context_autodiff) {
   const Eigen::Vector3d p_B1P1(0.1, 0.2, 0.3);
   const Eigen::Vector3d p_B2P2(0.2, -0.3, 0.4);
-  const auto frame1_index = plant->GetFrameByName("iiwa_link_7").index();
-  const auto frame2_index = plant->GetFrameByName("iiwa_link_3").index();
+  const auto frame1_index =
+      plant->GetFrameByName(std::string_view("iiwa_link_7")).index();
+  const auto frame2_index =
+      plant->GetFrameByName(std::string_view("iiwa_link_3")).index();
   const Frame<T>& frame1 = plant->get_frame(frame1_index);
   const Frame<T>& frame2 = plant->get_frame(frame2_index);
   const double distance_lower = 0.1;

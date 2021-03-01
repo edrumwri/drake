@@ -137,10 +137,11 @@ ManipulationStationHardwareInterface::ManipulationStationHardwareInterface(
   iiwa_model_instance_ = parser.AddModelFromFile(iiwa_sdf_path, "iiwa");
 
   // TODO(russt): Provide API for changing the base coordinates of the plant.
-  owned_controller_plant_->WeldFrames(owned_controller_plant_->world_frame(),
-                                      owned_controller_plant_->GetFrameByName(
-                                          "iiwa_link_0", iiwa_model_instance_),
-                                      math::RigidTransformd::Identity());
+  owned_controller_plant_->WeldFrames(
+      owned_controller_plant_->world_frame(),
+      owned_controller_plant_->GetFrameByName(std::string_view("iiwa_link_0"),
+                                              iiwa_model_instance_),
+      math::RigidTransformd::Identity());
   owned_controller_plant_->Finalize();
 }
 

@@ -61,7 +61,8 @@ class Quadrotor : public systems::Diagram<T> {
     const math::RigidTransform<T> X_WB(
         Vector3<T>{0.0, 0.0, FLAGS_initial_height});
     plant_->SetFreeBodyPose(
-        plant_context, &plant_state, plant_->GetBodyByName("base_link"), X_WB);
+        plant_context, &plant_state,
+        plant_->GetBodyByName(std::string_view("base_link")), X_WB);
   }
 
  private:

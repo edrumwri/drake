@@ -22,7 +22,8 @@ std::unique_ptr<multibody::MultibodyPlant<double>> MakeIiwa(void) {
       "drake/manipulation/models/"
       "iiwa_description/sdf/iiwa14_no_collision.sdf");
   parser.AddModelFromFile(filename, "iiwa");
-  robot->WeldFrames(robot->world_frame(), robot->GetFrameByName("iiwa_link_0"));
+  robot->WeldFrames(robot->world_frame(),
+                    robot->GetFrameByName(std::string_view("iiwa_link_0")));
   robot->Finalize();
   return robot;
 }
@@ -33,7 +34,7 @@ GTEST_TEST(DifferentialInverseKinematicsIntegatorTest, BasicTest) {
   auto robot = MakeIiwa();
   auto robot_context = robot->CreateDefaultContext();
   const multibody::Frame<double>& frame_E =
-      robot->GetFrameByName("iiwa_link_7");
+      robot->GetFrameByName(std::string_view("iiwa_link_7"));
 
   DifferentialInverseKinematicsParameters params(robot->num_positions(),
                                                  robot->num_velocities());
@@ -97,7 +98,7 @@ GTEST_TEST(DifferentialInverseKinematicsIntegatorTest, ParametersTest) {
   auto robot = MakeIiwa();
   auto robot_context = robot->CreateDefaultContext();
   const multibody::Frame<double>& frame_E =
-      robot->GetFrameByName("iiwa_link_7");
+      robot->GetFrameByName(std::string_view("iiwa_link_7"));
 
   DifferentialInverseKinematicsParameters params(robot->num_positions(),
                                                  robot->num_velocities());
@@ -117,7 +118,7 @@ GTEST_TEST(DifferentialInverseKinematicsIntegatorTest,
   auto robot = MakeIiwa();
   auto robot_context = robot->CreateDefaultContext();
   const multibody::Frame<double>& frame_E =
-      robot->GetFrameByName("iiwa_link_7");
+      robot->GetFrameByName(std::string_view("iiwa_link_7"));
 
   DifferentialInverseKinematicsParameters params(robot->num_positions(),
                                                  robot->num_velocities());

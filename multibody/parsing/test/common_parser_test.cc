@@ -22,6 +22,10 @@ namespace {
 
 using geometry::GeometryId;
 
+const std::string_view kLink1("link1");
+const std::string_view kLink2("link2");
+const std::string_view kLink3("link3");
+
 // Fixture to setup a simple model with both collision and visual geometry,
 // loaded with the SDF parser.
 class MultibodyPlantLinkTests :
@@ -56,15 +60,15 @@ TEST_P(MultibodyPlantLinkTests, LinkWithVisuals) {
   EXPECT_EQ(plant_.num_visual_geometries(), 5);
 
   const std::vector<GeometryId>& link1_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link1"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink1));
   EXPECT_EQ(link1_visual_geometry_ids.size(), 2);
 
   const std::vector<GeometryId>& link2_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link2"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink2));
   EXPECT_EQ(link2_visual_geometry_ids.size(), 3);
 
   const std::vector<GeometryId>& link3_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link3"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink3));
   EXPECT_EQ(link3_visual_geometry_ids.size(), 0);
 
   // TODO(SeanCurtis-TRI): Once SG supports it, confirm `GeometryId` maps to the
@@ -90,7 +94,7 @@ TEST_P(MultibodyPlantLinkTests, RegisterWithASceneGraphBeforeParsing) {
   EXPECT_EQ(plant_.num_visual_geometries(), 5);
 
   const std::vector<GeometryId>& link1_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link1"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink1));
   EXPECT_EQ(link1_visual_geometry_ids.size(), 2);
 
   // TODO(sam.creasey) Verify that the path to the mesh for the second
@@ -101,11 +105,11 @@ TEST_P(MultibodyPlantLinkTests, RegisterWithASceneGraphBeforeParsing) {
   //  Mesh shape type). Then we can peruse the file name.
 
   const std::vector<GeometryId>& link2_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link2"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink2));
   EXPECT_EQ(link2_visual_geometry_ids.size(), 3);
 
   const std::vector<GeometryId>& link3_visual_geometry_ids =
-      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName("link3"));
+      plant_.GetVisualGeometriesForBody(plant_.GetBodyByName(kLink3));
   EXPECT_EQ(link3_visual_geometry_ids.size(), 0);
 
   // TODO(SeanCurtis-TRI): Once SG supports it, confirm `GeometryId` maps to the
@@ -120,7 +124,7 @@ TEST_P(MultibodyPlantLinkTests, LinksWithCollisions) {
   EXPECT_EQ(plant_.num_collision_geometries(), 3);
 
   const std::vector<GeometryId>& link1_collision_geometry_ids =
-      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName("link1"));
+      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName(kLink1));
   ASSERT_EQ(link1_collision_geometry_ids.size(), 2);
 
   EXPECT_TRUE(scene_graph_.model_inspector()
@@ -135,11 +139,11 @@ TEST_P(MultibodyPlantLinkTests, LinksWithCollisions) {
               CoulombFriction<double>(1.5, 0.6));
 
   const std::vector<GeometryId>& link2_collision_geometry_ids =
-      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName("link2"));
+      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName(kLink2));
   ASSERT_EQ(link2_collision_geometry_ids.size(), 0);
 
   const std::vector<GeometryId>& link3_collision_geometry_ids =
-      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName("link3"));
+      plant_.GetCollisionGeometriesForBody(plant_.GetBodyByName(kLink3));
   ASSERT_EQ(link3_collision_geometry_ids.size(), 1);
   // Verifies the default value of the friction coefficients when the user does
   // not specify them in the SDF file.

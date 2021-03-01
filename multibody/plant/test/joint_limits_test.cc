@@ -224,7 +224,7 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   MultibodyPlant<double> plant(time_step);
   Parser(&plant).AddModelFromFile(FindResourceOrThrow(kIiwaFilePath));
   plant.WeldFrames(plant.world_frame(),
-                   plant.GetFrameByName("iiwa_link_0"));
+                   plant.GetFrameByName(std::string_view("iiwa_link_0")));
   plant.mutable_gravity_field().set_gravity_vector(
       Vector3<double>::Zero());
   plant.Finalize();
@@ -247,7 +247,8 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   // Duplicate checks for `GetPosition*Limits`, but using joint names.
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
-    const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
+    const auto& joint =
+        plant.GetJointByName<RevoluteJoint>(std::string_view(joint_name));
     EXPECT_NEAR(joint.position_lower_limit(),
                 lower_limits_expected(joint_number - 1),
                 std::numeric_limits<double>::epsilon());
@@ -267,7 +268,8 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
 
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
-    const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
+    const auto& joint =
+        plant.GetJointByName<RevoluteJoint>(std::string_view(joint_name));
     EXPECT_LT(
         std::abs((joint.get_angle(context) - joint.position_upper_limit()) /
                  joint.position_upper_limit()),
@@ -284,7 +286,8 @@ GTEST_TEST(JointLimitsTest, KukaArm) {
   simulator.AdvanceTo(simulation_time);
   for (int joint_number = 1; joint_number <= nq; ++joint_number) {
     const std::string joint_name = "iiwa_joint_" + std::to_string(joint_number);
-    const auto& joint = plant.GetJointByName<RevoluteJoint>(joint_name);
+    const auto& joint =
+        plant.GetJointByName<RevoluteJoint>(std::string_view(joint_name));
     EXPECT_LT(
         std::abs((joint.get_angle(context) - joint.position_lower_limit()) /
                  joint.position_lower_limit()),

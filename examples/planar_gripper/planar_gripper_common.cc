@@ -48,7 +48,7 @@ void WeldGripperFrames(MultibodyPlant<T>* plant) {
       RigidTransformd(math::RotationMatrixd(),
                       Vector3d(0, 0, kGripperOriginToBaseDistance));
   const multibody::Frame<T>& finger1_base_frame =
-      plant->GetFrameByName("finger1_base");
+      plant->GetFrameByName(std::string_view("finger1_base"));
   plant->WeldFrames(plant->world_frame(), finger1_base_frame, X_WG * X_GF1);
 
   // Weld the second finger. The second finger is welded kFinger2Angle radians
@@ -59,7 +59,7 @@ void WeldGripperFrames(MultibodyPlant<T>* plant) {
       RigidTransformd(math::RotationMatrixd(),
                       Vector3d(0, 0, kGripperOriginToBaseDistance));
   const multibody::Frame<T>& finger2_base_frame =
-      plant->GetFrameByName("finger2_base");
+      plant->GetFrameByName(std::string_view("finger2_base"));
   plant->WeldFrames(plant->world_frame(), finger2_base_frame, X_WG * X_GF2);
 
   // Weld the 3rd finger. The third finger is welded kFinger3Angle radians from
@@ -70,7 +70,7 @@ void WeldGripperFrames(MultibodyPlant<T>* plant) {
       RigidTransformd(math::RotationMatrixd(),
                       Vector3d(0, 0, kGripperOriginToBaseDistance));
   const multibody::Frame<T>& finger3_base_frame =
-      plant->GetFrameByName("finger3_base");
+      plant->GetFrameByName(std::string_view("finger3_base"));
   plant->WeldFrames(plant->world_frame(), finger3_base_frame, X_WG * X_GF3);
 }
 
@@ -211,7 +211,7 @@ MatrixX<double> ReorderKeyframesForPlant(
   MatrixX<double> reordered_keyframes(keyframes);
   for (auto iter = original_map.begin(); iter != original_map.end(); ++iter) {
     auto joint_vel_start_index =
-        plant.GetJointByName(iter->first).velocity_start();
+        plant.GetJointByName(std::string_view(iter->first)).velocity_start();
     reordered_keyframes.row(joint_vel_start_index) =
         keyframes.row(iter->second);
     (*finger_joint_name_to_row_index_map)[iter->first] = joint_vel_start_index;

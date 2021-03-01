@@ -45,8 +45,8 @@ class AcrobotGravityCompensator : public systems::LeafSystem<double> {
         dynamic_cast<const RigidBody<double>&>(plant_->get_body(BodyIndex(1)));
     const RigidBody<double>& link2 =
         dynamic_cast<const RigidBody<double>&>(plant_->get_body(BodyIndex(2)));
-    ASSERT_EQ(&link1, &plant_->GetBodyByName("Link1"));
-    ASSERT_EQ(&link2, &plant_->GetBodyByName("Link2"));
+    ASSERT_EQ(&link1, &plant_->GetBodyByName(std::string_view("Link1")));
+    ASSERT_EQ(&link2, &plant_->GetBodyByName(std::string_view("Link2")));
 
     // Get position vector from L1o (link1 origin) to L1cm (link1
     // center-of-mass), expressed in link1 frame, and do the same for the

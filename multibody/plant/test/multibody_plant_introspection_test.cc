@@ -45,20 +45,24 @@ GTEST_TEST(MultibodyPlantIntrospection, FloatingBodies) {
   Parser parser(&plant);
   const ModelInstanceIndex robot_table_model =
       parser.AddModelFromFile(table_sdf_path, "robot_table");
-  plant.WeldFrames(plant.world_frame(),
-                   plant.GetFrameByName("link", robot_table_model));
+  plant.WeldFrames(
+      plant.world_frame(),
+      plant.GetFrameByName(std::string_view("link"), robot_table_model));
 
   // Load two Atlas robots.
   const ModelInstanceIndex atlas_model1 =
       parser.AddModelFromFile(atlas_path, "Atlas1");
   const ModelInstanceIndex atlas_model2 =
       parser.AddModelFromFile(atlas_path, "Atlas2");
-  const Body<double>& pelvis1 = plant.GetBodyByName("pelvis", atlas_model1);
-  const Body<double>& pelvis2 = plant.GetBodyByName("pelvis", atlas_model2);
+  const Body<double>& pelvis1 =
+      plant.GetBodyByName(std::string_view("pelvis"), atlas_model1);
+  const Body<double>& pelvis2 =
+      plant.GetBodyByName(std::string_view("pelvis"), atlas_model2);
 
   // Add a floating mug.
   const ModelInstanceIndex mug_model = parser.AddModelFromFile(mug_sdf_path);
-  const Body<double>& mug = plant.GetBodyByName("main_body", mug_model);
+  const Body<double>& mug =
+      plant.GetBodyByName(std::string_view("main_body"), mug_model);
 
   // Introspection of the underlying mathematical model is not available until
   // we call Finalize().
@@ -106,7 +110,8 @@ GTEST_TEST(MultibodyPlantIntrospection, FloatingBodies) {
   EXPECT_FALSE(plant.HasUniqueFreeBaseBody(world_model_instance()));
 
   // The table has been anchored to the world.
-  EXPECT_FALSE(plant.GetBodyByName("link", robot_table_model).is_floating());
+  EXPECT_FALSE(plant.GetBodyByName(std::string_view("link"), robot_table_model)
+                   .is_floating());
   EXPECT_FALSE(plant.HasUniqueFreeBaseBody(robot_table_model));
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant.GetUniqueFreeBaseBodyOrThrow(robot_table_model), std::exception,

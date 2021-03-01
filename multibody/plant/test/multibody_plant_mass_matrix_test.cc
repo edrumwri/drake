@@ -50,9 +50,12 @@ class MultibodyPlantMassMatrixTests : public ::testing::Test {
     const ModelInstanceIndex gripper_model =
         parser.AddModelFromFile(FindResourceOrThrow(kWsg50SdfPath));
 
-    const auto& base_body = plant_.GetBodyByName("iiwa_link_0", arm_model);
-    const auto& end_effector = plant_.GetBodyByName("iiwa_link_7", arm_model);
-    const auto& gripper_body = plant_.GetBodyByName("body", gripper_model);
+    const auto& base_body =
+        plant_.GetBodyByName(std::string_view("iiwa_link_0"), arm_model);
+    const auto& end_effector =
+        plant_.GetBodyByName(std::string_view("iiwa_link_7"), arm_model);
+    const auto& gripper_body =
+        plant_.GetBodyByName(std::string_view("body"), gripper_model);
     plant_.WeldFrames(plant_.world_frame(), base_body.body_frame());
     plant_.WeldFrames(end_effector.body_frame(), gripper_body.body_frame());
     plant_.Finalize();

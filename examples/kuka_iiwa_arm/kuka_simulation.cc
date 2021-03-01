@@ -67,7 +67,8 @@ int DoMain() {
       (!FLAGS_urdf.empty() ? FLAGS_urdf : FindResourceOrThrow(kModelPath));
   auto iiwa_instance = multibody::Parser(
       &plant, &scene_graph).AddModelFromFile(urdf);
-  plant.WeldFrames(plant.world_frame(), plant.GetFrameByName("base"));
+  plant.WeldFrames(plant.world_frame(),
+                   plant.GetFrameByName(std::string_view("base")));
   plant.Finalize();
 
   // TODO(sammy-tri) Add a floor.

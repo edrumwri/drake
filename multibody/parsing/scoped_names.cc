@@ -14,12 +14,13 @@ GetScopedFrameByNameMaybe(
     return &plant.world_frame();
   auto result = ParseScopedName(full_name);
   if (!result.instance_name.empty()) {
-    auto instance = plant.GetModelInstanceByName(result.instance_name);
-    if (plant.HasFrameNamed(result.name, instance)) {
-      return &plant.GetFrameByName(result.name, instance);
+    auto instance =
+        plant.GetModelInstanceByName(std::string_view(result.instance_name));
+    if (plant.HasFrameNamed(std::string_view(result.name), instance)) {
+      return &plant.GetFrameByName(std::string_view(result.name), instance);
     }
-  } else if (plant.HasFrameNamed(result.name)) {
-    return &plant.GetFrameByName(result.name);
+  } else if (plant.HasFrameNamed(std::string_view(result.name))) {
+    return &plant.GetFrameByName(std::string_view(result.name));
   }
   return nullptr;
 }

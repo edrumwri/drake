@@ -27,8 +27,10 @@ AutoDiffVecXd EvalGazeTargetConstraintAutoDiff(
 }
 
 TEST_F(IiwaKinematicConstraintTest, GazeTargetConstraint) {
-  const auto frameA_index = plant_->GetFrameByName("iiwa_link_7").index();
-  const auto frameB_index = plant_->GetFrameByName("iiwa_link_3").index();
+  const auto frameA_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_7")).index();
+  const auto frameB_index =
+      plant_->GetFrameByName(std::string_view("iiwa_link_3")).index();
   const Frame<double>& frameA = plant_->get_frame(frameA_index);
   const Frame<double>& frameB = plant_->get_frame(frameB_index);
   const Eigen::Vector3d p_AS(0.1, 0.2, 0.3);
@@ -57,9 +59,9 @@ TEST_F(IiwaKinematicConstraintTest, GazeTargetConstraint) {
       q_autodiff;
   Vector2<AutoDiffXd> y_autodiff_expected = EvalGazeTargetConstraintAutoDiff(
       *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameA.name()), p_AS, n_A,
-      plant_autodiff_->GetFrameByName(frameB.name()), p_BT,
-      cone_half_angle, *plant_context_autodiff_);
+      plant_autodiff_->GetFrameByName(std::string_view(frameA.name())), p_AS,
+      n_A, plant_autodiff_->GetFrameByName(std::string_view(frameB.name())),
+      p_BT, cone_half_angle, *plant_context_autodiff_);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, 1E-12);
 
   // Test with non-identity gradient for q_autodiff.
@@ -70,9 +72,9 @@ TEST_F(IiwaKinematicConstraintTest, GazeTargetConstraint) {
   constraint.Eval(q_autodiff, &y_autodiff);
   y_autodiff_expected = EvalGazeTargetConstraintAutoDiff(
       *plant_autodiff_,
-      plant_autodiff_->GetFrameByName(frameA.name()), p_AS, n_A,
-      plant_autodiff_->GetFrameByName(frameB.name()), p_BT,
-      cone_half_angle, *plant_context_autodiff_);
+      plant_autodiff_->GetFrameByName(std::string_view(frameA.name())), p_AS,
+      n_A, plant_autodiff_->GetFrameByName(std::string_view(frameB.name())),
+      p_BT, cone_half_angle, *plant_context_autodiff_);
   CompareAutoDiffVectors(y_autodiff, y_autodiff_expected, 1E-12);
 
   // Checks if the constraint constructed from MBP<ADS> gives the same result
@@ -137,8 +139,10 @@ TEST_F(IiwaKinematicConstraintTest, GazeTargetConstraintConstructorError) {
   // inputs are incorrect.
   const Eigen::Vector3d p_AS(1, 2, 3);
   const Eigen::Vector3d p_BT(2, 3, 4);
-  const Frame<double>& frameA = plant_->GetFrameByName("iiwa_link_3");
-  const Frame<double>& frameB = plant_->GetFrameByName("iiwa_link_4");
+  const Frame<double>& frameA =
+      plant_->GetFrameByName(std::string_view("iiwa_link_3"));
+  const Frame<double>& frameB =
+      plant_->GetFrameByName(std::string_view("iiwa_link_4"));
   // zero n_A
   EXPECT_THROW(
       GazeTargetConstraint(plant_, frameA, p_AS, Eigen::Vector3d::Zero(),

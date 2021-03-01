@@ -100,7 +100,8 @@ TEST_P(InclinedPlaneTest, RollingSphereTest) {
 
   plant.Finalize();
   plant.set_stiction_tolerance(stiction_tolerance_);
-  const RigidBody<double>& ball = plant.GetRigidBodyByName("BodyB");
+  const RigidBody<double>& ball =
+      plant.GetRigidBodyByName(std::string_view("BodyB"));
 
   // Sanity check for the model's size.
   DRAKE_DEMAND(plant.num_velocities() == 6);

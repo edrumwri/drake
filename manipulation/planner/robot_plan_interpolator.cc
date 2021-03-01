@@ -201,11 +201,13 @@ void RobotPlanInterpolator::DoCalcUnrestrictedUpdate(
       for (int i = 0; i < plan_input.num_states; ++i) {
         const auto& plan_state = plan_input.plan[i];
         for (int j = 0; j < plan_state.num_joints; ++j) {
-          if (!plant_.HasJointNamed(plan_state.joint_name[j])) {
+          if (!plant_.HasJointNamed(
+                  std::string_view(plan_state.joint_name[j]))) {
             continue;
           }
-          const auto joint_index = plant_.GetJointByName(
-              plan_state.joint_name[j]).position_start();
+          const auto joint_index =
+              plant_.GetJointByName(std::string_view(plan_state.joint_name[j]))
+                  .position_start();
           knots[i](joint_index, 0) = plan_state.joint_position[j];
         }
       }

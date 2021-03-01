@@ -53,7 +53,8 @@ GTEST_TEST(ScalarConversionTest, RevoluteJointAndSpring) {
   DRAKE_DEMAND(plant_ad->num_force_elements() == 2);
 
   // We verify the correct reference to the pin joint after conversion.
-  const auto& pin_ad = plant_ad->GetJointByName<RevoluteJoint>(pin.name());
+  const auto& pin_ad =
+      plant_ad->GetJointByName<RevoluteJoint>(std::string_view(pin.name()));
   const auto& spring_ad =
       plant_ad->GetForceElement<RevoluteSpring>(spring.index());
   // Verify correct cross-referencing in the scalar converted model.

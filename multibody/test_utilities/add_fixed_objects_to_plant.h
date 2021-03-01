@@ -35,15 +35,18 @@ void AddFixedObjectsToPlant(MultibodyPlant<T>* plant) {
   Parser parser(plant);
   const ModelInstanceIndex robot_table_model =
       parser.AddModelFromFile(table_sdf_path, "robot_table");
-  plant->WeldFrames(plant->world_frame(),
-                   plant->GetFrameByName("link", robot_table_model));
+  plant->WeldFrames(
+      plant->world_frame(),
+      plant->GetFrameByName(std::string_view("link"), robot_table_model));
 
   // Load a second table for objects.
   const ModelInstanceIndex objects_table_model =
       parser.AddModelFromFile(table_sdf_path, "objects_table");
   const RigidTransformd X_WT(Vector3d(0.8, 0.0, 0.0));
-  plant->WeldFrames(plant->world_frame(),
-                   plant->GetFrameByName("link", objects_table_model), X_WT);
+  plant->WeldFrames(
+      plant->world_frame(),
+      plant->GetFrameByName(std::string_view("link"), objects_table_model),
+      X_WT);
 
   // Define a fixed frame on the -x, -y corner of the objects table.
   const double table_top_z_in_world =
@@ -55,12 +58,14 @@ void AddFixedObjectsToPlant(MultibodyPlant<T>* plant) {
                              Vector3d(-0.3, -0.3, table_top_z_in_world));
   const auto& objects_frame_O =
       plant->AddFrame(std::make_unique<FixedOffsetFrame<double>>(
-          "objects_frame", plant->GetFrameByName("link", objects_table_model),
+          "objects_frame",
+          plant->GetFrameByName(std::string_view("link"), objects_table_model),
           X_TO));
 
   // Add a mug and weld it to the table.
   const ModelInstanceIndex mug_model = parser.AddModelFromFile(mug_sdf_path);
-  const Body<double>& mug = plant->GetBodyByName("main_body", mug_model);
+  const Body<double>& mug =
+      plant->GetBodyByName(std::string_view("main_body"), mug_model);
 
   // Weld the mug to the table with its center 5 cm above the table, i.e. with
   // its base on the table.

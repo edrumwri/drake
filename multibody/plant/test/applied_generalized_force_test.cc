@@ -39,10 +39,12 @@ class MultibodyPlantGeneralizedAppliedForceTest
     // Add the model twice.
     auto iiwa1 = Parser(plant_).AddModelFromFile(full_name, "iiwa1");
     auto iiwa2 = Parser(plant_).AddModelFromFile(full_name, "iiwa2");
-    plant_->WeldFrames(plant_->world_frame(),
-                       plant_->GetFrameByName("iiwa_link_0", iiwa1));
-    plant_->WeldFrames(plant_->world_frame(),
-                       plant_->GetFrameByName("iiwa_link_0", iiwa2));
+    plant_->WeldFrames(
+        plant_->world_frame(),
+        plant_->GetFrameByName(std::string_view("iiwa_link_0"), iiwa1));
+    plant_->WeldFrames(
+        plant_->world_frame(),
+        plant_->GetFrameByName(std::string_view("iiwa_link_0"), iiwa2));
     plant_->Finalize();
 
     // Set feedback gains to zero - we won't need feedback control.

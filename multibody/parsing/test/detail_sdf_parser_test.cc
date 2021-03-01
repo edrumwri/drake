@@ -153,79 +153,85 @@ GTEST_TEST(MultibodyPlantSdfParserTest, ModelInstanceTest) {
   plant.Finalize();
 
   ASSERT_EQ(plant.num_model_instances(), 5);
-  EXPECT_EQ(plant.GetModelInstanceByName("instance1"), instance1);
-  EXPECT_EQ(plant.GetModelInstanceByName("acrobot"), acrobot1);
-  EXPECT_EQ(plant.GetModelInstanceByName("acrobot2"), acrobot2);
+  EXPECT_EQ(plant.GetModelInstanceByName(std::string_view("instance1")),
+            instance1);
+  EXPECT_EQ(plant.GetModelInstanceByName(std::string_view("acrobot")),
+            acrobot1);
+  EXPECT_EQ(plant.GetModelInstanceByName(std::string_view("acrobot2")),
+            acrobot2);
 
   // Check a couple links from the first model without specifying the model
   // instance.
-  EXPECT_TRUE(plant.HasBodyNamed("link3"));
-  EXPECT_FALSE(plant.HasBodyNamed("link_which_doesnt_exist"));
+  EXPECT_TRUE(plant.HasBodyNamed(std::string_view("link3")));
+  EXPECT_FALSE(plant.HasBodyNamed(std::string_view("link_which_doesnt_exist")));
 
   // Links which appear in multiple model instances throw if the instance
   // isn't specified.
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.HasBodyNamed("Link1"), std::logic_error,
+      plant.HasBodyNamed(std::string_view("Link1")), std::logic_error,
       "Body Link1 appears in multiple model instances.");
 
-  EXPECT_FALSE(plant.HasBodyNamed("Link1", instance1));
-  EXPECT_TRUE(plant.HasBodyNamed("Link1", acrobot1));
-  EXPECT_TRUE(plant.HasBodyNamed("Link1", acrobot2));
+  EXPECT_FALSE(plant.HasBodyNamed(std::string_view("Link1"), instance1));
+  EXPECT_TRUE(plant.HasBodyNamed(std::string_view("Link1"), acrobot1));
+  EXPECT_TRUE(plant.HasBodyNamed(std::string_view("Link1"), acrobot2));
 
   const Body<double>& acrobot1_link1 =
-      plant.GetBodyByName("Link1", acrobot1);
+      plant.GetBodyByName(std::string_view("Link1"), acrobot1);
   const Body<double>& acrobot2_link1 =
-      plant.GetBodyByName("Link1", acrobot2);
+      plant.GetBodyByName(std::string_view("Link1"), acrobot2);
   EXPECT_NE(acrobot1_link1.index(), acrobot2_link1.index());
   EXPECT_EQ(acrobot1_link1.model_instance(), acrobot1);
   EXPECT_EQ(acrobot2_link1.model_instance(), acrobot2);
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetBodyByName("Link1"), std::logic_error,
+      plant.GetBodyByName(std::string_view("Link1")), std::logic_error,
       "Body Link1 appears in multiple model instances.");
 
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.HasJointNamed("ShoulderJoint"), std::logic_error,
+      plant.HasJointNamed(std::string_view("ShoulderJoint")), std::logic_error,
       "Joint ShoulderJoint appears in multiple model instances.");
-  EXPECT_FALSE(plant.HasJointNamed("ShoulderJoint", instance1));
-  EXPECT_TRUE(plant.HasJointNamed("ShoulderJoint", acrobot1));
-  EXPECT_TRUE(plant.HasJointNamed("ShoulderJoint", acrobot2));
+  EXPECT_FALSE(
+      plant.HasJointNamed(std::string_view("ShoulderJoint"), instance1));
+  EXPECT_TRUE(plant.HasJointNamed(std::string_view("ShoulderJoint"), acrobot1));
+  EXPECT_TRUE(plant.HasJointNamed(std::string_view("ShoulderJoint"), acrobot2));
 
   const Joint<double>& acrobot1_joint =
-      plant.GetJointByName("ShoulderJoint", acrobot1);
+      plant.GetJointByName(std::string_view("ShoulderJoint"), acrobot1);
   const Joint<double>& acrobot2_joint =
-      plant.GetJointByName("ShoulderJoint", acrobot2);
+      plant.GetJointByName(std::string_view("ShoulderJoint"), acrobot2);
   EXPECT_NE(acrobot1_joint.index(), acrobot2_joint.index());
   EXPECT_EQ(acrobot1_joint.model_instance(), acrobot1);
   EXPECT_EQ(acrobot2_joint.model_instance(), acrobot2);
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetJointByName("ShoulderJoint"), std::logic_error,
+      plant.GetJointByName(std::string_view("ShoulderJoint")), std::logic_error,
       "Joint ShoulderJoint appears in multiple model instances.");
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.HasJointActuatorNamed("ElbowJoint"), std::logic_error,
+      plant.HasJointActuatorNamed(std::string_view("ElbowJoint")),
+      std::logic_error,
       "Joint actuator ElbowJoint appears in multiple model instances.");
 
   const JointActuator<double>& acrobot1_actuator =
-      plant.GetJointActuatorByName("ElbowJoint", acrobot1);
+      plant.GetJointActuatorByName(std::string_view("ElbowJoint"), acrobot1);
   const JointActuator<double>& acrobot2_actuator =
-      plant.GetJointActuatorByName("ElbowJoint", acrobot2);
+      plant.GetJointActuatorByName(std::string_view("ElbowJoint"), acrobot2);
   EXPECT_NE(acrobot1_actuator.index(), acrobot2_actuator.index());
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetJointActuatorByName("ElbowJoint"), std::logic_error,
+      plant.GetJointActuatorByName(std::string_view("ElbowJoint")),
+      std::logic_error,
       "Joint actuator ElbowJoint appears in multiple model instances.");
 
   const Frame<double>& acrobot1_link1_frame =
-      plant.GetFrameByName("Link1", acrobot1);
+      plant.GetFrameByName(std::string_view("Link1"), acrobot1);
   const Frame<double>& acrobot2_link1_frame =
-      plant.GetFrameByName("Link1", acrobot2);
+      plant.GetFrameByName(std::string_view("Link1"), acrobot2);
   EXPECT_NE(acrobot1_link1_frame.index(), acrobot2_link1_frame.index());
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetFrameByName("Link1"), std::logic_error,
+      plant.GetFrameByName(std::string_view("Link1")), std::logic_error,
       "Frame Link1 appears in multiple model instances.");
 
   // Check model scope frames.
@@ -233,9 +239,10 @@ GTEST_TEST(MultibodyPlantSdfParserTest, ModelInstanceTest) {
   auto check_frame = [&plant, instance1, &context](
       std::string parent_name, std::string name,
       const RigidTransformd& X_PF_expected) {
-    const Frame<double>& frame = plant.GetFrameByName(name, instance1);
+    const Frame<double>& frame =
+        plant.GetFrameByName(std::string_view(name), instance1);
     const Frame<double>& parent_frame =
-        plant.GetFrameByName(parent_name, instance1);
+        plant.GetFrameByName(std::string_view(parent_name), instance1);
     const RigidTransformd X_PF = plant.CalcRelativeTransform(
         *context, parent_frame, frame);
     EXPECT_TRUE(CompareMatrices(
@@ -283,8 +290,9 @@ GTEST_TEST(SdfParser, EntireInertialTagOmitted) {
 <model name='entire_inertial_tag_omitted'>
   <link name='entire_inertial_tag_omitted'/>
 </model>)""");
-  const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("entire_inertial_tag_omitted"));
+  const RigidBody<double>* body =
+      dynamic_cast<const RigidBody<double>*>(&pair.plant->GetBodyByName(
+          std::string_view("entire_inertial_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 1.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isOnes());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -304,7 +312,7 @@ GTEST_TEST(SdfParser, InertiaTagOmitted) {
   </link>
 </model>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("inertia_tag_omitted"));
+    &pair.plant->GetBodyByName(std::string_view("inertia_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 2.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isOnes());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -331,7 +339,7 @@ GTEST_TEST(SdfParser, MassTagOmitted) {
   </link>
 </model>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("mass_tag_omitted"));
+    &pair.plant->GetBodyByName(std::string_view("mass_tag_omitted")));
   EXPECT_EQ(body->get_default_mass(), 1.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isOnes());
   EXPECT_EQ(body->default_rotational_inertia().get_products(),
@@ -357,7 +365,7 @@ GTEST_TEST(SdfParser, MasslessBody) {
   </link>
 </model>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("massless_link"));
+    &pair.plant->GetBodyByName(std::string_view("massless_link")));
   EXPECT_EQ(body->get_default_mass(), 0.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());}
@@ -381,7 +389,7 @@ GTEST_TEST(SdfParser, PointMass) {
   </link>
 </model>)""");
   const RigidBody<double>* body = dynamic_cast<const RigidBody<double>*>(
-    &pair.plant->GetBodyByName("point_mass"));
+    &pair.plant->GetBodyByName(std::string_view("point_mass")));
   EXPECT_EQ(body->get_default_mass(), 1.);
   EXPECT_TRUE(body->default_rotational_inertia().get_moments().isZero());
   EXPECT_TRUE(body->default_rotational_inertia().get_products().isZero());
@@ -443,13 +451,14 @@ GTEST_TEST(SdfParser, FloatingBodyPose) {
   const RigidTransformd X_WA_expected(
       RollPitchYawd(0.1, 0.2, 0.3), Vector3d(1, 2, 3));
   const RigidTransformd X_WA =
-      pair.plant->GetFrameByName("a").CalcPoseInWorld(*context);
+      pair.plant->GetFrameByName(std::string_view("a")).CalcPoseInWorld(
+          *context);
   EXPECT_TRUE(CompareMatrices(
       X_WA_expected.GetAsMatrix4(), X_WA.GetAsMatrix4(), kEps));
   const RigidTransformd X_WB_expected(
       RollPitchYawd(0.4, 0.5, 0.6), Vector3d(4, 5, 6));
-  const RigidTransformd X_WB =
-      pair.plant->GetFrameByName("b").CalcPoseInWorld(*context);
+  const RigidTransformd X_WB = pair.plant->GetFrameByName(std::string_view("b"))
+                                   .CalcPoseInWorld(*context);
   EXPECT_TRUE(CompareMatrices(
       X_WB_expected.GetAsMatrix4(), X_WB.GetAsMatrix4(), kEps));
 }
@@ -471,14 +480,14 @@ GTEST_TEST(SdfParser, StaticModelSupported) {
   auto context = pair.plant->CreateDefaultContext();
   const RigidTransformd X_WA_expected(
       RollPitchYawd(0.1, 0.2, 0.3), Vector3d(1, 2, 3));
-  const RigidTransformd X_WA =
-      pair.plant->GetFrameByName("a").CalcPoseInWorld(*context);
+  const RigidTransformd X_WA = pair.plant->GetFrameByName(std::string_view("a"))
+                                   .CalcPoseInWorld(*context);
   EXPECT_TRUE(CompareMatrices(
       X_WA_expected.GetAsMatrix4(), X_WA.GetAsMatrix4(), kEps));
   const RigidTransformd X_WB_expected(
       RollPitchYawd(0.4, 0.5, 0.6), Vector3d(4, 5, 6));
-  const RigidTransformd X_WB =
-      pair.plant->GetFrameByName("b").CalcPoseInWorld(*context);
+  const RigidTransformd X_WB = pair.plant->GetFrameByName(std::string_view("b"))
+                                   .CalcPoseInWorld(*context);
   EXPECT_TRUE(CompareMatrices(
       X_WB_expected.GetAsMatrix4(), X_WB.GetAsMatrix4(), kEps));
 }
@@ -510,8 +519,8 @@ GTEST_TEST(SdfParser, StaticModelWithJoints) {
 </model>
 )""");
   auto weld_and_finalize = [&pair]() {
-    pair.plant->WeldFrames(
-        pair.plant->world_frame(), pair.plant->GetFrameByName("a"));
+    pair.plant->WeldFrames(pair.plant->world_frame(),
+                           pair.plant->GetFrameByName(std::string_view("a")));
     pair.plant->Finalize();
   };
   // The message contains the elaborate joint name inserted by the parser.
@@ -580,42 +589,53 @@ GTEST_TEST(SdfParser, IncludeTags) {
   EXPECT_EQ(plant.num_joints(), 5);
 
   // There should be a model instance with the name "robot1".
-  EXPECT_TRUE(plant.HasModelInstanceNamed("robot1"));
-  ModelInstanceIndex robot1_model = plant.GetModelInstanceByName("robot1");
+  EXPECT_TRUE(plant.HasModelInstanceNamed(std::string_view("robot1")));
+  ModelInstanceIndex robot1_model =
+      plant.GetModelInstanceByName(std::string_view("robot1"));
   // There should be a body with the name "base_link".
-  EXPECT_TRUE(plant.HasBodyNamed("base_link", robot1_model));
+  EXPECT_TRUE(plant.HasBodyNamed(std::string_view("base_link"), robot1_model));
   // There should be another body with the name "moving_link".
-  EXPECT_TRUE(plant.HasBodyNamed("moving_link", robot1_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("moving_link"), robot1_model));
   // There should be joint with the name "slider".
-  EXPECT_TRUE(plant.HasJointNamed("slider", robot1_model));
+  EXPECT_TRUE(plant.HasJointNamed(std::string_view("slider"), robot1_model));
 
   // There should be a model instance with the name "robot2".
-  EXPECT_TRUE(plant.HasModelInstanceNamed("robot2"));
-  ModelInstanceIndex robot2_model = plant.GetModelInstanceByName("robot2");
+  EXPECT_TRUE(plant.HasModelInstanceNamed(std::string_view("robot2")));
+  ModelInstanceIndex robot2_model =
+      plant.GetModelInstanceByName(std::string_view("robot2"));
 
   // There should be a body with the name "base_link".
-  EXPECT_TRUE(plant.HasBodyNamed("base_link", robot2_model));
+  EXPECT_TRUE(plant.HasBodyNamed(std::string_view("base_link"), robot2_model));
   // There should be another body with the name "moving_link".
-  EXPECT_TRUE(plant.HasBodyNamed("moving_link", robot2_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("moving_link"), robot2_model));
   // There should be joint with the name "slider".
-  EXPECT_TRUE(plant.HasJointNamed("slider", robot2_model));
+  EXPECT_TRUE(plant.HasJointNamed(std::string_view("slider"), robot2_model));
 
   // There should be a model instance with the name "weld_robots".
-  EXPECT_TRUE(plant.HasModelInstanceNamed("weld_models"));
-  ModelInstanceIndex weld_model = plant.GetModelInstanceByName("weld_models");
+  EXPECT_TRUE(plant.HasModelInstanceNamed(std::string_view("weld_models")));
+  ModelInstanceIndex weld_model =
+      plant.GetModelInstanceByName(std::string_view("weld_models"));
 
   // There should be all the bodies and joints contained in "simple_robot1"
   // prefixed with the model's name of "robot1".
-  EXPECT_TRUE(plant.HasBodyNamed("robot1::base_link", weld_model));
-  EXPECT_TRUE(plant.HasBodyNamed("robot1::moving_link", weld_model));
-  EXPECT_TRUE(plant.HasJointNamed("robot1::slider", weld_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("robot1::base_link"), weld_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("robot1::moving_link"), weld_model));
+  EXPECT_TRUE(
+      plant.HasJointNamed(std::string_view("robot1::slider"), weld_model));
   // There should be all the bodies and joints contained in "simple_robot2"
   // prefixed with the model's name of "robot2".
-  EXPECT_TRUE(plant.HasBodyNamed("robot2::base_link", weld_model));
-  EXPECT_TRUE(plant.HasBodyNamed("robot2::moving_link", weld_model));
-  EXPECT_TRUE(plant.HasJointNamed("robot2::slider", weld_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("robot2::base_link"), weld_model));
+  EXPECT_TRUE(
+      plant.HasBodyNamed(std::string_view("robot2::moving_link"), weld_model));
+  EXPECT_TRUE(
+      plant.HasJointNamed(std::string_view("robot2::slider"), weld_model));
   // There should be a joint named "weld_robots"
-  EXPECT_TRUE(plant.HasJointNamed("weld_robots", weld_model));
+  EXPECT_TRUE(plant.HasJointNamed(std::string_view("weld_robots"), weld_model));
 }
 
 GTEST_TEST(SdfParser, TestOptionalSceneGraph) {
@@ -663,9 +683,9 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
 
   // Revolute joint
   DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<RevoluteJoint>("revolute_joint"));
+      plant.GetJointByName<RevoluteJoint>(std::string_view("revolute_joint")));
   const RevoluteJoint<double>& revolute_joint =
-      plant.GetJointByName<RevoluteJoint>("revolute_joint");
+      plant.GetJointByName<RevoluteJoint>(std::string_view("revolute_joint"));
   EXPECT_EQ(revolute_joint.name(), "revolute_joint");
   EXPECT_EQ(revolute_joint.parent_body().name(), "link1");
   EXPECT_EQ(revolute_joint.child_body().name(), "link2");
@@ -681,10 +701,10 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
       revolute_joint.velocity_upper_limits(), Vector1d(100)));
 
   // Prismatic joint
-  DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<PrismaticJoint>("prismatic_joint"));
+  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<PrismaticJoint>(
+      std::string_view("prismatic_joint")));
   const PrismaticJoint<double>& prismatic_joint =
-      plant.GetJointByName<PrismaticJoint>("prismatic_joint");
+      plant.GetJointByName<PrismaticJoint>(std::string_view("prismatic_joint"));
   EXPECT_EQ(prismatic_joint.name(), "prismatic_joint");
   EXPECT_EQ(prismatic_joint.parent_body().name(), "link2");
   EXPECT_EQ(prismatic_joint.child_body().name(), "link3");
@@ -700,10 +720,11 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
       prismatic_joint.velocity_upper_limits(), Vector1d(5)));
 
   // Limitless revolute joint
-  DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<RevoluteJoint>("revolute_joint_no_limits"));
+  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<RevoluteJoint>(
+      std::string_view("revolute_joint_no_limits")));
   const RevoluteJoint<double>& no_limit_joint =
-      plant.GetJointByName<RevoluteJoint>("revolute_joint_no_limits");
+      plant.GetJointByName<RevoluteJoint>(
+          std::string_view("revolute_joint_no_limits"));
   EXPECT_EQ(no_limit_joint.name(), "revolute_joint_no_limits");
   EXPECT_EQ(no_limit_joint.parent_body().name(), "link3");
   EXPECT_EQ(no_limit_joint.child_body().name(), "link4");
@@ -716,9 +737,10 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
   EXPECT_TRUE(CompareMatrices(no_limit_joint.velocity_upper_limits(), inf));
 
   // Ball joint
-  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<BallRpyJoint>("ball_joint"));
+  DRAKE_EXPECT_NO_THROW(
+      plant.GetJointByName<BallRpyJoint>(std::string_view("ball_joint")));
   const BallRpyJoint<double>& ball_joint =
-      plant.GetJointByName<BallRpyJoint>("ball_joint");
+      plant.GetJointByName<BallRpyJoint>(std::string_view("ball_joint"));
   EXPECT_EQ(ball_joint.name(), "ball_joint");
   EXPECT_EQ(ball_joint.parent_body().name(), "link4");
   EXPECT_EQ(ball_joint.child_body().name(), "link5");
@@ -735,10 +757,10 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
   EXPECT_TRUE(CompareMatrices(ball_joint.velocity_upper_limits(), inf3));
 
   // Universal joint
-  DRAKE_EXPECT_NO_THROW(
-      plant.GetJointByName<UniversalJoint>("universal_joint"));
+  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<UniversalJoint>(
+      std::string_view("universal_joint")));
   const UniversalJoint<double>& universal_joint =
-      plant.GetJointByName<UniversalJoint>("universal_joint");
+      plant.GetJointByName<UniversalJoint>(std::string_view("universal_joint"));
   EXPECT_EQ(universal_joint.name(), "universal_joint");
   EXPECT_EQ(universal_joint.parent_body().name(), "link5");
   EXPECT_EQ(universal_joint.child_body().name(), "link6");
@@ -755,9 +777,10 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointParsingTest) {
   EXPECT_TRUE(CompareMatrices(universal_joint.velocity_upper_limits(), inf2));
 
   // Planar joint
-  DRAKE_EXPECT_NO_THROW(plant.GetJointByName<PlanarJoint>("planar_joint"));
+  DRAKE_EXPECT_NO_THROW(
+      plant.GetJointByName<PlanarJoint>(std::string_view("planar_joint")));
   const PlanarJoint<double>& planar_joint =
-      plant.GetJointByName<PlanarJoint>("planar_joint");
+      plant.GetJointByName<PlanarJoint>(std::string_view("planar_joint"));
   EXPECT_EQ(planar_joint.name(), "planar_joint");
   EXPECT_EQ(planar_joint.parent_body().name(), "link6");
   EXPECT_EQ(planar_joint.child_body().name(), "link7");
@@ -785,21 +808,22 @@ GTEST_TEST(MultibodyPlantSdfParserTest, JointActuatorParsingTest) {
   // In SDF, effort limits are specified in <joint><axis><limit><effort>,
   // which is the reason we read the joint actuator using the joint name.
   // Test the joint actuator with a positive effort limit.
-  const auto& limited_joint_actuator =
-      plant.GetJointActuatorByName("revolute_joint_positive_limit");
+  const auto& limited_joint_actuator = plant.GetJointActuatorByName(
+      std::string_view("revolute_joint_positive_limit"));
   EXPECT_EQ(limited_joint_actuator.effort_limit(), 100);
 
   // Test the joint actuator with the effort limit set to negative value,
   // which will be treated as no limit per the SDF standard.
   constexpr double kInf = std::numeric_limits<double>::infinity();
   const auto& no_limit_joint_actuator =
-      plant.GetJointActuatorByName("revolute_joint_no_limit");
+      plant.GetJointActuatorByName(std::string_view("revolute_joint_no_limit"));
   EXPECT_TRUE(no_limit_joint_actuator.effort_limit() == kInf);
 
   // Test the joint actuator with the effort limit set to 0, which means no
   // actuation.
   DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.GetJointActuatorByName("prismatic_joint_zero_limit"),
+      plant.GetJointActuatorByName(
+          std::string_view("prismatic_joint_zero_limit")),
       std::logic_error, "There is no joint actuator named '.*' in the model.");
 }
 
@@ -1007,8 +1031,8 @@ void TestForParsedGeometry(const char* sdf_name, geometry::Role role) {
   AddModelsFromSdfFile(full_name, package_map, &plant);
   plant.Finalize();
 
-  const auto frame_id =
-      plant.GetBodyFrameIdOrThrow(plant.GetBodyByName("link1").index());
+  const auto frame_id = plant.GetBodyFrameIdOrThrow(
+      plant.GetBodyByName(std::string_view("link1")).index());
 
   const std::string mesh_uri = "drake/multibody/parsing/test/tri_cube.obj";
 
@@ -1169,7 +1193,7 @@ GTEST_TEST(SdfParser, ReflectedInertiaParametersParsing) {
         "<drake:gear_ratio>300.0</drake:gear_ratio>"));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 1.5);
     EXPECT_EQ(actuator.default_gear_ratio(), 300.0);
@@ -1182,7 +1206,7 @@ GTEST_TEST(SdfParser, ReflectedInertiaParametersParsing) {
         test_string, "<drake:rotor_inertia>1.5</drake:rotor_inertia>", ""));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 1.5);
     EXPECT_EQ(actuator.default_gear_ratio(), 1.0);
@@ -1195,7 +1219,7 @@ GTEST_TEST(SdfParser, ReflectedInertiaParametersParsing) {
         test_string, "", "<drake:gear_ratio>300.0</drake:gear_ratio>"));
 
     const JointActuator<double>& actuator =
-        plant->GetJointActuatorByName("revolute_AB");
+        plant->GetJointActuatorByName(std::string_view("revolute_AB"));
 
     EXPECT_EQ(actuator.default_rotor_inertia(), 0.0);
     EXPECT_EQ(actuator.default_gear_ratio(), 300.0);

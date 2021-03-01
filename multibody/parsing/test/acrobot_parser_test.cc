@@ -33,21 +33,24 @@ class AcrobotModelTests :
     // We are done adding models.
     plant_->Finalize();
 
-    ASSERT_TRUE(plant_->HasJointNamed("ShoulderJoint"));
-    ASSERT_TRUE(plant_->HasJointNamed("ElbowJoint"));
-    ASSERT_TRUE(plant_->HasJointActuatorNamed("ElbowJoint"));
+    ASSERT_TRUE(plant_->HasJointNamed(std::string_view("ShoulderJoint")));
+    ASSERT_TRUE(plant_->HasJointNamed(std::string_view("ElbowJoint")));
+    ASSERT_TRUE(plant_->HasJointActuatorNamed(std::string_view("ElbowJoint")));
 
-    shoulder_ = &plant_->GetJointByName<RevoluteJoint>("ShoulderJoint");
-    elbow_ = &plant_->GetJointByName<RevoluteJoint>("ElbowJoint");
+    shoulder_ = &plant_->GetJointByName<RevoluteJoint>(
+        std::string_view("ShoulderJoint"));
+    elbow_ =
+        &plant_->GetJointByName<RevoluteJoint>(std::string_view("ElbowJoint"));
     context_ = plant_->CreateDefaultContext();
 
     // Create a benchmark model for verification of the parsed model.
     // The benchmark model is created programmatically through Drake's API.
     benchmark_plant_ =
         benchmarks::acrobot::MakeAcrobotPlant(parameters_, true);
-    benchmark_shoulder_ =
-        &plant_->GetJointByName<RevoluteJoint>("ShoulderJoint");
-    benchmark_elbow_ = &plant_->GetJointByName<RevoluteJoint>("ElbowJoint");
+    benchmark_shoulder_ = &plant_->GetJointByName<RevoluteJoint>(
+        std::string_view("ShoulderJoint"));
+    benchmark_elbow_ =
+        &plant_->GetJointByName<RevoluteJoint>(std::string_view("ElbowJoint"));
     benchmark_context_ = benchmark_plant_->CreateDefaultContext();
   }
 
@@ -112,7 +115,9 @@ TEST_P(AcrobotModelTests, ModelBasics) {
   // Verify we parsed the actuated joint correctly.
   EXPECT_EQ(benchmark_plant_->num_actuators(), plant_->num_actuators());
   EXPECT_EQ(benchmark_plant_->num_actuated_dofs(), plant_->num_actuated_dofs());
-  EXPECT_EQ(plant_->GetJointActuatorByName("ElbowJoint").joint().index(),
+  EXPECT_EQ(plant_->GetJointActuatorByName(std::string_view("ElbowJoint"))
+                .joint()
+                .index(),
             elbow_->index());
 
   // Verify we parse damping correctly.
@@ -126,15 +131,19 @@ TEST_P(AcrobotModelTests, ModelBasics) {
             benchmark_plant_->num_multibody_states());
 
   // Get links by name.
-  const Body<double>& link1 = plant_->GetBodyByName(parameters_.link1_name());
+  const Body<double>& link1 =
+      plant_->GetBodyByName(std::string_view(parameters_.link1_name()));
   EXPECT_EQ(link1.name(), parameters_.link1_name());
-  const Body<double>& link2 = plant_->GetBodyByName(parameters_.link2_name());
+  const Body<double>& link2 =
+      plant_->GetBodyByName(std::string_view(parameters_.link2_name()));
   EXPECT_EQ(link2.name(), parameters_.link2_name());
 
   // Get joints by name.
-  const Joint<double>& shoulder_joint = plant_->GetJointByName("ShoulderJoint");
+  const Joint<double>& shoulder_joint =
+      plant_->GetJointByName(std::string_view("ShoulderJoint"));
   EXPECT_EQ(shoulder_joint.name(), parameters_.shoulder_joint_name());
-  const Joint<double>& elbow_joint = plant_->GetJointByName("ElbowJoint");
+  const Joint<double>& elbow_joint =
+      plant_->GetJointByName(std::string_view("ElbowJoint"));
   EXPECT_EQ(elbow_joint.name(), parameters_.elbow_joint_name());
 
   EXPECT_EQ(shoulder_joint.parent_body().index(), world_index());
@@ -144,13 +153,15 @@ TEST_P(AcrobotModelTests, ModelBasics) {
 
   // Get actuators by name.
   const JointActuator<double>& elbow_actuator =
-      plant_->GetJointActuatorByName("ElbowJoint");
+      plant_->GetJointActuatorByName(std::string_view("ElbowJoint"));
   EXPECT_TRUE(std::isinf(elbow_actuator.effort_limit()));
 
   // Get frames by name.
-  const Frame<double>& link1_frame = plant_->GetFrameByName("Link1");
+  const Frame<double>& link1_frame =
+      plant_->GetFrameByName(std::string_view("Link1"));
   EXPECT_EQ(link1_frame.name(), "Link1");
-  const Frame<double>& link2_frame = plant_->GetFrameByName("Link2");
+  const Frame<double>& link2_frame =
+      plant_->GetFrameByName(std::string_view("Link2"));
   EXPECT_EQ(link2_frame.name(), "Link2");
 }
 

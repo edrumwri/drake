@@ -100,11 +100,11 @@ class MultibodyPlantCenterOfMassTest : public ::testing::Test {
   }
 
   const RigidBody<double>& GetSphereBody() {
-    return plant_.GetRigidBodyByName("Sphere1");
+    return plant_.GetRigidBodyByName(std::string_view("Sphere1"));
   }
 
   const RigidBody<double>& GetTriangleBody() {
-    return plant_.GetRigidBodyByName("Triangle1");
+    return plant_.GetRigidBodyByName(std::string_view("Triangle1"));
   }
 
   void set_mass_triangle(double m) {
@@ -121,28 +121,34 @@ class MultibodyPlantCenterOfMassTest : public ::testing::Test {
 
     void CheckCmTranslationalVelocity(const SpatialVelocity<double>& V_WS_W,
                                       const SpatialVelocity<double>& V_WT_W) {
-    const Body<double>& sphere = plant_.GetBodyByName("Sphere1");
-    const Body<double>& triangle = plant_.GetBodyByName("Triangle1");
-    plant_.SetFreeBodySpatialVelocity(context_.get(), sphere, V_WS_W);
-    plant_.SetFreeBodySpatialVelocity(context_.get(), triangle, V_WT_W);
+      const Body<double>& sphere =
+          plant_.GetBodyByName(std::string_view("Sphere1"));
+      const Body<double>& triangle =
+          plant_.GetBodyByName(std::string_view("Triangle1"));
+      plant_.SetFreeBodySpatialVelocity(context_.get(), sphere, V_WS_W);
+      plant_.SetFreeBodySpatialVelocity(context_.get(), triangle, V_WT_W);
 
-    // Denoting Scm as the center of mass of the system formed by Sphere1 and
-    // Triangle1, form Scm's translational velocity in frame W, expressed in W.
-    const Vector3<double> v_WScm_W =
-        plant_.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
+      // Denoting Scm as the center of mass of the system formed by Sphere1 and
+      // Triangle1, form Scm's translational velocity in frame W, expressed in
+      // W.
+      const Vector3<double> v_WScm_W =
+          plant_.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
 
-    // By hand, calculate the expected result for that same quantity (v_WScm_W).
-    const double mass_sphere = sphere.get_mass(*context_);
-    const double mass_triangle = triangle.get_mass(*context_);
-    const Vector3<double> mv_sphere = mass_sphere *
-        sphere.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
-    const Vector3<double> mv_triangle =  mass_triangle *
-        triangle.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
-    const Vector3<double> v_WScm_W_expected = (mv_sphere + mv_triangle) /
-        (mass_sphere + mass_triangle);
+      // By hand, calculate the expected result for that same quantity
+      // (v_WScm_W).
+      const double mass_sphere = sphere.get_mass(*context_);
+      const double mass_triangle = triangle.get_mass(*context_);
+      const Vector3<double> mv_sphere =
+          mass_sphere *
+          sphere.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
+      const Vector3<double> mv_triangle =
+          mass_triangle *
+          triangle.CalcCenterOfMassTranslationalVelocityInWorld(*context_);
+      const Vector3<double> v_WScm_W_expected =
+          (mv_sphere + mv_triangle) / (mass_sphere + mass_triangle);
 
-    const double kTolerance = 16 * std::numeric_limits<double>::epsilon();
-    EXPECT_TRUE(CompareMatrices(v_WScm_W, v_WScm_W_expected, kTolerance));
+      const double kTolerance = 16 * std::numeric_limits<double>::epsilon();
+      EXPECT_TRUE(CompareMatrices(v_WScm_W, v_WScm_W_expected, kTolerance));
   }
 
  protected:

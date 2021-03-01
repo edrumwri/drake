@@ -50,7 +50,8 @@ class ConstraintRelaxingIk {
    * Sets end effector to @p link_name.
    */
   void SetEndEffector(const std::string& link_name) {
-    end_effector_body_idx_ = plant_.GetBodyByName(link_name).index();
+    end_effector_body_idx_ =
+        plant_.GetBodyByName(std::string_view(link_name)).index();
   }
 
   /**

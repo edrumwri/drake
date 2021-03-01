@@ -159,7 +159,7 @@ const Body<double>& GetBodyByLinkSpecificationName(
       throw std::logic_error("There is no parent link named '" +
           link_name + "' in the model.");
     }
-    return plant.GetBodyByName(link_name, model_instance);
+    return plant.GetBodyByName(std::string_view(link_name), model_instance);
   }
 }
 
@@ -587,7 +587,7 @@ const Frame<double>& AddFrameFromSpecification(
     parent_frame = &default_frame;
   } else {
     parent_frame = &plant->GetFrameByName(
-        frame_spec.AttachedTo(), model_instance);
+        std::string_view(frame_spec.AttachedTo()), model_instance);
   }
   const Frame<double>& frame =
       plant->AddFrame(std::make_unique<FixedOffsetFrame<double>>(
@@ -619,13 +619,13 @@ const Frame<double>& ParseFrame(const sdf::ElementPtr node,
 
   const std::string frame_name = node->Get<std::string>(element_name);
 
-  if (!plant->HasFrameNamed(frame_name)) {
+  if (!plant->HasFrameNamed(std::string_view(frame_name))) {
     throw std::runtime_error(fmt::format(
         "<{}>: Frame '{}' specified for <{}> does not exist in the model.",
         node->GetName(), frame_name, element_name));
   }
 
-  return plant->GetFrameByName(frame_name);
+  return plant->GetFrameByName(std::string_view(frame_name));
 }
 
 // TODO(eric.cousineau): Update parsing pending resolution of
@@ -726,7 +726,7 @@ ModelInstanceIndex AddModelFromSpecification(
     canonical_link_name = model.LinkByIndex(0)->Name();
   }
   const Frame<double>& canonical_link_frame = plant->GetFrameByName(
-      canonical_link_name, model_instance);
+      std::string_view(canonical_link_name), model_instance);
   const RigidTransformd X_MLc = ResolveRigidTransform(
       model.LinkByName(canonical_link_name)->SemanticPose());
 

@@ -54,7 +54,8 @@ GTEST_TEST(ReorderKeyframesTest, Test) {
       finger_joint_name_to_row_index_map;
   for (auto iter = finger_joint_name_to_vel_index_ordering.begin();
        iter != finger_joint_name_to_vel_index_ordering.end(); iter++) {
-    iter->second = plant.GetJointByName(iter->first).velocity_start();
+    iter->second =
+        plant.GetJointByName(std::string_view(iter->first)).velocity_start();
   }
 
   // Make sure the keyframes were ordered correctly.

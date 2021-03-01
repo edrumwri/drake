@@ -6,13 +6,12 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include<string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "drake/common/const_char_key_unordered_map.h"
-#include "drake/common/const_char_key_unordered_multimap.h"
 #include "drake/common/default_scalars.h"
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_copyable.h"
@@ -30,6 +29,56 @@
 #include "drake/multibody/tree/spatial_inertia.h"
 #include "drake/multibody/tree/velocity_kinematics_cache.h"
 #include "drake/systems/framework/context.h"
+
+namespace drake {
+namespace multibody {
+namespace internal {
+
+// Stores a string and provides a view into it.
+class StringAndView {
+ public:
+  StringAndView() = default;
+  StringAndView(StringAndView&&) = default;
+  StringAndView& operator=(StringAndView&&) = default;
+
+  StringAndView(const StringAndView& s) { operator=(s); }
+
+  StringAndView& operator=(const StringAndView& s){
+    storage_ = std::make_unique<std::string>(*s.storage_);
+    view_ = *storage_;
+    return *this;
+  }
+
+  StringAndView(std::string&& arg)
+      : storage_(std::make_unique<std::string>(std::move(arg))),
+        view_(*storage_) {}
+
+  StringAndView(const std::string_view& view)
+        : view_(view) {}
+
+  const std::string_view& view() const { return view_; }
+
+ private:
+  std::unique_ptr<std::string> storage_;
+  std::string_view view_;
+
+  friend bool operator==(const StringAndView& a, const StringAndView& b) {
+    return a.view_ == b.view_;
+  }
+};
+
+}  // namespace internal
+}  // namespace multibody
+}  // namespace drake
+
+namespace std {
+template<> struct hash<drake::multibody::internal::StringAndView> {
+std::size_t operator()(
+  const drake::multibody::internal::StringAndView& s) const noexcept{
+      return std::hash<std::string_view>{}(s.view());
+}
+};
+}  // namespace std
 
 namespace drake {
 namespace multibody {
@@ -768,9 +817,7 @@ class MultibodyTree {
   //
   // @throws std::logic_error if the body name occurs in multiple model
   // instances.
-  bool HasBodyNamed(const std::string& name) const { return HasBodyNamed(name.c_str()); }
-
-  bool HasBodyNamed(const char* name) const {
+  bool HasBodyNamed(const std::string_view& name) const {
     const int count = body_name_to_index_.count(name);
     if (count > 1) {
       throw std::logic_error(
@@ -784,9 +831,9 @@ class MultibodyTree {
   //
   // @throws std::exception if @p model_instance is not valid for this model.
   bool HasBodyNamed(const std::string& name,
-                    ModelInstanceIndex model_instance) const { return HasBodyNamed(name.c_str(), model_instance); }
+                    ModelInstanceIndex model_instance) const { return HasBodyNamed(name, model_instance); }
 
-  bool HasBodyNamed(const char* name,
+  bool HasBodyNamed(const std::string_view& name,
                     ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     // Search linearly on the assumption that we won't often have lots of
@@ -804,23 +851,17 @@ class MultibodyTree {
   }
 
   // See MultibodyPlant method.
-  bool HasFrameNamed(const std::string& name) const { return HasFrameNamed(name.c_str()); }
-
-  bool HasFrameNamed(const char* name) const {
+  bool HasFrameNamed(const std::string_view& name) const {
     const int count = frame_name_to_index_.count(name);
     if (count > 1) {
-      throw std::logic_error(
-          "Frame " + std::string(name) + " appears in multiple model instances.");
+      throw std::logic_error("Frame " + std::string(name) +
+                             " appears in multiple model instances.");
     }
     return count > 0;
   }
 
   // See MultibodyPlant method.
-  bool HasFrameNamed(const std::string& name,
-                     ModelInstanceIndex model_instance) const { return HasFrameNamed(name.c_str(), model_instance); }
-
-  // See MultibodyPlant method.
-  bool HasFrameNamed(const char* name,
+  bool HasFrameNamed(const std::string_view& name,
                      ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     // See notes in `HasBodyNamed`.
@@ -833,23 +874,17 @@ class MultibodyTree {
     return false;
   }
 
-  // See MultibodyPlant method.
-  bool HasJointNamed(const std::string& name) const { return HasJointNamed(name.c_str()); }
-
-  bool HasJointNamed(const char* name) const {
+  bool HasJointNamed(const std::string_view& name) const {
     const int count = joint_name_to_index_.count(name);
     if (count > 1) {
-      throw std::logic_error(
-          "Joint " + std::string(name) + " appears in multiple model instances.");
+      throw std::logic_error("Joint " + std::string(name) +
+                             " appears in multiple model instances.");
     }
     return count > 0;
   }
 
   // See MultibodyPlant method.
-  bool HasJointNamed(const std::string& name,
-                     ModelInstanceIndex model_instance) const { return HasJointNamed(name.c_str(), model_instance); }
-
-  bool HasJointNamed(const char* name,
+  bool HasJointNamed(const std::string_view& name,
                      ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     // See notes in `HasBodyNamed`.
@@ -863,22 +898,17 @@ class MultibodyTree {
   }
 
   // See MultibodyPlant method.
-  bool HasJointActuatorNamed(const std::string& name) const { return HasJointActuatorNamed(name.c_str()); }
-
-  bool HasJointActuatorNamed(const char* name) const {
+  bool HasJointActuatorNamed(const std::string_view& name) const {
     const int count = actuator_name_to_index_.count(name);
     if (count > 1) {
-      throw std::logic_error(
-          "Joint actuator " + std::string(name) + " appears in multiple model instances.");
+      throw std::logic_error("Joint actuator " + std::string(name) +
+                             " appears in multiple model instances.");
     }
     return count > 0;
   }
 
   // See MultibodyPlant method.
-  bool HasJointActuatorNamed(const std::string& name,
-                             ModelInstanceIndex model_instance) const { return HasJointActuatorNamed(name.c_str(), model_instance); }
-
-  bool HasJointActuatorNamed(const char* name,
+  bool HasJointActuatorNamed(const std::string_view& name,
                              ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     const auto range = actuator_name_to_index_.equal_range(name);
@@ -892,28 +922,20 @@ class MultibodyTree {
   }
 
   // See MultibodyMethod.
-  bool HasModelInstanceNamed(const std::string& name) const { return HasModelInstanceNamed(name.c_str()); }
-
-  // See MultibodyMethod.
-  bool HasModelInstanceNamed(const char* name) const {
+  bool HasModelInstanceNamed(const std::string_view& name) const {
     return instance_name_to_index_.find(name) != instance_name_to_index_.end();
   }
   // @}
 
   // See MultibodyPlant method.
-  const Body<T>& GetBodyByName(const std::string& name) const { return GetBodyByName(name.c_str()); }
-
-  const Body<T>& GetBodyByName(const char* name) const {
+  const Body<T>& GetBodyByName(const std::string_view& name) const {
     return get_body(
         GetElementIndex<BodyIndex>(name, "Body", body_name_to_index_));
   }
 
   // See MultibodyPlant method.
   const Body<T>& GetBodyByName(
-      const std::string& name, ModelInstanceIndex model_instance) const { return GetBodyByName(name.c_str(), model_instance); }
-
-  const Body<T>& GetBodyByName(
-      const char* name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     const auto range = body_name_to_index_.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {
@@ -922,9 +944,9 @@ class MultibodyTree {
         return body;
       }
     }
-    throw std::logic_error(
-        "There is no body named '" + std::string(name) + "' in model instance '" +
-            instance_index_to_name_.at(model_instance) + "'.");
+    throw std::logic_error("There is no body named '" + std::string(name) +
+                           "' in model instance '" +
+                           instance_index_to_name_.at(model_instance) + "'.");
   }
 
   // Returns a list of body indices associated with `model_instance`.
@@ -954,19 +976,14 @@ class MultibodyTree {
   }
 
   // See MultibodyPlant method.
-  const Frame<T>& GetFrameByName(const std::string& name) const { return GetFrameByName(name.c_str()); }
-
-  const Frame<T>& GetFrameByName(const char* name) const {
+  const Frame<T>& GetFrameByName(const std::string_view& name) const {
     return get_frame(
         GetElementIndex<FrameIndex>(name, "Frame", frame_name_to_index_));
   }
 
   // See MultibodyPlant method.
   const Frame<T>& GetFrameByName(
-      const std::string& name, ModelInstanceIndex model_instance) const { return GetFrameByName(name.c_str(), model_instance); }
-
-  const Frame<T>& GetFrameByName(
-      const char* name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     const auto range = frame_name_to_index_.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {
@@ -975,49 +992,40 @@ class MultibodyTree {
         return frame;
       }
     }
-    throw std::logic_error(
-        "There is no frame named '" + std::string(name) + "' in model instance '" +
-            instance_index_to_name_.at(model_instance) + "'.");
+    throw std::logic_error("There is no frame named '" + std::string(name) +
+                           "' in model instance '" +
+                           instance_index_to_name_.at(model_instance) + "'.");
   }
 
   // See MultibodyPlant method.
-  const RigidBody<T>& GetRigidBodyByName(const std::string& name) const { return GetRigidBodyByName(name.c_str()); }
-
-  const RigidBody<T>& GetRigidBodyByName(const char* name) const {
+  const RigidBody<T>& GetRigidBodyByName(const std::string_view& name) const {
     const RigidBody<T>* body =
         dynamic_cast<const RigidBody<T>*>(&GetBodyByName(name));
     if (body == nullptr) {
-      throw std::logic_error("Body '" + std::string(name) + "' is not a RigidBody.");
-    }
-    return *body;
-  }
-
-  // See MultibodyPlant method.
-  const RigidBody<T>& GetRigidBodyByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {  return GetRigidBodyByName(name.c_str(), model_instance); }
-
-  const RigidBody<T>& GetRigidBodyByName(
-      const char* name, ModelInstanceIndex model_instance) const {
-    DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
-    const RigidBody<T>* body =
-        dynamic_cast<const RigidBody<T>*>(&GetBodyByName(name, model_instance));
-    if (body == nullptr) {
-      throw std::logic_error("Body '" + std::string(name) + "' in model instance '" +
-                             instance_index_to_name_.at(model_instance) +
+      throw std::logic_error("Body '" + std::string(name) +
                              "' is not a RigidBody.");
     }
     return *body;
   }
 
   // See MultibodyPlant method.
-  template <template <typename> class JointType = Joint>
-  const JointType<T>& GetJointByName(
-      const std::string& name,
-      std::optional<ModelInstanceIndex> model_instance = std::nullopt) const {  return GetJointByName<JointType>(name.c_str(), model_instance); }
+  const RigidBody<T>& GetRigidBodyByName(
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
+    DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
+    const RigidBody<T>* body =
+        dynamic_cast<const RigidBody<T>*>(&GetBodyByName(name, model_instance));
+    if (body == nullptr) {
+      throw std::logic_error(
+          "Body '" + std::string(name) + "' in model instance '" +
+          instance_index_to_name_.at(model_instance) + "' is not a RigidBody.");
+    }
+    return *body;
+  }
 
+  // See MultibodyPlant method.
   template <template <typename> class JointType = Joint>
   const JointType<T>& GetJointByName(
-      const char* name,
+      const std::string_view& name,
       std::optional<ModelInstanceIndex> model_instance = std::nullopt) const {
     static_assert(std::is_base_of<Joint<T>, JointType<T>>::value,
                   "JointType<T> must be a sub-class of Joint<T>.");
@@ -1033,9 +1041,10 @@ class MultibodyTree {
         }
       }
       if (joint == nullptr) {
-        throw std::logic_error(
-            "There is no joint named '" + std::string(name) + "' in model instance '" +
-            instance_index_to_name_.at(*model_instance) + "'.");
+        throw std::logic_error("There is no joint named '" + std::string(name) +
+                               "' in model instance '" +
+                               instance_index_to_name_.at(*model_instance) +
+                               "'.");
       }
     } else {
       joint = &get_joint(
@@ -1056,13 +1065,7 @@ class MultibodyTree {
   // See MultibodyPlant method.
   template <template <typename> class JointType = Joint>
   JointType<T>& GetMutableJointByName(
-      const std::string& name,
-      std::optional<ModelInstanceIndex> model_instance = std::nullopt) {
-    return GetMutableJointByName<JointType>(name.c_str(), model_instance); }
-
-  template <template <typename> class JointType = Joint>
-  JointType<T>& GetMutableJointByName(
-      const char* name,
+      const std::string_view& name,
       std::optional<ModelInstanceIndex> model_instance = std::nullopt) {
     const JointType<T>& const_joint =
         GetJointByName<JointType>(name, model_instance);
@@ -1076,10 +1079,7 @@ class MultibodyTree {
 
   // See MultibodyPlant method.
   const JointActuator<T>& GetJointActuatorByName(
-      const std::string& name) const {  return GetJointActuatorByName(name.c_str()); }
-
-  const JointActuator<T>& GetJointActuatorByName(
-      const char* name) const {
+      const std::string_view& name) const {
     return get_joint_actuator(
         GetElementIndex<JointActuatorIndex>(
             name, "Joint actuator", actuator_name_to_index_));
@@ -1087,10 +1087,7 @@ class MultibodyTree {
 
   // See MultibodyPlant method.
   const JointActuator<T>& GetJointActuatorByName(
-      const std::string& name, ModelInstanceIndex model_instance) const {  return GetJointActuatorByName(name.c_str(), model_instance); }
-
-  const JointActuator<T>& GetJointActuatorByName(
-      const char* name, ModelInstanceIndex model_instance) const {
+      const std::string_view& name, ModelInstanceIndex model_instance) const {
     DRAKE_THROW_UNLESS(model_instance < instance_name_to_index_.size());
     const auto range = actuator_name_to_index_.equal_range(name);
     for (auto it = range.first; it != range.second; ++it) {
@@ -1099,19 +1096,17 @@ class MultibodyTree {
         return actuator;
       }
     }
-    throw std::logic_error(
-        "There is no joint actuator named '" + std::string(name) + "' in model instance '" +
-            instance_index_to_name_.at(model_instance) + "'.");
+    throw std::logic_error("There is no joint actuator named '" +
+                           std::string(name) + "' in model instance '" +
+                           instance_index_to_name_.at(model_instance) + "'.");
   }
 
   // See MultibodyPlant method.
-  ModelInstanceIndex GetModelInstanceByName(const std::string& name) const { return GetModelInstanceByName(name.c_str()); }
-
-  ModelInstanceIndex GetModelInstanceByName(const char* name) const {
+  ModelInstanceIndex GetModelInstanceByName(const std::string_view& name) const {
     const auto it = instance_name_to_index_.find(name);
     if (it == instance_name_to_index_.end()) {
-      throw std::logic_error("There is no model instance named '" + std::string(name) +
-          "' in the model.");
+      throw std::logic_error("There is no model instance named '" +
+                             std::string(name) + "' in the model.");
     }
     return it->second;
   }
@@ -3028,16 +3023,17 @@ class MultibodyTree {
   // instance and ensures only one element of that name exists.
   template <typename ElementIndex>
   static ElementIndex GetElementIndex(
-      const char* name, const std::string& element_description,
-      const ConstCharKeyUnorderedMultimap<ElementIndex>& name_to_index) {
+      const std::string_view& name, const std::string& element_description,
+      const std::unordered_multimap<StringAndView, ElementIndex>&
+          name_to_index) {
     const auto range = name_to_index.equal_range(name);
     if (range.first == range.second) {
       std::string lower = element_description;
       std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-      throw std::logic_error("There is no " + lower + " named '" + name +
-                             "' in the model.");
+      throw std::logic_error("There is no " + lower + " named '" +
+                             std::string(name) + "' in the model.");
     } else if (std::next(range.first) != range.second) {
-      throw std::logic_error(element_description + " " + name +
+      throw std::logic_error(element_description + " " + std::string(name) +
                              " appears in multiple model instances.");
     }
     return range.first->second;
@@ -3083,19 +3079,19 @@ class MultibodyTree {
   // %MultibodyTree.
 
   // Map used to find body indexes by their body name.
-  ConstCharKeyUnorderedMultimap<BodyIndex> body_name_to_index_;
+  std::unordered_multimap<StringAndView, BodyIndex> body_name_to_index_;
 
   // Map used to find frame indexes by their frame name.
-  ConstCharKeyUnorderedMultimap<FrameIndex> frame_name_to_index_;
+  std::unordered_multimap<StringAndView, FrameIndex> frame_name_to_index_;
 
   // Map used to find joint indexes by their joint name.
-  ConstCharKeyUnorderedMultimap<JointIndex> joint_name_to_index_;
+  std::unordered_multimap<StringAndView, JointIndex> joint_name_to_index_;
 
   // Map used to find actuator indexes by their actuator name.
-  ConstCharKeyUnorderedMultimap<JointActuatorIndex> actuator_name_to_index_;
+  std::unordered_multimap<StringAndView, JointActuatorIndex>actuator_name_to_index_;
 
   // Map used to find a model instance index by its model instance name.
-  ConstCharKeyUnorderedMap<ModelInstanceIndex> instance_name_to_index_;
+  std::unordered_map<StringAndView, ModelInstanceIndex> instance_name_to_index_;
 
   // Map used to find a model instance name by its model instance index.
   std::unordered_map<ModelInstanceIndex, std::string> instance_index_to_name_;

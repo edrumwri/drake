@@ -62,7 +62,8 @@ TEST_F(KukaIiwaModelTests, FramesKinematics) {
   EXPECT_TRUE(CompareMatrices(R_WH.matrix(), R_WH_expected.matrix(), kTolerance,
                               MatrixCompareType::relative));
 
-  const Body<double>& link3 = plant_->GetBodyByName("iiwa_link_3");
+  const Body<double>& link3 =
+      plant_->GetBodyByName(std::string_view("iiwa_link_3"));
   const RigidTransform<double> X_HL3 =
       link3.body_frame().CalcPose(*context_, *frame_H_);
   const RigidTransform<double> X_WL3 =
@@ -195,11 +196,12 @@ GTEST_TEST(MultibodyPlantTest, FixedWorldKinematics) {
   // However the world is non-empty.
   ASSERT_NE(plant.num_bodies(), 0);
 
-  const Body<double>& mug = plant.GetBodyByName("main_body");
+  const Body<double>& mug = plant.GetBodyByName(std::string_view("main_body"));
 
   // The objects frame O is affixed to a robot table defined by
   // test::AddFixedObjectsToPlant().
-  const Frame<double>& objects_frame = plant.GetFrameByName("objects_frame");
+  const Frame<double>& objects_frame =
+      plant.GetFrameByName(std::string_view("objects_frame"));
 
   // This will trigger the computation of position kinematics.
   const RigidTransformd& X_WM = mug.EvalPoseInWorld(*context);
