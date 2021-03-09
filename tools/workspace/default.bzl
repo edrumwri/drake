@@ -54,7 +54,6 @@ load("@drake//tools/workspace/models:repository.bzl", "models_repository")
 load("@drake//tools/workspace/mosek:repository.bzl", "mosek_repository")
 load("@drake//tools/workspace/net_sf_jchart2d:repository.bzl", "net_sf_jchart2d_repository")  # noqa
 load("@drake//tools/workspace/nlopt:repository.bzl", "nlopt_repository")
-load("@drake//tools/workspace/numpy:repository.bzl", "numpy_repository")
 load("@drake//tools/workspace/openblas:repository.bzl", "openblas_repository")
 load("@drake//tools/workspace/opengl:repository.bzl", "opengl_repository")
 load("@drake//tools/workspace/optitrack_driver:repository.bzl", "optitrack_driver_repository")  # noqa
@@ -85,6 +84,7 @@ load("@drake//tools/workspace/uritemplate_py:repository.bzl", "uritemplate_py_re
 load("@drake//tools/workspace/voxelized_geometry_tools:repository.bzl", "voxelized_geometry_tools_repository")  # noqa
 load("@drake//tools/workspace/vtk:repository.bzl", "vtk_repository")
 load("@drake//tools/workspace/x11:repository.bzl", "x11_repository")
+load("@drake//tools/workspace/xmlrunner_py:repository.bzl", "xmlrunner_py_repository")  # noqa
 load("@drake//tools/workspace/yaml_cpp:repository.bzl", "yaml_cpp_repository")
 load("@drake//tools/workspace/zlib:repository.bzl", "zlib_repository")
 
@@ -204,8 +204,6 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         net_sf_jchart2d_repository(name = "net_sf_jchart2d", mirrors = mirrors)
     if "nlopt" not in excludes:
         nlopt_repository(name = "nlopt")
-    if "numpy" not in excludes:
-        numpy_repository(name = "numpy")
     if "openblas" not in excludes:
         openblas_repository(name = "openblas")
     if "opengl" not in excludes:
@@ -266,6 +264,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         vtk_repository(name = "vtk", mirrors = mirrors)
     if "x11" not in excludes:
         x11_repository(name = "x11")
+    if "xmlrunner_py" not in excludes:
+        xmlrunner_py_repository(name = "xmlrunner_py", mirrors = mirrors)
     if "yaml_cpp" not in excludes:
         yaml_cpp_repository(name = "yaml_cpp")
     if "zlib" not in excludes:

@@ -323,6 +323,7 @@ drake_cc_googletest(
         "//common:autodiff",
         "//common:find_resource",
         "//common/test_utilities",
+        "//common/test_utilities:limit_malloc",
         "//geometry/test_utilities",
         "//math:geometric_transform",
         "//math:gradient",
@@ -419,7 +420,10 @@ drake_cc_googletest(
         ":plant",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        "//geometry:drake_visualizer",
         "//math:geometric_transform",
+        "//multibody/plant:contact_results_to_lcm",
+        "//systems/analysis:simulator",
         "//systems/framework:diagram",
     ],
 )

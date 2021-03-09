@@ -84,9 +84,12 @@ Drake requires a compiler running in C++17 mode.
 +----------------------------------+       +-------+---------------------+                   +--------+
 | Ubuntu 20.04 LTS (Focal Fossa)   |       | 3.16  | | GCC 9.3 (default) |                   | 3.8    |
 |                                  |       |       | | Clang 9           |                   |        |
-+----------------------------------+       +-------+---------------------+-------------------+        |
-| macOS Catalina (10.15)           |       | 3.18  | | Apple LLVM 12.0.0 | | AdoptOpenJDK 15 |        |
-|                                  |       |       | | (Xcode 12.2)      | | (HotSpot JVM)   |        |
++----------------------------------+-------+-------+---------------------+-------------------+--------+
+| macOS Catalina (10.15)           | 4.0   | 3.19  | | Apple LLVM 12.0.0 | | AdoptOpenJDK 15 | 3.9    |
+|                                  |       |       | | (Xcode 12.4)      | | (HotSpot JVM)   |        |
++----------------------------------+       |       |                     |                   |        |
+| macOS Big Sur (11)               |       |       |                     |                   |        |
+|                                  |       |       |                     |                   |        |
 +----------------------------------+-------+-------+---------------------+-------------------+--------+
 
 CPython is the only Python implementation supported. On Ubuntu, amd64
@@ -203,6 +206,12 @@ protecting your team by inspecting for bugs, for test coverage, and for
 alignment with the team's goals. During this review, you and your reviewer
 should also strive to minimize the number of changes that will be necessary
 in platform review.
+
+If you are still not sure whom to assign for code review, simply do not assign
+a reviewer. As part of a
+:ref:`platform reviewer's responsibilities <platform_reviewer_checklists>`,
+they will come across the unassigned PR and find an appropriate feature
+reviewer.
 
 **Platform Review.** After your feature reviewer has signed off on your change,
 reassign it to a Drake owner for platform review. The owner will inspect for
