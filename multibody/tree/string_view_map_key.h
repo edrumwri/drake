@@ -13,6 +13,7 @@ namespace internal {
 // and std::string_view as keys in query operations. It encapsulates the two
 // types and provides implicit conversions from those types to this type. It
 // operates in one of two modes:
+//
 // 1. String-owning - the key maintains its own string value which is guaranteed
 // to live as long as the key itself. When creating an entry in the map, it is
 // critical that the key own its own storage.

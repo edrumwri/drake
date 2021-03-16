@@ -26,6 +26,7 @@ drake_cc_package_library(
         ":hydroelastic_internal",
         ":make_box_field",
         ":make_box_mesh",
+        ":make_capsule_field",
         ":make_capsule_mesh",
         ":make_cylinder_field",
         ":make_cylinder_mesh",
@@ -143,6 +144,7 @@ drake_cc_library(
 
 drake_cc_library(
     name = "distance_to_shape_callback",
+    srcs = ["distance_to_shape_callback.cc"],
     hdrs = ["distance_to_shape_callback.h"],
     install_hdrs_exclude = [
         # This header includes `fcl` directly, which we do not want to
@@ -212,6 +214,7 @@ drake_cc_library(
         ":bvh",
         ":make_box_field",
         ":make_box_mesh",
+        ":make_capsule_field",
         ":make_capsule_mesh",
         ":make_cylinder_field",
         ":make_cylinder_mesh",
@@ -264,6 +267,17 @@ drake_cc_library(
     hdrs = ["make_cylinder_field.h"],
     deps = [
         ":distance_to_point_callback",
+        ":mesh_field",
+        "//common:essential",
+        "//common:unused",
+        "//geometry:shape_specification",
+    ],
+)
+
+drake_cc_library(
+    name = "make_capsule_field",
+    hdrs = ["make_capsule_field.h"],
+    deps = [
         ":mesh_field",
         "//common:essential",
         "//common:unused",
@@ -698,11 +712,16 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "make_capsule_field_test",
+    deps = [
+        ":make_capsule_field",
+        ":make_capsule_mesh",
+        ":volume_to_surface_mesh",
+    ],
+)
+
+drake_cc_googletest(
     name = "make_cylinder_mesh_test",
-    # This test includes generating the finest mesh allowed for a particular
-    # cylinder. The test size is increased to "medium" so that debug builds
-    # are successful in CI.
-    size = "medium",
     deps = [
         ":make_cylinder_mesh",
         ":proximity_utilities",
@@ -711,10 +730,6 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "make_capsule_mesh_test",
-    # This test includes generating the finest mesh allowed for a particular
-    # cylinder. The test size is increased to "medium" so that debug builds
-    # are successful in CI.
-    size = "medium",
     deps = [
         ":make_capsule_mesh",
         ":proximity_utilities",

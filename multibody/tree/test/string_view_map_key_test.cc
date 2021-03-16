@@ -1,5 +1,7 @@
 #include "drake/multibody/tree/string_view_map_key.h"
 
+#include <unordered_map>
+
 #include <gtest/gtest.h>
 
 namespace drake {
@@ -42,7 +44,7 @@ TEST_F(StringViewMapKeyTest, AsUnorderedMapKey) {
   std::unordered_map<StringViewMapKey, int> values;
   const std::string key_value{"one"};
   const std::string_view key_view(key_value);
-  values.emplace_back(StringViewMapKey(key_value), 1);
+  values.emplace(StringViewMapKey(key_value), 1);
   EXPECT_EQ(values.count(key_value), 1);
   EXPECT_EQ(values.count(key_view), 1);
 }
