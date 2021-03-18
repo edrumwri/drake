@@ -19,7 +19,6 @@ drake_cc_package_library(
         ":collisions_exist_callback",
         ":contact_surface_utility",
         ":distance_to_point_callback",
-        ":distance_to_point_with_gradient",
         ":distance_to_shape_callback",
         ":find_collision_candidates_callback",
         ":hydroelastic_callback",
@@ -119,25 +118,6 @@ drake_cc_library(
         "//geometry:geometry_ids",
         "//geometry/query_results:signed_distance_to_point",
         "//math:geometric_transform",
-        "@fcl",
-    ],
-)
-
-drake_cc_library(
-    name = "distance_to_point_with_gradient",
-    srcs = ["distance_to_point_with_gradient.cc"],
-    hdrs = ["distance_to_point_with_gradient.h"],
-    install_hdrs_exclude = [
-        # This header includes `fcl` directly, which we do not want to
-        # expose externally.
-        "distance_to_point_with_gradient.h",
-    ],
-    deps = [
-        ":distance_to_point_callback",
-        ":proximity_utilities",
-        "//geometry:geometry_ids",
-        "//geometry/query_results:signed_distance_to_point_with_gradient",
-        "//math",
         "@fcl",
     ],
 )
@@ -599,6 +579,29 @@ drake_cc_googletest(
     ],
 )
 
+drake_cc_library(
+    name = "characterization_utilities",
+    testonly = 1,
+    srcs = ["test/characterization_utilities.cc"],
+    hdrs = ["test/characterization_utilities.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":collision_filter_legacy",
+        "//common:temp_directory",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//geometry:proximity_engine",
+        "//geometry:utilities",
+        "//math:geometric_transform",
+        "//math:orthonormal_basis",
+    ],
+)
+
+drake_cc_googletest(
+    name = "characterization_utilities_test",
+    deps = [":characterization_utilities"],
+)
+
 drake_cc_googletest(
     name = "collisions_exist_callback_test",
     deps = [
@@ -642,14 +645,6 @@ drake_cc_googletest(
         "//common/test_utilities",
         "//geometry:utilities",
         "//math",
-    ],
-)
-
-drake_cc_googletest(
-    name = "distance_to_point_with_gradient_test",
-    deps = [
-        ":distance_to_point_with_gradient",
-        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 
@@ -870,6 +865,17 @@ drake_cc_googletest(
         "//common/test_utilities:expect_throws_message",
         "//math:autodiff",
         "//math:gradient",
+    ],
+)
+
+drake_cc_googletest(
+    name = "penetration_as_point_pair_characterize_test",
+    deps = [
+        ":characterization_utilities",
+        ":penetration_as_point_pair_callback",
+        "//common:temp_directory",
+        "//geometry:proximity_engine",
+        "//math:geometric_transform",
     ],
 )
 
