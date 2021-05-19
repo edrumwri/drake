@@ -32,14 +32,14 @@ fi
 binary_distribution_called_update=0
 
 if [[ "${with_update}" -eq 1 ]]; then
-  apt-get update || (sleep 30; apt-get update)
+  apt-get update -y || (sleep 30; apt-get update -y)
 
   # Do NOT call apt-get update again when installing prerequisites for source
   # distributions.
   binary_distribution_called_update=1
 fi
 
-apt-get install --no-install-recommends lsb-release
+apt-get install -y --no-install-recommends lsb-release
 
 codename=$(lsb_release -sc)
 
@@ -48,7 +48,7 @@ if [[ "${codename}" != 'bionic' && "${codename}" != 'focal' ]]; then
   exit 2
 fi
 
-apt-get install --no-install-recommends $(cat <<EOF
+apt-get install -y --no-install-recommends $(cat <<EOF
 build-essential
 cmake
 pkg-config
@@ -56,4 +56,4 @@ EOF
 )
 
 packages=$(cat "${BASH_SOURCE%/*}/packages-${codename}.txt")
-apt-get install --no-install-recommends ${packages}
+apt-get install -y --no-install-recommends ${packages}
